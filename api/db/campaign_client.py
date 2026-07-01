@@ -27,7 +27,6 @@ class CampaignClient(BaseDBClient):
         schedule_config: Optional[dict] = None,
         circuit_breaker: Optional[dict] = None,
         telephony_configuration_id: Optional[int] = None,
-        budget_seconds: Optional[int] = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -39,11 +38,6 @@ class CampaignClient(BaseDBClient):
                 orchestrator_metadata["schedule_config"] = schedule_config
             if circuit_breaker is not None:
                 orchestrator_metadata["circuit_breaker"] = circuit_breaker
-            if budget_seconds is not None:
-                # Per-campaign call-seconds cap; `consumed_seconds` is bumped at
-                # each call's completion. No budget key = unlimited (default).
-                orchestrator_metadata["budget_seconds"] = int(budget_seconds)
-                orchestrator_metadata["consumed_seconds"] = 0
 
             campaign = CampaignModel(
                 name=name,

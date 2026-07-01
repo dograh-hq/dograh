@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.constants import (
+    CAMPAIGN_SPEND_RATE_INR_PER_MINUTE,
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
     DEFAULT_ORG_CONCURRENCY_LIMIT,
 )
@@ -165,9 +166,6 @@ class CreateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
-    # Optional per-campaign call-seconds cap; the campaign auto-pauses once
-    # consumed_seconds reaches it. None = unlimited.
-    budget_seconds: Optional[int] = Field(default=None, ge=60)
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -176,7 +174,6 @@ class UpdateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
-    budget_seconds: Optional[int] = Field(default=None, ge=60)
 
 
 class CampaignLogEntryResponse(BaseModel):
@@ -211,9 +208,10 @@ class CampaignResponse(BaseModel):
     max_concurrency: Optional[int] = None
     schedule_config: Optional[ScheduleConfigResponse] = None
     circuit_breaker: Optional[CircuitBreakerConfigResponse] = None
-    budget_seconds: Optional[int] = None
-    consumed_seconds: int = 0
-    remaining_seconds: Optional[int] = None
+    # Campaign spend derived from total call duration (see CAMPAIGN_SPEND_RATE).
+    spent_seconds: int = 0
+    spent_minutes: float = 0.0
+    spent_inr: float = 0.0
     executed_count: int = 0
     total_queued_count: int = 0
     parent_campaign_id: Optional[int] = None
@@ -282,7 +280,6 @@ def _build_campaign_response(
     circuit_breaker_config = CircuitBreakerConfigResponse()
     parent_campaign_id = None
     redialed_campaign_id = None
-    budget_seconds = None
     consumed_seconds = 0
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
@@ -300,10 +297,12 @@ def _build_campaign_response(
         redialed_campaign_id = campaign.orchestrator_metadata.get(
             "redialed_campaign_id"
         )
-        budget_seconds = campaign.orchestrator_metadata.get("budget_seconds")
         consumed_seconds = int(
             campaign.orchestrator_metadata.get("consumed_seconds", 0) or 0
         )
+
+    spent_minutes = round(consumed_seconds / 60, 1)
+    spent_inr = round(spent_minutes * CAMPAIGN_SPEND_RATE_INR_PER_MINUTE, 2)
 
     return CampaignResponse(
         id=campaign.id,
@@ -323,13 +322,9 @@ def _build_campaign_response(
         max_concurrency=max_concurrency,
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
-        budget_seconds=budget_seconds,
-        consumed_seconds=consumed_seconds,
-        remaining_seconds=(
-            max(0, int(budget_seconds) - consumed_seconds)
-            if budget_seconds is not None
-            else None
-        ),
+        spent_seconds=consumed_seconds,
+        spent_minutes=spent_minutes,
+        spent_inr=spent_inr,
         executed_count=executed_count,
         total_queued_count=total_queued_count,
         parent_campaign_id=parent_campaign_id,
@@ -474,7 +469,6 @@ async def create_campaign(
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
         telephony_configuration_id=telephony_configuration_id,
-        budget_seconds=request.budget_seconds,
     )
 
     cfg_name = await _get_telephony_configuration_name(
@@ -687,11 +681,6 @@ async def update_campaign(
 
     if request.circuit_breaker is not None:
         metadata["circuit_breaker"] = request.circuit_breaker.model_dump()
-        metadata_changed = True
-
-    if request.budget_seconds is not None:
-        metadata["budget_seconds"] = int(request.budget_seconds)
-        metadata.setdefault("consumed_seconds", 0)
         metadata_changed = True
 
     if metadata_changed:

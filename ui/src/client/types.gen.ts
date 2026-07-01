@@ -949,6 +949,18 @@ export type CampaignResponse = {
      */
     total_queued_count?: number;
     /**
+     * Spent Seconds
+     */
+    spent_seconds?: number;
+    /**
+     * Spent Minutes
+     */
+    spent_minutes?: number;
+    /**
+     * Spent Inr
+     */
+    spent_inr?: number;
+    /**
      * Parent Campaign Id
      */
     parent_campaign_id?: number | null;

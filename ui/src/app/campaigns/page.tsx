@@ -133,6 +133,7 @@ export default function CampaignsPage() {
                                         <TableHead className="text-label text-muted-foreground">Workflow</TableHead>
                                         <TableHead className="text-label text-muted-foreground">State</TableHead>
                                         <TableHead className="text-label text-muted-foreground">Progress</TableHead>
+                                        <TableHead className="text-label text-muted-foreground">Spent</TableHead>
                                         <TableHead className="text-label text-muted-foreground">Created</TableHead>
                                         <TableHead className="text-label text-right text-muted-foreground">Action</TableHead>
                                     </TableRow>
@@ -154,6 +155,14 @@ export default function CampaignsPage() {
                                             </TableCell>
                                             <TableCell className="py-3.5 tabular-nums text-muted-foreground">
                                                 {campaign.executed_count} / {campaign.total_queued_count}
+                                            </TableCell>
+                                            <TableCell className="py-3.5 tabular-nums text-muted-foreground">
+                                                ₹{(campaign.spent_inr ?? 0).toLocaleString()}
+                                                {campaign.spent_minutes ? (
+                                                    <span className="ml-1 text-xs text-muted-foreground/70">
+                                                        ({campaign.spent_minutes} min)
+                                                    </span>
+                                                ) : null}
                                             </TableCell>
                                             <TableCell className="py-3.5 tabular-nums text-muted-foreground">{formatDate(campaign.created_at)}</TableCell>
                                             <TableCell className="py-3.5 text-right">

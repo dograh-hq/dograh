@@ -132,6 +132,13 @@ CREDIT_PACKS = [
     },
 ]
 
+# Per-minute rate used to price a campaign's spend from its total call duration
+# (the sum of its calls' durations). Defaults to the Starter retail rate; set
+# per deployment. Spend (INR) = (consumed_seconds / 60) * this rate.
+CAMPAIGN_SPEND_RATE_INR_PER_MINUTE = float(
+    os.getenv("CAMPAIGN_SPEND_RATE_INR_PER_MINUTE", "8")
+)
+
 # Telephony marketplace: setup cost (in call-minutes deducted from the credit
 # balance) to claim a phone number. PLACEHOLDER — founder sets the real price.
 # 0 = free to claim. Unmetered (unlimited) orgs are never charged.

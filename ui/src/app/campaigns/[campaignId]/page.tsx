@@ -676,6 +676,17 @@ export default function CampaignDetailPage() {
                                     {campaign.executed_count} / {campaign.total_queued_count}
                                 </dd>
                             </div>
+                            <div>
+                                <dt className="text-sm font-medium">Spent</dt>
+                                <dd className="mt-1">
+                                    ₹{(campaign.spent_inr ?? 0).toLocaleString()}
+                                    {campaign.spent_minutes ? (
+                                        <span className="ml-1 text-sm text-muted-foreground">
+                                            ({campaign.spent_minutes} min)
+                                        </span>
+                                    ) : null}
+                                </dd>
+                            </div>
                             {campaign.parent_campaign_id && (
                                 <div>
                                     <dt className="text-sm font-medium">Redial Of</dt>

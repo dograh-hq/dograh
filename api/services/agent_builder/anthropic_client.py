@@ -1,8 +1,9 @@
 """Thin wrapper around the Anthropic Claude SDK for the agent builder.
 
 Builds the CONTRACT system prompt (node/tool/model-config schema + a trimmed,
-structurally-accurate GPC reference workflow as a few-shot), calls Claude with
-adaptive thinking + high effort + streaming, and returns the parsed JSON object
+structurally-accurate GPC reference workflow as a few-shot), calls Claude
+(streaming; adaptive thinking + high effort on Opus/Sonnet-4.6/Fable, plain on
+Haiku), and returns the parsed JSON object
 ``{name, workflow_definition, tools, model_config}``.
 
 The Anthropic client is constructed LAZILY inside ``generate`` so a missing
@@ -23,8 +24,16 @@ from api.services.agent_builder.templates.gpc_retail import (
     GPC_REFERENCE,
 )
 
-CLAUDE_MODEL = "claude-opus-4-8"
+# Default to Haiku 4.5 (fast + low cost) for draft generation; override with
+# AGENT_BUILDER_MODEL to use a stronger model. Adaptive thinking + the effort
+# parameter are only valid on Opus 4.6+/Sonnet 4.6/Fable — Haiku 4.5 rejects
+# both with a 400, so we gate them on the model tier below.
+CLAUDE_MODEL = os.getenv("AGENT_BUILDER_MODEL", "claude-haiku-4-5")
 MAX_TOKENS = 32000
+_SUPPORTS_EFFORT = any(
+    t in CLAUDE_MODEL
+    for t in ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6", "fable", "mythos")
+)
 
 
 class AgentBuilderConfigError(RuntimeError):
@@ -185,11 +194,9 @@ def generate(prompt: str, business: Optional[Dict[str, Any]] = None) -> Dict[str
     user_prompt = _build_user_prompt(prompt, business)
 
     try:
-        with client.messages.stream(
+        stream_kwargs: Dict[str, Any] = dict(
             model=CLAUDE_MODEL,
             max_tokens=MAX_TOKENS,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "high"},
             system=[
                 {
                     "type": "text",
@@ -198,7 +205,13 @@ def generate(prompt: str, business: Optional[Dict[str, Any]] = None) -> Dict[str
                 }
             ],
             messages=[{"role": "user", "content": user_prompt}],
-        ) as stream:
+        )
+        if _SUPPORTS_EFFORT:
+            # Adaptive thinking + high effort lift quality on Opus/Sonnet-4.6/Fable;
+            # Haiku 4.5 rejects both, so they're omitted for the default model.
+            stream_kwargs["thinking"] = {"type": "adaptive"}
+            stream_kwargs["output_config"] = {"effort": "high"}
+        with client.messages.stream(**stream_kwargs) as stream:
             message = stream.get_final_message()
     except Exception as e:  # noqa: BLE001 - any SDK/transport failure -> 502
         logger.error(f"Agent builder Claude request failed: {e}")

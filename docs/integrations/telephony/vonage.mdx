@@ -148,7 +148,7 @@ Vonage uses higher quality audio (16kHz) which provides:
   
   <Accordion title="Invalid phone number error">
     - Remove the '+' prefix for Vonage (use `14155551234` not `+14155551234`)
-    - Ensure numbers are in E.164 format without the '+'
+    - Ensure numbers are in [E.164](https://en.wikipedia.org/wiki/E.164) format (country code + number, no spaces or dashes) without the '+'
     - Verify numbers are active in your Vonage account
   </Accordion>
   
@@ -156,7 +156,7 @@ Vonage uses higher quality audio (16kHz) which provides:
     - Verify WebSocket connection is established
     - Check audio pipeline is configured for 16kHz PCM
     - Monitor WebSocket for binary audio frames
-    - Review VAD (Voice Activity Detection) settings
+    - Review [VAD (Voice Activity Detection)](/configurations/interruption#what-is-vad) behavior — this is what detects when the caller starts and stops speaking
   </Accordion>
   
   <Accordion title="Calls disconnecting early">
@@ -209,6 +209,6 @@ Check [Vonage pricing](https://www.vonage.com/communications-apis/voice/pricing/
 ## Next Steps
 
 - Test your Vonage integration with a simple workflow
-- Configure VAD settings for optimal voice detection
+- Review [VAD and interruption behavior](/configurations/interruption) for your workflow's nodes
 - Set up monitoring and alerts
 - Explore advanced features like call recording

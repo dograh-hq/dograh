@@ -266,29 +266,25 @@ async def payu_test_initiate(user: UserModel = Depends(get_superuser)):
     return {"payment_url": payu_client.payment_url(), "params": params}
 
 
-@router.post("/payu/callback")
-async def payu_callback(request: Request):
-    """PayU surl/furl handler (public, no session). Verify the reverse hash, then
-    credit the org's balance idempotently and redirect the browser back to the app.
-    """
-    form = await request.form()
-    params = {k: str(v) for k, v in form.items()}
-    result_page = f"{UI_APP_URL.rstrip('/')}/credits"
+async def _apply_payu_payment(params: dict) -> str:
+    """Verify a PayU response and credit its transaction idempotently.
 
+    Shared by the browser callback (surl/furl) and the server-to-server webhook.
+    Returns "success", "already" (already credited), or "failed".
+    """
     if not payu_client.verify_response_hash(params):
-        logger.warning(f"PayU callback hash mismatch (txnid={params.get('txnid')})")
-        return RedirectResponse(f"{result_page}?payment=failed", status_code=303)
+        logger.warning(f"PayU hash mismatch (txnid={params.get('txnid')})")
+        return "failed"
 
     txnid = params.get("txnid") or ""
     status = (params.get("status") or "").lower()
     txn = await db_client.get_transaction_by_order_id_unscoped(txnid)
     if not txn:
-        return RedirectResponse(f"{result_page}?payment=failed", status_code=303)
-
+        return "failed"
     if txn.status == "paid":  # idempotent — already credited
-        return RedirectResponse(f"{result_page}?payment=success", status_code=303)
+        return "already"
 
-    # The hash already covers amount; confirm it matches the stored txn before crediting.
+    # The hash already covers amount; confirm it matches the stored txn.
     try:
         amount_ok = abs(float(params.get("amount") or 0) - txn.amount_paise / 100) < 0.01
     except ValueError:
@@ -299,14 +295,43 @@ async def payu_callback(request: Request):
         # Never convert an unlimited (NULL) org to metered — skip crediting it.
         current = await db_client.get_free_call_seconds_remaining(txn.organization_id)
         if current is not None:
-            new_balance = await db_client.add_call_seconds(txn.organization_id, txn.seconds)
+            balance = await db_client.add_call_seconds(txn.organization_id, txn.seconds)
         else:
-            new_balance = "unlimited (not credited)"
+            balance = "unlimited (not credited)"
         logger.info(
             f"PayU payment ok: org {txn.organization_id} +{txn.seconds}s "
-            f"(txnid {txnid}); balance now {new_balance}"
+            f"(txnid {txnid}); balance now {balance}"
         )
-        return RedirectResponse(f"{result_page}?payment=success", status_code=303)
+        return "success"
 
     logger.info(f"PayU payment not successful (txnid={txnid}, status={status})")
-    return RedirectResponse(f"{result_page}?payment=failed", status_code=303)
+    return "failed"
+
+
+@router.post("/payu/callback")
+async def payu_callback(request: Request):
+    """PayU surl/furl browser handler — verify + credit idempotently, then redirect."""
+    params = {k: str(v) for k, v in (await request.form()).items()}
+    outcome = await _apply_payu_payment(params)
+    ok = outcome in ("success", "already")
+    result_page = f"{UI_APP_URL.rstrip('/')}/credits"
+    return RedirectResponse(
+        f"{result_page}?payment={'success' if ok else 'failed'}", status_code=303
+    )
+
+
+@router.post("/payu/webhook")
+async def payu_webhook(request: Request):
+    """PayU server-to-server webhook — same verification, credits idempotently.
+
+    Backstop so a payment is credited even if the browser never returns to surl.
+    Configure this URL in the PayU dashboard webhook settings.
+    """
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        raw = await request.json()
+    else:
+        raw = await request.form()
+    params = {k: str(v) for k, v in dict(raw).items()}
+    outcome = await _apply_payu_payment(params)
+    return {"ok": outcome in ("success", "already"), "outcome": outcome}

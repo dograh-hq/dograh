@@ -10,11 +10,16 @@ from api.routes import billing
 
 
 class _Req:
-    def __init__(self, data):
+    def __init__(self, data, json_body=None, content_type="application/x-www-form-urlencoded"):
         self._data = data
+        self._json = json_body
+        self.headers = {"content-type": content_type}
 
     async def form(self):
         return self._data
+
+    async def json(self):
+        return self._json
 
 
 def _user(org=4):
@@ -172,4 +177,33 @@ async def test_payu_callback_rejects_amount_mismatch(monkeypatch):
             _Req({"status": "success", "txnid": "a4yX", "amount": "1.00", "hash": "h"})
         )
     assert "payment=failed" in resp.headers["location"]
+    add.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_payu_webhook_credits_idempotently(monkeypatch):
+    monkeypatch.setattr(billing.payu_client, "verify_response_hash", lambda p: True)
+    txn = SimpleNamespace(status="created", organization_id=4, seconds=18000, amount_paise=239900)
+    with (
+        patch.object(billing.db_client, "get_transaction_by_order_id_unscoped", new=AsyncMock(return_value=txn)),
+        patch.object(billing.db_client, "get_free_call_seconds_remaining", new=AsyncMock(return_value=1800)),
+        patch.object(billing.db_client, "mark_transaction_paid", new=AsyncMock()) as mark,
+        patch.object(billing.db_client, "add_call_seconds", new=AsyncMock(return_value=19800)) as add,
+    ):
+        resp = await billing.payu_webhook(
+            _Req({"status": "success", "txnid": "a4yX", "amount": "2399.00", "mihpayid": "MP", "hash": "h"})
+        )
+    assert resp == {"ok": True, "outcome": "success"}
+    mark.assert_awaited_once_with("a4yX", "MP")
+    add.assert_awaited_once_with(4, 18000)
+
+
+@pytest.mark.asyncio
+async def test_payu_webhook_rejects_bad_hash(monkeypatch):
+    monkeypatch.setattr(billing.payu_client, "verify_response_hash", lambda p: False)
+    with patch.object(billing.db_client, "add_call_seconds", new=AsyncMock()) as add:
+        resp = await billing.payu_webhook(
+            _Req({"status": "success", "txnid": "x", "amount": "1", "hash": "bad"})
+        )
+    assert resp["ok"] is False
     add.assert_not_awaited()

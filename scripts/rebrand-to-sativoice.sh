@@ -69,6 +69,10 @@ echo "==> Summary: $changed files changed, $skipped files skipped"
 # but the actual file on disk is still named run_dograh_init.sh.
 sed -i 's|run_sativoice_init\.sh|run_dograh_init.sh|g' docker-compose.yaml 2>/dev/null || true
 
+# Revert compose service name and container_name — code identifiers referenced by setup scripts
+sed -i 's|sativoice-init:|dograh-init:|g' docker-compose.yaml 2>/dev/null || true
+sed -i 's|sativoice_init|dograh_init|g' docker-compose.yaml 2>/dev/null || true
+
 # Verification: count remaining [Dd]ograh references in surface files
 # Matches what the sed commands handle: "Dograh" and "dograh", not all-caps DOGRAH_
 echo ""

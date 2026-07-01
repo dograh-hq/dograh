@@ -77,9 +77,9 @@ services:
     networks:
       - app-network
 
-  sativoice-init:
+  dograh-init:
     image: bash:5.2
-    container_name: sativoice_init
+    container_name: dograh_init
     profiles: ["remote", "local-turn"]
     environment:
       ENVIRONMENT: "${ENVIRONMENT:-local}"
@@ -105,7 +105,7 @@ services:
     container_name: nginx_https
     profiles: ["remote"]
     depends_on:
-      sativoice-init:
+      dograh-init:
         condition: service_completed_successfully
       ui:
         condition: service_started
@@ -124,7 +124,7 @@ services:
     restart: unless-stopped
     profiles: ["remote", "local-turn"]
     depends_on:
-      sativoice-init:
+      dograh-init:
         condition: service_completed_successfully
     ports:
       - "3478:3478/udp"

@@ -10,6 +10,18 @@ Dograh is an open-source voice AI platform (BSD 2-Clause) — a self-hostable al
 
 Goal: create an Italian market brand — **Sativoice Enterprise** (under Satisfactory Group) — while maintaining full compatibility with upstream Dograh (`TopCS/dograh` on GitHub).
 
+Working branch: `main` (fork). Upstream updates are merged periodically from `upstream/main`.
+
+### Git Remote Setup (Prerequisite)
+
+```bash
+# After forking TopCS/dograh on GitHub:
+git clone <your-fork-url> sativoice
+cd sativoice
+git remote add upstream git@github.com:TopCS/dograh.git
+git remote -v  # Verify: origin = your fork, upstream = TopCS/dograh
+```
+
 ## Target Audience
 
 PMI and corporate Italian companies looking for voice AI solutions (call centers, customer service automation, telephony AI). The brand must sound professional, trustworthy, and Italian/Latin in style.
@@ -20,7 +32,15 @@ PMI and corporate Italian companies looking for voice AI solutions (call centers
 
 | Layer | Changes? | Detail |
 |---|---|---|
-| `README.md`, `README.zh-CN.md`, `README.ja-JP.md` | ✅ Yes | Title → "Sativoice Enterprise", description, links, badges |
+| `README.md` | ✅ Yes | Title → "Sativoice Enterprise", description, links, badges, comparison table |
+| `README.it-IT.md` | 🆕 New | Italian README for corporate clients |
+| `README.zh-CN.md`, `README.ja-JP.md` | ❌ Skipped | Left as upstream — irrelevant for Italian market |
+| `CONTRIBUTING.md` | ✅ Yes | Project name references |
+| `SECURITY.md` | ✅ Yes | Project name references |
+| `CHANGELOG.md` | ✅ Yes | Project name references |
+| `PRIVATE_DEPLOYMENT_PLAN.md` | ✅ Yes | Project name references |
+| `AGENTS.md` | ✅ Yes | Project name references |
+| `release-please-config.json` | ✅ Yes | Release PR title/prefix |
 | `docker-compose.yaml`, `docker-compose-local.yaml` | ✅ Yes | `image:` tags → `sativoice/`, service labels, comments |
 | `api/Dockerfile`, `ui/Dockerfile` | ✅ Yes | Labels, comments |
 | `scripts/*.sh`, `scripts/*.ps1` | ✅ Yes | Echo messages, printed names shown to the user |
@@ -37,10 +57,10 @@ PMI and corporate Italian companies looking for voice AI solutions (call centers
 | Env vars (`DOGRAH_*`) | ❌ Unchanged | Internal — not customer-facing |
 | Python classes (`DograhClient`, `DograhLLMService`, ...) | ❌ Unchanged | Upstream compatibility |
 | TypeScript classes (`DograhClient`, `DograhDefaults`, ...) | ❌ Unchanged | Upstream compatibility |
-| Package names (`dograh_sdk`, `@dograh/sdk`) | ❌ Unchanged | Would break all imports |
+| Package names (`dograh_sdk`, `@dograh/sdk`) | ❌ Unchanged | Would break all imports. Acknowledged trade-off: SDK users will see `@dograh/sdk` in their `package.json`. Acceptable because SDK consumers are technical and understand the fork relationship. |
 | UI components (`DograhCreditsCard.tsx`, ...) | ❌ Unchanged | Internal — not customer-facing |
 | All `.py` / `.ts` / `.tsx` internals | ❌ Unchanged | Upstream compatibility |
-| CI/CD workflows (`.github/workflows/`) | ❌ Unchanged | Must track upstream |
+| `.github/workflows/docker-image.yml` | ❌ Unchanged | Determines actual registry path. `docker-compose` image tags are cosmetic — CI pushes to whatever registry is configured. |
 | URLs (`app.dograh.com`, `docs.dograh.com`) | Out of scope | Handled at DNS/cloud level |
 
 ### Guiding principle
@@ -54,10 +74,26 @@ A script `scripts/rebrand-to-sativoice.sh` applies all `Dograh` → `Sativoice` 
 ### Workflow after upstream pull
 
 ```bash
-git pull upstream main
+git fetch upstream
+git merge upstream/main
 ./scripts/rebrand-to-sativoice.sh
-git commit -am "chore: re-apply Sativoice branding"
+# Script prints verification: "✅ N Dograh references remaining in surface files"
+git commit -am "chore: sync upstream + rebrand"
 ```
+
+### Verification (built into script)
+
+After applying substitutions, the script runs:
+
+```bash
+grep -r "Dograh" <surface-files> || echo "✅ No Dograh references found in surface files"
+```
+
+This makes the idempotency guarantee verifiable — re-running the script should always reach the same clean state.
+
+### Docker image registry note
+
+`docker-compose.yaml` `image:` tags are changed to `sativoice/` for cosmetic consistency, but actual image builds are driven by `.github/workflows/docker-image.yml`. That workflow remains upstream-identical to avoid CI breakage. The compose labels are for the deployer's benefit, not the registry.
 
 ### Script design
 
@@ -88,10 +124,11 @@ set -euo pipefail
 
 ### New files
 
-1. `scripts/rebrand-to-sativoice.sh` — idempotent rebrand script
+1. `scripts/rebrand-to-sativoice.sh` — idempotent rebrand script with verification step
 2. `ui/public/sativoice-logo.svg` (or replacement logo asset)
+3. `README.it-IT.md` — Italian README for corporate clients
 
-### Modified files (~20 total)
+### Modified files (~25 total)
 
 See "What changes" table above. All modifications are string-level replacements of "Dograh" → "Sativoice" in specific, scoped files only.
 

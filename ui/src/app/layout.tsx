@@ -30,7 +30,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Sativoice Enterprise",
-  description: "Open Source Voice Assistant Workflow Builder",
+  description: "Piattaforma Voice AI Enterprise per il mercato italiano",
 };
 
 export default function RootLayout({

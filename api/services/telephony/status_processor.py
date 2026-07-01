@@ -21,6 +21,30 @@ from api.services.campaign.circuit_breaker import circuit_breaker
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 
+
+async def _bump_campaign_consumed(campaign_id: int, duration) -> None:
+    """Add a terminal call's seconds to the campaign's budget counter.
+
+    Best-effort — a counter hiccup must never break status processing. Bumps
+    ``consumed_seconds`` unconditionally; the dispatch-time budget gate only
+    pauses the campaign when a ``budget_seconds`` cap is also set.
+    """
+    try:
+        secs = int(duration or 0)
+    except (TypeError, ValueError):
+        secs = 0
+    if secs <= 0:
+        return
+    try:
+        await db_client.increment_campaign_metadata_counter(
+            campaign_id, "consumed_seconds", delta=secs
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Failed to add {secs}s to campaign {campaign_id} consumed_seconds: {exc}"
+        )
+
+
 TERMINAL_NOT_CONNECTED_STATUSES = frozenset(
     {
         TelephonyCallStatus.FAILED,
@@ -149,6 +173,7 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             await circuit_breaker.record_and_evaluate(
                 workflow_run.campaign_id, is_failure=False
             )
+            await _bump_campaign_consumed(workflow_run.campaign_id, status.duration)
 
         if workflow_run.state != WorkflowRunState.COMPLETED.value:
             await db_client.update_workflow_run(
@@ -171,6 +196,7 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
                 workflow_run_id=workflow_run_id if is_failure else None,
                 reason=normalized_status.value if is_failure else None,
             )
+            await _bump_campaign_consumed(workflow_run.campaign_id, status.duration)
 
         if (
             normalized_status in RETRYABLE_NOT_CONNECTED_STATUSES

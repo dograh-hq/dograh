@@ -95,6 +95,18 @@ class CampaignCallDispatcher:
             await db_client.update_campaign(campaign_id=campaign_id, state="paused")
             return 0
 
+        # Per-campaign budget gate: pause once the campaign has consumed its
+        # configured call-seconds cap (opt-in — no budget_seconds = unlimited).
+        meta = campaign.orchestrator_metadata or {}
+        budget = meta.get("budget_seconds")
+        if budget is not None and int(meta.get("consumed_seconds", 0) or 0) >= int(budget):
+            logger.info(
+                f"Campaign {campaign_id}: budget of {budget}s reached "
+                f"(consumed {meta.get('consumed_seconds', 0)}s) — pausing campaign"
+            )
+            await db_client.update_campaign(campaign_id=campaign_id, state="paused")
+            return 0
+
         # Atomically claim queued runs for processing (thread-safe)
         # This uses SELECT FOR UPDATE SKIP LOCKED to prevent race conditions
         queued_runs = await db_client.claim_queued_runs_for_processing(

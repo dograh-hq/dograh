@@ -27,6 +27,7 @@ class CampaignClient(BaseDBClient):
         schedule_config: Optional[dict] = None,
         circuit_breaker: Optional[dict] = None,
         telephony_configuration_id: Optional[int] = None,
+        budget_seconds: Optional[int] = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -38,6 +39,11 @@ class CampaignClient(BaseDBClient):
                 orchestrator_metadata["schedule_config"] = schedule_config
             if circuit_breaker is not None:
                 orchestrator_metadata["circuit_breaker"] = circuit_breaker
+            if budget_seconds is not None:
+                # Per-campaign call-seconds cap; `consumed_seconds` is bumped at
+                # each call's completion. No budget key = unlimited (default).
+                orchestrator_metadata["budget_seconds"] = int(budget_seconds)
+                orchestrator_metadata["consumed_seconds"] = 0
 
             campaign = CampaignModel(
                 name=name,
@@ -466,7 +472,7 @@ class CampaignClient(BaseDBClient):
                 raise
 
     async def increment_campaign_metadata_counter(
-        self, campaign_id: int, key: str
+        self, campaign_id: int, key: str, delta: int = 1
     ) -> int:
         """Atomically increment an integer field in campaign orchestrator_metadata."""
         async with self.async_session() as session:
@@ -477,7 +483,7 @@ class CampaignClient(BaseDBClient):
                     "        COALESCE(orchestrator_metadata::jsonb, '{}'::jsonb) "
                     "        || jsonb_build_object("
                     "            :key, "
-                    "            COALESCE((orchestrator_metadata::jsonb ->> :key)::int, 0) + 1"
+                    "            COALESCE((orchestrator_metadata::jsonb ->> :key)::int, 0) + :delta"
                     "        )"
                     "    )::json, "
                     "    updated_at = :now "
@@ -487,6 +493,7 @@ class CampaignClient(BaseDBClient):
                 {
                     "campaign_id": campaign_id,
                     "key": key,
+                    "delta": int(delta),
                     "now": datetime.now(UTC),
                 },
             )

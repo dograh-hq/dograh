@@ -15,11 +15,15 @@ import WorkflowLayout from "./WorkflowLayout";
 
 export const dynamic = 'force-dynamic';
 
-import workflowMessages from "../../../messages/it.json";
+import { cookies } from "next/headers";
+import itMessages from "../../../messages/it.json";
+import enMessages from "../../../messages/en.json";
 
 // Server component for workflow list
 async function WorkflowList() {
-    const t = workflowMessages.workflowList;
+    const cookieStore = await cookies();
+    const locale = cookieStore.get("NEXT_LOCALE")?.value === "en" ? "en" : "it";
+    const t = (locale === "en" ? enMessages : itMessages).workflowList;
     const authProvider = await getServerAuthProvider();
     const accessToken = await getServerAccessToken();
 
@@ -109,7 +113,9 @@ async function WorkflowList() {
 }
 
 async function PageContent() {
-    const t = workflowMessages.workflowList;
+    const cookieStore = await cookies();
+    const locale = cookieStore.get("NEXT_LOCALE")?.value === "en" ? "en" : "it";
+    const t = (locale === "en" ? enMessages : itMessages).workflowList;
     const workflowList = await WorkflowList();
 
     return (

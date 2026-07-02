@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useTranslations } from 'next-intl';
+
 import {
     duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost,
     publishWorkflowApiV1WorkflowWorkflowIdPublishPost,
@@ -66,6 +68,7 @@ export const WorkflowEditorHeader = ({
     workflowUuid,
     renameWorkflow,
 }: WorkflowEditorHeaderProps) => {
+    const t = useTranslations("workflowList");
     const router = useRouter();
     const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
@@ -100,9 +103,9 @@ export const WorkflowEditorHeader = ({
             path: { workflow_id: workflowId },
         });
         toast.promise(promise, {
-            loading: "Publishing...",
-            success: "Workflow published successfully",
-            error: "Failed to publish workflow",
+            loading: t("publishing"),
+            success: t("publishSuccess"),
+            error: t("publishFailed"),
         });
         try {
             await promise;
@@ -123,9 +126,9 @@ export const WorkflowEditorHeader = ({
             path: { workflow_id: workflowId },
         });
         toast.promise(promise, {
-            loading: "Duplicating workflow...",
-            success: "Workflow duplicated successfully",
-            error: "Failed to duplicate workflow",
+            loading: t("duplicatingWorkflow"),
+            success: t("duplicateSuccess"),
+            error: t("duplicateFailed"),
         });
         try {
             const { data } = await promise;
@@ -139,14 +142,14 @@ export const WorkflowEditorHeader = ({
 
     const handleCopyAgentUuid = async () => {
         if (!workflowUuid) {
-            toast.error("Agent UUID not available");
+            toast.error(t("agentUuidNotAvailable"));
             return;
         }
         try {
             await navigator.clipboard.writeText(workflowUuid);
-            toast.success("Agent UUID copied");
+            toast.success(t("agentUuidCopied"));
         } catch {
-            toast.error("Failed to copy Agent UUID");
+            toast.error(t("copyAgentUuidFailed"));
         }
     };
 
@@ -187,7 +190,7 @@ export const WorkflowEditorHeader = ({
         if (rename.kind !== "editing") return;
         const trimmed = rename.draft.trim();
         if (trimmed.length === 0) {
-            setRename({ ...rename, error: "Name cannot be empty" });
+            setRename({ ...rename, error: t("nameCannotBeEmpty") });
             return;
         }
         if (trimmed === workflowName) {
@@ -237,7 +240,7 @@ export const WorkflowEditorHeader = ({
                 <button
                     onClick={toggleSidebar}
                     className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[#2a2a2a] transition-colors md:hidden"
-                    aria-label="Open menu"
+                    aria-label={t("openMenu")}
                 >
                     <Menu className="w-5 h-5 text-gray-400" />
                 </button>
@@ -266,7 +269,7 @@ export const WorkflowEditorHeader = ({
                                 disabled={rename.kind === "saving"}
                                 autoFocus
                                 onFocus={(e) => e.currentTarget.select()}
-                                aria-label="Workflow name"
+                                aria-label={t("workflowNameLabel")}
                                 aria-invalid={rename.kind === "editing" && rename.error !== null}
                                 className="h-8 max-w-xs bg-[#2a2a2a] border-[#3a3a3a] text-white text-base font-medium"
                             />
@@ -287,7 +290,7 @@ export const WorkflowEditorHeader = ({
                                     ref={renameButtonRef}
                                     type="button"
                                     onClick={enterEditMode}
-                                    aria-label="Rename workflow"
+                                    aria-label={t("renameWorkflow")}
                                     className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[#2a2a2a] transition-colors"
                                 >
                                     <Pencil className="w-4 h-4 text-gray-400" />
@@ -305,7 +308,7 @@ export const WorkflowEditorHeader = ({
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-blue-500/30 bg-blue-500/10">
                         <Eye className="w-4 h-4 text-blue-400" />
                         <span className="text-sm text-blue-400">
-                            Viewing {activeVersionLabel} - Read only
+                            {t("viewingReadOnly", { label: activeVersionLabel })}
                         </span>
                     </div>
                 )}
@@ -316,7 +319,7 @@ export const WorkflowEditorHeader = ({
                         onClick={onBackToDraft}
                         className="bg-teal-600 hover:bg-teal-700 text-white px-4"
                     >
-                        Back to Draft
+                        {t("backToDraft")}
                     </Button>
                 )}
 
@@ -335,7 +338,7 @@ export const WorkflowEditorHeader = ({
                 {isDirty && !isViewingHistoricalVersion && (
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-yellow-500/30 bg-yellow-500/10">
                         <div className="w-2 h-2 rounded-full bg-yellow-500" />
-                        <span className="text-sm text-yellow-500">Unsaved changes</span>
+                        <span className="text-sm text-yellow-500">{t("unsavedChanges")}</span>
                     </div>
                 )}
 
@@ -347,7 +350,7 @@ export const WorkflowEditorHeader = ({
                                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                                 <AlertCircle className="w-4 h-4 text-red-500" />
                                 <span className="text-sm text-red-500">
-                                    {workflowValidationErrors.length} {workflowValidationErrors.length === 1 ? "error" : "errors"}
+                                    {workflowValidationErrors.length} {workflowValidationErrors.length === 1 ? t("error_one") : t("error_other")}
                                 </span>
                             </button>
                         </PopoverTrigger>
@@ -356,7 +359,7 @@ export const WorkflowEditorHeader = ({
                             className="w-80 bg-[#1a1a1a] border-[#3a3a3a] p-0"
                         >
                             <div className="px-4 py-3 border-b border-[#3a3a3a]">
-                                <h3 className="text-sm font-medium text-white">Validation Errors</h3>
+                                <h3 className="text-sm font-medium text-white">{t("validationErrors")}</h3>
                             </div>
                             <div className="max-h-64 overflow-y-auto">
                                 {workflowValidationErrors.map((error, index) => (
@@ -396,12 +399,12 @@ export const WorkflowEditorHeader = ({
                         {publishing ? (
                             <>
                                 <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Publishing...
+                                {t("publishing")}
                             </>
                         ) : (
                             <>
                                 <Rocket className="w-4 h-4 mr-2" />
-                                Publish
+                                {t("publish")}
                             </>
                         )}
                     </Button>
@@ -415,7 +418,7 @@ export const WorkflowEditorHeader = ({
                         onClick={onPhoneCallClick}
                     >
                         <Phone className="w-4 h-4" />
-                        Phone Call
+                        {t("phoneCall")}
                     </Button>
                 )}
 
@@ -425,7 +428,7 @@ export const WorkflowEditorHeader = ({
                     onClick={onTestAgentClick}
                 >
                     <Bot className="w-4 h-4" />
-                    Test Agent
+                    {t("testAgent")}
                 </Button>
 
                 {/* Save button (only shown when editing the draft) */}
@@ -438,10 +441,10 @@ export const WorkflowEditorHeader = ({
                         {savingWorkflow ? (
                             <>
                                 <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Saving...
+                                {t("saving")}
                             </>
                         ) : (
-                            "Save"
+                            t("save")
                         )}
                     </Button>
                 )}
@@ -463,7 +466,7 @@ export const WorkflowEditorHeader = ({
                             className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                         >
                             <History className="w-4 h-4 mr-2" />
-                            View Runs
+                            {t("viewRuns")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={handleDuplicate}
@@ -475,14 +478,14 @@ export const WorkflowEditorHeader = ({
                             ) : (
                                 <Copy className="w-4 h-4 mr-2" />
                             )}
-                            {duplicating ? "Duplicating..." : "Duplicate Workflow"}
+                            {duplicating ? t("duplicating") : t("duplicateWorkflow")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={handleDownloadWorkflow}
                             className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                         >
                             <Download className="w-4 h-4 mr-2" />
-                            Download Workflow
+                            {t("downloadWorkflow")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={handleCopyAgentUuid}
@@ -490,7 +493,7 @@ export const WorkflowEditorHeader = ({
                             className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                         >
                             <Clipboard className="w-4 h-4 mr-2" />
-                            Copy Agent UUID
+                            {t("copyAgentUuid")}
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

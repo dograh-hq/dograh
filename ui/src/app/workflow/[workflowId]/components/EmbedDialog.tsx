@@ -1,12 +1,14 @@
 import { Check, Copy, ExternalLink, Loader2, Mic, Plus, Rocket, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { useTranslations } from 'next-intl';
+
 import {
     createOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPost,
     deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete,
     getEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGet,
 } from "@/client/sdk.gen";
-import { Button } from "@/components/ui/button";
+import { Button } } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
@@ -53,6 +55,7 @@ export function EmbedDialog({
     workflowId,
     workflowName,
 }: EmbedDialogProps) {
+    const t = useTranslations("workflowList");
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [embedToken, setEmbedToken] = useState<EmbedToken | null>(null);
@@ -181,7 +184,7 @@ export function EmbedDialog({
                     <div className="flex items-center justify-between">
                         <DialogTitle className="flex items-center gap-2">
                             <Rocket className="h-5 w-5" />
-                            Configure Widget
+                            {t("configureWidget")}
                         </DialogTitle>
                         <a
                             href={WIDGET_MODE_DOCUMENTATION_URLS[embedMode]}
@@ -189,12 +192,12 @@ export function EmbedDialog({
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors pr-6"
                         >
-                            Docs
+                            {t("embedDocs")}
                             <ExternalLink className="h-3.5 w-3.5" />
                         </a>
                     </div>
                     <DialogDescription>
-                        Add &quot;{workflowName}&quot; to any website with a simple script tag.
+                        {t("embedDescription", { name: workflowName })}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -207,9 +210,9 @@ export function EmbedDialog({
                         {/* Enable/Disable Toggle */}
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
-                                <Label htmlFor="embed-enabled">Enable Embedding</Label>
+                                <Label htmlFor="embed-enabled">{t("embedEnable")}</Label>
                                 <p className="text-sm text-muted-foreground">
-                                    Allow this workflow to be embedded on external websites
+                                    {t("embedEnableDesc")}
                                 </p>
                             </div>
                             <Switch
@@ -226,16 +229,16 @@ export function EmbedDialog({
                                 {/* Allowed Domains */}
                                 <div className="space-y-3">
                                     <Label>
-                                        Allowed Domains
+                                        {t("embedAllowedDomains")}
                                         <span className="text-xs text-muted-foreground ml-2">
-                                            (leave empty to allow all domains)
+                                            {t("embedDomainsHint")}
                                         </span>
                                     </Label>
 
                                     {/* Domain Input */}
                                     <div className="flex gap-2">
                                         <Input
-                                            placeholder="example.com or *.example.com"
+                                            placeholder={t("embedDomainPlaceholder")}
                                             value={newDomain}
                                             onChange={(e) => setNewDomain(e.target.value)}
                                             onKeyPress={handleKeyPress}
@@ -277,7 +280,7 @@ export function EmbedDialog({
 
                                 {/* Embed Mode Selection */}
                                 <div className="space-y-4">
-                                    <Label>Embed Mode</Label>
+                                    <Label>{t("embedMode")}</Label>
                                     <div className="grid grid-cols-3 gap-4">
                                         <button
                                             type="button"
@@ -289,9 +292,9 @@ export function EmbedDialog({
                                             }`}
                                         >
                                             <div className="space-y-2">
-                                                <div className="font-medium">Floating Widget</div>
+                                                <div className="font-medium">{t("embedFloating")}</div>
                                                 <div className="text-xs text-muted-foreground">
-                                                    Shows as a button in corner of the page
+                                                    {t("embedFloatingDesc")}
                                                 </div>
                                             </div>
                                         </button>
@@ -305,9 +308,9 @@ export function EmbedDialog({
                                             }`}
                                         >
                                             <div className="space-y-2">
-                                                <div className="font-medium">Inline Component</div>
+                                                <div className="font-medium">{t("embedInline")}</div>
                                                 <div className="text-xs text-muted-foreground">
-                                                    Embeds directly in your page content
+                                                    {t("embedInlineDesc")}
                                                 </div>
                                             </div>
                                         </button>
@@ -321,9 +324,9 @@ export function EmbedDialog({
                                             }`}
                                         >
                                             <div className="space-y-2">
-                                                <div className="font-medium">Headless (Bring Your Own UI)</div>
+                                                <div className="font-medium">{t("embedHeadless")}</div>
                                                 <div className="text-xs text-muted-foreground">
-                                                    No UI - drive calls from your own buttons via the JS API
+                                                    {t("embedHeadlessDesc")}
                                                 </div>
                                             </div>
                                         </button>
@@ -332,13 +335,13 @@ export function EmbedDialog({
 
                                 {/* Configuration based on mode */}
                                 <div className="space-y-4">
-                                    <Label>Configuration</Label>
+                                    <Label>{t("embedConfiguration")}</Label>
 
                                     {/* Shared: Button Text + Button Color (skipped in headless — host renders its own UI) */}
                                     {embedMode !== "headless" && (
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
-                                                <Label htmlFor="button-text" className="text-sm">Button Text</Label>
+                                                <Label htmlFor="button-text" className="text-sm">{t("embedButtonText")}</Label>
                                                 <Input
                                                     id="button-text"
                                                     value={buttonText}
@@ -348,7 +351,7 @@ export function EmbedDialog({
                                                 />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label htmlFor="button-color" className="text-sm">Button Color</Label>
+                                                <Label htmlFor="button-color" className="text-sm">{t("embedButtonColor")}</Label>
                                                 <div className="flex gap-2">
                                                     <Input
                                                         id="button-color-picker"
@@ -372,16 +375,16 @@ export function EmbedDialog({
                                     {/* Floating mode: Position */}
                                     {embedMode === "floating" && (
                                         <div className="space-y-2">
-                                            <Label htmlFor="position" className="text-sm">Position</Label>
+                                            <Label htmlFor="position" className="text-sm">{t("embedPosition")}</Label>
                                             <Select value={position} onValueChange={setPosition}>
                                                 <SelectTrigger id="position">
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="bottom-right">Bottom Right</SelectItem>
-                                                    <SelectItem value="bottom-left">Bottom Left</SelectItem>
-                                                    <SelectItem value="top-right">Top Right</SelectItem>
-                                                    <SelectItem value="top-left">Top Left</SelectItem>
+                                                    <SelectItem value="bottom-right">{t("embedPositionBottomRight")}</SelectItem>
+                                                    <SelectItem value="bottom-left">{t("embedPositionBottomLeft")}</SelectItem>
+                                                    <SelectItem value="top-right">{t("embedPositionTopRight")}</SelectItem>
+                                                    <SelectItem value="top-left">{t("embedPositionTopLeft")}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -390,7 +393,7 @@ export function EmbedDialog({
                                     {/* Inline mode: Call to Action Text */}
                                     {embedMode === "inline" && (
                                         <div className="space-y-2">
-                                            <Label htmlFor="cta-text" className="text-sm">Call to Action Text</Label>
+                                            <Label htmlFor="cta-text" className="text-sm">{t("embedCallToAction")}</Label>
                                             <Input
                                                 id="cta-text"
                                                 value={callToActionText}
@@ -594,9 +597,9 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                     <>
                                         <Separator />
                                         <div className="space-y-3">
-                                            <Label className="text-muted-foreground">Embed Code</Label>
+                                            <Label className="text-muted-foreground">{t("embedEmbedCode")}</Label>
                                             <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
-                                                Click <span className="font-medium">Save Configurations</span> to generate your embed script.
+                                                {t("embedScriptPlaceholder")}
                                             </div>
                                         </div>
                                     </>

@@ -141,7 +141,7 @@ export const VersionHistoryPanel = ({
                                 {loadingMore ? (
                                     <LoaderCircle className="w-4 h-4 animate-spin" />
                                 ) : (
-                                    "Load more"
+                                    {t(\"loadMore\")}
                                 )}
                             </Button>
                         )}

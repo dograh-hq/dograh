@@ -56,6 +56,7 @@ export const VoicemailDetectionDialog = ({
     workflowConfigurations,
     onSave,
 }: VoicemailDetectionDialogProps) => {
+    const t = useTranslations("workflowList");
     const getConfig = (): VoicemailDetectionConfiguration => ({
         ...DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
         ...workflowConfigurations.voicemail_detection,
@@ -159,7 +160,7 @@ export const VoicemailDetectionDialog = ({
 
                             {/* System Prompt */}
                             <div className="grid gap-2">
-                                <Label>System Prompt</Label>
+                            <Label>{t("voicemailSystemPrompt")}</Label>
                                 <Label className="text-xs text-muted-foreground">
                                     Prompt for voicemail classification.
                                     The LLM must respond with either &quot;CONVERSATION&quot; or &quot;VOICEMAIL&quot;.
@@ -173,9 +174,9 @@ export const VoicemailDetectionDialog = ({
 
                             {/* Timing Configuration */}
                             <div className="grid gap-4 p-3 border rounded-md bg-muted/10">
-                                <Label className="font-medium">Timing</Label>
+                                <Label className="font-medium">{t("voicemailTiming")}</Label>
                                 <div className="space-y-2">
-                                    <Label className="text-sm">Speech Cutoff (seconds)</Label>
+                                    <Label className="text-sm">{t("voicemailSpeechCutoff")}</Label>
                                     <Label className="text-xs text-muted-foreground">
                                         Trigger classification early if first turn speech exceeds this duration.
                                     </Label>
@@ -195,9 +196,9 @@ export const VoicemailDetectionDialog = ({
 
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        Cancel
+                        {t("cancel")}
                     </Button>
-                    <Button onClick={handleSave}>Save</Button>
+                    <Button onClick={handleSave}>{t("save")}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

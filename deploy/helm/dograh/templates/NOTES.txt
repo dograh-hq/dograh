@@ -52,7 +52,7 @@ coturn is disabled. Set coturn.enabled=true to deploy media relay.
 
 === Migrations ===
 {{- if .Values.migrate.enabled }}
-Alembic migrations run as a pre-install / pre-upgrade hook. Inspect with:
+Alembic migrations run as a post-install / pre-upgrade hook. Inspect with:
 
   kubectl logs job/{{ include "dograh.migrate.fullname" . }} -n {{ .Release.Namespace }}
 {{- end }}

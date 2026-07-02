@@ -15,10 +15,9 @@ exercised against a live cluster.
 ```bash
 cd deploy/helm/dograh
 
-# Pull in Bitnami subcharts (network required)
-helm dependency update
-
-# Install with defaults (all internal deps, Gateway API exposure)
+# Install with defaults (all internal deps, Gateway API exposure).
+# The bundled Postgres/Redis/MinIO are in-chart manifests on official upstream
+# images — no `helm dependency` / subchart pull step needed.
 helm install dograh . \
   --set secrets.ossJwtSecret="$(openssl rand -hex 32)" \
   --set secrets.turnSecret="$(openssl rand -hex 32)" \

@@ -32,13 +32,13 @@ serviceAccount:
 # Stateful dependency modes.
 #
 # database.mode:
-#   internal  — bundled Bitnami PostgreSQL subchart (postgresql.enabled=true)
+#   internal  — bundled Postgres manifest (pgvector image; see `postgresql` below)
 #   external  — operator supplies DATABASE_URL via secrets.databaseUrl
 # redis.mode:
-#   internal  — bundled Bitnami Redis subchart (redis.enabled=true)
+#   internal  — bundled Redis manifest (see `redisinternal` below)
 #   external  — operator supplies REDIS_URL via secrets.redisUrl
 # storage.mode:
-#   internalMinio — bundled MinIO subchart (minio.enabled=true)
+#   internalMinio — bundled MinIO manifest (see `minio` below)
 #   externalMinio — operator supplies a MinIO-compatible endpoint + creds
 #   s3            — sets ENABLE_AWS_S3=true; uses AWS S3
 # exposure.mode:
@@ -253,7 +253,10 @@ workers:
   # exec probe — workers have no HTTP endpoint.
   livenessProbe:
     exec:
-      command: ["sh", "-c", "pgrep -f 'arq api.tasks.arq.WorkerSettings' > /dev/null"]
+      # The entrypoint exec's the worker, so it runs as PID 1; grep its cmdline.
+      # Avoids pgrep/procps, which isn't in the slim runtime image. Matching a
+      # single argv token (no spaces) — argv is NUL-separated in /proc.
+      command: ["sh", "-c", "grep -qa api.tasks.arq.WorkerSettings /proc/1/cmdline"]
     initialDelaySeconds: 30
     periodSeconds: 30
     timeoutSeconds: 5
@@ -285,7 +288,8 @@ ariManager:
 
   livenessProbe:
     exec:
-      command: ["sh", "-c", "pgrep -f api.services.telephony.ari_manager > /dev/null"]
+      # PID 1 cmdline check (procps-free; see workers.livenessProbe).
+      command: ["sh", "-c", "grep -qa api.services.telephony.ari_manager /proc/1/cmdline"]
     initialDelaySeconds: 30
     periodSeconds: 30
     timeoutSeconds: 5
@@ -316,7 +320,8 @@ campaignOrchestrator:
 
   livenessProbe:
     exec:
-      command: ["sh", "-c", "pgrep -f api.services.campaign.campaign_orchestrator > /dev/null"]
+      # PID 1 cmdline check (procps-free; see workers.livenessProbe).
+      command: ["sh", "-c", "grep -qa api.services.campaign.campaign_orchestrator /proc/1/cmdline"]
     initialDelaySeconds: 30
     periodSeconds: 30
     timeoutSeconds: 5
@@ -452,7 +457,8 @@ coturn:
 # Migration Job
 # -----------------------------------------------------------------------------
 migrate:
-  # Run alembic upgrade head as a pre-install / pre-upgrade Helm hook.
+  # Run alembic upgrade head as a Helm hook: post-install (so the bundled
+  # Postgres exists first) and pre-upgrade (so migrations land before new code).
   enabled: true
 
   # Hard cap on how long a migration may run. A failed/exceeded migration
@@ -484,44 +490,65 @@ autoscaling:
     targetMemoryUtilizationPercentage: 80
 
 # -----------------------------------------------------------------------------
-# Bitnami subcharts. Each is gated by its own `enabled` flag set by mode
-# resolution in templates/_helpers.tpl. Override the subchart's own values
-# under these keys.
+# Bundled stateful deps for the internal/all-in-one modes. These are plain
+# in-chart manifests (templates/internal-*.yaml) on official upstream images —
+# not subcharts. Each renders only in its internal mode:
+#   postgresql   -> database.mode == internal
+#   redisinternal-> redis.mode == internal
+#   minio        -> storage.mode == internalMinio
+# For production, use the external/managed modes instead (see database/redis/
+# storage above).
 # -----------------------------------------------------------------------------
 postgresql:
-  # enabled is set automatically based on database.mode in _helpers.tpl;
-  # this key is read by the subchart's `condition`.
-  enabled: true
+  # Official pgvector image = upstream Postgres + the `vector` extension the app
+  # migrations require. Keep the tag on a supported Postgres major.
+  image:
+    registry: docker.io
+    repository: pgvector/pgvector
+    tag: pg17
+    pullPolicy: IfNotPresent
   auth:
-    username: dograh
-    password: ""  # auto-generated if empty
+    username: dograh    # also the initdb superuser (needed for CREATE EXTENSION)
+    password: ""        # auto-generated and persisted across upgrades if empty
     database: dograh
-  primary:
-    persistence:
-      enabled: true
-      size: 8Gi
+  persistence:
+    size: 8Gi
+    storageClass: ""    # "" = cluster default StorageClass
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
 
-redisInternal:
-  # Bitnami Redis subchart values, aliased to redisInternal to avoid
-  # colliding with `redis.mode` above. `redisInternal.enabled` is the gating
-  # flag for whether the subchart deploys.
-  enabled: true
+redisinternal:
+  # Official upstream Redis. Single node, password-protected, AOF persistence.
+  # (Key kept as `redisinternal` so it doesn't collide with `redis.mode` above.)
+  image:
+    registry: docker.io
+    repository: redis
+    tag: 7.4-alpine
+    pullPolicy: IfNotPresent
   auth:
-    enabled: true
-    password: ""  # auto-generated if empty
-  master:
-    persistence:
-      enabled: true
-      size: 8Gi
-  replica:
-    replicaCount: 0  # standalone primary by default
+    password: ""        # auto-generated and persisted across upgrades if empty
+  persistence:
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
 
 minio:
-  enabled: true
+  # Official upstream MinIO. Root creds are shared with the app (single source of
+  # truth) so they can't drift; the app creates its bucket on first use.
+  image:
+    registry: docker.io
+    repository: minio/minio
+    tag: RELEASE.2025-04-22T22-12-26Z
+    pullPolicy: IfNotPresent
   auth:
     rootUser: minioadmin
-    rootPassword: ""  # auto-generated if empty
-  defaultBuckets: "voice-audio"
+    rootPassword: ""     # auto-generated and persisted across upgrades if empty
   persistence:
-    enabled: true
     size: 20Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }

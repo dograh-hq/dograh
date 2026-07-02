@@ -62,10 +62,7 @@ autoscaling:
     maxReplicas: 12
     targetCPUUtilizationPercentage: 70
 
-# Disable bundled deps when using external services.
-postgresql:
-  enabled: false
-redisInternal:
-  enabled: false
-minio:
-  enabled: false
+# No bundled deps here: the in-chart Postgres/Redis/MinIO manifests are gated on
+# the internal modes (database.mode=internal, redis.mode=internal,
+# storage.mode=internalMinio), so the external/S3 modes set above already keep
+# them from rendering.

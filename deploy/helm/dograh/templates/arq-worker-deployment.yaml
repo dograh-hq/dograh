@@ -40,24 +40,7 @@ spec:
           envFrom:
             {{- include "dograh.backendEnvFrom" . | nindent 12 }}
           env:
-            - name: DATABASE_URL
-              value: {{ include "dograh.databaseUrl" . | quote }}
-            - name: REDIS_URL
-              value: {{ include "dograh.redisUrl" . | quote }}
-            {{- if eq .Values.database.mode "internal" }}
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-postgresql
-                  key: password
-            {{- end }}
-            {{- if eq .Values.redis.mode "internal" }}
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-redisinternal
-                  key: redis-password
-            {{- end }}
+            {{- include "dograh.dbEnv" . | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.workers.livenessProbe | nindent 12 }}
           resources:

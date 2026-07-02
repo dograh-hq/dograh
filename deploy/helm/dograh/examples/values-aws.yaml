@@ -62,10 +62,5 @@ autoscaling:
     minReplicas: 3
     maxReplicas: 12
 
-# Disable bundled deps.
-postgresql:
-  enabled: false
-redisInternal:
-  enabled: false
-minio:
-  enabled: false
+# No bundled deps: the in-chart Postgres/Redis/MinIO manifests are gated on the
+# internal modes, so the external/S3 modes above already keep them from rendering.

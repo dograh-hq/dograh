@@ -42,6 +42,13 @@ spec:
               containerPort: {{ .Values.ui.port }}
               protocol: TCP
           env:
+            # Next.js standalone binds to $HOSTNAME (falls back to 0.0.0.0).
+            # Kubernetes injects HOSTNAME=<pod-name>, which /etc/hosts maps to the
+            # pod IP — so without this, Next listens on the pod IP ONLY. In-cluster
+            # Service traffic still works, but loopback (kubectl port-forward, local
+            # health checks) is refused. Pin to 0.0.0.0 to listen on all interfaces.
+            - name: HOSTNAME
+              value: "0.0.0.0"
             - name: NODE_ENV
               value: "oss"
             - name: BACKEND_URL

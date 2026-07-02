@@ -49,13 +49,11 @@ autoscaling:
     enabled: false
 
 postgresql:
-  primary:
-    persistence:
-      size: 2Gi
-redisInternal:
-  master:
-    persistence:
-      size: 1Gi
+  persistence:
+    size: 2Gi
+redisinternal:
+  persistence:
+    size: 1Gi
 minio:
   persistence:
     size: 5Gi

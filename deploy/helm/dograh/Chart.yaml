@@ -27,21 +27,11 @@ sources:
 maintainers:
   - name: Dograh
 
-# Bundled stateful dependencies. Each is gated by its mode toggle in
-# values.yaml so external-managed deployments do not pull these charts.
-dependencies:
-  - name: postgresql
-    version: "16.x.x"
-    repository: oci://registry-1.docker.io/bitnamicharts
-    condition: postgresql.enabled
-  # Aliased to redisInternal so the dograh-level `redis.mode` toggle does not
-  # collide with the subchart's values namespace.
-  - name: redis
-    alias: redisInternal
-    version: "20.x.x"
-    repository: oci://registry-1.docker.io/bitnamicharts
-    condition: redisInternal.enabled
-  - name: minio
-    version: "16.x.x"
-    repository: oci://registry-1.docker.io/bitnamicharts
-    condition: minio.enabled
+# The bundled stateful deps (PostgreSQL, Redis, MinIO) for the internal/all-in-one
+# modes are plain in-chart manifests (templates/internal-*.yaml) built on official
+# upstream images — NOT subcharts. This avoids depending on third-party chart
+# packaging/registries that can change or disappear (as the Bitnami catalog did in
+# Aug 2025). Production deployments should use the external/managed modes
+# (database.mode=external, redis.mode=external, storage.mode=s3|externalMinio).
+#
+# dependencies: []

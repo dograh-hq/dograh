@@ -112,7 +112,7 @@ export default function CampaignsPage() {
                     <CardHeader>
                         <CardTitle>{t('allCampaigns')}</CardTitle>
                         <CardDescription>
-                            View and manage your campaigns
+                            {t('allCampaignsDesc')}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -127,13 +127,13 @@ export default function CampaignsPage() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead>ID</TableHead>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead>Workflow</TableHead>
-                                            <TableHead>State</TableHead>
-                                            <TableHead>Progress</TableHead>
-                                            <TableHead>Created</TableHead>
-                                            <TableHead className="text-right">Action</TableHead>
+                                            <TableHead>{t('tableId')}</TableHead>
+                                            <TableHead>{t('tableName')}</TableHead>
+                                            <TableHead>{t('tableWorkflow')}</TableHead>
+                                            <TableHead>{t('tableState')}</TableHead>
+                                            <TableHead>{t('tableProgress')}</TableHead>
+                                            <TableHead>{t('tableCreated')}</TableHead>
+                                            <TableHead className="text-right">{t('tableAction')}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -164,7 +164,7 @@ export default function CampaignsPage() {
                                                             handleRowClick(campaign.id);
                                                         }}
                                                     >
-                                                        View
+                                                        {t('viewButton')}
                                                     </Button>
                                                 </TableCell>
                                             </TableRow>

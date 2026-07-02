@@ -399,8 +399,17 @@
     "description": "Manage your campaigns.",
     "createCampaign": "Create Campaign",
     "allCampaigns": "All Campaigns",
+    "allCampaignsDesc": "View and manage your campaigns",
     "empty": "No campaigns found",
-    "createFirst": "Create your first campaign"
+    "createFirst": "Create your first campaign",
+    "tableId": "ID",
+    "tableName": "Name",
+    "tableWorkflow": "Workflow",
+    "tableState": "State",
+    "tableProgress": "Progress",
+    "tableCreated": "Created",
+    "tableAction": "Action",
+    "viewButton": "View"
   },
   "campaignNew": {
     "back": "Back to Campaigns",

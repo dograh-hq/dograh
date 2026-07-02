@@ -61,7 +61,10 @@ class KycStatusResponse(BaseModel):
     enabled: bool
     client_id_configured: bool = False
     has_voicelink_config: bool = False
-    kyc_status: Optional[str] = None
+    # VoiceLink returns this as an int code (0/1) with a separate
+    # kyc_status_label; older responses used a plain string. Accept both —
+    # the routes prefer the label so the UI shows "Pending"/"Verified".
+    kyc_status: Optional[Union[int, str]] = None
     pan_verified: Optional[bool] = None
     aadhaar_verified: Optional[bool] = None
     gst_verified: Optional[bool] = None

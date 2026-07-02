@@ -285,6 +285,77 @@ def test_kyc_status_ok_returns_self_serve_shape():
     assert body["account_type"] == "individual"
 
 
+def test_kyc_status_int_code_with_label_prefers_label():
+    """Live VoiceLink shape: kyc_status is an int code (0/1) + a *_label string.
+
+    This exact shape 500'd in prod (ValidationError: int where Optional[str]
+    was expected) — the schema must accept the code and the route must
+    surface the human label.
+    """
+    app = _make_test_app()
+    client = TestClient(app)
+
+    envelope = {
+        "status": True,
+        "message": "KYC status retrieved successfully.",
+        "data": {
+            "kyc_status": 0,
+            "kyc_status_label": "Pending",
+            "pan_verified": False,
+            "aadhaar_verified": False,
+            "gst_verified": False,
+            "is_complete": False,
+            "current_step": "register",
+            "account_type": None,
+        },
+    }
+    kyc = _kyc_client(get_status=AsyncMock(return_value=envelope))
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch("api.routes.admin_clients.get_kyc_client", return_value=kyc),
+        patch(
+            "api.routes.admin_clients.resolve_org_voicelink_client_id",
+            new=AsyncMock(return_value=("1730", True)),
+        ),
+    ):
+        db.get_organization_by_id = AsyncMock(return_value=_org())
+
+        response = client.get("/admin/clients/5/kyc-status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kyc_status"] == "Pending"
+    assert body["is_complete"] is False
+    assert body["current_step"] == "register"
+
+
+def test_kyc_status_int_code_without_label_passes_through():
+    """No label field → the raw int code must pass schema validation (no 500)."""
+    app = _make_test_app()
+    client = TestClient(app)
+
+    envelope = {
+        "status": True,
+        "message": "ok",
+        "data": {"kyc_status": 1, "is_complete": True},
+    }
+    kyc = _kyc_client(get_status=AsyncMock(return_value=envelope))
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch("api.routes.admin_clients.get_kyc_client", return_value=kyc),
+        patch(
+            "api.routes.admin_clients.resolve_org_voicelink_client_id",
+            new=AsyncMock(return_value=("474", True)),
+        ),
+    ):
+        db.get_organization_by_id = AsyncMock(return_value=_org())
+
+        response = client.get("/admin/clients/5/kyc-status")
+
+    assert response.status_code == 200
+    assert response.json()["kyc_status"] == 1
+
+
 def test_kyc_status_502_when_voicelink_fails():
     app = _make_test_app()
     client = TestClient(app)

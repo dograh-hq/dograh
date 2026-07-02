@@ -488,7 +488,7 @@ async def get_client_kyc_status(
         client_id_configured=True,
         has_voicelink_config=has_voicelink_config,
         client_id=client_id,
-        kyc_status=data.get("kyc_status"),
+        kyc_status=data.get("kyc_status_label") or data.get("kyc_status"),
         pan_verified=data.get("pan_verified"),
         aadhaar_verified=data.get("aadhaar_verified"),
         gst_verified=data.get("gst_verified"),

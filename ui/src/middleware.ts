@@ -1,12 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import createMiddleware from "next-intl/middleware";
 
 import { getServerBackendUrl } from '@/lib/apiClient';
-
-import { routing } from "./i18n/routing";
-
-const intlMiddleware = createMiddleware(routing);
 
 const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 
@@ -45,29 +40,19 @@ async function fetchAuthProvider(): Promise<string> {
 }
 
 export async function middleware(request: NextRequest) {
-  // First: let next-intl handle locale detection/redirect. This always returns
-  // a NextResponse (rewrite for locale-prefixed paths, redirect for bare paths).
-  const intlResponse = intlMiddleware(request);
-
-  // Then: OSS auth check. We run this on every request that hits the middleware.
-  // If auth fails, we override the intl response with a login redirect.
   const authProvider = await fetchAuthProvider();
 
-  // Skip auth guard for non-local providers (Stack/Cloud mode)
+  // Only handle OSS mode
   if (authProvider !== 'local') {
-    return intlResponse;
+    return NextResponse.next();
   }
 
   const token = request.cookies.get(OSS_TOKEN_COOKIE)?.value;
   const { pathname } = request.nextUrl;
 
-  // Strip locale prefix for public path matching
-  // e.g. "/it/auth/login" -> "/auth/login", "/en/workflow" -> "/workflow"
-  const pathWithoutLocale = pathname.replace(/^\/(it|en)(\/|$)/, '/$2');
-
-  // Allow public paths without auth (locale-aware)
-  if (PUBLIC_PATHS.some((p) => pathWithoutLocale.startsWith(p))) {
-    return intlResponse;
+  // Allow public paths without auth
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next();
   }
 
   // If no token, redirect to login
@@ -76,7 +61,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return intlResponse;
+  return NextResponse.next();
 }
 
 // Configure which routes the middleware runs on

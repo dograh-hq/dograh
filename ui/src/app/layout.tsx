@@ -9,7 +9,6 @@ import { Suspense } from "react";
 import itMessages from "../../messages/it.json";
 
 import ChatwootWidget from "@/components/ChatwootWidget";
-import { NextIntlClientProvider } from "next-intl";
 import AppLayout from "@/components/layout/AppLayout";
 import PostHogIdentify from "@/components/PostHogIdentify";
 import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";

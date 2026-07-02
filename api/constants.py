@@ -261,7 +261,13 @@ COUNTRY_CODES = {
     "IE": "353",  # Ireland
 }
 
-DEFAULT_ORG_CONCURRENCY_LIMIT = int(os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", 2))
+DEFAULT_ORG_CONCURRENCY_LIMIT = int(os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", 5))
+# How many simultaneous calls a telephony config supports when it doesn't set
+# max_concurrent_calls itself. VoiceLink capacity is CHANNELS per trunk — one
+# caller-id number can carry as many concurrent calls as there are channels.
+TELEPHONY_DEFAULT_MAX_CONCURRENT_CALLS = int(
+    os.getenv("TELEPHONY_DEFAULT_MAX_CONCURRENT_CALLS", "5")
+)
 DEFAULT_CAMPAIGN_RETRY_CONFIG = {
     "enabled": True,
     "max_retries": 1,

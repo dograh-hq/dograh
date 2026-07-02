@@ -212,6 +212,11 @@ async def _normalize_with_phone_numbers(
 
     addresses = await db_client.list_active_normalized_addresses_for_config(row.id)
     base["from_numbers"] = addresses
+    # Channel capacity of the trunk — providers/dispatcher read this to size
+    # the concurrent-call pool. Set after the loader so a loader with an
+    # allowlist can't drop it.
+    if row.credentials and row.credentials.get("max_concurrent_calls"):
+        base["max_concurrent_calls"] = int(row.credentials["max_concurrent_calls"])
     return base
 
 

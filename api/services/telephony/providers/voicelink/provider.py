@@ -111,6 +111,9 @@ class VoiceLinkProvider(TelephonyProvider):
                 self.password = reseller_pass
         self.did_number = config.get("did_number")
         self.from_numbers = config.get("from_numbers", [])
+        # Trunk channel capacity: how many concurrent calls this config can
+        # carry (one number can serve many channels). None → platform default.
+        self.max_concurrent_calls = config.get("max_concurrent_calls")
 
         # Handle both single number (string) and multiple numbers (list)
         if isinstance(self.from_numbers, str):

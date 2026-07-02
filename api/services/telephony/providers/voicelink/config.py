@@ -51,6 +51,16 @@ class VoiceLinkConfigurationRequest(BaseModel):
             "client. When unset, KYC calls act on the reseller's own KYC."
         ),
     )
+    max_concurrent_calls: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description=(
+            "How many simultaneous calls this trunk supports (VoiceLink "
+            "channels). One number can carry all of them. Unset → platform "
+            "default (5)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _require_credentials(self) -> "VoiceLinkConfigurationRequest":
@@ -73,3 +83,4 @@ class VoiceLinkConfigurationResponse(BaseModel):
     did_number: str
     from_numbers: List[str]
     client_id: Optional[str] = None
+    max_concurrent_calls: Optional[int] = None

@@ -115,6 +115,9 @@ class CampaignCallDispatcher:
                     campaign.organization_id,
                     provider.from_numbers,
                     telephony_configuration_id=campaign.telephony_configuration_id,
+                    max_concurrent_calls=getattr(
+                        provider, "max_concurrent_calls", None
+                    ),
                 )
         except Exception as e:
             logger.warning(f"Failed to initialize from_number pool: {e}")
@@ -247,7 +250,7 @@ class CampaignCallDispatcher:
         self, queued_run: QueuedRunModel, campaign: any, slot_id: str
     ) -> Optional[WorkflowRunModel]:
         """Creates workflow run and initiates call. Requires a pre-acquired slot_id."""
-        from_number = None
+        pool_member = None
 
         # Get workflow details
         workflow = await db_client.get_workflow_by_id(campaign.workflow_id)
@@ -271,14 +274,14 @@ class CampaignCallDispatcher:
         provider = await self.get_provider_for_campaign(campaign)
         workflow_run_mode = provider.PROVIDER_NAME
 
-        # Acquire a unique from_number from the pool scoped to this campaign's
+        # Acquire a channel slot from the pool scoped to this campaign's
         # telephony configuration so orgs with multiple configs don't leak
         # caller IDs across configs.
-        from_number = await self.acquire_from_number(
+        pool_member = await self.acquire_from_number(
             campaign.organization_id,
             telephony_configuration_id=campaign.telephony_configuration_id,
         )
-        if from_number is None:
+        if pool_member is None:
             # Release concurrent slot before raising
             await rate_limiter.release_concurrent_slot(
                 campaign.organization_id, slot_id
@@ -286,6 +289,9 @@ class CampaignCallDispatcher:
             raise PhoneNumberPoolExhaustedError(
                 organization_id=campaign.organization_id
             )
+        # Pool members are "number#slot"; only the bare number may reach the
+        # dial path (providers strip non-digits from the caller id).
+        from_number = rate_limiter.bare_from_number(pool_member)
 
         logger.info(f"Provider name: {provider.PROVIDER_NAME}")
         logger.info(f"Queued run context: {queued_run.context_variables}")
@@ -321,11 +327,12 @@ class CampaignCallDispatcher:
                 workflow_run.id, campaign.organization_id, slot_id
             )
 
-            # Store from_number mapping for cleanup on call completion
+            # Store the pool member (not the bare number) so completion
+            # cleanup releases the exact channel slot that was acquired.
             await rate_limiter.store_workflow_from_number_mapping(
                 workflow_run.id,
                 campaign.organization_id,
-                from_number,
+                pool_member,
                 telephony_configuration_id=campaign.telephony_configuration_id,
             )
         except Exception as e:
@@ -333,10 +340,10 @@ class CampaignCallDispatcher:
             await rate_limiter.release_concurrent_slot(
                 campaign.organization_id, slot_id
             )
-            if from_number:
+            if pool_member:
                 await rate_limiter.release_from_number(
                     campaign.organization_id,
-                    from_number,
+                    pool_member,
                     telephony_configuration_id=campaign.telephony_configuration_id,
                 )
             raise

@@ -5,7 +5,7 @@ from typing import Optional
 import redis.asyncio as aioredis
 from loguru import logger
 
-from api.constants import REDIS_URL
+from api.constants import REDIS_URL, TELEPHONY_DEFAULT_MAX_CONCURRENT_CALLS
 
 
 class RateLimiter:
@@ -251,17 +251,39 @@ class RateLimiter:
     def _from_number_pool_key(
         organization_id: int, telephony_configuration_id: int | None
     ) -> str:
-        return f"from_number_pool:{organization_id}:{telephony_configuration_id}"
+        # v2: members are channel slots ("number#idx"), not bare numbers.
+        # The prefix bump lets stale v1 pools (one slot per number) expire
+        # instead of mixing with slotted members.
+        return f"from_number_pool:v2:{organization_id}:{telephony_configuration_id}"
+
+    @staticmethod
+    def bare_from_number(pool_member: str | None) -> str | None:
+        """Strip the channel-slot suffix from a pool member.
+
+        Pool members are "number#idx". Only the bare number may reach the
+        dial path — providers strip non-digits, so a leaked "#3" would be
+        concatenated into the caller id.
+        """
+        if not pool_member:
+            return pool_member
+        return pool_member.split("#", 1)[0]
 
     async def initialize_from_number_pool(
         self,
         organization_id: int,
         from_numbers: list[str],
         telephony_configuration_id: int | None,
+        max_concurrent_calls: int | None = None,
     ) -> bool:
         """
         Initialize the from_number pool for an organization + telephony config.
-        Uses ZADD NX so it won't overwrite numbers that are already in use.
+        Uses ZADD NX so it won't overwrite slots that are already in use.
+
+        Capacity model: telephony concurrency is bound by trunk CHANNELS, not
+        by how many caller-id numbers exist — one number can carry many
+        concurrent calls. The pool therefore holds ``max_concurrent_calls``
+        slot members ("number#idx"), round-robining the configured numbers
+        across slots, so a single-DID config still dials N calls in parallel.
 
         Pools are scoped per (organization_id, telephony_configuration_id) so
         that orgs with multiple telephony configurations do not leak caller IDs
@@ -270,12 +292,19 @@ class RateLimiter:
         if not from_numbers:
             return False
 
+        capacity = max(
+            1, int(max_concurrent_calls or TELEPHONY_DEFAULT_MAX_CONCURRENT_CALLS)
+        )
+
         redis_client = await self._get_redis()
         key = self._from_number_pool_key(organization_id, telephony_configuration_id)
 
         try:
             # ZADD NX: only add members that don't already exist (preserves in-use scores)
-            members = {number: 0 for number in from_numbers}
+            members = {
+                f"{from_numbers[i % len(from_numbers)]}#{i}": 0
+                for i in range(capacity)
+            }
             await redis_client.zadd(key, members, nx=True)
             await redis_client.expire(key, 3600)  # 1 hour TTL
             return True

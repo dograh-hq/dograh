@@ -8,6 +8,7 @@ export const getDefaultValue = (type: FilterAttribute["type"]): FilterValue => {
     case "multiSelect":
       return { codes: [] };
     case "number":
+    case "numberSelect":
       return { value: null };
     case "numberRange":
       return { min: null, max: null };
@@ -85,6 +86,13 @@ export const validateFilter = (filter: ActiveFilter): string | null => {
       }
       if (config.max !== undefined && value.value > config.max) {
         return `Value cannot be greater than ${config.max}`;
+      }
+      break;
+    }
+    case "numberSelect": {
+      const value = filter.value as NumberValue;
+      if (value.value === null) {
+        return "A value is required";
       }
       break;
     }

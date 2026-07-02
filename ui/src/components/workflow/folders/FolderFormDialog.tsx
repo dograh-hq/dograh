@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { useTranslations } from 'next-intl';
+
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -36,6 +38,7 @@ export function FolderFormDialog({
     submitLabel,
     onSubmit,
 }: FolderFormDialogProps) {
+    const t = useTranslations("workflowList");
     const [name, setName] = useState(initialName);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -67,12 +70,12 @@ export function FolderFormDialog({
                     <DialogTitle>{title}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-2 py-2">
-                    <Label htmlFor="folder-name">Folder name</Label>
+                    <Label htmlFor="folder-name">{t("folderName")}</Label>
                     <Input
                         id="folder-name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        placeholder="e.g. Sales, Support, Onboarding"
+                        placeholder={t("folderNamePlaceholder")}
                         maxLength={100}
                         autoFocus
                         onKeyDown={(e) => {
@@ -85,10 +88,10 @@ export function FolderFormDialog({
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        Cancel
+                        {t("cancel")}
                     </Button>
                     <Button onClick={handleSubmit} disabled={!canSubmit}>
-                        {isSubmitting ? 'Saving...' : submitLabel}
+                        {isSubmitting ? t("saving") : submitLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>

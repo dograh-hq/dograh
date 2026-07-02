@@ -2,6 +2,7 @@
 
 import { Copy } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { duplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePost } from '@/client/sdk.gen';
@@ -17,6 +18,7 @@ interface DuplicateWorkflowTemplateProps {
 }
 
 export function DuplicateWorkflowTemplate({ id, title, description, serverAccessToken }: DuplicateWorkflowTemplateProps) {
+    const t = useTranslations("workflowList");
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
     const { user, getAccessToken } = useAuth();
@@ -74,7 +76,7 @@ export function DuplicateWorkflowTemplate({ id, title, description, serverAccess
                     disabled={isLoading}
                 >
                     <Copy className="w-4 h-4 mr-2" />
-                    {isLoading ? 'Creating...' : 'Duplicate Workflow Template'}
+                    {isLoading ? t("creatingButton") : t("duplicateWorkflowTemplate")}
                 </Button>
             </div>
         </div>

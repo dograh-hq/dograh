@@ -124,7 +124,15 @@
     "subtitle": "Gestisci la configurazione e le integrazioni della piattaforma.",
     "preferences": {
       "title": "Preferenze",
-      "description": "Imposta valori predefiniti a livello di organizzazione, come il numero di telefono di test e il fuso orario."
+      "description": "Imposta valori predefiniti a livello di organizzazione, come il numero di telefono di test e il fuso orario.",
+      "testPhoneNumber": "Numero di Telefono di Test",
+      "testPhoneNumberPlaceholder": "+15551234567",
+      "timezone": "Fuso Orario",
+      "save": "Salva",
+      "saving": "Salvataggio in corso...",
+      "saveSuccess": "Preferenze salvate",
+      "loadError": "Caricamento preferenze organizzazione fallito",
+      "saveError": "Salvataggio preferenze fallito"
     },
     "mcp": {
       "title": "Server MCP",
@@ -134,7 +142,20 @@
     "telemetry": {
       "title": "Telemetria",
       "description": "Configura la tracciatura Langfuse per le chiamate del tuo voice agent.",
-      "learnMore": "Scopri di più"
+      "learnMore": "Scopri di più",
+      "host": "Host",
+      "hostPlaceholder": "https://cloud.langfuse.com",
+      "publicKey": "Chiave Pubblica",
+      "publicKeyPlaceholder": "pk-lf-...",
+      "secretKey": "Chiave Segreta",
+      "secretKeyPlaceholder": "sk-lf-...",
+      "save": "Salva",
+      "saving": "Salvataggio in corso...",
+      "remove": "Rimuovi",
+      "saveSuccess": "Credenziali telemetria salvate",
+      "saveError": "Salvataggio credenziali telemetria fallito",
+      "removeSuccess": "Credenziali telemetria rimosse",
+      "removeError": "Rimozione credenziali telemetria fallita"
     }
   },
   "mcpSection": {

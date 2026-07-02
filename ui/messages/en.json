@@ -124,7 +124,15 @@
     "subtitle": "Manage your platform configuration and integrations.",
     "preferences": {
       "title": "Preferences",
-      "description": "Set organization-wide defaults such as the test phone number and timezone."
+      "description": "Set organization-wide defaults such as the test phone number and timezone.",
+      "testPhoneNumber": "Test Phone Number",
+      "testPhoneNumberPlaceholder": "+15551234567",
+      "timezone": "Timezone",
+      "save": "Save",
+      "saving": "Saving...",
+      "saveSuccess": "Preferences saved",
+      "loadError": "Failed to load organization preferences",
+      "saveError": "Failed to save preferences"
     },
     "mcp": {
       "title": "MCP Server",
@@ -134,7 +142,20 @@
     "telemetry": {
       "title": "Telemetry",
       "description": "Configure Langfuse tracing for your voice agent calls.",
-      "learnMore": "Learn more"
+      "learnMore": "Learn more",
+      "host": "Host",
+      "hostPlaceholder": "https://cloud.langfuse.com",
+      "publicKey": "Public Key",
+      "publicKeyPlaceholder": "pk-lf-...",
+      "secretKey": "Secret Key",
+      "secretKeyPlaceholder": "sk-lf-...",
+      "save": "Save",
+      "saving": "Saving...",
+      "remove": "Remove",
+      "saveSuccess": "Telemetry credentials saved",
+      "saveError": "Failed to save telemetry credentials",
+      "removeSuccess": "Telemetry credentials removed",
+      "removeError": "Failed to remove telemetry credentials"
     }
   },
   "mcpSection": {

@@ -22,6 +22,7 @@ export function TurnMessageActions({
     onRewind,
     onEdit,
 }: TurnMessageActionsProps) {
+    const t = useTranslations("workflowList");
     return (
         <>
             <button

@@ -92,6 +92,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
     AZURE_REALTIME = "azure_realtime"
     SMALLEST = "smallest"
+    XAI = "xai"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -256,6 +257,7 @@ GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
 DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
+XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
 INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Inworld",
     description=(
@@ -1278,6 +1280,32 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
     )
 
 
+XAI_TTS_VOICES = ["eve", "ara", "leo", "rex", "sal"]
+
+
+@register_tts
+class XAITTSConfiguration(BaseServiceConfiguration):
+    model_config = XAI_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.XAI] = ServiceProviders.XAI
+    voice: str = Field(
+        default="eve",
+        description="xAI voice persona.",
+        json_schema_extra={"examples": XAI_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de').",
+        json_schema_extra={"allow_custom_input": True},
+    )
+
+    @computed_field
+    @property
+    def model(self) -> str:
+        # xAI TTS has no separate model selector; the voice fully specifies the
+        # output. A constant keeps the shared `.model` contract satisfied.
+        return "xai-tts"
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1294,6 +1322,7 @@ TTSConfig = Annotated[
         MiniMaxTTSConfiguration,
         AzureSpeechTTSConfiguration,
         SmallestAITTSConfiguration,
+        XAITTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]

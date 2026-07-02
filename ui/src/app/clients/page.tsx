@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  Coins,
   ExternalLink,
   Loader2,
   Phone,
   RefreshCw,
   RotateCcw,
+  ShieldCheck,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -41,8 +43,11 @@ import {
 } from "@/components/ui/tooltip";
 import {
   type AdminClient,
+  type AdminClientKycStatus,
   assignDidToClient,
   createClientForOrg,
+  getClientKycStatus,
+  grantCreditsToClient,
   listAdminClients,
   retryProvisionClient,
 } from "@/lib/adminClients";
@@ -92,6 +97,79 @@ function VoiceLinkStatusBadge({ client }: { client: AdminClient }) {
   );
 }
 
+/** Seconds → "X.X min", or "Unlimited" for unmetered (null) balances. */
+function formatCredits(seconds: number | null | undefined): string {
+  if (seconds == null) return "Unlimited";
+  return `${(seconds / 60).toFixed(1)} min`;
+}
+
+function KycStatusBadge({ status }: { status: AdminClientKycStatus }) {
+  if (status.status === "disabled") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-help">
+            <Badge variant="outline">KYC off</Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <p>VoiceLink reseller credentials are not configured on the backend</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (status.status === "no_client") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-help">
+            <Badge variant="secondary">No client</Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <p>
+            The org has no VoiceLink client id — provision the client first
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  const label = status.is_complete
+    ? "KYC complete"
+    : status.kyc_status ||
+      (status.current_step != null
+        ? `Step ${status.current_step}`
+        : "Not started");
+  const details = [
+    `PAN: ${status.pan_verified ? "verified" : "pending"}`,
+    `Aadhaar: ${status.aadhaar_verified ? "verified" : "pending"}`,
+    ...(status.account_type === "business"
+      ? [`GST: ${status.gst_verified ? "verified" : "pending"}`]
+      : []),
+    ...(status.account_type ? [`Account: ${status.account_type}`] : []),
+  ].join(" · ");
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-help">
+          {status.is_complete ? (
+            <Badge className="bg-emerald-600 hover:bg-emerald-600">
+              {label}
+            </Badge>
+          ) : (
+            <Badge variant="secondary">{label}</Badge>
+          )}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs">
+        <p>{details}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export default function ClientsPage() {
   const { user, getAccessToken, loading: authLoading } = useAuth();
   const hasFetched = useRef(false);
@@ -112,6 +190,16 @@ export default function ClientsPage() {
 
   // One-click create — the org id currently being (re)provisioned
   const [creating, setCreating] = useState<number | null>(null);
+
+  // Grant credits dialog state
+  const [grantTarget, setGrantTarget] = useState<AdminClient | null>(null);
+  const [grantMinutes, setGrantMinutes] = useState("");
+
+  // On-demand per-org KYC status (fetched per row; never in bulk)
+  const [kycStatuses, setKycStatuses] = useState<
+    Record<number, AdminClientKycStatus>
+  >({});
+  const [kycLoading, setKycLoading] = useState<Record<number, boolean>>({});
 
   const fetchClients = useCallback(
     async (showSpinner = false) => {
@@ -148,6 +236,68 @@ export default function ClientsPage() {
   const openRetryDialog = (client: AdminClient) => {
     setRetryTarget(client);
     setRetryPassword("");
+  };
+
+  const openGrantDialog = (client: AdminClient) => {
+    setGrantTarget(client);
+    setGrantMinutes("");
+  };
+
+  const grantMinutesNumber = Number(grantMinutes);
+  const grantMinutesValid =
+    Number.isInteger(grantMinutesNumber) &&
+    grantMinutesNumber >= 1 &&
+    grantMinutesNumber <= 100000;
+
+  const onGrantCredits = async () => {
+    if (!grantTarget || !grantMinutesValid) return;
+    setSubmitting(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Missing access token");
+      const result = await grantCreditsToClient(
+        token,
+        grantTarget.organization_id,
+        grantMinutesNumber,
+      );
+      toast.success(
+        `Granted ${grantMinutesNumber} minute${grantMinutesNumber === 1 ? "" : "s"} — balance is now ${formatCredits(result.credits_seconds_remaining)}`,
+      );
+      // Refresh the row from the authoritative post-grant balance.
+      setClients((prev) =>
+        prev.map((c) =>
+          c.organization_id === result.organization_id
+            ? { ...c, credits_seconds_remaining: result.credits_seconds_remaining }
+            : c,
+        ),
+      );
+      setGrantTarget(null);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to grant credits",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onCheckKyc = async (client: AdminClient) => {
+    setKycLoading((prev) => ({ ...prev, [client.organization_id]: true }));
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Missing access token");
+      const result = await getClientKycStatus(token, client.organization_id);
+      setKycStatuses((prev) => ({
+        ...prev,
+        [client.organization_id]: result,
+      }));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to fetch KYC status",
+      );
+    } finally {
+      setKycLoading((prev) => ({ ...prev, [client.organization_id]: false }));
+    }
   };
 
   const onAssignDid = async () => {
@@ -313,6 +463,8 @@ export default function ClientsPage() {
                   <TableHead className="text-label text-muted-foreground">VoiceLink status</TableHead>
                   <TableHead className="text-label text-muted-foreground">Client ID</TableHead>
                   <TableHead className="text-label text-muted-foreground">DID</TableHead>
+                  <TableHead className="text-label text-muted-foreground">Credits</TableHead>
+                  <TableHead className="text-label text-muted-foreground">KYC</TableHead>
                   <TableHead className="text-label text-right text-muted-foreground">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -356,6 +508,49 @@ export default function ClientsPage() {
                           "—"
                         ))}
                     </TableCell>
+                    <TableCell className="text-sm tabular-nums">
+                      {client.credits_seconds_remaining == null ? (
+                        <span className="text-muted-foreground">Unlimited</span>
+                      ) : (
+                        formatCredits(client.credits_seconds_remaining)
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {kycStatuses[client.organization_id] ? (
+                        <div className="flex items-center gap-1">
+                          <KycStatusBadge
+                            status={kycStatuses[client.organization_id]}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={() => onCheckKyc(client)}
+                            disabled={!!kycLoading[client.organization_id]}
+                          >
+                            {kycLoading[client.organization_id] ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onCheckKyc(client)}
+                          disabled={!!kycLoading[client.organization_id]}
+                        >
+                          {kycLoading[client.organization_id] ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          KYC
+                        </Button>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         {client.live_state !== "active" && (
@@ -380,6 +575,29 @@ export default function ClientsPage() {
                           <Phone className="mr-1 h-3.5 w-3.5" />
                           Assign DID
                         </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openGrantDialog(client)}
+                                disabled={
+                                  client.credits_seconds_remaining == null
+                                }
+                              >
+                                <Coins className="h-3.5 w-3.5" />
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>
+                              {client.credits_seconds_remaining == null
+                                ? "Unmetered org (unlimited) — granting would meter it"
+                                : "Grant call credits (minutes)"}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -483,6 +701,58 @@ export default function ClientsPage() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 Assign DID
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Grant credits dialog */}
+        <Dialog
+          open={grantTarget !== null}
+          onOpenChange={(open) => !open && setGrantTarget(null)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Grant credits</DialogTitle>
+              <DialogDescription>
+                Adds call credits to the metered balance of{" "}
+                {grantTarget?.owner_email ?? "this organization"} (1 credit = 1
+                minute of call time). Current balance:{" "}
+                {formatCredits(grantTarget?.credits_seconds_remaining)}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="grant-minutes">Minutes</Label>
+              <Input
+                id="grant-minutes"
+                type="number"
+                min={1}
+                max={100000}
+                step={1}
+                value={grantMinutes}
+                onChange={(e) => setGrantMinutes(e.target.value)}
+                placeholder="e.g. 60"
+              />
+              <p className="text-xs text-muted-foreground">
+                Whole minutes, between 1 and 100,000.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setGrantTarget(null)}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={onGrantCredits}
+                disabled={submitting || !grantMinutesValid}
+              >
+                {submitting && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Grant credits
               </Button>
             </DialogFooter>
           </DialogContent>

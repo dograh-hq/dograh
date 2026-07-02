@@ -49,6 +49,7 @@ def _org(**overrides):
         "voicelink_username": "jane.5",
         "voicelink_error": "No channels available",
         "voicelink_provision_secret": None,
+        "free_call_seconds_remaining": None,
         "users": [
             SimpleNamespace(id=9, provider_id="oss_abc", email="jane@example.test")
         ],

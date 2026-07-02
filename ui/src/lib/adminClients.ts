@@ -29,6 +29,8 @@ export interface AdminClient {
   // Live reconciliation against VoiceLink.
   live_state: VoiceLinkLiveState;
   live_client_id?: string | null;
+  // Remaining call-seconds balance; null = unmetered (unlimited).
+  credits_seconds_remaining?: number | null;
 }
 
 export interface AdminClientsListResult {
@@ -60,6 +62,31 @@ export interface AssignDidResult {
   created: boolean;
   did_number: string;
   client_id?: string | null;
+}
+
+export interface GrantCreditsResult {
+  organization_id: number;
+  granted_seconds: number;
+  credits_seconds_remaining?: number | null;
+}
+
+// "ok" = fetched from VoiceLink | "no_client" = org has no VoiceLink client
+// id | "disabled" = reseller credentials unset on the backend.
+export type AdminKycState = "ok" | "no_client" | "disabled";
+
+export interface AdminClientKycStatus {
+  status: AdminKycState;
+  enabled: boolean;
+  client_id_configured?: boolean;
+  has_voicelink_config?: boolean;
+  client_id?: string | null;
+  kyc_status?: string | null;
+  pan_verified?: boolean | null;
+  aadhaar_verified?: boolean | null;
+  gst_verified?: boolean | null;
+  is_complete?: boolean | null;
+  current_step?: number | string | null;
+  account_type?: string | null;
 }
 
 function backendUrl(): string {
@@ -135,3 +162,16 @@ export const assignDidToClient = (
     method: "POST",
     body: JSON.stringify(body),
   });
+
+export const grantCreditsToClient = (
+  token: string,
+  organizationId: number,
+  minutes: number,
+) =>
+  adminFetch<GrantCreditsResult>(token, `/${organizationId}/grant-credits`, {
+    method: "POST",
+    body: JSON.stringify({ minutes }),
+  });
+
+export const getClientKycStatus = (token: string, organizationId: number) =>
+  adminFetch<AdminClientKycStatus>(token, `/${organizationId}/kyc-status`);

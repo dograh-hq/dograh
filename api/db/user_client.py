@@ -65,6 +65,14 @@ class UserClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def get_user_by_provider_id(self, provider_id: str) -> UserModel | None:
+        """Fetch a user by their auth-provider ID — read-only, never creates."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserModel).where(UserModel.provider_id == provider_id)
+            )
+            return result.scalars().first()
+
     async def _get_user_configuration_row(
         self, session, user_id: int, key: str
     ) -> UserConfigurationModel | None:

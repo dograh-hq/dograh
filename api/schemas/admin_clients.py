@@ -5,6 +5,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from api.schemas.kyc import KycStatusResponse
+
 
 class AdminClientItem(BaseModel):
     organization_id: int
@@ -24,6 +26,8 @@ class AdminClientItem(BaseModel):
     # creds unset) | "unknown" (reseller lookup failed → stored status shown).
     live_state: str = "unknown"
     live_client_id: Optional[str] = None
+    # Remaining call-seconds balance; None = unmetered (unlimited).
+    credits_seconds_remaining: Optional[int] = None
 
 
 class AdminClientsListResponse(BaseModel):
@@ -95,4 +99,39 @@ class AssignDidResponse(BaseModel):
     configuration_id: int
     created: bool
     did_number: str
+    client_id: Optional[str] = None
+
+
+class GrantCreditsRequest(BaseModel):
+    """Top-up for a metered org's call-credits balance (1 credit = 1 minute)."""
+
+    minutes: int = Field(
+        ...,
+        ge=1,
+        le=100_000,
+        description="Minutes of call credit to grant (converted to seconds).",
+    )
+
+
+class GrantCreditsResponse(BaseModel):
+    organization_id: int
+    granted_seconds: int
+    # Balance after the grant; never None here (unmetered orgs are rejected).
+    credits_seconds_remaining: Optional[int] = None
+
+
+class AdminKycStatusResponse(KycStatusResponse):
+    """Per-org KYC status for the admin Clients view.
+
+    Same shape as the self-serve ``GET /kyc/status`` response plus a
+    ``status`` discriminator:
+
+    - ``ok`` — the org's VoiceLink ``client_id`` resolved and the KYC status
+      was fetched from VoiceLink.
+    - ``no_client`` — the org has no resolvable VoiceLink client id (KYC
+      would act on the reseller's own account, so we don't fetch).
+    - ``disabled`` — reseller credentials are not configured.
+    """
+
+    status: str = "ok"
     client_id: Optional[str] = None

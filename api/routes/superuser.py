@@ -5,10 +5,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
+from api.constants import AUTH_PROVIDER
 from api.db import db_client
 from api.db.models import UserModel
+from api.schemas.auth import UserResponse
 from api.services.auth.depends import get_superuser
 from api.services.auth.stack_auth import stackauth
+from api.utils.auth import create_jwt_token
 
 router = APIRouter(prefix="/superuser", tags=["superuser"])
 
@@ -25,8 +28,18 @@ class ImpersonateRequest(BaseModel):
 
 
 class ImpersonateResponse(BaseModel):
-    refresh_token: str
+    """Impersonation session tokens.
+
+    ``provider`` tells the UI which cookie flow to run: Stack returns both
+    tokens (refresh cookie flow); local mode returns an OSS JWT in
+    ``access_token`` plus the target ``user`` for the session cookie, and no
+    refresh token.
+    """
+
+    provider: str = "stack"  # "stack" | "local"
+    refresh_token: str | None = None
     access_token: str
+    user: UserResponse | None = None  # local mode only
 
 
 class SuperuserWorkflowRunResponse(BaseModel):
@@ -56,14 +69,70 @@ class SuperuserWorkflowRunsListResponse(BaseModel):
     total_pages: int
 
 
+async def _impersonate_local(
+    request: ImpersonateRequest, superuser: UserModel
+) -> ImpersonateResponse:
+    """Local (OSS email/password) impersonation: mint an OSS JWT for the target.
+
+    Accepts the same identifiers as the Stack path (``provider_user_id`` takes
+    precedence over ``user_id``); an email pasted into the provider-id field is
+    resolved too. Refuses to impersonate another superuser.
+    """
+    target: UserModel | None = None
+    if request.provider_user_id:
+        target = await db_client.get_user_by_provider_id(request.provider_user_id)
+        if target is None and "@" in request.provider_user_id:
+            target = await db_client.get_user_by_email(request.provider_user_id)
+        if target is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User '{request.provider_user_id}' not found.",
+            )
+    elif request.user_id is not None:
+        target = await db_client.get_user_by_id(request.user_id)
+        if target is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with ID {request.user_id} not found.",
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either 'provider_user_id' or 'user_id' must be provided.",
+        )
+
+    if target.is_superuser and target.id != superuser.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Refusing to impersonate another superuser.",
+        )
+
+    access_token = create_jwt_token(target.id, target.email or "")
+    return ImpersonateResponse(
+        provider="local",
+        access_token=access_token,
+        user=UserResponse(
+            id=target.id,
+            email=target.email,
+            organization_id=target.selected_organization_id,
+            provider_id=target.provider_id,
+            is_superuser=bool(target.is_superuser),
+        ),
+    )
+
+
 @router.post("/impersonate")
 async def impersonate(
     request: ImpersonateRequest, user: UserModel = Depends(get_superuser)
 ) -> ImpersonateResponse:
     """Impersonate a user as a super-admin.
     Internally, Stack Auth requires the **provider user ID** (a UUID-ish string)
-    to create an impersonation session.
+    to create an impersonation session. In local auth mode we instead mint an
+    OSS JWT for the target user (``provider: "local"`` in the response).
     """
+
+    if AUTH_PROVIDER == "local":
+        return await _impersonate_local(request, user)
 
     provider_user_id: str | None = request.provider_user_id
 

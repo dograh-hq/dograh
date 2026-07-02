@@ -144,6 +144,36 @@ export async function impersonateAsSuperadmin(params: {
     },
   });
 
+  // ---------------------------------------------------------------------------------
+  // Local (OSS email/password) auth mode: the backend returns
+  // `{provider: "local", access_token, user}` instead of a Stack session. The
+  // generated client types predate the `provider` field, hence the cast.
+  // Local sessions live in the browser-wide `dograh_auth_token` cookie (no
+  // per-sub-domain scoping like Stack), so impersonation REPLACES the current
+  // superadmin session: set the cookie via the session route and hard-redirect.
+  // ---------------------------------------------------------------------------------
+  const localData = resp.data as
+    | { provider?: string; access_token?: string; user?: Record<string, unknown> }
+    | undefined;
+  if (localData?.provider === 'local') {
+    if (!localData.access_token) {
+      throw new Error('No access token returned from impersonate');
+    }
+    const sessionResp = await fetch('/api/auth/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: localData.access_token,
+        user: localData.user ?? null,
+      }),
+    });
+    if (!sessionResp.ok) {
+      throw new Error('Failed to store the impersonated session');
+    }
+    window.location.href = '/';
+    return;
+  }
+
   const refreshToken = resp.data?.refresh_token;
   if (!refreshToken) {
     throw new Error('No refresh token returned from impersonate');

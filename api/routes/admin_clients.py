@@ -17,10 +17,13 @@ from api.db.models import OrganizationModel, UserModel
 from api.schemas.admin_clients import (
     AdminClientItem,
     AdminClientsListResponse,
+    AdminKycStatusResponse,
     AssignDidRequest,
     AssignDidResponse,
     CreateClientRequest,
     CreateClientResponse,
+    GrantCreditsRequest,
+    GrantCreditsResponse,
     RetryProvisionRequest,
     RetryProvisionResponse,
 )
@@ -33,6 +36,11 @@ from api.services.voicelink_clients import (
     provision_voicelink_client,
 )
 from api.services.voicelink_clients.secrets import decrypt_provision_secret
+from api.services.voicelink_kyc import (
+    VoiceLinkKycError,
+    get_kyc_client,
+    resolve_org_voicelink_client_id,
+)
 from api.services.voicelink_kyc.client import DEFAULT_VOICELINK_API_BASE
 
 router = APIRouter(prefix="/admin/clients", tags=["admin-clients"])
@@ -182,6 +190,7 @@ async def list_clients(
                 did_number=did_number,
                 live_state=live_state,
                 live_client_id=live_client_id,
+                credits_seconds_remaining=organization.free_call_seconds_remaining,
             )
         )
 
@@ -399,4 +408,91 @@ async def assign_did(
         created=created,
         did_number=request.did_number,
         client_id=str(client_id) if client_id else None,
+    )
+
+
+@router.post("/{org_id}/grant-credits", response_model=GrantCreditsResponse)
+async def grant_credits(
+    org_id: int,
+    request: GrantCreditsRequest,
+    user: UserModel = Depends(get_superuser),
+) -> GrantCreditsResponse:
+    """Top up a metered org's call-credits balance (1 credit = 60 seconds).
+
+    Unmetered orgs (NULL balance = unlimited) are rejected with 409: crediting
+    them would silently convert unlimited to metered (``add_call_seconds``
+    COALESCEs NULL to 0 before adding).
+    """
+    organization = await db_client.get_organization_by_id(org_id)
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    if organization.free_call_seconds_remaining is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Organization is unmetered (unlimited credits); granting "
+                "credits would convert it to a metered balance. Refusing."
+            ),
+        )
+
+    granted_seconds = request.minutes * 60
+    new_balance = await db_client.add_call_seconds(org_id, granted_seconds)
+    logger.info(
+        f"Superuser {user.id} granted {request.minutes} minutes "
+        f"({granted_seconds}s) to org {org_id}; balance now {new_balance}s"
+    )
+    return GrantCreditsResponse(
+        organization_id=org_id,
+        granted_seconds=granted_seconds,
+        credits_seconds_remaining=new_balance,
+    )
+
+
+@router.get("/{org_id}/kyc-status", response_model=AdminKycStatusResponse)
+async def get_client_kyc_status(
+    org_id: int,
+    user: UserModel = Depends(get_superuser),
+) -> AdminKycStatusResponse:
+    """On-demand KYC status for a single client org (one VoiceLink call).
+
+    Resolves the org's VoiceLink ``client_id`` exactly like the self-serve
+    KYC routes do (``resolve_org_voicelink_client_id``). Fetched per row on
+    demand rather than in the list endpoint to avoid N upstream calls.
+    """
+    organization = await db_client.get_organization_by_id(org_id)
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    kyc_client = get_kyc_client()
+    if not kyc_client.is_configured:
+        return AdminKycStatusResponse(status="disabled", enabled=False)
+
+    client_id, has_voicelink_config = await resolve_org_voicelink_client_id(org_id)
+    if not client_id:
+        return AdminKycStatusResponse(
+            status="no_client",
+            enabled=True,
+            has_voicelink_config=has_voicelink_config,
+        )
+
+    try:
+        envelope = await kyc_client.get_status(client_id)
+    except VoiceLinkKycError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    data = envelope.get("data") or {}
+    return AdminKycStatusResponse(
+        status="ok",
+        enabled=True,
+        client_id_configured=True,
+        has_voicelink_config=has_voicelink_config,
+        client_id=client_id,
+        kyc_status=data.get("kyc_status"),
+        pan_verified=data.get("pan_verified"),
+        aadhaar_verified=data.get("aadhaar_verified"),
+        gst_verified=data.get("gst_verified"),
+        is_complete=data.get("is_complete"),
+        current_step=data.get("current_step"),
+        account_type=data.get("account_type"),
     )

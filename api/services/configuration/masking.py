@@ -215,6 +215,44 @@ def mask_workflow_definition(workflow_definition: Optional[Dict]) -> Optional[Di
     return masked
 
 
+def strip_masked_workflow_secrets(
+    workflow_definition: Optional[Dict],
+) -> Optional[Dict]:
+    """Return a copy of *workflow_definition* with masked secret placeholders removed.
+
+    An exported/fetched definition carries masks (``****cdef``) in node secret
+    fields. On create/import there is no stored counterpart to merge the real
+    key back from, so persisting the payload as-is would store the mask as the
+    literal key. Dropping the field leaves the imported copy with no secret,
+    for the owner to re-enter.
+    """
+    if not workflow_definition:
+        return workflow_definition
+
+    stripped = copy.deepcopy(workflow_definition)
+    nodes = stripped.get("nodes")
+    if not isinstance(nodes, list):
+        return stripped
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        secret_fields = _secret_fields_for_node_type(node.get("type"))
+        if not secret_fields:
+            continue
+        data = node.get("data")
+        if not isinstance(data, dict):
+            continue
+        for field in secret_fields:
+            value = data.get(field)
+            if isinstance(value, str) and MASK_MARKER in value:
+                data.pop(field, None)
+            elif isinstance(value, list) and any(
+                isinstance(item, str) and MASK_MARKER in item for item in value
+            ):
+                data.pop(field, None)
+    return stripped
+
+
 def merge_workflow_api_keys(
     incoming_definition: Optional[Dict], existing_definition: Optional[Dict]
 ) -> Optional[Dict]:

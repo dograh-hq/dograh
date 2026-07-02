@@ -33,6 +33,7 @@ from api.services.configuration.masking import (
     mask_workflow_configurations,
     mask_workflow_definition,
     merge_workflow_api_keys,
+    strip_masked_workflow_secrets,
 )
 from api.services.configuration.merge import merge_workflow_configuration_secrets
 from api.services.configuration.resolve import (
@@ -402,9 +403,13 @@ async def create_workflow(
         request: The create workflow request
         user: The user to create the workflow for
     """
+    # An uploaded/exported definition carries masked secrets ("****cdef") from
+    # fetch-time masking; there is no stored counterpart to merge them against
+    # on create, so drop them rather than persisting the mask as a real key.
+    workflow_definition = strip_masked_workflow_secrets(request.workflow_definition)
     # Auto-mint trigger_path for any trigger node that didn't ship one so
     # clients don't need to generate UUIDs themselves.
-    workflow_definition = ensure_trigger_paths(request.workflow_definition)
+    workflow_definition = ensure_trigger_paths(workflow_definition)
     trigger_path_issues = validate_trigger_paths(workflow_definition)
     if trigger_path_issues:
         raise _trigger_path_validation_http_exception(trigger_path_issues)

@@ -52,7 +52,10 @@ export function UploadWorkflowButton() {
                 }
             }
 
-            if (!user) return;
+            if (!user) {
+                setError('Still signing you in — try again in a moment.');
+                return;
+            }
             const accessToken = await getAccessToken();
             const response = await createWorkflowApiV1WorkflowCreateDefinitionPost({
                 body: {
@@ -107,6 +110,9 @@ export function UploadWorkflowButton() {
 
     const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
+        // Reset the input so picking the SAME file again re-fires onChange —
+        // otherwise a retry after a failed upload does nothing at all.
+        e.target.value = '';
         if (file) {
             handleFileUpload(file);
         }

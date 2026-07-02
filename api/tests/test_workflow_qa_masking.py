@@ -2,6 +2,7 @@ from api.services.configuration.masking import (
     mask_key,
     mask_workflow_definition,
     merge_workflow_api_keys,
+    strip_masked_workflow_secrets,
 )
 
 
@@ -302,3 +303,70 @@ class TestMaskAndMergeRoundTrip:
 
         merged = merge_workflow_api_keys(fetched, stored)
         assert merged["nodes"][0]["data"]["qa_api_key"] == new_key
+
+
+# ---------------------------------------------------------------------------
+# strip_masked_workflow_secrets (upload/import path — no stored counterpart)
+# ---------------------------------------------------------------------------
+
+
+class TestStripMaskedWorkflowSecrets:
+    def test_masked_qa_key_is_dropped(self):
+        """A masked placeholder must not survive an import as a literal key."""
+        masked_val = mask_key("sk-proj-abcdefghijklmnop")
+        wf = _make_workflow_def([_qa_node(api_key=masked_val)])
+
+        result = strip_masked_workflow_secrets(wf)
+
+        assert "qa_api_key" not in result["nodes"][0]["data"]
+
+    def test_real_key_is_kept(self):
+        """A real (unmasked) key uploads unchanged."""
+        wf = _make_workflow_def([_qa_node(api_key="sk-proj-realkey1234")])
+
+        result = strip_masked_workflow_secrets(wf)
+
+        assert result["nodes"][0]["data"]["qa_api_key"] == "sk-proj-realkey1234"
+
+    def test_masked_tuner_key_is_dropped(self):
+        masked_val = mask_key("tuner_live_abcdefghijklmnop")
+        wf = _make_workflow_def([_tuner_node(api_key=masked_val)])
+
+        result = strip_masked_workflow_secrets(wf)
+
+        assert "tuner_api_key" not in result["nodes"][0]["data"]
+
+    def test_prompt_with_asterisks_untouched(self):
+        """Only designated secret fields are inspected — prompts with *** stay."""
+        node = _agent_node()
+        node["data"]["prompt"] = "Say ***IMPORTANT*** before every answer"
+        wf = _make_workflow_def([node])
+
+        result = strip_masked_workflow_secrets(wf)
+
+        assert (
+            result["nodes"][0]["data"]["prompt"]
+            == "Say ***IMPORTANT*** before every answer"
+        )
+
+    def test_does_not_mutate_original(self):
+        masked_val = mask_key("sk-proj-abcdefghijklmnop")
+        wf = _make_workflow_def([_qa_node(api_key=masked_val)])
+
+        strip_masked_workflow_secrets(wf)
+
+        assert wf["nodes"][0]["data"]["qa_api_key"] == masked_val
+
+    def test_none_definition(self):
+        assert strip_masked_workflow_secrets(None) is None
+
+    def test_malformed_nodes_tolerated(self):
+        """Raw client input may contain garbage — never raise."""
+        wf = {
+            "nodes": ["garbage", {"type": "qa", "data": "not-a-dict"}, 42],
+            "edges": [],
+        }
+
+        result = strip_masked_workflow_secrets(wf)
+
+        assert result["nodes"] == ["garbage", {"type": "qa", "data": "not-a-dict"}, 42]

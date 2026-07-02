@@ -142,7 +142,7 @@ export default function TelephonyConfigurationsPage() {
         },
       );
       if (res.error) throw new Error(detailFromError(res.error));
-      toast.success("Configuration deleted");
+      toast.success(t('deleteSuccess'));
       setDeleteTarget(null);
       fetchItems();
     } catch (err) {
@@ -168,18 +168,12 @@ export default function TelephonyConfigurationsPage() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="space-y-1 text-sm">
-                <p className="font-medium">Webhook public key not configured</p>
+                <p className="font-medium">{t('webhookWarningTitle')}</p>
                 <p>
                   {telnyxMissingWebhookPublicKeyCount === 1
-                    ? "1 Telnyx configuration is"
-                    : `${telnyxMissingWebhookPublicKeyCount} Telnyx configurations are`}{" "}
-                  missing a webhook public key. Without it, Telnyx call status
-                  updates and inbound calls are being rejected. Copy your
-                  public key from{" "}
-                  <span className="whitespace-nowrap">
-                    Mission Control Portal → Keys &amp; Credentials → Public Key
-                  </span>{" "}
-                  and paste it into the affected Telnyx configuration below.
+                    ? t('telnyxCount', { count: telnyxMissingWebhookPublicKeyCount })
+                    : t('telnyxCountPlural', { count: telnyxMissingWebhookPublicKeyCount })}{" "}
+                  {t('telnyxWarningBody', { portal: t('telnyxPortal') })}
                 </p>
               </div>
             </div>
@@ -191,15 +185,12 @@ export default function TelephonyConfigurationsPage() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="space-y-1 text-sm">
-                <p className="font-medium">Signature secret not configured</p>
+                <p className="font-medium">{t('signatureWarningTitle')}</p>
                 <p>
                   {vonageMissingSignatureSecretCount === 1
-                    ? "1 Vonage configuration is"
-                    : `${vonageMissingSignatureSecretCount} Vonage configurations are`}{" "}
-                  missing a signature secret. Without it, Vonage signed webhooks
-                  are rejected, so inbound calls and call status updates will not
-                  work. Copy the signature secret from your Vonage account and
-                  paste it into the affected Vonage configuration below.
+                    ? t('vonageCount', { count: vonageMissingSignatureSecretCount })
+                    : t('vonageCountPlural', { count: vonageMissingSignatureSecretCount })}{" "}
+                  {t('vonageWarningBody')}
                 </p>
               </div>
             </div>

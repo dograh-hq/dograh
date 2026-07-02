@@ -165,7 +165,17 @@
     "cancel": "Cancel",
     "confirmDelete": "Delete",
     "configIdCopied": "Configuration ID copied",
-    "failedToLoad": "Failed to load configurations"
+    "failedToLoad": "Failed to load configurations",
+    "webhookWarningTitle": "Webhook public key not configured",
+    "telnyxCount": "{count} Telnyx configuration is",
+    "telnyxCountPlural": "{count} Telnyx configurations are",
+    "telnyxWarningBody": "missing a webhook public key. Without it, Telnyx call status updates and inbound calls are being rejected. Copy your public key from {portal} and paste it into the affected Telnyx configuration below.",
+    "telnyxPortal": "Mission Control Portal \u2192 Keys & Credentials \u2192 Public Key",
+    "signatureWarningTitle": "Signature secret not configured",
+    "vonageCount": "{count} Vonage configuration is",
+    "vonageCountPlural": "{count} Vonage configurations are",
+    "vonageWarningBody": "missing a signature secret. Without it, Vonage signed webhooks are rejected, so inbound calls and call status updates will not work. Copy the signature secret from your Vonage account and paste it into the affected Vonage configuration below.",
+    "deleteSuccess": "Configuration deleted"
   },
   "telephonyDetail": {
     "back": "Back",

@@ -7,8 +7,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { PhoneInput } from 'react-international-phone';
 
-import { useTranslations } from 'next-intl';
-
 import {
     getPreferencesApiV1OrganizationsPreferencesGet,
     initiateCallApiV1TelephonyInitiateCallPost,
@@ -56,7 +54,6 @@ export const PhoneCallDialog = ({
     workflowId,
     user,
 }: PhoneCallDialogProps) => {
-    const t = useTranslations("workflowList");
     const router = useRouter();
     const { refreshConfig } = useUserConfig();
     const [preferences, setPreferences] = useState<OrganizationPreferences>({});
@@ -284,7 +281,7 @@ export const PhoneCallDialog = ({
     const renderLoading = () => (
         <>
             <DialogHeader>
-                <DialogTitle>{t("phoneCall")}</DialogTitle>
+                <DialogTitle>Phone Call</DialogTitle>
             </DialogHeader>
             <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -296,7 +293,7 @@ export const PhoneCallDialog = ({
     const renderConfigurationNeeded = () => (
         <>
             <DialogHeader>
-                <DialogTitle>{t("configureTelephony")}</DialogTitle>
+                <DialogTitle>Configure Telephony</DialogTitle>
                 <DialogDescription>
                     You need to configure your telephony settings before making phone calls.
                     You will be redirected to the telephony configuration page.
@@ -317,9 +314,9 @@ export const PhoneCallDialog = ({
     const renderPhoneCallForm = () => (
         <>
             <DialogHeader>
-                <DialogTitle>{t("phoneCall")}</DialogTitle>
+                <DialogTitle>Phone Call</DialogTitle>
                 <DialogDescription>
-                    {t("phoneCallDescription")}
+                    Enter the phone number or SIP endpoint to call. The number will be saved automatically.
                 </DialogDescription>
             </DialogHeader>
             {telephonyConfigs.length > 0 && (
@@ -367,7 +364,7 @@ export const PhoneCallDialog = ({
                         </Select>
                     ) : (
                         <div className="text-xs text-muted-foreground">
-                            {t("noPhoneNumbers")}
+                            No phone numbers in this configuration. The provider will pick one automatically.
                         </div>
                     )}
                 </div>
@@ -400,23 +397,23 @@ export const PhoneCallDialog = ({
                         router.push('/telephony-configurations');
                     }}
                 >
-                    {t("configureTelephony")}
+                    Configure Telephony
                 </Button>
                 <div className="flex gap-2 flex-1 justify-end">
                     <DialogClose asChild>
-                        <Button variant="outline">{t("cancel")}</Button>
+                        <Button variant="outline">Cancel</Button>
                     </DialogClose>
                     {!callSuccessMsg ? (
                         <Button
                             onClick={handleStartCall}
                             disabled={callLoading || !phoneNumber}
                         >
-                            {callLoading ? t("calling") : t("startCall")}
+                            {callLoading ? "Calling..." : "Start Call"}
                         </Button>
                     ) : (
                         <>
                             <Button variant="outline" onClick={() => { setCallSuccessMsg(null); setCallError(null); }}>
-                                {t("callAgain")}
+                                Call Again
                             </Button>
                             <Button onClick={() => onOpenChange(false)}>
                                 Close

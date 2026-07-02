@@ -52,7 +52,6 @@ export const VersionHistoryPanel = ({
     loadingMore,
     onLoadMore,
 }: VersionHistoryPanelProps) => {
-    const t = useTranslations("workflowList");
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && isOpen) {
@@ -142,7 +141,7 @@ export const VersionHistoryPanel = ({
                                 {loadingMore ? (
                                     <LoaderCircle className="w-4 h-4 animate-spin" />
                                 ) : (
-                                    t("loadMore")
+                                    "Load more"
                                 )}
                             </Button>
                         )}

@@ -4,7 +4,6 @@ import { Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useTranslations } from 'next-intl';
 
 interface ChatComposerProps {
     composerId: string;
@@ -14,7 +13,7 @@ interface ChatComposerProps {
     sendingMessage: boolean;
     inputDisabled: boolean;
     onDraftChange: (value: string) => void;
-    on{t("cancel")}Editing: () => void;
+    onCancelEditing: () => void;
     onSubmit: () => Promise<void> | void;
 }
 
@@ -26,21 +25,21 @@ export function ChatComposer({
     sendingMessage,
     inputDisabled,
     onDraftChange,
-    on{t("cancel")}Editing,
+    onCancelEditing,
     onSubmit,
 }: ChatComposerProps) {
     return (
         <div className="pt-3">
             {editing ? (
                 <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-                    <span>{t("chatEditHint")}</span>
+                    <span>Edit the selected user message, then press Enter to rerun from that point.</span>
                     <button
                         type="button"
-                        onClick={on{t("cancel")}Editing}
+                        onClick={onCancelEditing}
                         className="inline-flex items-center gap-1 rounded text-foreground hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     >
                         <X className="h-3.5 w-3.5" />
-                        {t("cancel")}
+                        Cancel
                     </button>
                 </div>
             ) : null}
@@ -49,12 +48,11 @@ export function ChatComposer({
                     id={composerId}
                     value={draft}
                     onChange={(event) => onDraftChange(event.target.value)}
-                    placeholder={ready ? (editing ? "{t("chatEditPlaceholder")}" : "{t("chat{t("chatSend")}Placeholder")}") : "{t("chatPreparing")}"}
+                    placeholder={ready ? (editing ? "Edit and rerun this message..." : "Send a message...") : "Preparing chat..."}
                     rows={1}
                     className="min-h-11! resize-none pr-20 text-sm leading-6"
                     disabled={inputDisabled}
                     onKeyDown={(event) => {
-    const t = useTranslations("workflowList");
                         if (event.key === "Enter" && !event.shiftKey) {
                             event.preventDefault();
                             if (sendingMessage) return;
@@ -72,10 +70,10 @@ export function ChatComposer({
                     {sendingMessage ? (
                         <>
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            {editing ? "{t("chat{t("chatRerun")}ning")}" : "{t("chat{t("chatSend")}ing")}"}
+                            {editing ? "Rerunning" : "Sending"}
                         </>
                     ) : (
-                        editing ? "{t("chatRerun")}" : "{t("chatSend")}"
+                        editing ? "Rerun" : "Send"
                     )}
                 </Button>
             </div>

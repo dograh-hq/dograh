@@ -1,6 +1,5 @@
 import { AlertCircle, CreditCard, ExternalLink, Key } from "lucide-react";
 
-import { useTranslations } from 'next-intl';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -25,22 +24,21 @@ export const ApiKeyErrorDialog = ({
     onNavigateToDevelopers,
     onNavigateToModelConfig,
 }: ApiKeyErrorDialogProps) => {
-    const t = useTranslations("workflowList");
     const isBillingCreditsError = errorCode === 'insufficient_credits';
     const isServiceKeyOrgMismatch = errorCode === 'service_key_org_mismatch';
     const isQuotaError = isBillingCreditsError || errorCode === 'quota_exceeded';
 
     const title = isQuotaError
-        ? "{t("insufficientCredits")}"
+        ? "Insufficient Credits"
         : isServiceKeyOrgMismatch
-            ? "{t("serviceTokenMismatch")}"
-            : "{t("apiConfigError")}";
+            ? "Service Token Account Mismatch"
+            : "API Configuration Error";
     const icon = isQuotaError ? <CreditCard className="h-5 w-5 text-orange-500" /> : <Key className="h-5 w-5 text-red-500" />;
     const buttonText = isBillingCreditsError
-        ? "{t("goToBilling")}"
+        ? "Go to Billing"
         : isServiceKeyOrgMismatch
-            ? "{t("goToDevelopers")}"
-            : "{t("goToModelConfig")}";
+            ? "Go to Developers"
+            : "Go to Model Configurations";
     const onNavigate = isBillingCreditsError
         ? onNavigateToBilling
         : isServiceKeyOrgMismatch
@@ -81,7 +79,7 @@ export const ApiKeyErrorDialog = ({
                 </DialogHeader>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        {t("cancel")}
+                        Cancel
                     </Button>
                     <Button onClick={onNavigate}>
                         {buttonText}

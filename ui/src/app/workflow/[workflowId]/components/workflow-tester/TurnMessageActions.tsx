@@ -3,7 +3,6 @@
 import { Loader2, Pencil, RotateCcw } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { useTranslations } from 'next-intl';
 
 interface TurnMessageActionsProps {
     disabled: boolean;
@@ -22,15 +21,14 @@ export function TurnMessageActions({
     onRewind,
     onEdit,
 }: TurnMessageActionsProps) {
-    const t = useTranslations("workflowList");
     return (
         <>
             <button
                 type="button"
                 onClick={onRewind}
                 disabled={disabled}
-                aria-label={t("rerunTurn")}
-                title={t("rerunTurn")}
+                aria-label="Rerun this turn"
+                title="Rerun this turn"
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
             >
                 {rewinding ? (
@@ -43,8 +41,8 @@ export function TurnMessageActions({
                 type="button"
                 onClick={onEdit}
                 disabled={disabled}
-                aria-label={t("editRerunTurn")}
-                title={t("editRerunTurn")}
+                aria-label="Edit and rerun this turn"
+                title="Edit and rerun this turn"
                 className={cn(
                     "inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50",
                     editing && "bg-muted text-foreground",

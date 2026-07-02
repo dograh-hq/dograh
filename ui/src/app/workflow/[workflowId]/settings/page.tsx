@@ -1,7 +1,6 @@
 "use client";
 
 import { format } from "date-fns";
-import { useTranslations } from 'next-intl';
 import { ArrowLeft, BookA, Brain, CalendarIcon, Clipboard, Download, ExternalLink, FileDown, Fingerprint, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -1330,7 +1329,6 @@ function WorkflowModelOverridesSection({
 // ---------------------------------------------------------------------------
 
 export default function WorkflowSettingsPage() {
-    const t = useTranslations("workflowList");
     const params = useParams();
     const { user, redirectToLogin, loading: authLoading } = useAuth();
     const [workflow, setWorkflow] = useState<WorkflowResponse | undefined>(undefined);

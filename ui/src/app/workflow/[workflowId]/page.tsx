@@ -1,7 +1,6 @@
 'use client';
 
 import { useParams, useSearchParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
 import posthog from 'posthog-js';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -24,7 +23,6 @@ export default function WorkflowDetailPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { user, redirectToLogin, loading: authLoading } = useAuth();
-    const t = useTranslations("workflowList");
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -49,7 +47,7 @@ export default function WorkflowDetailPage() {
                     workflow_name: workflow?.name,
                 });
             } catch (err) {
-                setError(t("workflowFetchFailed"));
+                setError('Failed to fetch workflow');
                 logger.error(`Error fetching workflow: ${err}`);
             } finally {
                 setLoading(false);

@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { useTranslations } from 'next-intl';
-
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -38,7 +36,6 @@ export const ConfigurationsDialog = ({
     workflowName,
     onSave
 }: ConfigurationsDialogProps) => {
-    const t = useTranslations("workflowList");
     const [name, setName] = useState<string>(workflowName);
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
         workflowConfigurations?.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG
@@ -114,7 +111,7 @@ export const ConfigurationsDialog = ({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>{t("configurationsTitle")}</DialogTitle>
+                    <DialogTitle>Configurations</DialogTitle>
                 </DialogHeader>
 
                 <div className="space-y-6">
@@ -128,14 +125,14 @@ export const ConfigurationsDialog = ({
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="workflow_name" className="text-xs">
-                                {t("configName")}
+                                Name
                             </Label>
                             <Input
                                 id="workflow_name"
                                 type="text"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
-                                placeholder={t("enterAgentName")}
+                                placeholder="Enter Agent name"
                             />
                         </div>
                     </div>
@@ -152,7 +149,7 @@ export const ConfigurationsDialog = ({
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <Label htmlFor="ambient-noise-enabled" className="text-sm">
-                                    {t("configAmbientNoiseToggle")}
+                                    Use Ambient Noise
                                 </Label>
                                 <Switch
                                     id="ambient-noise-enabled"
@@ -166,7 +163,7 @@ export const ConfigurationsDialog = ({
                             {ambientNoiseConfig.enabled && (
                                 <div className="space-y-2">
                                     <Label htmlFor="ambient-volume" className="text-xs">
-                                        {t("configVolume")}
+                                        Volume
                                     </Label>
                                     <Input
                                         id="ambient-volume"
@@ -399,10 +396,10 @@ export const ConfigurationsDialog = ({
 
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        {t("cancel")}
+                        Cancel
                     </Button>
                     <Button onClick={handleSave} disabled={isSaving}>
-                        {isSaving ? t("saving") : t("save")}
+                        {isSaving ? "Saving..." : "Save"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

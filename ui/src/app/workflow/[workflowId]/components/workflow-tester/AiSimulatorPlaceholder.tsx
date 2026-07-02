@@ -7,12 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 import { DisabledNotice } from "./shared";
-import { useTranslations } from 'next-intl';
 
 export function AiSimulatorPlaceholder({
     disabledReason,
 }: {
-    const t = useTranslations("workflowList");
     disabledReason: string | null;
 }) {
     const [simulatorPrompt, setSimulatorPrompt] = useState(
@@ -33,7 +31,7 @@ export function AiSimulatorPlaceholder({
             />
             <Button size="sm" disabled className="self-start">
                 <Sparkles className="h-4 w-4" />
-                {t("comingSoon")}
+                Coming soon
             </Button>
         </div>
     );

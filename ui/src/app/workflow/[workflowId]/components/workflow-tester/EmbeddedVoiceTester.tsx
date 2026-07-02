@@ -10,7 +10,6 @@ import { RealtimeFeedback } from "@/components/workflow/conversation";
 import { ApiKeyErrorDialog, ConnectionStatus, WorkflowConfigErrorDialog } from "../../run/[runId]/components";
 import { useWebSocketRTC } from "../../run/[runId]/hooks";
 import type { WorkflowRuntimeNodeTransition } from "./types";
-import { useTranslations } from 'next-intl';
 
 interface EmbeddedVoiceTesterProps {
     workflowId: number;
@@ -57,7 +56,6 @@ export function EmbeddedVoiceTester({
     const autoStartedRef = useRef(false);
 
     useEffect(() => {
-    const t = useTranslations("workflowList");
         if (autoStartedRef.current) {
             return;
         }
@@ -66,12 +64,12 @@ export function EmbeddedVoiceTester({
     }, [start]);
 
     const endButtonLabel = connectionActive
-        ? "{t("endCall")}"
+        ? "End Call"
         : isCompleted
-            ? "{t("startAnotherTest")}"
+            ? "Start Another Test"
             : connectionStatus === "failed"
-                ? "{t("retryCall")}"
-                : "{t("testerStarting")}";
+                ? "Retry Call"
+                : "Starting Test...";
 
     const handleFooterAction = async () => {
         if (connectionActive) {
@@ -114,7 +112,7 @@ export function EmbeddedVoiceTester({
                             {isStarting && connectionStatus !== "failed" ? (
                                 <>
                                     <Loader2 className="h-4 w-4 animate-spin" />
-                                    {t("testerStarting")}
+                                    Starting Test...
                                 </>
                             ) : connectionActive ? (
                                 <>

@@ -564,7 +564,7 @@ export default function UsagePage() {
                                                 disabled={currentPage === 1}
                                             >
                                                 <ChevronLeft className="h-4 w-4" />
-                                                Previous
+                                                {t('previous')}
                                             </Button>
                                             <Button
                                                 variant="outline"
@@ -572,7 +572,7 @@ export default function UsagePage() {
                                                 onClick={() => handlePageChange(currentPage + 1)}
                                                 disabled={currentPage === usageHistory.total_pages}
                                             >
-                                                Next
+                                                {t('next')}
                                                 <ChevronRight className="h-4 w-4" />
                                             </Button>
                                         </div>
@@ -580,7 +580,7 @@ export default function UsagePage() {
                                 )}
                             </>
                         ) : (
-                            <p className="text-center py-8 text-muted-foreground">No runs found</p>
+                            <p className="text-center py-8 text-muted-foreground">{t('noRunsFound')}</p>
                         )}
                     </CardContent>
                 </Card>

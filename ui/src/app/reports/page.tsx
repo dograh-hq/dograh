@@ -2,6 +2,7 @@
 
 import { addDays, format, subDays } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 
 import {
@@ -51,6 +52,7 @@ interface DailyReport {
 }
 
 export default function ReportsPage() {
+  const t = useTranslations('reports');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedWorkflow, setSelectedWorkflow] = useState<string>('all');
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
@@ -187,7 +189,7 @@ export default function ReportsPage() {
         link.click();
         document.body.removeChild(link);
       } else {
-        alert('No data available for download');
+        alert(t('noData'));
       }
     } catch (err) {
       console.error('Failed to download CSV:', err);
@@ -202,7 +204,7 @@ export default function ReportsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold">Daily Reports</h1>
+          <h1 className="text-3xl font-bold">{t('title')}</h1>
         </div>
 
         {/* Date Navigation & Workflow Selector */}
@@ -213,7 +215,7 @@ export default function ReportsPage() {
               <SelectValue placeholder="Select workflow" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Workflows</SelectItem>
+              <SelectItem value="all">{t('allWorkflows')}</SelectItem>
               {workflows.map((workflow) => (
                 <SelectItem key={workflow.id} value={workflow.id.toString()}>
                   {workflow.name}
@@ -279,7 +281,7 @@ export default function ReportsPage() {
             className="flex items-center gap-2"
           >
             <Download className="h-4 w-4" />
-            Download CSV
+            {t('downloadCsv')}
           </Button>
         )}
       </div>

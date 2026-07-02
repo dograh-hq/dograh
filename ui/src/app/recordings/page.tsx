@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLink, Upload } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import RecordingsList from "./RecordingsList";
 import { RecordingsUploadDialog } from "./RecordingsUploadDialog";
 
 export default function RecordingsPage() {
+    const t = useTranslations("recordings");
     const { user, redirectToLogin, loading } = useAuth();
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -36,29 +38,22 @@ export default function RecordingsPage() {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">Recordings</h1>
-                <p className="text-muted-foreground">
-                    Manage audio recordings for your organization. Use{" "}
-                    <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them,
-                    or as transition messages in tool calls.{" "}
-                    <a href="https://docs.dograh.com/voice-agent/pre-recorded-audio" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
-                        Learn more <ExternalLink className="h-3 w-3" />
-                    </a>
-                </p>
+                <h1 className="text-3xl font-bold mb-2">{t('title')}</h1>
+                <p className="text-muted-foreground">{t('description')}</p>
             </div>
 
             <Card>
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <div>
-                            <CardTitle>All Recordings</CardTitle>
+                            <CardTitle>{t('allRecordings')}</CardTitle>
                             <CardDescription>
                                 Audio recordings shared across all agents in your organization
                             </CardDescription>
                         </div>
                         <Button onClick={() => setIsUploadOpen(true)}>
                             <Upload className="w-4 h-4 mr-2" />
-                            Upload Recording
+                            {t('uploadRecording')}
                         </Button>
                     </div>
                 </CardHeader>

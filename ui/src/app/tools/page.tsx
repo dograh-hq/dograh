@@ -2,6 +2,7 @@
 
 import { ExternalLink, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -52,6 +53,8 @@ import {
 } from "./config";
 
 export default function ToolsPage() {
+    const t = useTranslations("tools");
+    const common = useTranslations("common");
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const router = useRouter();
 
@@ -297,13 +300,8 @@ export default function ToolsPage() {
             <div className="container mx-auto px-4 py-8">
                 <div className="max-w-6xl mx-auto">
                     <div className="mb-8">
-                        <h1 className="text-3xl font-bold mb-2">Tools</h1>
-                        <p className="text-muted-foreground">
-                            Manage reusable tools that can be used across your workflows.{" "}
-                            <a href="https://docs.dograh.com/voice-agent/tools/introduction" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
-                                Learn more <ExternalLink className="h-3 w-3" />
-                            </a>
-                        </p>
+                        <h1 className="text-3xl font-bold mb-2">{t('title')}</h1>
+                        <p className="text-muted-foreground">{t('description')}</p>
                     </div>
 
                     {error && (
@@ -316,14 +314,14 @@ export default function ToolsPage() {
                         <CardHeader>
                             <div className="flex justify-between items-center">
                                 <div>
-                                    <CardTitle>Your Tools</CardTitle>
+                                    <CardTitle>{t('yourTools')}</CardTitle>
                                     <CardDescription>
                                         Create and manage tools for your organization
                                     </CardDescription>
                                 </div>
                                 <Button onClick={() => setIsCreateDialogOpen(true)}>
                                     <Plus className="w-4 h-4 mr-2" />
-                                    Create Tool
+                                    {t('createTool')}
                                 </Button>
                             </div>
                         </CardHeader>

@@ -1,3 +1,5 @@
+import { useTranslations } from 'next-intl';
+
 import * as LucideIcons from 'lucide-react';
 import { Circle, ExternalLink, type LucideIcon, X } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
@@ -17,12 +19,19 @@ type AddNodePanelProps = {
 
 // Section ordering and labels. Drives both the category → section title
 // mapping and the rendering order.
-const SECTION_ORDER: Array<{ category: NodeSpec['category']; title: string }> = [
-    { category: 'trigger', title: 'Triggers' },
-    { category: 'call_node', title: 'Agent Nodes' },
-    { category: 'global_node', title: 'Global Nodes' },
-    { category: 'integration', title: 'Integrations' },
+const SECTION_ORDER: Array<NodeSpec['category']> = [
+    'trigger',
+    'call_node',
+    'global_node',
+    'integration',
 ];
+
+const SECTION_TITLE_KEYS: Record<string, string> = {
+    trigger: 'sectionTriggers',
+    call_node: 'sectionAgentNodes',
+    global_node: 'sectionGlobalNodes',
+    integration: 'sectionIntegrations',
+};
 
 function resolveIcon(name: string): LucideIcon {
     const icons = LucideIcons as unknown as Record<string, LucideIcon>;
@@ -89,16 +98,17 @@ function NodeSection({
 }
 
 export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: AddNodePanelProps) {
+    const t = useTranslations('addNodePanel');
     const { specs } = useNodeSpecs();
 
     // Group registered specs by category, preserving the SECTION_ORDER.
     // Adding a new node type with a new spec.category just shows up here.
     const sections = useMemo(() => {
-        return SECTION_ORDER.map(({ category, title }) => ({
-            title,
+        return SECTION_ORDER.map((category) => ({
+            title: t(SECTION_TITLE_KEYS[category] ?? category),
             specs: specs.filter((s) => s.category === category),
         }));
-    }, [specs]);
+    }, [specs, t]);
 
     const nodeTypeCounts = useMemo(() => {
         const counts = new Map<string, number>();
@@ -127,7 +137,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: A
             <div className="p-4 h-full overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
                     <div className="flex flex-col gap-1">
-                        <h2 className="text-lg font-semibold">Add New Node</h2>
+                        <h2 className="text-lg font-semibold">{t('addNewNode')}</h2>
                         <a
                             href="https://docs.dograh.com/voice-agent/introduction"
                             target="_blank"
@@ -135,7 +145,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: A
                             className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
                         >
                             <ExternalLink className="w-3 h-3" />
-                            View Nodes Documentation
+                            {t('viewNodesDocs')}
                         </a>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose}>

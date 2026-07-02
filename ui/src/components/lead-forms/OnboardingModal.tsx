@@ -1,6 +1,7 @@
 "use client";
 
 import { Rocket } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -46,6 +47,7 @@ interface OnboardingModalProps {
 export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
   const { user } = useAuth(); // logged-in identity → onboarding email (sent silently)
   const { config } = useAppConfig();
+  const t = useTranslations("onboarding");
   // Deployment provenance (analytics only).
   const origin = config?.deploymentMode === "cloud" ? "cloud_app" : "oss_app";
   // The logged-in user's email (Stack uses primaryEmail; local uses email). Sent in the
@@ -139,7 +141,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
           });
           // Only the on-prem/enterprise lead path sends an email; plain onboarding
           // does not. Confirm the email just for this path.
-          toast.success("Check your inbox - we just emailed you the next steps (give it a minute).");
+          toast.success(t("successCheckInbox"));
         }
       } catch {
         // Swallowed — the user is already in the product; calls are timeout-bounded.
@@ -151,8 +153,8 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
     if (!baseValid) {
       toast.error(
         isOtherProvider && !migratingOtherProvider.trim()
-          ? "Please tell us which provider you're migrating from"
-          : "Please answer all the questions",
+          ? t("errorMigratingProvider")
+          : t("errorAnswerAll"),
       );
       return;
     }
@@ -161,7 +163,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
       const err = validateWorkEmail(ef.workEmail);
       if (err) { setEfEmailError(err); return; }
       if (!ef.name.trim() || !ef.company.trim() || !ef.jobTitle.trim() || !ef.phone.trim() || !ef.volume) {
-        toast.error("Please complete the on-prem details below, or remove that section.");
+        toast.error(t("errorCompleteOnPrem"));
         return;
       }
       setCaptchaActive(true);
@@ -189,15 +191,15 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
         onInteractOutside: (e) => e.preventDefault(),
       }}
       icon={Rocket}
-      eyebrow="Welcome"
-      title="Welcome to Dograh"
-      description="A few quick questions so we can tailor your experience. Takes ~20 seconds."
-      primary={{ label: "Get started", onClick: handleSubmit, disabled: !canSubmit, loading: submitting }}
+      eyebrow={t("welcome")}
+      title={t("welcomeToDograh")}
+      description={t("description")}
+      primary={{ label: t("getStarted"), onClick: handleSubmit, disabled: !canSubmit, loading: submitting }}
       overlay={captchaActive ? <CaptchaChallenge onVerified={submitWithOnPrem} onCancel={() => setCaptchaActive(false)} /> : undefined}
     >
       <div className="grid gap-4">
         <div className="space-y-1.5">
-          <Label htmlFor="ob-persona">What best describes you?</Label>
+          <Label htmlFor="ob-persona">{t("whatBestDescribesYou")}</Label>
           <Select
             value={persona}
             onValueChange={(v) => {
@@ -210,7 +212,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
               }
             }}
           >
-            <SelectTrigger id="ob-persona"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectTrigger id="ob-persona"><SelectValue placeholder={t("selectOne")} /></SelectTrigger>
             <SelectContent>
               {ONBOARDING_PERSONA_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -221,7 +223,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
 
         {showOnPrem && (
           <div className="space-y-1.5">
-            <Label htmlFor="ob-onprem">Do you need on-prem deployment for compliance &amp; data residency?</Label>
+            <Label htmlFor="ob-onprem">{t("needOnPrem")}</Label>
             <Select
               value={onPremNeed}
               onValueChange={(v) => {
@@ -229,7 +231,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
                 if (v !== "yes") collapseOnPrem();
               }}
             >
-              <SelectTrigger id="ob-onprem"><SelectValue placeholder="Select one" /></SelectTrigger>
+              <SelectTrigger id="ob-onprem"><SelectValue placeholder={t("selectOne")} /></SelectTrigger>
               <SelectContent>
                 {ONBOARDING_ONPREM_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -241,8 +243,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
               <div className="mt-2 space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    We offer a <span className="font-medium text-foreground">Managed On-Prem</span> deployment
-                    for compliance and data residency.
+                    {t("managedOnPremNote")}
                   </p>
                   {onPremExpanded && (
                     <button
@@ -250,7 +251,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
                       onClick={collapseOnPrem}
                       className="shrink-0 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
-                      Remove
+                      {t("remove")}
                     </button>
                   )}
                 </div>
@@ -261,7 +262,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
                     onClick={expandOnPrem}
                     className="text-xs font-medium text-cta underline-offset-4 hover:underline"
                   >
-                    Talk to us about on-prem →
+                    {t("talkToUs")}
                   </button>
                 ) : (
                   <div className="space-y-3">
@@ -273,7 +274,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
                       emailError={efEmailError}
                     />
                     <p className="text-[0.7rem] text-muted-foreground">
-                      Our team will reach out about on-prem. Prefer not to? Click &ldquo;Remove&rdquo;.
+                      {t("onPremReachOut")}
                     </p>
                   </div>
                 )}
@@ -283,9 +284,9 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
         )}
 
         <div className="space-y-1.5">
-          <Label htmlFor="ob-volume">Expected monthly call volume</Label>
+          <Label htmlFor="ob-volume">{t("monthlyCallVolume")}</Label>
           <Select value={volume} onValueChange={setVolume}>
-            <SelectTrigger id="ob-volume"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectTrigger id="ob-volume"><SelectValue placeholder={t("selectOne")} /></SelectTrigger>
             <SelectContent>
               {ONBOARDING_VOLUME_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -295,7 +296,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="ob-migrating">Are you migrating from another provider?</Label>
+          <Label htmlFor="ob-migrating">{t("migratingFrom")}</Label>
           <Select
             value={migratingFrom}
             onValueChange={(v) => {
@@ -304,7 +305,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
               if (v === "no") setSwitchReason("");
             }}
           >
-            <SelectTrigger id="ob-migrating"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectTrigger id="ob-migrating"><SelectValue placeholder={t("selectOne")} /></SelectTrigger>
             <SelectContent>
               {ONBOARDING_MIGRATION_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -314,10 +315,10 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
 
           {isOtherProvider && (
             <div className="mt-2 space-y-1.5">
-              <Label htmlFor="ob-other-provider">Other provider</Label>
+              <Label htmlFor="ob-other-provider">{t("enterOtherProvider")}</Label>
               <Input
                 id="ob-other-provider"
-                placeholder="Enter the provider here"
+                placeholder={t("enterOtherProvider")}
                 value={migratingOtherProvider}
                 onChange={(e) => setMigratingOtherProvider(e.target.value)}
               />
@@ -327,12 +328,12 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
           {isMigrating && (
             <div className="mt-2 space-y-1.5">
               <Label htmlFor="ob-switch-reason">
-                Why are you switching? <span className="text-muted-foreground">(optional)</span>
+                {t("whySwitching")} <span className="text-muted-foreground">{t("optional")}</span>
               </Label>
               <Textarea
                 id="ob-switch-reason"
                 rows={2}
-                placeholder="e.g. cost, self-hosting, concurrency, data security, latency"
+                placeholder={t("switchReasonPlaceholder")}
                 value={switchReason}
                 onChange={(e) => setSwitchReason(e.target.value)}
               />
@@ -341,9 +342,9 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="ob-heard">How did you hear about us?</Label>
+          <Label htmlFor="ob-heard">{t("howHeard")}</Label>
           <Select value={howHeard} onValueChange={setHowHeard}>
-            <SelectTrigger id="ob-heard"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectTrigger id="ob-heard"><SelectValue placeholder={t("selectOne")} /></SelectTrigger>
             <SelectContent>
               {ONBOARDING_HEARD_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>

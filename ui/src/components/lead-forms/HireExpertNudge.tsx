@@ -1,6 +1,7 @@
 "use client";
 
 import { UserRound, X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
 import { useEffect, useRef, useState } from "react";
 
@@ -21,6 +22,7 @@ function nudgeDoneKey(workflowId: number) {
 
 export function HireExpertNudge({ workflowId }: HireExpertNudgeProps) {
   const { openHireExpert, hasOpenedHireRef } = useLeadForms();
+  const t = useTranslations("onboarding");
   const [visible, setVisible] = useState(false);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -76,14 +78,14 @@ export function HireExpertNudge({ workflowId }: HireExpertNudgeProps) {
       <button type="button" onClick={handleClick} className="flex flex-1 items-center gap-3 text-left">
         <UserRound className="h-5 w-5 shrink-0 text-primary" />
         <span>
-          <span className="block text-sm font-semibold">Hire an Expert</span>
-          <span className="block text-xs text-muted-foreground">We&apos;ll build your agent for you</span>
+          <span className="block text-sm font-semibold">{t("hireExpert")}</span>
+          <span className="block text-xs text-muted-foreground">{t("hireExpertDescription")}</span>
         </span>
       </button>
       <button
         type="button"
         onClick={handleDismiss}
-        aria-label="Dismiss"
+        aria-label={t("dismiss")}
         className="shrink-0 text-muted-foreground hover:text-foreground"
       >
         <X className="h-4 w-4" />

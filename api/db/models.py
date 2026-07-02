@@ -1087,12 +1087,8 @@ class WebhookDeliveryModel(Base):
         default="pending",
         server_default="pending",
     )
-    attempt_count = Column(
-        Integer, nullable=False, default=0, server_default=text("0")
-    )
-    max_attempts = Column(
-        Integer, nullable=False, default=5, server_default=text("5")
-    )
+    attempt_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    max_attempts = Column(Integer, nullable=False, default=5, server_default=text("5"))
     # When the next attempt becomes due. NULL once terminal (succeeded/dead_letter).
     scheduled_for = Column(DateTime(timezone=True), nullable=True)
 

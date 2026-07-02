@@ -1,16 +1,22 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import httpx
 import pytest
 
+from api.db.models import (
+    OrganizationModel,
+    UserModel,
+    WorkflowModel,
+    WorkflowRunModel,
+)
 from api.services.workflow.dto import WebhookNodeData
 from api.tasks.run_integrations import (
     _build_webhook_payload,
     _enqueue_webhook_delivery,
 )
 from api.tasks.webhook_delivery import deliver_webhook
-
 
 # ---------------------------------------------------------------------------
 # Payload rendering (call_disposition injection)
@@ -198,6 +204,101 @@ async def test_enqueue_webhook_delivery_skips_disabled():
         )
 
     db.create_webhook_delivery.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_workflow_run_with_context_uses_workflow_org(
+    async_session, db_session
+):
+    run_org = OrganizationModel(provider_id=f"run-org-{uuid4()}")
+    selected_org = OrganizationModel(provider_id=f"selected-org-{uuid4()}")
+    async_session.add_all([run_org, selected_org])
+    await async_session.flush()
+
+    user = UserModel(
+        provider_id=f"user-{uuid4()}",
+        selected_organization_id=selected_org.id,
+    )
+    async_session.add(user)
+    await async_session.flush()
+
+    workflow = WorkflowModel(
+        name="Webhook Workflow",
+        user_id=user.id,
+        organization_id=run_org.id,
+        workflow_definition={"nodes": [], "edges": []},
+        template_context_variables={},
+    )
+    async_session.add(workflow)
+    await async_session.flush()
+
+    workflow_run = WorkflowRunModel(
+        name="Webhook Run",
+        workflow_id=workflow.id,
+        mode="test",
+    )
+    async_session.add(workflow_run)
+    await async_session.flush()
+
+    _, organization_id = await db_session.get_workflow_run_with_context(workflow_run.id)
+
+    assert organization_id == run_org.id
+    assert organization_id != selected_org.id
+
+
+@pytest.mark.asyncio
+async def test_create_webhook_delivery_rejects_org_mismatch(async_session, db_session):
+    run_org = OrganizationModel(provider_id=f"run-org-{uuid4()}")
+    wrong_org = OrganizationModel(provider_id=f"wrong-org-{uuid4()}")
+    async_session.add_all([run_org, wrong_org])
+    await async_session.flush()
+
+    user = UserModel(
+        provider_id=f"user-{uuid4()}",
+        selected_organization_id=wrong_org.id,
+    )
+    async_session.add(user)
+    await async_session.flush()
+
+    workflow = WorkflowModel(
+        name="Webhook Workflow",
+        user_id=user.id,
+        organization_id=run_org.id,
+        workflow_definition={"nodes": [], "edges": []},
+        template_context_variables={},
+    )
+    async_session.add(workflow)
+    await async_session.flush()
+
+    workflow_run = WorkflowRunModel(
+        name="Webhook Run",
+        workflow_id=workflow.id,
+        mode="test",
+    )
+    async_session.add(workflow_run)
+    await async_session.flush()
+
+    with pytest.raises(ValueError, match="belongs to organization"):
+        await db_session.create_webhook_delivery(
+            workflow_run_id=workflow_run.id,
+            organization_id=wrong_org.id,
+            endpoint_url="https://example.com/hook",
+            payload={"event": "call_done"},
+            max_attempts=5,
+            webhook_node_id="node-1",
+        )
+
+    delivery, created = await db_session.create_webhook_delivery(
+        workflow_run_id=workflow_run.id,
+        organization_id=run_org.id,
+        endpoint_url="https://example.com/hook",
+        payload={"event": "call_done"},
+        max_attempts=5,
+        webhook_node_id="node-1",
+    )
+
+    assert created is True
+    assert delivery.organization_id == run_org.id
 
 
 # ---------------------------------------------------------------------------

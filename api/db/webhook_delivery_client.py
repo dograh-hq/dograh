@@ -14,7 +14,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from api.db.base_client import BaseDBClient
-from api.db.models import WebhookDeliveryModel
+from api.db.models import WebhookDeliveryModel, WorkflowModel, WorkflowRunModel
 
 
 class WebhookDeliveryClient(BaseDBClient):
@@ -42,6 +42,26 @@ class WebhookDeliveryClient(BaseDBClient):
         enqueues a send for a freshly-created row.
         """
         async with self.async_session() as session:
+            run_scope_result = await session.execute(
+                select(WorkflowRunModel.id, WorkflowModel.organization_id)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(WorkflowRunModel.id == workflow_run_id)
+            )
+            run_scope = run_scope_result.one_or_none()
+            if run_scope is None:
+                raise ValueError(f"Workflow run {workflow_run_id} not found")
+
+            _, run_organization_id = run_scope
+            if run_organization_id is None:
+                raise ValueError(
+                    f"Workflow run {workflow_run_id} is not associated with an organization"
+                )
+            if run_organization_id != organization_id:
+                raise ValueError(
+                    f"Workflow run {workflow_run_id} belongs to organization "
+                    f"{run_organization_id}, not {organization_id}"
+                )
+
             delivery = WebhookDeliveryModel(
                 workflow_run_id=workflow_run_id,
                 organization_id=organization_id,

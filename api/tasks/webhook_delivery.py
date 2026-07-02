@@ -250,9 +250,7 @@ async def sweep_webhook_deliveries(_ctx) -> None:
             # -- otherwise a delivered-but-unrecorded row could sit until ARQ's
             # result retention clears.
             reclaim_token = (
-                int(delivery.scheduled_for.timestamp())
-                if delivery.scheduled_for
-                else 0
+                int(delivery.scheduled_for.timestamp()) if delivery.scheduled_for else 0
             )
             await _enqueue_delivery(
                 delivery.id,
@@ -265,6 +263,4 @@ async def sweep_webhook_deliveries(_ctx) -> None:
             break
 
     if total:
-        logger.info(
-            f"Webhook delivery sweep: re-enqueued {total} due deliveries"
-        )
+        logger.info(f"Webhook delivery sweep: re-enqueued {total} due deliveries")

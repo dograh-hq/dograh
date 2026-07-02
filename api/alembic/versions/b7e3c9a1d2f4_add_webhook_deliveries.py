@@ -33,13 +33,11 @@ def upgrade() -> None:
         sa.Column(
             "http_method",
             sa.String(),
-            server_default=sa.text("'POST'"),
             nullable=False,
         ),
         sa.Column(
             "payload",
             sa.JSON(),
-            server_default=sa.text("'{}'::json"),
             nullable=False,
         ),
         sa.Column("custom_headers", sa.JSON(), nullable=True),

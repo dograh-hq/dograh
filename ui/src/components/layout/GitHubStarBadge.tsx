@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from 'next-intl';
 import posthog from "posthog-js";
 import { useEffect, useState } from "react";
 
@@ -14,6 +15,7 @@ interface GitHubStarBadgeProps {
 }
 
 export function GitHubStarBadge({ className, label, showCount, source }: GitHubStarBadgeProps) {
+  const t = useTranslations('gitHubStar');
   const [starCount, setStarCount] = useState<string | null>(null);
 
   useEffect(() => {

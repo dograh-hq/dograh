@@ -1,35 +1,37 @@
 "use client";
 
+import { useTranslations } from 'next-intl';
 import { Zap } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function AutomationPage() {
+    const t = useTranslations('automation');
     return (
         <div className="container mx-auto p-6 space-y-6">
             <div>
-                <h1 className="text-3xl font-bold mb-2">Automation</h1>
-                <p>Automate your workflows and processes</p>
+                <h1 className="text-3xl font-bold mb-2">{t('title')}</h1>
+                <p>{t('description')}</p>
             </div>
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Coming Soon</CardTitle>
+                    <CardTitle>{t('comingSoon')}</CardTitle>
                     <CardDescription>
-                        Automation features are currently under development
+                        {t('comingSoon')}
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="text-center py-12">
                         <Zap className="w-16 h-16 mx-auto mb-6" />
                         <p className="text-lg mb-4">
-                            We&apos;re working on powerful automation features to help you streamline your workflows.
+                            {t('comingSoonMessage1')}
                         </p>
                         <p>
-                            Automate repetitive tasks, trigger actions based on events, and create intelligent workflow pipelines.
+                            {t('comingSoonMessage2')}
                         </p>
                         <p className="mt-4">
-                            Check back soon for updates!
+                            {t('comingSoonMessage3')}
                         </p>
                     </div>
                 </CardContent>

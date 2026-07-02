@@ -123,7 +123,8 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Models",
         url: "/model-configurations",
         icon: Brain,
-        adminOnly: true,
+        // Client-visible on purpose: orgs pick their own voice/language/model
+        // (and paste their own provider keys) in the portal.
       },
       {
         title: "Telephony",

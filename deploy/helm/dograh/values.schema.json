@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dograh Helm chart values",
+  "type": "object",
+  "properties": {
+    "database": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["internal", "external"]
+        }
+      },
+      "required": ["mode"]
+    },
+    "redis": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["internal", "external"]
+        }
+      },
+      "required": ["mode"]
+    },
+    "storage": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["internalMinio", "externalMinio", "s3"]
+        }
+      },
+      "required": ["mode"]
+    },
+    "exposure": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["gatewayApi", "ingress"]
+        }
+      },
+      "required": ["mode"]
+    }
+  },
+  "required": ["database", "redis", "storage", "exposure"]
+}

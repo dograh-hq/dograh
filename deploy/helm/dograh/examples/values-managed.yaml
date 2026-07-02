@@ -1,0 +1,68 @@
+# Production: external Postgres + Redis, S3 storage, Gateway API exposure.
+# Suitable for managed Kubernetes (EKS, GKE, AKS) with managed DBs.
+#
+# REQUIRED OVERRIDES at install time:
+#   --set secrets.databaseUrl=...
+#   --set secrets.redisUrl=...
+#   --set secrets.ossJwtSecret=$(openssl rand -hex 32)
+#   --set secrets.turnSecret=$(openssl rand -hex 32)
+#   --set exposure.gatewayApi.gatewayClassName=<your-class>
+#   --set exposure.gatewayApi.listenerHostname=dograh.example.com
+
+database:
+  mode: external
+redis:
+  mode: external
+storage:
+  mode: s3
+  s3:
+    region: us-east-1
+    bucket: dograh-voice-audio
+    publicEndpoint: https://dograh-voice-audio.s3.amazonaws.com
+exposure:
+  mode: gatewayApi
+  gatewayApi:
+    createGateway: true
+    # gatewayClassName MUST be set via --set or override file.
+    listenerHostname: ""  # set to your hostname
+  ingress:
+    tls:
+      enabled: true
+      secretName: dograh-tls
+
+config:
+  environment: production
+  logLevel: INFO
+  enableAwsS3: true
+
+web:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
+workers:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+autoscaling:
+  web:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 12
+    targetCPUUtilizationPercentage: 70
+
+# No bundled deps here: the in-chart Postgres/Redis/MinIO manifests are gated on
+# the internal modes (database.mode=internal, redis.mode=internal,
+# storage.mode=internalMinio), so the external/S3 modes set above already keep
+# them from rendering.

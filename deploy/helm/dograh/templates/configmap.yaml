@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dograh.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+data:
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  BACKEND_API_ENDPOINT: {{ .Values.config.backendApiEndpoint | quote }}
+  MINIO_BUCKET: {{ .Values.config.minioBucket | quote }}
+  MINIO_SECURE: {{ .Values.config.minioSecure | quote }}
+  ENABLE_AWS_S3: {{ ternary "true" "false" (eq .Values.storage.mode "s3") | quote }}
+  ENABLE_TELEMETRY: {{ .Values.config.enableTelemetry | quote }}
+  POSTHOG_HOST: {{ .Values.config.posthogHost | quote }}
+  POSTHOG_API_KEY: {{ .Values.config.posthogApiKey | quote }}
+  FORCE_TURN_RELAY: {{ .Values.config.forceTurnRelay | quote }}
+  TURN_HOST: {{ .Values.config.turnHost | quote }}
+  FASTAPI_WORKERS: {{ .Values.config.fastapiWorkers | quote }}
+  {{- /* MinIO endpoints derived from storage mode. */ -}}
+  {{- if eq .Values.storage.mode "internalMinio" }}
+  MINIO_ENDPOINT: {{ printf "%s:9000" (include "dograh.minioHost" .) | quote }}
+  MINIO_PUBLIC_ENDPOINT: {{ .Values.config.minioPublicEndpoint | quote }}
+  {{- else if eq .Values.storage.mode "externalMinio" }}
+  MINIO_ENDPOINT: {{ .Values.storage.externalMinio.endpoint | quote }}
+  MINIO_PUBLIC_ENDPOINT: {{ .Values.storage.externalMinio.publicEndpoint | quote }}
+  {{- else if eq .Values.storage.mode "s3" }}
+  AWS_REGION: {{ .Values.storage.s3.region | quote }}
+  MINIO_PUBLIC_ENDPOINT: {{ .Values.storage.s3.publicEndpoint | quote }}
+  {{- end }}
+  {{- /* TURN external IP visible to the web service for credential issuance. */ -}}
+  {{- if .Values.coturn.enabled }}
+  TURN_EXTERNAL_IP: {{ .Values.coturn.externalIp | quote }}
+  {{- end }}
+  {{- if .Values.secrets.langfuseHost }}
+  LANGFUSE_HOST: {{ .Values.secrets.langfuseHost | quote }}
+  {{- end }}

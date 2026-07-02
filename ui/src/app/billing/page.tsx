@@ -9,7 +9,7 @@ import {
     Info,
     RefreshCw,
 } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -165,13 +165,13 @@ export default function BillingPage() {
             });
 
             if (response.error) {
-                throw new Error("Failed to fetch billing credits");
+                throw new Error(t('fetchError'));
             }
 
             setCredits(response.data ?? null);
         } catch (error) {
             console.error("Failed to fetch billing credits:", error);
-            toast.error("Failed to fetch billing credits");
+            toast.error(t('fetchError'));
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -226,7 +226,7 @@ export default function BillingPage() {
             window.location.href = checkoutUrl;
         } catch (error) {
             console.error("Failed to create credit purchase URL:", error);
-            toast.error("Failed to open checkout");
+            toast.error(t('checkoutError'));
             setPurchasing(false);
         }
     };
@@ -275,26 +275,28 @@ export default function BillingPage() {
                     <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                     <div className="text-sm text-amber-900 dark:text-amber-200">
                         <p className="font-medium">{t('ossWarning')}</p>
-                        <p className="mt-1">
-                            You can&apos;t purchase credits from this self-hosted app. Sign up and
-                            purchase credits at{" "}
-                            <a
-                                href="https://app.dograh.com"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
-                            >
-                                app.dograh.com
-                                <ExternalLink className="h-3 w-3" />
-                            </a>
-                            . Then add the generated service key in{" "}
-                            <Link
-                                href="/model-configurations"
-                                className="font-medium underline underline-offset-2"
-                            >
-                                Model Configurations
-                            </Link>
-                            . Usage for that service key is visible in app.dograh.com.
+                                        <p className="mt-1">
+                            {t.rich('ossWarningBody', {
+                                link: (chunks) => (
+                                    <a
+                                        href="https://app.dograh.com"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
+                                    >
+                                        {chunks}
+                                        <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                ),
+                                modelConfigLink: (chunks) => (
+                                    <Link
+                                        href="/model-configurations"
+                                        className="font-medium underline underline-offset-2"
+                                    >
+                                        {chunks}
+                                    </Link>
+                                ),
+                            })}
                         </p>
                     </div>
                 </div>
@@ -321,7 +323,7 @@ export default function BillingPage() {
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm text-muted-foreground">
-                            {isBillingV2 ? "Total ledger debits" : "Current allocation usage"}
+                            {isBillingV2 ? t('totalLedgerDebits') : t('currentAllocationUsage')}
                         </p>
                     </CardContent>
                 </Card>
@@ -440,8 +442,8 @@ export default function BillingPage() {
                     <CardContent className="space-y-4">
                         <Progress value={usagePercent} />
                         <div className="flex justify-between text-sm text-muted-foreground">
-                            <span>{usagePercent}% used</span>
-                            <span>{formatCredits(remainingCredits)} of {formatCredits(totalQuota)} remaining</span>
+                            <span>{t('usagePercent', { percent: usagePercent })}</span>
+                            <span>{t('creditsOfTotalRemaining', { remaining: formatCredits(remainingCredits), total: formatCredits(totalQuota) })}</span>
                         </div>
                     </CardContent>
                 </Card>

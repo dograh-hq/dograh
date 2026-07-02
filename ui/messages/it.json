@@ -330,6 +330,13 @@
     "next": "Next",
     "creditUsage": "Credit Usage",
     "ossWarning": "Credit purchases are unavailable in OSS mode",
+    "ossWarningBody": "You can't purchase credits from this self-hosted app. Sign up and purchase credits at <link>app.dograh.com</link>. Then add the generated service key in <modelConfigLink>Model Configurations</modelConfigLink>. Usage for that service key is visible in app.dograh.com.",
+    "totalLedgerDebits": "Total ledger debits",
+    "currentAllocationUsage": "Current allocation usage",
+    "usagePercent": "{percent}% used",
+    "creditsOfTotalRemaining": "{remaining} of {total} remaining",
+    "fetchError": "Failed to fetch billing credits",
+    "checkoutError": "Failed to open checkout",
     "table": {
       "date": "Date",
       "activity": "Activity",

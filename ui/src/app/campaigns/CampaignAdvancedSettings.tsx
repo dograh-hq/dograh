@@ -27,6 +27,9 @@ export interface CampaignAdvancedSettingsProps {
     effectiveLimit: number;
     orgConcurrentLimit: number;
     fromNumbersCount: number;
+    // Trunk channel capacity — the real concurrency bound (one caller-id
+    // carries as many concurrent calls as the trunk has channels).
+    channelCapacity?: number;
     // Retry config
     retryEnabled: boolean;
     onRetryEnabledChange: (value: boolean) => void;
@@ -105,6 +108,7 @@ const timezoneSelectStyles = {
 
 export default function CampaignAdvancedSettings({
     maxConcurrency, onMaxConcurrencyChange, effectiveLimit, orgConcurrentLimit, fromNumbersCount,
+    channelCapacity = 0,
     retryEnabled, onRetryEnabledChange, maxRetries, onMaxRetriesChange,
     retryDelaySeconds, onRetryDelaySecondsChange,
     retryOnBusy, onRetryOnBusyChange, retryOnNoAnswer, onRetryOnNoAnswerChange,
@@ -134,16 +138,16 @@ export default function CampaignAdvancedSettings({
                 />
                 <p className="text-sm text-muted-foreground">
                     Maximum number of simultaneous calls. Leave empty to use {effectiveLimit}.
-                    {fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
+                    {channelCapacity > 0 && ` Your telephony configuration supports ${channelCapacity} concurrent call${channelCapacity !== 1 ? 's' : ''} (channels) and the org limit is ${orgConcurrentLimit}.`}
                 </p>
-                {fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit && (
+                {channelCapacity > 0 && channelCapacity < orgConcurrentLimit && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
-                        Concurrency is limited to {fromNumbersCount} by your configured phone numbers. To use the full org limit of {orgConcurrentLimit}, add more CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link>.
+                        Concurrency is limited to {channelCapacity} by the trunk&apos;s channel capacity. If your trunk has more channels, raise it in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link>.
                     </p>
                 )}
                 {fromNumbersCount === 0 && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
-                        No phone numbers configured. Add CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
+                        No phone numbers configured. Add a number in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
                     </p>
                 )}
             </div>

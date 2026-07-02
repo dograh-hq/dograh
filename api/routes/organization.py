@@ -9,6 +9,7 @@ from api.constants import (
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
     DEFAULT_ORG_CONCURRENCY_LIMIT,
     DEPLOYMENT_MODE,
+    TELEPHONY_DEFAULT_MAX_CONCURRENT_CALLS,
 )
 from api.db import db_client
 from api.db.models import UserModel
@@ -1195,6 +1196,10 @@ class LastCampaignSettingsResponse(BaseModel):
 class CampaignDefaultsResponse(BaseModel):
     concurrent_call_limit: int
     from_numbers_count: int
+    # Trunk channel capacity of the default telephony config — the real bound
+    # on concurrent calls (one caller-id carries many channels). 0 = no
+    # active numbers configured.
+    channel_capacity: int = 0
     default_retry_config: RetryConfigResponse
     last_campaign_settings: Optional[LastCampaignSettingsResponse] = None
 
@@ -1222,9 +1227,12 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
     except Exception:
         pass
 
-    # Phone-number count from the org's default telephony config (used by the
-    # campaign UI to validate max_concurrency against caller-id supply).
+    # Phone-number count + trunk channel capacity from the org's default
+    # telephony config. Channel capacity (max_concurrent_calls, platform
+    # default when unset) is the real concurrency bound — one caller-id
+    # carries as many concurrent calls as the trunk has channels.
     from_numbers_count = 0
+    channel_capacity = 0
     try:
         default_cfg = await db_client.get_default_telephony_configuration(
             user.selected_organization_id
@@ -1234,6 +1242,11 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
                 default_cfg.id
             )
             from_numbers_count = len(addresses)
+            if addresses:
+                raw = (default_cfg.credentials or {}).get("max_concurrent_calls")
+                channel_capacity = (
+                    int(raw) if raw else TELEPHONY_DEFAULT_MAX_CONCURRENT_CALLS
+                )
     except Exception:
         pass
 
@@ -1280,6 +1293,7 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
     return CampaignDefaultsResponse(
         concurrent_call_limit=concurrent_limit,
         from_numbers_count=from_numbers_count,
+        channel_capacity=channel_capacity,
         default_retry_config=RetryConfigResponse(**DEFAULT_CAMPAIGN_RETRY_CONFIG),
         last_campaign_settings=last_campaign_settings,
     )

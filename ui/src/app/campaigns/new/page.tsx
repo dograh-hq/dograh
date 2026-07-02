@@ -59,6 +59,7 @@ export default function NewCampaignPage() {
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
     const [orgConcurrentLimit, setOrgConcurrentLimit] = useState<number>(2);
     const [fromNumbersCount, setFromNumbersCount] = useState<number>(0);
+    const [defaultChannelCapacity, setDefaultChannelCapacity] = useState<number>(0);
     const [maxConcurrency, setMaxConcurrency] = useState<string>('');
     // Retry config state
     const [retryEnabled, setRetryEnabled] = useState(true);
@@ -158,6 +159,10 @@ export default function NewCampaignPage() {
             if (response.data) {
                 setOrgConcurrentLimit(response.data.concurrent_call_limit);
                 setFromNumbersCount(response.data.from_numbers_count);
+                // channel_capacity predates the generated client types — the
+                // trunk's channel count is the real concurrency bound.
+                const capacity = (response.data as { channel_capacity?: number }).channel_capacity;
+                if (typeof capacity === 'number') setDefaultChannelCapacity(capacity);
 
                 const last = (response.data as { last_campaign_settings?: {
                     retry_config?: { enabled: boolean; max_retries: number; retry_delay_seconds: number; retry_on_busy: boolean; retry_on_no_answer: boolean; retry_on_voicemail: boolean };
@@ -223,17 +228,22 @@ export default function NewCampaignPage() {
         }
     }, [fetchWorkflows, fetchCampaignDefaults, fetchTelephonyConfigs, user]);
 
-    // Phone-number count for the selected telephony config drives concurrency
-    // bounds. Falls back to the campaign-defaults endpoint's count (org default
-    // config) until the configs list resolves.
     const selectedTelephonyConfig = telephonyConfigs.find(
         (c) => String(c.id) === selectedTelephonyConfigId,
     );
     const availableFromNumbersCount = selectedTelephonyConfig?.phone_number_count ?? fromNumbersCount;
 
-    // Effective concurrency limit considering both org limit and available CLIs
-    const effectiveLimit = availableFromNumbersCount > 0
-        ? Math.min(orgConcurrentLimit, availableFromNumbersCount)
+    // Concurrency is bounded by the trunk's CHANNEL capacity, not the number
+    // count: the selected config's max_concurrent_calls (not in the generated
+    // types yet), else the default config's capacity from campaign-defaults,
+    // else the platform default of 5 when numbers exist.
+    const selectedCapacity = (selectedTelephonyConfig as { max_concurrent_calls?: number } | undefined)
+        ?.max_concurrent_calls;
+    const channelCapacity = selectedCapacity
+        ?? (availableFromNumbersCount > 0 ? (defaultChannelCapacity || 5) : 0);
+
+    const effectiveLimit = channelCapacity > 0
+        ? Math.min(orgConcurrentLimit, channelCapacity)
         : orgConcurrentLimit;
 
     // Handle form submission
@@ -254,8 +264,8 @@ export default function NewCampaignPage() {
                 return;
             }
             if (maxConcurrencyValue > effectiveLimit) {
-                if (availableFromNumbersCount > 0 && availableFromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. The selected configuration has ${availableFromNumbersCount} phone number(s) - add more CLIs to increase concurrency.`);
+                if (channelCapacity > 0 && channelCapacity < orgConcurrentLimit) {
+                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}: the selected configuration supports ${channelCapacity} concurrent calls (channels). Raise its channel capacity if your trunk has more.`);
                 } else {
                     toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
                 }
@@ -528,6 +538,7 @@ export default function NewCampaignPage() {
                                         effectiveLimit={effectiveLimit}
                                         orgConcurrentLimit={orgConcurrentLimit}
                                         fromNumbersCount={fromNumbersCount}
+                                        channelCapacity={channelCapacity}
                                         retryEnabled={retryEnabled}
                                         onRetryEnabledChange={setRetryEnabled}
                                         maxRetries={maxRetries}

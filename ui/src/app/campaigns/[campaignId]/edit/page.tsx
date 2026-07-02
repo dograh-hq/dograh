@@ -40,6 +40,7 @@ export default function EditCampaignPage() {
     // Limits state
     const [orgConcurrentLimit, setOrgConcurrentLimit] = useState<number>(2);
     const [fromNumbersCount, setFromNumbersCount] = useState<number>(0);
+    const [channelCapacity, setChannelCapacity] = useState<number>(0);
 
     // Retry config state
     const [retryEnabled, setRetryEnabled] = useState(true);
@@ -140,6 +141,11 @@ export default function EditCampaignPage() {
             if (response.data) {
                 setOrgConcurrentLimit(response.data.concurrent_call_limit);
                 setFromNumbersCount(response.data.from_numbers_count);
+                // channel_capacity predates the generated client types — the
+                // trunk's channel count is the real concurrency bound, not
+                // how many caller-id numbers exist.
+                const capacity = (response.data as { channel_capacity?: number }).channel_capacity;
+                if (typeof capacity === 'number') setChannelCapacity(capacity);
             }
         } catch (error) {
             console.error('Failed to fetch campaign limits:', error);
@@ -154,9 +160,10 @@ export default function EditCampaignPage() {
         }
     }, [fetchCampaign, fetchCampaignDefaults, user]);
 
-    // Effective concurrency limit
-    const effectiveLimit = fromNumbersCount > 0
-        ? Math.min(orgConcurrentLimit, fromNumbersCount)
+    // Effective concurrency limit: bounded by the trunk's channel capacity
+    // (one caller-id carries many concurrent calls), not the number count.
+    const effectiveLimit = channelCapacity > 0
+        ? Math.min(orgConcurrentLimit, channelCapacity)
         : orgConcurrentLimit;
 
     // Handle form submission
@@ -177,8 +184,8 @@ export default function EditCampaignPage() {
                 return;
             }
             if (maxConcurrencyValue > effectiveLimit) {
-                if (fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. You have ${fromNumbersCount} phone number(s) configured - add more CLIs to increase concurrency.`);
+                if (channelCapacity > 0 && channelCapacity < orgConcurrentLimit) {
+                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}: your telephony configuration supports ${channelCapacity} concurrent calls (channels). Raise its channel capacity if your trunk has more.`);
                 } else {
                     toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
                 }
@@ -342,6 +349,7 @@ export default function EditCampaignPage() {
                             effectiveLimit={effectiveLimit}
                             orgConcurrentLimit={orgConcurrentLimit}
                             fromNumbersCount={fromNumbersCount}
+                            channelCapacity={channelCapacity}
                             retryEnabled={retryEnabled}
                             onRetryEnabledChange={setRetryEnabled}
                             maxRetries={maxRetries}

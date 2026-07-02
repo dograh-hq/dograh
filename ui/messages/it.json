@@ -77,7 +77,11 @@
   },
   "auth": {
     "heroTitle": "La piattaforma voice AI open-source.",
-    "highlights": ["Speech-to-speech", "MCP-native", "BYOK - qualsiasi modello"],
+    "highlights": [
+      "Speech-to-speech",
+      "MCP-native",
+      "BYOK - qualsiasi modello"
+    ],
     "enterpriseTitle": "Serve on-prem, data residency e data perimeter?",
     "enterpriseDesc": "Deployamo Sativoice nel tuo ambiente per team regolamentati e high-scale.",
     "loginTitle": "Accedi",
@@ -114,5 +118,366 @@
       "signupFailed": "Registrazione fallita",
       "errorGeneric": "Si e' verificato un errore. Riprova."
     }
+  },
+  "settings": {
+    "title": "Platform Settings",
+    "subtitle": "Manage your platform configuration and integrations.",
+    "preferences": {
+      "title": "Preferences",
+      "description": "Set organization-wide defaults such as the test phone number and timezone."
+    },
+    "mcp": {
+      "title": "MCP Server",
+      "description": "Let AI agents access your Dograh workspace and documentation via the Model Context Protocol.",
+      "learnMore": "Learn more"
+    },
+    "telemetry": {
+      "title": "Telemetry",
+      "description": "Configure Langfuse tracing for your voice agent calls.",
+      "learnMore": "Learn more"
+    }
+  },
+  "mcpSection": {
+    "endpoint": "MCP Endpoint",
+    "description": "Connect an MCP-compatible AI assistant to this URL over Streamable HTTP. Requires an API key in the X-API-Key header.",
+    "getApiKey": "Get your API key",
+    "publicUrl": "Public URL (Cloudflare tunnel)",
+    "backendUrl": "Backend URL",
+    "tunnelHint": "Use the public URL from externally-hosted assistants; the backend URL works from the deployment's own network.",
+    "guideText": "For step-by-step setup with Claude Code, Claude Desktop, Cursor, and other clients, see the",
+    "guideLink": "MCP integration guide"
+  },
+  "telephony": {
+    "title": "Telephony configurations",
+    "description": "Connect one or more telephony provider accounts.",
+    "learnMore": "Learn more",
+    "addConfig": "Add configuration",
+    "noConfigsTitle": "No telephony configurations yet",
+    "noConfigsDesc": "Add one to enable outbound calls.",
+    "defaultBadge": "Default",
+    "configId": "Configuration ID",
+    "setDefaultOutbound": "Set as default outbound",
+    "edit": "Edit",
+    "delete": "Delete",
+    "viewPhoneNumbers": "View phone numbers",
+    "deleteConfigTitle": "Delete configuration?",
+    "deleteConfigDesc": "{name} and all of its phone numbers will be removed.",
+    "cancel": "Cancel",
+    "confirmDelete": "Delete",
+    "configIdCopied": "Configuration ID copied",
+    "failedToLoad": "Failed to load configurations"
+  },
+  "telephonyDetail": {
+    "back": "Back",
+    "allConfigs": "All configurations",
+    "defaultBadge": "Default",
+    "updated": "Updated {date}",
+    "configId": "Configuration ID",
+    "setAsDefault": "Set as default",
+    "editCredentials": "Edit credentials",
+    "inboundWebhookUrl": "Inbound webhook URL",
+    "phoneNumbers": "Phone numbers",
+    "addPhoneNumber": "Add phone number",
+    "noPhoneNumbers": "No phone numbers yet.",
+    "address": "Address",
+    "type": "Type",
+    "label": "Label",
+    "status": "Status",
+    "inboundWorkflow": "Inbound workflow",
+    "actions": "Actions",
+    "active": "Active",
+    "inactive": "Inactive",
+    "defaultCaller": "Default caller",
+    "setDefaultCaller": "Set as default caller ID",
+    "deletePhoneTitle": "Delete phone number?",
+    "deletePhoneDesc": "{address} will no longer accept inbound calls.",
+    "configNotFound": "Configuration not found."
+  },
+  "workflowList": {
+    "title": "Your Agents",
+    "activeAgents": "Active Agents",
+    "emptyDesc": "No active workflows found.",
+    "authRequired": "Authentication required.",
+    "fetchError": "Failed to load Workflows."
+  },
+  "workflowCreate": {
+    "title": "Create Voice Agent",
+    "description": "Tell us about your use case.",
+    "agentDetails": "Agent Details",
+    "callType": "Call Type",
+    "callTypeInbound": "Inbound (Users call AI)",
+    "callTypeOutbound": "Outbound (AI calls users)",
+    "callTypeHint": "Choose call direction.",
+    "useCase": "Use Case",
+    "useCasePlaceholder": "e.g., Lead Qualification, HR Screening",
+    "useCaseHint": "Describe the primary purpose of your voice agent.",
+    "activityDescription": "Activity Description",
+    "activityDescriptionPlaceholder": "Describe briefly what your voice agent will do.",
+    "activityDescriptionHint": "This will be used to generate the AI prompt.",
+    "createButton": "Create Agent",
+    "creatingButton": "Creating...",
+    "fillAllFields": "Please fill in all fields",
+    "loginRequired": "You must be logged in.",
+    "createFailed": "Failed to create workflow.",
+    "creatingTitle": "Creating Your Workflow",
+    "creatingDesc": "Setting up your voice agent.",
+    "successTitle": "Workflow Created Successfully!",
+    "successDesc1": "A voice agent workflow has been generated.",
+    "successDesc2": "The voice bot is pre-set to communicate in English.",
+    "successDesc3": "Test the voice bot in the editor.",
+    "openAndTest": "Open and Test Agent"
+  },
+  "workflowSettings": {
+    "title": "Workflow Settings",
+    "onThisPage": "On this page",
+    "general": {
+      "title": "General",
+      "learnMore": "Learn more",
+      "agentName": "Agent Name",
+      "agentNamePlaceholder": "Enter Agent name",
+      "ambientNoise": "Ambient Noise",
+      "useAmbientNoise": "Use Ambient Noise",
+      "turnDetection": "Turn Detection",
+      "contextCompaction": "Context Compaction",
+      "enableContextCompaction": "Enable Context Compaction",
+      "callManagement": "Call Management",
+      "maxCallDuration": "Max Call Duration (seconds)",
+      "maxIdleTimeout": "Max User Idle Timeout (seconds)",
+      "unsavedChanges": "Unsaved changes",
+      "save": "Save General Settings",
+      "saving": "Saving..."
+    },
+    "models": {
+      "title": "Model Overrides",
+      "learnMore": "Learn more"
+    },
+    "variables": {
+      "title": "Template Variables",
+      "learnMore": "Learn more",
+      "currentVariables": "Current Variables",
+      "addNewVariable": "Add New Variable",
+      "key": "Key",
+      "keyPlaceholder": "Enter variable key",
+      "value": "Value",
+      "valuePlaceholder": "Enter variable value",
+      "addVariable": "Add Variable",
+      "unsavedChanges": "Unsaved changes",
+      "save": "Save Variables",
+      "saving": "Saving..."
+    },
+    "dictionary": {
+      "title": "Dictionary",
+      "placeholder": "Enter words separated by comma.",
+      "unsavedChanges": "Unsaved changes",
+      "save": "Save Dictionary",
+      "saving": "Saving..."
+    },
+    "voicemail": {
+      "title": "Voicemail Detection",
+      "description": "Automatically detect and end calls when a voicemail is reached.",
+      "enable": "Enable Voicemail Detection",
+      "systemPrompt": "System Prompt",
+      "unsavedChanges": "Unsaved changes",
+      "save": "Save Voicemail Settings",
+      "saving": "Saving..."
+    },
+    "recordings": {
+      "title": "Recordings",
+      "description": "Recordings are now managed at the organization level.",
+      "learnMore": "Learn more",
+      "goToRecordings": "Go to Recordings"
+    },
+    "deployment": {
+      "title": "Add to Website",
+      "description": "Configure a widget to add this voice agent to your website.",
+      "learnMore": "Learn more",
+      "configureWidget": "Configure Widget"
+    },
+    "report": {
+      "title": "Report",
+      "description": "Download a CSV report of completed runs.",
+      "downloadReport": "Download Report",
+      "from": "From",
+      "to": "To",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "clear": "Clear",
+      "downloadFiltered": "Download Filtered",
+      "downloadAll": "Download All"
+    },
+    "identity": {
+      "title": "Agent UUID",
+      "description": "Stable identifier for this agent.",
+      "copyUuid": "Copy UUID",
+      "uuidCopied": "Agent UUID copied"
+    }
+  },
+  "billing": {
+    "title": "Billing",
+    "description": "Credits, balance, and account usage.",
+    "refresh": "Refresh",
+    "addCredits": "Add Credits",
+    "opening": "Opening...",
+    "creditBalance": "Credit balance",
+    "creditsRemaining": "Credits remaining",
+    "oneCredit": "1 credit = 1 cent",
+    "creditsUsed": "Credits used",
+    "creditLedger": "Credit Ledger",
+    "creditLedgerDesc": "Recent grants, purchases, and usage debits.",
+    "noEntries": "No ledger entries yet",
+    "pageInfo": "Page {page} of {totalPages}",
+    "previous": "Previous",
+    "next": "Next",
+    "creditUsage": "Credit Usage",
+    "ossWarning": "Credit purchases are unavailable in OSS mode",
+    "table": {
+      "date": "Date",
+      "activity": "Activity",
+      "origin": "Origin",
+      "run": "Run",
+      "delta": "Delta",
+      "balance": "Balance",
+      "amount": "Amount"
+    }
+  },
+  "apiKeys": {
+    "title": "Developer Portal",
+    "description": "Manage your API keys.",
+    "apiKeys": "API Keys",
+    "apiKeysDesc": "Create and manage API keys.",
+    "showArchived": "Show Archived",
+    "hideArchived": "Hide Archived",
+    "createNewKey": "Create New Key",
+    "noKeysFound": "No API keys found",
+    "createFirstKey": "Create Your First API Key",
+    "archived": "Archived",
+    "active": "Active",
+    "inactive": "Inactive",
+    "keyHidden": "(Full key hidden for security)",
+    "created": "Created: {date}",
+    "lastUsed": "Last used: {date}",
+    "never": "Never",
+    "reactivate": "Reactivate",
+    "serviceKeys": "Service Keys",
+    "serviceKeysDesc": "Manage service keys.",
+    "createServiceKey": "Create Service Key",
+    "noServiceKeys": "No service keys found",
+    "createFirstServiceKey": "Create Your First Service Key",
+    "createKeyDialog": {
+      "title": "Create New API Key",
+      "description": "Enter a name for your API key.",
+      "keyName": "Key Name",
+      "keyNamePlaceholder": "e.g., Production Server, Dev Environment",
+      "cancel": "Cancel",
+      "create": "Create Key"
+    },
+    "createServiceKeyDialog": {
+      "title": "Create New Service Key",
+      "description": "Create a service key.",
+      "keyName": "Service Key Name",
+      "cancel": "Cancel",
+      "create": "Create Service Key"
+    },
+    "keyCreatedDialog": {
+      "title": "API Key Created Successfully",
+      "description": "Copy your API key now.",
+      "yourKey": "Your API Key:",
+      "storeKeyWarning": "Store this key securely.",
+      "done": "Done"
+    },
+    "serviceKeyCreatedDialog": {
+      "title": "Service Key Created Successfully",
+      "description": "Copy your service key now.",
+      "yourKey": "Your Service Key:",
+      "storeKeyWarning": "Store this key securely.",
+      "done": "Done"
+    },
+    "securityWarning": "Important: Keep your API keys secure."
+  },
+  "campaigns": {
+    "title": "Campaigns",
+    "description": "Manage your campaigns.",
+    "createCampaign": "Create Campaign",
+    "allCampaigns": "All Campaigns",
+    "empty": "No campaigns found",
+    "createFirst": "Create your first campaign"
+  },
+  "campaignNew": {
+    "back": "Back to Campaigns",
+    "title": "Create New Campaign",
+    "description": "Set up a new campaign.",
+    "campaignDetails": "Campaign Details",
+    "campaignName": "Campaign Name",
+    "campaignNamePlaceholder": "Enter campaign name",
+    "workflow": "Workflow",
+    "telephonyConfig": "Telephony Configuration",
+    "dataSourceType": "Data Source Type",
+    "advancedSettings": "Advanced Settings",
+    "createCampaign": "Create Campaign",
+    "creating": "Creating...",
+    "cancel": "Cancel"
+  },
+  "tools": {
+    "title": "Tools",
+    "description": "Manage reusable tools.",
+    "yourTools": "Your Tools",
+    "createTool": "Create Tool"
+  },
+  "files": {
+    "title": "Knowledge Base Files",
+    "description": "Upload and manage documents.",
+    "yourDocuments": "Your Documents",
+    "uploadDocument": "Upload Document"
+  },
+  "recordings": {
+    "title": "Recordings",
+    "description": "Manage audio recordings.",
+    "allRecordings": "All Recordings",
+    "uploadRecording": "Upload Recording"
+  },
+  "usage": {
+    "title": "Agent Runs",
+    "description": "See all your Agent Runs.",
+    "allRuns": "All Runs",
+    "noRunsFound": "No runs found",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "reports": {
+    "title": "Daily Reports",
+    "allWorkflows": "All Workflows",
+    "downloadCsv": "Download CSV",
+    "noData": "No data available"
+  },
+  "automation": {
+    "title": "Automation",
+    "description": "Automate your workflows.",
+    "comingSoon": "Coming Soon"
+  },
+  "superadmin": {
+    "title": "Superadmin Dashboard",
+    "description": "Manage users and view system data.",
+    "userImpersonation": "User Impersonation",
+    "impersonateUser": "Impersonate User",
+    "workflowRuns": "Workflow Runs"
+  },
+  "addNodePanel": {
+    "addNewNode": "Add New Node",
+    "viewNodesDocs": "View Nodes Documentation"
+  },
+  "onboarding": {
+    "welcome": "Welcome",
+    "getStarted": "Get started",
+    "selectOne": "Select one"
+  },
+  "common": {
+    "learnMore": "Learn more",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "loading": "Loading...",
+    "unsavedChanges": "Unsaved changes"
   }
 }

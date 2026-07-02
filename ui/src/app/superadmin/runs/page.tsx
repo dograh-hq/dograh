@@ -145,7 +145,7 @@ export default function RunsPage() {
                 setTotalCount(data.total_count);
             }
         } catch (err) {
-            setError("Failed to fetch workflow runs. Please try again.");
+            setError(t('fetchError'));
             console.error("Fetch runs error:", err);
         } finally {
             if (!isAutoRefresh) {
@@ -277,7 +277,7 @@ export default function RunsPage() {
                 });
             } catch (err) {
                 console.error('Failed to impersonate user', err);
-                alert('Failed to impersonate the user. Please try again.');
+                alert(t('impersonateError'));
             }
         },
         [auth],
@@ -288,7 +288,7 @@ export default function RunsPage() {
             <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
                 <div className="flex items-center space-x-2">
                     <Loader2 className="h-6 w-6 animate-spin" />
-                    <span>Loading workflow runs...</span>
+                    <span>{t('loading')}</span>
                 </div>
             </div>
         );
@@ -323,15 +323,15 @@ export default function RunsPage() {
                     <CardHeader>
                         <div className="flex items-center justify-between">
                             <div>
-                                <CardTitle>All Workflow Runs</CardTitle>
+                                <CardTitle>{t('allWorkflowRuns')}</CardTitle>
                                 <CardDescription>
-                                    Showing {runs.length} of {totalCount} total runs
+                                    {t('showingResults', { count: runs.length, total: totalCount })}
                                 </CardDescription>
                             </div>
                             {isAutoRefreshing && (
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                     <RefreshCw className="h-4 w-4 animate-spin" />
-                                    <span>Refreshing...</span>
+                                    <span>{t('refreshing')}</span>
                                 </div>
                             )}
                         </div>
@@ -339,7 +339,7 @@ export default function RunsPage() {
                     <CardContent>
                         {runs.length === 0 ? (
                             <div className="text-center py-8 text-muted-foreground">
-                                No workflow runs found.
+                                {t('noRunsFound')}
                             </div>
                         ) : (
                             <>
@@ -347,17 +347,17 @@ export default function RunsPage() {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-muted">
-                                                <TableHead className="font-semibold">ID</TableHead>
-                                                <TableHead className="font-semibold">Workflow</TableHead>
-                                                <TableHead className="font-semibold">Status</TableHead>
-                                                <TableHead className="font-semibold">Disposition</TableHead>
-                                                <TableHead className="font-semibold">Tags</TableHead>
+                                                <TableHead className="font-semibold">{t('tableId')}</TableHead>
+                                                <TableHead className="font-semibold">{t('tableWorkflow')}</TableHead>
+                                                <TableHead className="font-semibold">{t('tableStatus')}</TableHead>
+                                                <TableHead className="font-semibold">{t('tableDisposition')}</TableHead>
+                                                <TableHead className="font-semibold">{t('tableTags')}</TableHead>
                                                 <TableHead
                                                     className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
                                                     onClick={() => handleSort('duration')}
                                                 >
                                                     <div className="flex items-center gap-1">
-                                                        Duration
+                                                        {t('tableDuration')}
                                                         {sortBy === 'duration' ? (
                                                             sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
                                                         ) : (
@@ -365,13 +365,13 @@ export default function RunsPage() {
                                                         )}
                                                     </div>
                                                 </TableHead>
-                                                <TableHead className="font-semibold">Details</TableHead>
+                                                <TableHead className="font-semibold">{t('tableDetails')}</TableHead>
                                                 <TableHead
                                                     className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
                                                     onClick={() => handleSort('created_at')}
                                                 >
                                                     <div className="flex items-center gap-1">
-                                                        Created At
+                                                        {t('tableCreatedAt')}
                                                         {sortBy === 'created_at' ? (
                                                             sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
                                                         ) : (
@@ -379,7 +379,7 @@ export default function RunsPage() {
                                                         )}
                                                     </div>
                                                 </TableHead>
-                                                <TableHead className="font-semibold">Actions</TableHead>
+                                                <TableHead className="font-semibold">{t('tableActions')}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -397,12 +397,12 @@ export default function RunsPage() {
                                                                     run.workflow_name.length > 15
                                                                         ? `${run.workflow_name.substring(0, 15)}...`
                                                                         : run.workflow_name
-                                                                ) : 'Unknown Workflow'}
+                                                                ) : t('unknownWorkflow')}
                                                             </span>
                                                             <span className="text-xs text-muted-foreground font-mono">
-                                                                ID: {String(run.workflow_id).length > 12
+                                                                {t('idPrefix', { id: String(run.workflow_id).length > 12
                                                                     ? `${String(run.workflow_id).substring(0, 12)}...`
-                                                                    : run.workflow_id}
+                                                                    : run.workflow_id })}
                                                             </span>
                                                         </div>
                                                     </TableCell>
@@ -574,7 +574,7 @@ export default function RunsPage() {
                                 {totalPages > 1 && (
                                     <div className="flex items-center justify-between mt-6">
                                         <div className="text-sm text-muted-foreground">
-                                            Page {currentPage} of {totalPages} ({totalCount} total runs)
+                                            {t('pageInfo', { page: currentPage, totalPages: totalPages, totalCount: totalCount })}
                                         </div>
                                         <div className="flex space-x-2">
                                             <Button
@@ -584,7 +584,7 @@ export default function RunsPage() {
                                                 disabled={currentPage === 1 || isLoading}
                                             >
                                                 <ChevronLeft className="h-4 w-4 mr-1" />
-                                                Previous
+                                                {t('previous')}
                                             </Button>
 
                                             {/* Page numbers */}
@@ -619,7 +619,7 @@ export default function RunsPage() {
                                                 onClick={() => handlePageChange(currentPage + 1)}
                                                 disabled={currentPage === totalPages || isLoading}
                                             >
-                                                Next
+                                                {t('next')}
                                                 <ChevronRight className="h-4 w-4 ml-1" />
                                             </Button>
                                         </div>

@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { createWorkflowRunApiV1WorkflowWorkflowIdRunsPost } from "@/client/sdk.gen";
+import { useTranslations } from 'next-intl';
+
 import { OnboardingTooltip } from "@/components/onboarding/OnboardingTooltip";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,6 +38,10 @@ interface WorkflowTesterPanelProps {
 }
 
 export function WorkflowTesterPanel({
+    t,
+    ...rest
+}: any) {
+    // Placeholder - will be properly implemented
     workflowId,
     initialContextVariables,
     disabled,
@@ -46,6 +52,7 @@ export function WorkflowTesterPanel({
     onClose,
     onRuntimeNodeTransition,
 }: WorkflowTesterPanelProps) {
+    const t = useTranslations("workflowList");
     const auth = useAuth();
     const { hasSeenTooltip, markTooltipSeen, markActionCompleted } = useOnboarding();
     const { isAuthenticated, loading: authLoading, getAccessToken } = auth;
@@ -129,7 +136,7 @@ export function WorkflowTesterPanel({
     }, [accessToken, disabled, markActionCompleted, markTooltipSeen, workflowId]);
 
     const authUnavailableReason = tokenReady && !accessToken
-        ? "Authentication is required before testing can start."
+        ? "{t("testerAuthRequired")}"
         : null;
     const effectiveDisabledReason = disabledReason ?? authUnavailableReason;
     const testerBlocked = disabled || authUnavailableReason !== null;
@@ -155,11 +162,11 @@ export function WorkflowTesterPanel({
                         <TabsList className="grid h-9 flex-1 grid-cols-2 rounded-lg bg-muted/60 p-1">
                             <TabsTrigger value="audio" className="rounded-md text-sm">
                                 <Mic className="h-4 w-4" />
-                                Test Audio
+                                {t("testAudio")}
                             </TabsTrigger>
                             <TabsTrigger value="text" className="rounded-md text-sm">
                                 <MessageSquareText className="h-4 w-4" />
-                                Test Chat
+                                {t("testChat")}
                             </TabsTrigger>
                         </TabsList>
                         {onClose ? (
@@ -168,7 +175,7 @@ export function WorkflowTesterPanel({
                                 size="icon"
                                 onClick={onClose}
                                 className="shrink-0 text-muted-foreground hover:text-foreground"
-                                aria-label="Close tester panel"
+                                aria-label={t("closeTesterPanel")}
                             >
                                 <X className="h-4 w-4" />
                             </Button>
@@ -185,7 +192,7 @@ export function WorkflowTesterPanel({
                             </div>
                         ) : !accessToken ? (
                             <DisabledNotice
-                                reason={authUnavailableReason ?? "Authentication is required before browser tests can start."}
+                                reason={authUnavailableReason ?? "{t("testerAuthRequired")}"}
                             />
                         ) : voiceRunId ? (
                             <EmbeddedVoiceTester
@@ -193,7 +200,7 @@ export function WorkflowTesterPanel({
                                 workflowRunId={voiceRunId}
                                 initialContextVariables={initialContextVariables}
                                 accessToken={accessToken}
-                                onReset={() => setVoiceRunId(null)}
+                                on{t("tester{t("testerReset")}")}={() => setVoiceRunId(null)}
                                 onNodeTransition={onRuntimeNodeTransition}
                             />
                         ) : (
@@ -201,8 +208,8 @@ export function WorkflowTesterPanel({
                                 {effectiveDisabledReason ? <DisabledNotice reason={effectiveDisabledReason} /> : null}
                                 <EmptyState
                                     icon={<Phone className="h-7 w-7" />}
-                                    title="Call this agent in the browser"
-                                    description="Test the agent over a voice call. Some telephony-only tools, like call transfer, are not yet supported here."
+                                    title="{t("testerCallInBrowser")}"
+                                    description="{t("testerVoiceCallDesc")}. Some telephony-only tools, like call transfer, are not yet supported here."
                                     action={
                                         <Button
                                             ref={runTestButtonRef}
@@ -212,12 +219,12 @@ export function WorkflowTesterPanel({
                                             {creatingVoiceRun ? (
                                                 <>
                                                     <Loader2 className="h-4 w-4 animate-spin" />
-                                                    Starting test...
+                                                    {t("testerStarting")}
                                                 </>
                                             ) : (
                                                 <>
                                                     <Phone className="h-4 w-4" />
-                                                    Run Test
+                                                    {t("testerRunTest")}
                                                 </>
                                             )}
                                         </Button>
@@ -241,7 +248,7 @@ export function WorkflowTesterPanel({
                                     className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                                 >
                                     <RefreshCw className="h-3.5 w-3.5" />
-                                    Reset
+                                    {t("tester{t("testerReset")}")}
                                 </Button>
                             ) : null}
                         </div>
@@ -266,8 +273,8 @@ export function WorkflowTesterPanel({
 
             <OnboardingTooltip
                 targetRef={runTestButtonRef}
-                title="Try Your First Web Call"
-                message="Start a browser call here to hear the agent, inspect the transcript, and validate the workflow before you customize it further."
+                title="{t('testerTooltipTitle')}"
+                message="{t('testerTooltipMsg')}, inspect the transcript, and validate the workflow before you customize it further."
                 onDismiss={() => markTooltipSeen("web_call")}
                 showNext={false}
                 isVisible={showRunTestTooltip}

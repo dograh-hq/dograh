@@ -9,6 +9,7 @@ import { DisabledNotice, ManualChatEmptyState, TypingIndicator } from "./shared"
 import { TurnMessageActions } from "./TurnMessageActions";
 import type { WorkflowRuntimeNodeTransition } from "./types";
 import { useTextChatSession } from "./useTextChatSession";
+import { useTranslations } from 'next-intl';
 
 interface ManualTextChatPanelProps {
     workflowId: number;
@@ -85,7 +86,7 @@ export function ManualTextChatPanel({
                         <p className="text-sm text-muted-foreground">
                             {disabled
                                 ? (disabledReason ?? "Testing is paused.")
-                                : "Send a message to start the conversation."}
+                                : "{t("chatStartMessage")}"}
                         </p>
                     </div>
                 ) : (
@@ -95,11 +96,12 @@ export function ManualTextChatPanel({
                         scrollBehavior="smooth"
                         emptyState={{
                             title: "No conversation recorded",
-                            subtitle: "Send a message to start the conversation.",
+                            subtitle: "{t("chatStartMessage")}",
                         }}
                         pendingIndicator={sendingMessage ? <TypingIndicator /> : null}
                         className="py-1"
                         renderItemActions={(item: ConversationItem) => {
+    const t = useTranslations("workflowList");
                             if (item.kind !== "message" || item.role !== "user" || !item.turnId) {
                                 return null;
                             }

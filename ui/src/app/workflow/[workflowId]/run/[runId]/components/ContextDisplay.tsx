@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ContextDisplayProps {
@@ -6,6 +7,7 @@ interface ContextDisplayProps {
 }
 
 export const ContextDisplay = ({ title, context }: ContextDisplayProps) => {
+    const t = useTranslations("workflowList");
     if (!context || Object.keys(context).length === 0) {
         return (
             <Card>
@@ -13,7 +15,7 @@ export const ContextDisplay = ({ title, context }: ContextDisplayProps) => {
                     <CardTitle className="text-lg">{title}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">No {title.toLowerCase()} available</p>
+                    <p className="text-sm text-muted-foreground">{t("noContextAvailable")}</p>
                 </CardContent>
             </Card>
         );
@@ -32,7 +34,7 @@ export const ContextDisplay = ({ title, context }: ContextDisplayProps) => {
                         </label>
                         <div className="p-3 bg-muted border rounded-md">
                             <p className="text-sm whitespace-pre-wrap">
-                                {typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : (value || 'No value')}
+                                {typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : (value || t("noValue"))}
                             </p>
                         </div>
                     </div>

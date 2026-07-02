@@ -3,6 +3,78 @@
     "name": "Sativoice Enterprise",
     "tagline": "Piattaforma Voice AI open-source"
   },
+  "overview": {
+    "welcome": {
+      "ossTitle": "Benvenuto in Sativoice Enterprise",
+      "ossDesc": "Alternativa open-source a Vapi. Aiutaci supportando il progetto con una stella su GitHub.",
+      "cloudTitle": "Benvenuto, {firstName}!",
+      "cloudTitleGeneric": "Benvenuto!",
+      "cloudDesc": "Inizia a creare flussi di lavoro voice AI"
+    },
+    "quickActions": {
+      "agentsTitle": "Crea e gestisci i tuoi Voice Agent",
+      "agentsDesc": "Costruisci potenti agenti vocali AI con il nostro editor visivo",
+      "agentsButton": "Vai agli Agent",
+      "servicesTitle": "Configura i servizi",
+      "servicesDesc": "Configura i tuoi servizi AI come LLM, TTS e STT",
+      "servicesButton": "Configura Modelli"
+    },
+    "resources": {
+      "title": "Risorse",
+      "desc": "Aiuto e documentazione su Sativoice",
+      "documentation": "Documentazione",
+      "documentationUrl": "https://docs.sativoice.com",
+      "reportIssue": "Segnala un problema",
+      "starOnGitHub": "Seguici su GitHub"
+    }
+  },
+  "sidebar": {
+    "nav": {
+      "overview": "Panoramica",
+      "voiceAgents": "Voice Agent",
+      "campaigns": "Campagne",
+      "models": "Modelli",
+      "telephony": "Telefonia",
+      "tools": "Strumenti",
+      "files": "File",
+      "recordings": "Registrazioni",
+      "developers": "Sviluppatori",
+      "agentRuns": "Esecuzioni Agent",
+      "billing": "Fatturazione",
+      "reports": "Report"
+    },
+    "sections": {
+      "build": "COSTRUISCI",
+      "manage": "GESTISCI"
+    },
+    "telephonyWarning": "Azione richiesta",
+    "hireExpert": "Assumi un Esperto",
+    "toggleTheme": "Cambia tema",
+    "userMenu": {
+      "platformSettings": "Impostazioni Piattaforma",
+      "accountSettings": "Impostazioni account",
+      "signOut": "Esci"
+    },
+    "updateBadge": "Aggiorna",
+    "updateTooltip": "Ultima: {version} - clicca per la guida all'aggiornamento",
+    "latestBadge": "Aggiornato",
+    "latestTooltip": "Hai l'ultima versione"
+  },
+  "footer": {
+    "privacyPolicy": "Informativa sulla Privacy",
+    "termsOfService": "Termini di Servizio"
+  },
+  "appLayout": {
+    "openMenu": "Apri menu",
+    "mobileBrand": "Sativoice",
+    "joinSlack": "Unisciti a Slack",
+    "backendFailed": "Connessione al backend fallita",
+    "retry": "Riprova",
+    "updateBadge": "Aggiorna",
+    "updateTooltip": "Ultima: {version} - clicca per la guida all'aggiornamento",
+    "latestBadge": "Aggiornato",
+    "latestTooltip": "Hai l'ultima versione"
+  },
   "auth": {
     "heroTitle": "La piattaforma voice AI open-source.",
     "highlights": ["Speech-to-speech", "MCP-native", "BYOK - qualsiasi modello"],

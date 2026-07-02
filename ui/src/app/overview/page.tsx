@@ -2,12 +2,15 @@
 
 import Link from 'next/link';
 
+import { useTranslations } from 'next-intl';
+
 import { GitHubStarBadge } from '@/components/layout/GitHubStarBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 
 export default function OverviewPage() {
+    const t = useTranslations('overview');
     const { user, provider } = useAuth();
     const isOSSMode = provider !== 'stack';
 
@@ -19,25 +22,25 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle className="text-3xl">
                             {isOSSMode ? (
-                                "Welcome to Dograh"
+                                t('welcome.ossTitle')
                             ) : (
-                                `Welcome${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}!`
+                                user?.displayName
+                                    ? t('welcome.cloudTitle', { firstName: user.displayName.split(' ')[0] })
+                                    : t('welcome.cloudTitleGeneric')
                             )}
                         </CardTitle>
                         <CardDescription className="text-lg mt-2">
                             {isOSSMode ? (
-                                <>
-                                    Open source alternative to Vapi. Help us support the project by giving us a star on GitHub.
-                                </>
+                                t('welcome.ossDesc')
                             ) : (
-                                "Get started with building voice AI workflows"
+                                t('welcome.cloudDesc')
                             )}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
                         {isOSSMode && (
                             <div className="mb-6">
-                                <GitHubStarBadge label="Star us on GitHub" showCount source="overview_page" />
+                                <GitHubStarBadge label={t('resources.starOnGitHub')} showCount source="overview_page" />
                             </div>
                         )}
                     </CardContent>
@@ -47,15 +50,15 @@ export default function OverviewPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Create and Manage your Voice Agents</CardTitle>
+                            <CardTitle>{t('quickActions.agentsTitle')}</CardTitle>
                             <CardDescription>
-                                Build powerful AI Voice Agents with our visual editor
+                                {t('quickActions.agentsDesc')}
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
                             <Button asChild>
                                 <Link href="/workflow">
-                                    Go to Agents
+                                    {t('quickActions.agentsButton')}
                                 </Link>
                             </Button>
                         </CardContent>
@@ -63,15 +66,15 @@ export default function OverviewPage() {
 
                     <Card>
                         <CardHeader>
-                            <CardTitle>Configure Services</CardTitle>
+                            <CardTitle>{t('quickActions.servicesTitle')}</CardTitle>
                             <CardDescription>
-                                Set up your AI services like LLM, TTS, and STT providers
+                                {t('quickActions.servicesDesc')}
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
                             <Button asChild variant="outline">
                                 <Link href="/model-configurations">
-                                    Configure Models
+                                    {t('quickActions.servicesButton')}
                                 </Link>
                             </Button>
                         </CardContent>
@@ -81,20 +84,20 @@ export default function OverviewPage() {
                 {/* Resources Section */}
                 <Card className="mt-8">
                     <CardHeader>
-                        <CardTitle>Resources</CardTitle>
+                        <CardTitle>{t('resources.title')}</CardTitle>
                         <CardDescription>
-                            Get help and learn more about Dograh
+                            {t('resources.desc')}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-wrap gap-4">
                             <Button asChild variant="outline">
                                 <a
-                                    href="https://docs.dograh.com"
+                                    href={t('resources.documentationUrl')}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >
-                                    Documentation
+                                    {t('resources.documentation')}
                                 </a>
                             </Button>
                             <Button asChild variant="outline">
@@ -103,7 +106,7 @@ export default function OverviewPage() {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >
-                                    Report an Issue
+                                    {t('resources.reportIssue')}
                                 </a>
                             </Button>
                         </div>

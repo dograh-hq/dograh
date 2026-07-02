@@ -23,8 +23,8 @@ import {
   Workflow,
   Wrench,
 } from "lucide-react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { Link, usePathname, useRouter } from "@/i18n/routing";
 import React, { useRef } from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
@@ -73,85 +73,85 @@ type SidebarNavSection = {
   items: SidebarNavItem[];
 };
 
-const TELEPHONY_WARNING_COPY = "Action required";
-
-const NAV_SECTIONS: SidebarNavSection[] = [
-  {
-    items: [
-      {
-        title: "Overview",
-        url: "/overview",
-        icon: Home,
-      },
-    ],
-  },
-  {
-    label: "BUILD",
-    items: [
-      {
-        title: "Voice Agents",
-        url: "/workflow",
-        icon: Workflow,
-      },
-      {
-        title: "Campaigns",
-        url: "/campaigns",
-        icon: Megaphone,
-      },
-      {
-        title: "Models",
-        url: "/model-configurations",
-        icon: Brain,
-      },
-      {
-        title: "Telephony",
-        url: "/telephony-configurations",
-        icon: Phone,
-        showsTelephonyWarning: true,
-      },
-      {
-        title: "Tools",
-        url: "/tools",
-        icon: Wrench,
-      },
-      {
-        title: "Files",
-        url: "/files",
-        icon: Database,
-      },
-      {
-        title: "Recordings",
-        url: "/recordings",
-        icon: AudioLines,
-      },
-      {
-        title: "Developers",
-        url: "/api-keys",
-        icon: Key,
-      },
-    ],
-  },
-  {
-    label: "MANAGE",
-    items: [
-      {
-        title: "Agent Runs",
-        url: "/usage",
-        icon: TrendingUp,
-      },
-      {
-        title: "Billing",
-        url: "/billing",
-        icon: CircleDollarSign,
-      },
-      {
-        title: "Reports",
-        url: "/reports",
-        icon: FileText,
-      }
-    ],
-  },
-];
+function getNavSections(t: ReturnType<typeof useTranslations<"sidebar">>): SidebarNavSection[] {
+  return [
+    {
+      items: [
+        {
+          title: t("nav.overview"),
+          url: "/overview",
+          icon: Home,
+        },
+      ],
+    },
+    {
+      label: t("sections.build"),
+      items: [
+        {
+          title: t("nav.voiceAgents"),
+          url: "/workflow",
+          icon: Workflow,
+        },
+        {
+          title: t("nav.campaigns"),
+          url: "/campaigns",
+          icon: Megaphone,
+        },
+        {
+          title: t("nav.models"),
+          url: "/model-configurations",
+          icon: Brain,
+        },
+        {
+          title: t("nav.telephony"),
+          url: "/telephony-configurations",
+          icon: Phone,
+          showsTelephonyWarning: true,
+        },
+        {
+          title: t("nav.tools"),
+          url: "/tools",
+          icon: Wrench,
+        },
+        {
+          title: t("nav.files"),
+          url: "/files",
+          icon: Database,
+        },
+        {
+          title: t("nav.recordings"),
+          url: "/recordings",
+          icon: AudioLines,
+        },
+        {
+          title: t("nav.developers"),
+          url: "/api-keys",
+          icon: Key,
+        },
+      ],
+    },
+    {
+      label: t("sections.manage"),
+      items: [
+        {
+          title: t("nav.agentRuns"),
+          url: "/usage",
+          icon: TrendingUp,
+        },
+        {
+          title: t("nav.billing"),
+          url: "/billing",
+          icon: CircleDollarSign,
+        },
+        {
+          title: t("nav.reports"),
+          url: "/reports",
+          icon: FileText,
+        }
+      ],
+    },
+  ];
+}
 
 // Lazy load SelectedTeamSwitcher - we'll pass selectedTeam from our context
 const StackTeamSwitcher = React.lazy(() =>
@@ -161,6 +161,7 @@ const StackTeamSwitcher = React.lazy(() =>
 );
 
 export function AppSidebar() {
+  const t = useTranslations("sidebar");
   const pathname = usePathname();
   const router = useRouter();
   const { state, isMobile, setOpenMobile } = useSidebar();
@@ -175,6 +176,7 @@ export function AppSidebar() {
     telnyxMissingWebhookPublicKeyCount > 0 ||
     vonageMissingSignatureSecretCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
+  const sections = getNavSections(t);
 
   // Get selected team for Stack auth (cast to Team type from Stack)
   // Stabilize the reference so SelectedTeamSwitcher only sees a change when the team ID changes,
@@ -212,7 +214,7 @@ export function AppSidebar() {
         <div className="notranslate" translate="no">
           <p>{item.title}</p>
           {showWarningDot && (
-            <p className="text-amber-600 dark:text-amber-400">{TELEPHONY_WARNING_COPY}</p>
+            <p className="text-amber-600 dark:text-amber-400">{t("telephonyWarning")}</p>
           )}
         </div>
       ),
@@ -270,7 +272,7 @@ export function AppSidebar() {
                   {warningIndicator}
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  <p>{TELEPHONY_WARNING_COPY}</p>
+                  <p>{t("telephonyWarning")}</p>
                 </TooltipContent>
               </Tooltip>
             )
@@ -314,13 +316,13 @@ export function AppSidebar() {
           size="icon"
           className="h-7 w-7 rounded-full"
           onClick={() => openHireExpert("sidebar")}
-          aria-label="Hire an Expert"
+          aria-label={t("hireExpert")}
         >
           <UserRound className="h-3.5 w-3.5" />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <p>Hire an Expert</p>
+        <p>{t("hireExpert")}</p>
       </TooltipContent>
     </Tooltip>
   ) : (
@@ -330,7 +332,7 @@ export function AppSidebar() {
       onClick={() => openHireExpert("sidebar")}
     >
       <UserRound className="h-3.5 w-3.5" />
-      Hire an Expert
+      {t("hireExpert")}
     </Button>
   );
 
@@ -364,11 +366,11 @@ export function AppSidebar() {
                     className="inline-flex items-center gap-1 rounded-md border bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-900 transition-opacity hover:opacity-80 dark:bg-amber-950 dark:text-amber-200"
                   >
                     <ArrowUpCircle className="h-3 w-3" />
-                    Update
+                    {t("updateBadge")}
                   </a>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>Latest: {latestRelease} - click to see the update guide</p>
+                  <p>{t("updateTooltip", { version: latestRelease })}</p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -376,11 +378,11 @@ export function AppSidebar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center rounded-md border bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-                    Latest
+                    {t("latestBadge")}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>You&apos;re running the latest release</p>
+                  <p>{t("latestTooltip")}</p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -414,7 +416,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className={cn("notranslate", isCollapsed && "px-0")} translate="no">
-        {NAV_SECTIONS.map((section, index) => (
+        {sections.map((section, index) => (
           <SidebarGroup
             key={section.label ?? "overview"}
             className={index === 0 ? "mt-2" : "mt-6"}
@@ -468,11 +470,11 @@ export function AppSidebar() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
-                    Platform Settings
+                    {t("userMenu.platformSettings")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
-                    Sign out
+                    {t("userMenu.signOut")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -505,15 +507,15 @@ export function AppSidebar() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => router.push("/handler/account-settings")} className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
-                    Account settings
+                    {t("userMenu.accountSettings")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
-                    Platform Settings
+                    {t("userMenu.platformSettings")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
-                    Sign out
+                    {t("userMenu.signOut")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -532,7 +534,7 @@ export function AppSidebar() {
                 </div>
               </TooltipTrigger>
               <TooltipContent side={isCollapsed ? "right" : "top"}>
-                <p>Toggle theme</p>
+                <p>{t("toggleTheme")}</p>
               </TooltipContent>
             </Tooltip>
           </div>

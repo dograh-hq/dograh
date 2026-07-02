@@ -3,6 +3,78 @@
     "name": "Dograh",
     "tagline": "Open Source Voice AI Platform"
   },
+  "overview": {
+    "welcome": {
+      "ossTitle": "Welcome to Dograh",
+      "ossDesc": "Open source alternative to Vapi. Help us support the project by giving us a star on GitHub.",
+      "cloudTitle": "Welcome, {firstName}!",
+      "cloudTitleGeneric": "Welcome!",
+      "cloudDesc": "Get started with building voice AI workflows"
+    },
+    "quickActions": {
+      "agentsTitle": "Create and Manage your Voice Agents",
+      "agentsDesc": "Build powerful AI Voice Agents with our visual editor",
+      "agentsButton": "Go to Agents",
+      "servicesTitle": "Configure Services",
+      "servicesDesc": "Set up your AI services like LLM, TTS, and STT providers",
+      "servicesButton": "Configure Models"
+    },
+    "resources": {
+      "title": "Resources",
+      "desc": "Get help and learn more about Dograh",
+      "documentation": "Documentation",
+      "documentationUrl": "https://docs.dograh.com",
+      "reportIssue": "Report an Issue",
+      "starOnGitHub": "Star us on GitHub"
+    }
+  },
+  "sidebar": {
+    "nav": {
+      "overview": "Overview",
+      "voiceAgents": "Voice Agents",
+      "campaigns": "Campaigns",
+      "models": "Models",
+      "telephony": "Telephony",
+      "tools": "Tools",
+      "files": "Files",
+      "recordings": "Recordings",
+      "developers": "Developers",
+      "agentRuns": "Agent Runs",
+      "billing": "Billing",
+      "reports": "Reports"
+    },
+    "sections": {
+      "build": "BUILD",
+      "manage": "MANAGE"
+    },
+    "telephonyWarning": "Action required",
+    "hireExpert": "Hire an Expert",
+    "toggleTheme": "Toggle theme",
+    "userMenu": {
+      "platformSettings": "Platform Settings",
+      "accountSettings": "Account settings",
+      "signOut": "Sign out"
+    },
+    "updateBadge": "Update",
+    "updateTooltip": "Latest: {version} - click to see the update guide",
+    "latestBadge": "Latest",
+    "latestTooltip": "You're running the latest release"
+  },
+  "footer": {
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service"
+  },
+  "appLayout": {
+    "openMenu": "Open menu",
+    "mobileBrand": "Dograh",
+    "joinSlack": "Join Slack",
+    "backendFailed": "Backend connection failed",
+    "retry": "Retry",
+    "updateBadge": "Update",
+    "updateTooltip": "Latest: {version} - click to see the update guide",
+    "latestBadge": "Latest",
+    "latestTooltip": "You're running the latest release"
+  },
   "auth": {
     "heroTitle": "The open-source voice AI platform.",
     "highlights": ["Speech-to-speech", "MCP-native", "BYOK - any model"],

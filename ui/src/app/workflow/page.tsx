@@ -15,9 +15,11 @@ import WorkflowLayout from "./WorkflowLayout";
 
 export const dynamic = 'force-dynamic';
 
+import workflowMessages from "../../../messages/it.json";
+
 // Server component for workflow list
 async function WorkflowList() {
-    const t = (await import('next-intl/server')).getTranslations('workflowList');
+    const t = workflowMessages.workflowList;
     const authProvider = await getServerAuthProvider();
     const accessToken = await getServerAccessToken();
 
@@ -30,7 +32,7 @@ async function WorkflowList() {
             // For OSS mode, this shouldn't happen as token is auto-generated
             return (
                 <div className="text-red-500">
-                    {t("authRequired")}
+                    {t.authRequired}
                 </div>
             );
         }
@@ -76,13 +78,13 @@ async function WorkflowList() {
             <>
                 {/* Active Workflows Section */}
                 <div className="mb-8">
-                    <h2 className="text-xl font-semibold mb-4">{t('activeAgents')}</h2>
+                    <h2 className="text-xl font-semibold mb-4">{t.activeAgents}</h2>
                     {activeWorkflows.length > 0 || folders.length > 0 ? (
                         <AgentFolderView workflows={activeWorkflows} folders={folders} />
                     ) : (
                         <Card>
                             <CardContent className="p-8 text-center text-muted-foreground">
-                                {t('emptyDesc')}
+                                {t.emptyDesc}
                             </CardContent>
                         </Card>
                     )}
@@ -100,14 +102,14 @@ async function WorkflowList() {
         logger.error(`Error fetching workflows: ${err}`);
         return (
             <div className="text-red-500">
-                {t('fetchError')}
+                {t.fetchError}
             </div>
         );
     }
 }
 
 async function PageContent() {
-
+    const t = workflowMessages.workflowList;
     const workflowList = await WorkflowList();
 
     return (
@@ -115,7 +117,7 @@ async function PageContent() {
             {/* Your Workflows Section */}
             <div className="mb-6">
                 <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold">{t('title')}</h1>
+                    <h1 className="text-2xl font-bold">{t.title}</h1>
                     <div className="flex gap-2">
                         <UploadWorkflowButton />
                         <CreateFolderButton />

@@ -2,6 +2,7 @@
 
 import { Plus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 
 import { getCampaignsApiV1CampaignGet } from '@/client/sdk.gen';
@@ -20,6 +21,7 @@ import {
 import { useAuth } from '@/lib/auth';
 
 export default function CampaignsPage() {
+    const t = useTranslations('campaigns');
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const router = useRouter();
 
@@ -97,18 +99,18 @@ export default function CampaignsPage() {
         <div className="container mx-auto p-6 space-y-6">
             <div className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-bold mb-2">Campaigns</h1>
-                    <p>Manage your bulk workflow execution campaigns</p>
+                    <h1 className="text-3xl font-bold mb-2">{t('title')}</h1>
+                    <p>{t('description')}</p>
                 </div>
                     <Button onClick={handleCreateCampaign}>
                         <Plus className="h-4 w-4 mr-2" />
-                        Create Campaign
+                        {t('createCampaign')}
                     </Button>
                 </div>
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>All Campaigns</CardTitle>
+                        <CardTitle>{t('allCampaigns')}</CardTitle>
                         <CardDescription>
                             View and manage your campaigns
                         </CardDescription>
@@ -172,10 +174,10 @@ export default function CampaignsPage() {
                             </div>
                         ) : (
                             <div className="text-center py-8">
-                                <p className="mb-4">No campaigns found</p>
+                                <p className="mb-4">{t('empty')}</p>
                                 <Button onClick={handleCreateCampaign} variant="outline">
                                     <Plus className="h-4 w-4 mr-2" />
-                                    Create your first campaign
+                                    {t('createFirst')}
                                 </Button>
                             </div>
                         )}

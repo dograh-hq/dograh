@@ -3,6 +3,7 @@
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from "react";
 
 import { getWorkflowRunsApiV1SuperuserWorkflowRunsGet } from '@/client/sdk.gen';
@@ -55,6 +56,7 @@ interface WorkflowRunsResponse {
 
 
 export default function RunsPage() {
+    const t = useTranslations('superadmin');
     const router = useRouter();
     const searchParams = useSearchParams();
     const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -295,8 +297,8 @@ export default function RunsPage() {
     return (
         <div className="container mx-auto p-6 space-y-6 max-w-full">
             <div>
-                <h1 className="text-3xl font-bold mb-2">Workflow Runs</h1>
-                <p className="text-muted-foreground">View and manage all workflow runs across organizations</p>
+                <h1 className="text-3xl font-bold mb-2">{t('workflowRuns')}</h1>
+                <p className="text-muted-foreground">{t('description')}</p>
             </div>
 
             {error && (

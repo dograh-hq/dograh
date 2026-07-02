@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 import { Suspense } from 'react';
 
 import { getWorkflowsApiV1WorkflowFetchGet, listFoldersApiV1FolderGet } from '@/client/sdk.gen';
@@ -17,6 +18,7 @@ export const dynamic = 'force-dynamic';
 
 // Server component for workflow list
 async function WorkflowList() {
+    const t = (await import('next-intl/server')).getTranslations('workflowList');
     const authProvider = await getServerAuthProvider();
     const accessToken = await getServerAccessToken();
 
@@ -29,7 +31,8 @@ async function WorkflowList() {
             // For OSS mode, this shouldn't happen as token is auto-generated
             return (
                 <div className="text-red-500">
-                    Authentication required. Please refresh the page.
+                    <div className="text-red-500">
+                    {t('authRequired')} Please refresh the page.
                 </div>
             );
         }
@@ -75,13 +78,13 @@ async function WorkflowList() {
             <>
                 {/* Active Workflows Section */}
                 <div className="mb-8">
-                    <h2 className="text-xl font-semibold mb-4">Active Agents</h2>
+                    <h2 className="text-xl font-semibold mb-4">{t('activeAgents')}</h2>
                     {activeWorkflows.length > 0 || folders.length > 0 ? (
                         <AgentFolderView workflows={activeWorkflows} folders={folders} />
                     ) : (
                         <Card>
                             <CardContent className="p-8 text-center text-muted-foreground">
-                                No active workflows found. Create your first workflow to get started.
+                                {t('emptyDesc')}
                             </CardContent>
                         </Card>
                     )}
@@ -99,7 +102,7 @@ async function WorkflowList() {
         logger.error(`Error fetching workflows: ${err}`);
         return (
             <div className="text-red-500">
-                Failed to load Workflows. Please Try Again Later.
+                {t('fetchError')}
             </div>
         );
     }
@@ -114,7 +117,7 @@ async function PageContent() {
             {/* Your Workflows Section */}
             <div className="mb-6">
                 <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold">Your Agents</h1>
+                    <h1 className="text-2xl font-bold">{t('title')}</h1>
                     <div className="flex gap-2">
                         <UploadWorkflowButton />
                         <CreateFolderButton />

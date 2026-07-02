@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -113,6 +114,7 @@ const getPageFromSearchParams = (
 };
 
 export default function BillingPage() {
+    const t = useTranslations("billing");
     const router = useRouter();
     const searchParams = useSearchParams();
     const auth = useAuth();
@@ -249,20 +251,20 @@ export default function BillingPage() {
         <div className="container mx-auto p-6 space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold mb-2">Billing</h1>
+                    <h1 className="text-3xl font-bold mb-2">{t('title')}</h1>
                     <p className="text-muted-foreground">
-                        Credits, balance, and account usage for your organization.
+                        {t('description')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
-                        Refresh
+                        {t('refresh')}
                     </Button>
                     {canPurchaseCredits && (
                         <Button onClick={handlePurchaseCredits} disabled={purchasing}>
                             <CreditCard className="h-4 w-4 mr-2" />
-                            {purchasing ? "Opening..." : "Add Credits"}
+                            {purchasing ? t('opening') : t('addCredits')}
                         </Button>
                     )}
                 </div>
@@ -272,7 +274,7 @@ export default function BillingPage() {
                 <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
                     <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                     <div className="text-sm text-amber-900 dark:text-amber-200">
-                        <p className="font-medium">Credit purchases are unavailable in OSS mode</p>
+                        <p className="font-medium">{t('ossWarning')}</p>
                         <p className="mt-1">
                             You can&apos;t purchase credits from this self-hosted app. Sign up and
                             purchase credits at{" "}
@@ -301,20 +303,20 @@ export default function BillingPage() {
             <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardDescription>{isBillingV2 ? "Credit balance" : "Credits remaining"}</CardDescription>
+                        <CardDescription>{isBillingV2 ? t('creditBalance') : t('creditsRemaining')}</CardDescription>
                         <CardTitle className="flex items-center gap-2 text-3xl">
                             <CircleDollarSign className="h-6 w-6 text-muted-foreground" />
                             {formatCredits(remainingCredits)}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-sm text-muted-foreground">1 credit = 1 cent</p>
+                        <p className="text-sm text-muted-foreground">{t('oneCredit')}</p>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardDescription>Credits used</CardDescription>
+                        <CardDescription>{t('creditsUsed')}</CardDescription>
                         <CardTitle className="text-3xl">{formatCredits(usedCredits)}</CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -328,8 +330,8 @@ export default function BillingPage() {
             {isBillingV2 ? (
                 <Card>
                     <CardHeader>
-                        <CardTitle>Credit Ledger</CardTitle>
-                        <CardDescription>Recent grants, purchases, and usage debits.</CardDescription>
+                        <CardTitle>{t('creditLedger')}</CardTitle>
+                        <CardDescription>{t('creditLedgerDesc')}</CardDescription>
                     </CardHeader>
                     <CardContent>
                         {ledgerEntries.length > 0 ? (
@@ -337,13 +339,13 @@ export default function BillingPage() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow className="bg-muted/50">
-                                            <TableHead>Date</TableHead>
-                                            <TableHead>Activity</TableHead>
-                                            <TableHead>Origin</TableHead>
-                                            <TableHead>Run</TableHead>
-                                            <TableHead className="text-right">Delta</TableHead>
-                                            <TableHead className="text-right">Balance</TableHead>
-                                            <TableHead className="text-right">Amount</TableHead>
+                                            <TableHead>{t('table.date')}</TableHead>
+                                            <TableHead>{t('table.activity')}</TableHead>
+                                            <TableHead>{t('table.origin')}</TableHead>
+                                            <TableHead>{t('table.run')}</TableHead>
+                                            <TableHead className="text-right">{t('table.delta')}</TableHead>
+                                            <TableHead className="text-right">{t('table.balance')}</TableHead>
+                                            <TableHead className="text-right">{t('table.amount')}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -398,13 +400,13 @@ export default function BillingPage() {
                             </div>
                         ) : (
                             <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-                                No ledger entries yet
+                                {t('noEntries')}
                             </div>
                         )}
                         {ledgerTotalPages > 1 && (
                             <div className="flex items-center justify-between mt-6">
                                 <p className="text-sm text-muted-foreground">
-                                    Page {ledgerPage} of {ledgerTotalPages} ({ledgerTotalCount} total entries)
+                                    {t('pageInfo', {page: ledgerPage, totalPages: ledgerTotalPages})} ({ledgerTotalCount} total entries)
                                 </p>
                                 <div className="flex gap-2">
                                     <Button
@@ -414,7 +416,7 @@ export default function BillingPage() {
                                         disabled={ledgerPage <= 1 || loading || refreshing}
                                     >
                                         <ChevronLeft className="h-4 w-4" />
-                                        Previous
+                                        {t('previous')}
                                     </Button>
                                     <Button
                                         variant="outline"
@@ -422,7 +424,7 @@ export default function BillingPage() {
                                         onClick={() => handlePageChange(ledgerPage + 1)}
                                         disabled={ledgerPage >= ledgerTotalPages || loading || refreshing}
                                     >
-                                        Next
+                                        {t('next')}
                                         <ChevronRight className="h-4 w-4" />
                                     </Button>
                                 </div>
@@ -433,7 +435,7 @@ export default function BillingPage() {
             ) : (
                 <Card>
                     <CardHeader>
-                        <CardTitle>Credit Usage</CardTitle>
+                        <CardTitle>{t('creditUsage')}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <Progress value={usagePercent} />

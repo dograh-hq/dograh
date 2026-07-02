@@ -11,6 +11,7 @@
 // primary action and the focused-field underline (see .lead-form-* in
 // globals.css).
 
+import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -61,6 +62,7 @@ export function LeadModalShell({
   onOpenChange,
   contentProps,
 }: LeadModalShellProps) {
+  const t = useTranslations("onboarding");
   const { className: contentClassName, ...restContentProps } = contentProps ?? {};
 
   return (
@@ -117,7 +119,7 @@ export function LeadModalShell({
               disabled={primary.disabled || primary.loading}
               className="bg-cta text-cta-foreground shadow-md shadow-cta/25 hover:bg-cta/90 hover:shadow-cta/35 focus-visible:ring-cta/50"
             >
-              {primary.loading ? "Submitting…" : primary.label}
+              {primary.loading ? t("hireExpertSubmitting") : primary.label}
             </Button>
           </div>
           {helper && <div className="text-center text-xs text-muted-foreground">{helper}</div>}

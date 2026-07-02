@@ -2,6 +2,7 @@
 
 import Cal from "@calcom/embed-react";
 import { Sparkles } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +35,7 @@ interface HireExpertModalProps {
 }
 
 export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }: HireExpertModalProps) {
+  const t = useTranslations("onboarding");
   const { user } = useAuth();  // logged-in identity (prefills the email field)
   const { config } = useAppConfig();
   // Deployment provenance (analytics only): cloud → cloud_app, else oss_app. OSS submits the
@@ -81,7 +83,7 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
   // Validate, then pop the anti-spam check on top of the modal.
   const handleSubmit = () => {
     if (!baseValid) {
-      toast.error("Please fill in all required fields");
+      toast.error(t("hireExpertFillRequired"));
       return;
     }
     setCaptchaActive(true);
@@ -104,12 +106,12 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
         setSubmitting(false);
         setCalLink(result.cal_link);
       } else {
-        toast.success("Check your inbox - we just emailed you the next steps (give it a minute).");
+        toast.success(t("hireExpertSuccessMessage"));
         reset();
         onOpenChange(false);
       }
     } catch {
-      toast.error("Something went wrong. Please try again.");
+      toast.error(t("hireExpertErrorMessage"));
       setSubmitting(false);
     }
   };
@@ -121,10 +123,10 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
         open={open}
         onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}
         icon={Sparkles}
-        eyebrow="Done-for-you"
-        title="Grab a time with our team"
-        description="Pick a time that works for you."
-        primary={{ label: "Done", onClick: () => { reset(); onOpenChange(false); } }}
+        eyebrow={t("hireExpertEyebrow")}
+        title={t("hireExpertCalendarTitle")}
+        description={t("hireExpertCalendarDescription")}
+        primary={{ label: t("hireExpertDoneLabel"), onClick: () => { reset(); onOpenChange(false); } }}
       >
         {/* Compact, zoomed-out calendar: render it larger, scale to 0.8, and clip the layout box left behind. */}
         <div className="overflow-hidden" style={{ height: "440px" }}>
@@ -143,18 +145,18 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
       open={open}
       onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}
       icon={Sparkles}
-      eyebrow="Done-for-you"
-      title="Let us build your voice agent"
-      description="Building good voice agents is nuanced. Tell us what you need and we'll take it end-to-end."
-      primary={{ label: "Submit", onClick: handleSubmit, disabled: !canSubmit, loading: submitting }}
-      secondary={{ label: "Cancel", onClick: () => onOpenChange(false), disabled: submitting }}
+      eyebrow={t("hireExpertEyebrow")}
+      title={t("hireExpertTitle")}
+      description={t("hireExpertDescription")}
+      primary={{ label: t("hireExpertSubmitLabel"), onClick: handleSubmit, disabled: !canSubmit, loading: submitting }}
+      secondary={{ label: t("hireExpertCancelLabel"), onClick: () => onOpenChange(false), disabled: submitting }}
       helper={
         <button
           type="button"
           onClick={onOpenEnterprise}
           className="underline decoration-dashed underline-offset-4 hover:text-foreground"
         >
-          Need enterprise deployment? (SSO, on-prem, data residency)
+          {t("hireExpertEnterpriseLink")}
         </button>
       }
       trustLine={<FormTrustLine />}
@@ -163,45 +165,45 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
       <div className="grid gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="hire-name">Name</Label>
-            <Input id="hire-name" placeholder="Your full name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Label htmlFor="hire-name">{t("hireExpertNameLabel")}</Label>
+            <Input id="hire-name" placeholder={t("hireExpertNamePlaceholder")} value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="hire-company">Company name</Label>
-            <Input id="hire-company" placeholder="Acme Inc." value={company} onChange={(e) => setCompany(e.target.value)} />
+            <Label htmlFor="hire-company">{t("hireExpertCompanyLabel")}</Label>
+            <Input id="hire-company" placeholder={t("hireExpertCompanyPlaceholder")} value={company} onChange={(e) => setCompany(e.target.value)} />
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="hire-email">Email</Label>
-          <Input id="hire-email" type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Label htmlFor="hire-email">{t("hireExpertEmailLabel")}</Label>
+          <Input id="hire-email" type="email" placeholder={t("hireExpertEmailPlaceholder")} value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="hire-title">Job title</Label>
-          <Input id="hire-title" placeholder="VP Operations" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+          <Label htmlFor="hire-title">{t("hireExpertJobTitleLabel")}</Label>
+          <Input id="hire-title" placeholder={t("hireExpertJobTitlePlaceholder")} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="hire-goal">What do you want the voice agent to do?</Label>
+          <Label htmlFor="hire-goal">{t("hireExpertGoalLabel")}</Label>
           <Textarea
             id="hire-goal"
             value={agentGoal}
             onChange={(e) => setAgentGoal(e.target.value)}
-            placeholder="Use case, target outcomes, any remarks…"
+            placeholder={t("hireExpertGoalPlaceholder")}
             rows={3}
           />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="hire-phone">Phone</Label>
+            <Label htmlFor="hire-phone">{t("hireExpertPhoneLabel")}</Label>
             <PhoneField id="hire-phone" value={phone} onChange={setPhone} required />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="hire-volume">Expected monthly call volume</Label>
+            <Label htmlFor="hire-volume">{t("hireExpertVolumeLabel")}</Label>
             <Select value={volume} onValueChange={setVolume}>
-              <SelectTrigger id="hire-volume"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectTrigger id="hire-volume"><SelectValue placeholder={t("hireExpertVolumePlaceholder")} /></SelectTrigger>
               <SelectContent>
                 {HIRE_VOLUME_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>

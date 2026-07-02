@@ -459,8 +459,15 @@
   "reports": {
     "title": "Daily Reports",
     "allWorkflows": "All Workflows",
+    "workflowPlaceholder": "Select workflow",
     "downloadCsv": "Download CSV",
-    "noData": "No data available"
+    "noData": "No data available",
+    "showingFor": "Showing data for {timezone} timezone",
+    "filteredBy": " \u2022 Filtered by: {workflow}",
+    "noRunsFound": "No workflow runs found for {date}",
+    "forSelectedWorkflow": " for the selected workflow",
+    "loadError": "Failed to load report data",
+    "downloadError": "Failed to download CSV data"
   },
   "automation": {
     "title": "Automation",

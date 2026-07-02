@@ -121,7 +121,7 @@ export default function ReportsPage() {
         }
       } catch (err) {
         console.error('Failed to fetch report:', err);
-        setError('Failed to load report data');
+        setError(t('loadError'));
       } finally {
         setLoading(false);
       }
@@ -193,7 +193,7 @@ export default function ReportsPage() {
       }
     } catch (err) {
       console.error('Failed to download CSV:', err);
-      alert('Failed to download CSV data');
+      alert(t('downloadError'));
     }
   };
 
@@ -212,7 +212,7 @@ export default function ReportsPage() {
           {/* Workflow Selector */}
           <Select value={selectedWorkflow} onValueChange={setSelectedWorkflow}>
             <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select workflow" />
+              <SelectValue placeholder={t('workflowPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t('allWorkflows')}</SelectItem>
@@ -266,9 +266,9 @@ export default function ReportsPage() {
       {/* Timezone Display and Download Button */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div className="text-sm text-muted-foreground">
-          Showing data for {timezone} timezone
+          {t('showingFor', { timezone })}
           {selectedWorkflow !== 'all' && (
-            <span> • Filtered by: {workflows.find(w => w.id.toString() === selectedWorkflow)?.name}</span>
+            <span>{t('filteredBy', { workflow: workflows.find(w => w.id.toString() === selectedWorkflow)?.name ?? '' })}</span>
           )}
         </div>
 
@@ -323,8 +323,8 @@ export default function ReportsPage() {
           {report.metrics.total_runs === 0 && (
             <Card className="p-6">
               <p className="text-center text-muted-foreground">
-                No workflow runs found for {format(selectedDate, 'MMMM dd, yyyy')}
-                {selectedWorkflow !== 'all' && ' for the selected workflow'}
+                {t('noRunsFound', { date: format(selectedDate, 'MMMM dd, yyyy') })}
+                {selectedWorkflow !== 'all' && t('forSelectedWorkflow')}
               </p>
             </Card>
           )}

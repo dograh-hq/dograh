@@ -38,22 +38,22 @@ sequenceDiagram
 
 ## Key components
 
-**Workflows (Agents)**
+**[Workflows (Agents)](/core-concepts/workflows-and-agents)**
 The conversation logic. A workflow is a graph of nodes (conversation steps) connected by edges (conditional transitions). You define what the agent says, when it moves on, and what data it collects.
 
-**Runs**
+**[Runs](/core-concepts/calls-and-runs)**
 Every execution of a workflow creates a run. The run record holds the transcript, recording, extracted data, and cost information.
 
-**Telephony**
+**[Telephony](/integrations/telephony/overview)**
 The phone infrastructure. Dograh connects to your telephony provider (Twilio, Vonage, etc.) to place and receive calls. The audio streams between the caller and Dograh in real time.
 
-**Transcriber (STT)**
+**[Transcriber (STT)](/configurations/transcriber)**
 Converts the caller's speech to text in real time. Dograh sends the audio stream to your configured speech-to-text provider and uses the transcript to drive both the LLM and the final run record.
 
-**LLM Provider**
+**[LLM Provider](/configurations/llm)**
 Processes the transcript and the active node's prompt to generate the agent's next response. It also evaluates edge conditions to decide when to move the conversation forward.
 
-**Voice Synthesizer (TTS)**
+**[Voice Synthesizer (TTS)](/configurations/voice)**
 Converts the LLM's text response to audio and streams it back to the caller. The choice of TTS provider and voice is configurable per agent.
 
 ## How it fits together

@@ -131,7 +131,9 @@ async def run_completion_handlers(
                 f"Integration completion handler failed for package "
                 f"{package.name!r}: {exc}"
             )
-            results[f"integration_{package.name}"] = {"error": "completion_handler_failed"}
+            results[f"integration_{package.name}"] = {
+                "error": "completion_handler_failed"
+            }
             continue
         if package_result:
             results.update(package_result)

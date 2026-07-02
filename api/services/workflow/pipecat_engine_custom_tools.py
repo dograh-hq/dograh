@@ -7,7 +7,6 @@ during workflow execution.
 from __future__ import annotations
 
 import asyncio
-import re
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -32,10 +31,30 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from api.utils.template_renderer import render_template
 
 if TYPE_CHECKING:
     from api.services.workflow.mcp_tool_session import McpToolSession
     from api.services.workflow.pipecat_engine import PipecatEngine
+
+
+def _render_transfer_destination(
+    destination_template: Any,
+    call_context_vars: Optional[Dict[str, Any]],
+    gathered_context_vars: Optional[Dict[str, Any]],
+) -> str:
+    """Resolve a transfer destination template into a concrete provider target."""
+
+    initial_context = dict(call_context_vars or {})
+    render_context: Dict[str, Any] = {
+        **initial_context,
+        "initial_context": initial_context,
+        "gathered_context": dict(gathered_context_vars or {}),
+    }
+    rendered = render_template(destination_template, render_context)
+    if rendered is None:
+        return ""
+    return str(rendered).strip()
 
 
 def get_function_schema(
@@ -541,6 +560,12 @@ class CustomToolManager:
                     )
                     return
 
+                destination = _render_transfer_destination(
+                    destination,
+                    self._engine._call_context_vars,
+                    self._engine._gathered_context,
+                )
+
                 # Validate destination phone number
                 if not destination or not destination.strip():
                     validation_error_result = {
@@ -553,41 +578,6 @@ class CustomToolManager:
                         validation_error_result, function_call_params, properties
                     )
                     return
-
-                # Validate destination format based on workflow run mode
-                if workflow_run.mode == WorkflowRunMode.ARI.value:
-                    # For ARI provider, also accept SIP endpoints
-                    SIP_ENDPOINT_REGEX = r"^(PJSIP|SIP)\/[\w\-\.@]+$"
-                    E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
-
-                    is_valid_sip = re.match(SIP_ENDPOINT_REGEX, destination)
-                    is_valid_e164 = re.match(E164_PHONE_REGEX, destination)
-
-                    if not (is_valid_sip or is_valid_e164):
-                        validation_error_result = {
-                            "status": "failed",
-                            "message": "I'm sorry, but the transfer destination appears to be invalid. Please contact support to verify the transfer settings.",
-                            "action": "transfer_failed",
-                            "reason": "invalid_destination",
-                        }
-                        await self._handle_transfer_result(
-                            validation_error_result, function_call_params, properties
-                        )
-                        return
-                else:
-                    # For non-ARI providers (Twilio, etc), use E.164 validation
-                    E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
-                    if not re.match(E164_PHONE_REGEX, destination):
-                        validation_error_result = {
-                            "status": "failed",
-                            "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
-                            "action": "transfer_failed",
-                            "reason": "invalid_destination",
-                        }
-                        await self._handle_transfer_result(
-                            validation_error_result, function_call_params, properties
-                        )
-                        return
 
                 played = await self._play_config_message(config)
                 if played:
@@ -648,12 +638,27 @@ class CustomToolManager:
                 self._engine.set_mute_pipeline(True)
 
                 # Initiate transfer via provider with inline TwiML
-                transfer_result = await provider.transfer_call(
-                    destination=destination,
-                    transfer_id=transfer_id,
-                    conference_name=conference_name,
-                    timeout=timeout_seconds,
-                )
+                try:
+                    transfer_result = await provider.transfer_call(
+                        destination=destination,
+                        transfer_id=transfer_id,
+                        conference_name=conference_name,
+                        timeout=timeout_seconds,
+                    )
+                except Exception as e:
+                    logger.error(f"Transfer provider failed: {e}")
+                    self._engine.set_mute_pipeline(False)
+                    await call_transfer_manager.remove_transfer_context(transfer_id)
+                    provider_error_result = {
+                        "status": "failed",
+                        "message": f"Transfer provider failed: {e}",
+                        "action": "transfer_failed",
+                        "reason": "provider_error",
+                    }
+                    await self._handle_transfer_result(
+                        provider_error_result, function_call_params, properties
+                    )
+                    return
 
                 call_sid = transfer_result.get("call_sid")
                 logger.info(f"Transfer call initiated successfully: {call_sid}")
@@ -809,7 +814,7 @@ class CustomToolManager:
                 {
                     "status": "transfer_failed",
                     "reason": reason,
-                    "message": "Transfer failed",
+                    "message": result.get("message") or "Transfer failed",
                 }
             )
         else:

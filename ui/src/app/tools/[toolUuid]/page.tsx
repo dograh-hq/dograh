@@ -290,18 +290,14 @@ export default function ToolDetailPage() {
     const handleSave = async () => {
         if (!tool) return;
 
+        const normalizedTransferDestination = transferDestination.trim();
+
         // Validation based on tool type
         if (tool.category === "calculator") {
             // No validation needed for built-in tools
         } else if (tool.category === "transfer_call") {
-            // Validate destination for Transfer Call tools (supports both E.164 and SIP endpoints)
-            const e164Pattern = /^\+[1-9]\d{1,14}$/;
-            const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
-            const isValidE164 = e164Pattern.test(transferDestination);
-            const isValidSip = sipPattern.test(transferDestination);
-
-            if (!transferDestination || (!isValidE164 && !isValidSip)) {
-                setError("Please enter a valid phone number (E.164 format) or SIP endpoint (e.g., PJSIP/1234)");
+            if (!normalizedTransferDestination) {
+                setError("Please enter a transfer destination");
                 return;
             }
         } else if (tool.category === "mcp") {
@@ -382,7 +378,7 @@ export default function ToolDetailPage() {
                         schema_version: 1,
                         type: "transfer_call",
                         config: {
-                            destination: transferDestination,
+                            destination: normalizedTransferDestination,
                             messageType: transferMessageType,
                             customMessage: transferMessageType === "custom" ? customMessage : undefined,
                             audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,

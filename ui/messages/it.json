@@ -294,6 +294,7 @@
     "cancel": "Annulla",
     "saving": "Salvataggio in corso...",
     "configureWidget": "Configura Widget",
+    "defaultPrompt": "# Obiettivo\nSei un agente utile che gestisce una conversazione vocale con un essere umano. Questa è una conversazione vocale, quindi le trascrizioni possono contenere errori.\n\n## Regole\n- Lingua: Italiano\n- Mantieni le risposte brevi, massimo 2-3 frasi\n- Se devi ripetere qualcosa che hai detto nei tuoi due turni precedenti, riformula leggermente mantenendo lo stesso significato. Non ripetere mai esattamente le stesse parole dei tuoi 2 turni precedenti.\n\n## Gestione del Parlato\n- Potrebbero esserci molti errori di trascrizione.\n- Accetta variazioni: sì/si/certo/ok, no/neh/non proprio\n- Se l'utente dice \"scusa?\" o \"puoi ripetere\" o \"come?\" o \"non ho capito\", potrebbe non averti sentito - quindi ripeti semplicemente quello che hai appena detto.\n\n### Flusso\nInizia dicendo \"Ciao\". Sii educato e cortese.",
     "embedDocs": "Documentazione",
     "embedDescription": "Aggiungi \"{name}\" a qualsiasi sito web con un semplice script.",
     "embedEnable": "Abilita Incorporamento",

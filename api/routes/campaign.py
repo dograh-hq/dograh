@@ -197,6 +197,7 @@ class CreateCampaignRequest(BaseModel):
     # "phone_number", "Name": "customer_name"}). The phone column is
     # auto-detected when not mapped.
     column_mapping: Optional[Dict[str, str]] = None
+    default_country_code: Optional[str] = None
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -410,6 +411,7 @@ async def create_campaign(
         request.source_id,
         user.selected_organization_id,
         column_mapping=request.column_mapping,
+        default_country_code=request.default_country_code,
     )
     if not validation_result.is_valid:
         raise HTTPException(status_code=400, detail=validation_result.error.message)
@@ -511,6 +513,7 @@ async def create_campaign(
         circuit_breaker=circuit_breaker_config,
         telephony_configuration_id=telephony_configuration_id,
         column_mapping=request.column_mapping,
+        default_country_code=request.default_country_code,
     )
 
     cfg_name = await _get_telephony_configuration_name(
@@ -524,6 +527,7 @@ async def create_campaign(
 class CsvPreviewRequest(BaseModel):
     source_id: str  # CSV file key from the presigned upload
     workflow_id: Optional[int] = None
+    default_country_code: Optional[str] = None
 
 
 @router.post("/preview-csv")
@@ -541,13 +545,26 @@ async def preview_csv(
     if not csv_data or len(csv_data) < 2:
         raise HTTPException(
             status_code=400,
-            detail="CSV must have a header row and at least one data row",
+            detail="File must have a header row and at least one data row",
         )
 
     raw_headers = csv_data[0]
     norm_headers = CampaignSourceSyncService.normalize_headers(raw_headers)
     rows = csv_data[1:]
     phone_idx = CampaignSourceSyncService.detect_phone_column(raw_headers, rows)
+
+    # Normalize phone numbers in sample rows if default_country_code is provided
+    if request.default_country_code and phone_idx is not None:
+        normalized_rows = []
+        for r in rows:
+            nr = list(r)
+            if len(nr) > phone_idx:
+                nr[phone_idx] = CampaignSourceSyncService.normalize_phone_number(
+                    nr[phone_idx], request.default_country_code
+                )
+            normalized_rows.append(nr)
+        rows = normalized_rows
+
     detected_phone = norm_headers[phone_idx] if phone_idx is not None else None
 
     required_vars: List[str] = []

@@ -13,7 +13,7 @@ import {
     getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet
 } from '@/client/sdk.gen';
-import type { TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
+import type { CreateCampaignRequest, TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -42,6 +42,7 @@ export default function NewCampaignPage() {
     const [sourceType, setSourceType] = useState<'csv'>('csv');
     const [sourceId, setSourceId] = useState('');
     const [selectedFileName, setSelectedFileName] = useState('');
+    const [defaultCountryCode, setDefaultCountryCode] = useState<string>('+91');
     const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
@@ -318,7 +319,8 @@ export default function NewCampaignPage() {
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
                     column_mapping: Object.keys(columnMapping).length ? columnMapping : undefined,
-                },
+                    default_country_code: defaultCountryCode !== 'none' ? defaultCountryCode : undefined,
+                } as unknown as CreateCampaignRequest,
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                 }
@@ -504,6 +506,35 @@ export default function NewCampaignPage() {
                                 </p>
                             </div>
 
+                            <div className="space-y-2">
+                                <Label htmlFor="default-country-code">Default Country Calling Code</Label>
+                                <Select
+                                    value={defaultCountryCode}
+                                    onValueChange={setDefaultCountryCode}
+                                >
+                                    <SelectTrigger id="default-country-code">
+                                        <SelectValue placeholder="Select country calling code" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">None (Already has country code, e.g. +91...)</SelectItem>
+                                        <SelectItem value="+91">India (+91)</SelectItem>
+                                        <SelectItem value="+1">United States / Canada (+1)</SelectItem>
+                                        <SelectItem value="+44">United Kingdom (+44)</SelectItem>
+                                        <SelectItem value="+61">Australia (+61)</SelectItem>
+                                        <SelectItem value="+971">United Arab Emirates (+971)</SelectItem>
+                                        <SelectItem value="+65">Singapore (+65)</SelectItem>
+                                        <SelectItem value="+966">Saudi Arabia (+966)</SelectItem>
+                                        <SelectItem value="+974">Qatar (+974)</SelectItem>
+                                        <SelectItem value="+965">Kuwait (+965)</SelectItem>
+                                        <SelectItem value="+973">Bahrain (+973)</SelectItem>
+                                        <SelectItem value="+968">Oman (+968)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-sm text-muted-foreground">
+                                    Automatically prepends this country code to any uploaded phone number that does not start with &apos;+&apos;
+                                </p>
+                            </div>
+
                             <CsvUploadSelector
                                 onFileUploaded={handleFileUploaded}
                                 selectedFileName={selectedFileName}
@@ -514,6 +545,7 @@ export default function NewCampaignPage() {
                                     sourceId={sourceId}
                                     workflowId={selectedWorkflowId}
                                     onChange={setColumnMapping}
+                                    defaultCountryCode={defaultCountryCode}
                                 />
                             )}
 

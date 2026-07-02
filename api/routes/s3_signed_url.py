@@ -24,7 +24,7 @@ class FileMetadataResponse(TypedDict):
 
 
 class PresignedUploadUrlRequest(BaseModel):
-    file_name: str = Field(..., pattern=r".*\.csv$", description="CSV filename")
+    file_name: str = Field(..., pattern=r".*\.(csv|xlsx|xls)$", description="CSV or Excel filename")
     file_size: int = Field(
         ..., gt=0, le=10_485_760, description="File size in bytes (max 10MB)"
     )

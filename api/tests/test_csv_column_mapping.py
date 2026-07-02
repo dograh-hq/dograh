@@ -56,3 +56,19 @@ def test_validate_rejects_phone_without_country_code():
     res = S.validate_source_data(hdr, rows)
     assert res.is_valid is False
     assert "+" in res.error.message
+
+
+def test_normalize_phone_number():
+    assert S.normalize_phone_number("9876543210", "+91") == "+919876543210"
+    assert S.normalize_phone_number("09876543210", "91") == "+919876543210"
+    assert S.normalize_phone_number("+919876543210", "+91") == "+919876543210"
+    assert S.normalize_phone_number("9876543210", None) == "9876543210"
+
+
+def test_validate_with_default_country_code():
+    hdr = ["Mobile"]
+    rows = [["9812345678"], ["0980000001"]]
+    res = S.validate_source_data(hdr, rows, default_country_code="+91")
+    assert res.is_valid is True
+    assert res.rows[0][0] == "+919812345678"
+    assert res.rows[1][0] == "+91980000001"

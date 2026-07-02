@@ -22,3 +22,5 @@ tuner-pipecat-sdk==0.2.0
 PyNaCl==1.6.2
 cryptography==48.0.1
 anthropic>=0.69.0
+openpyxl>=3.1.5
+xlrd>=2.0.1

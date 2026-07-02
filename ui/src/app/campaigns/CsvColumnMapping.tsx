@@ -28,14 +28,15 @@ interface Props {
     sourceId: string;
     workflowId: string;
     onChange: (mapping: Record<string, string>) => void;
+    defaultCountryCode?: string;
 }
 
 /**
- * After a CSV is uploaded, previews it and lets the user map CSV columns to the
+ * After a CSV/Excel is uploaded, previews it and lets the user map columns to the
  * workflow variables (phone number is auto-detected + pre-selected). Emits the
  * mapping via onChange; unmapped columns keep their header as the variable name.
  */
-export default function CsvColumnMapping({ sourceId, workflowId, onChange }: Props) {
+export default function CsvColumnMapping({ sourceId, workflowId, onChange, defaultCountryCode }: Props) {
     const [preview, setPreview] = useState<CsvPreview | null>(null);
     const [mapping, setMapping] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
@@ -55,6 +56,7 @@ export default function CsvColumnMapping({ sourceId, workflowId, onChange }: Pro
                 body: {
                     source_id: sourceId,
                     workflow_id: workflowId ? parseInt(workflowId) : null,
+                    default_country_code: defaultCountryCode && defaultCountryCode !== "none" ? defaultCountryCode : null,
                 },
             });
             if (cancelled) return;
@@ -72,7 +74,7 @@ export default function CsvColumnMapping({ sourceId, workflowId, onChange }: Pro
         return () => {
             cancelled = true;
         };
-    }, [sourceId, workflowId]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [sourceId, workflowId, defaultCountryCode]);
 
     const setCol = useCallback(
         (header: string, target: string) => {

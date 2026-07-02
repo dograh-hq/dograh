@@ -102,10 +102,38 @@ class CampaignSourceSyncService(ABC):
         return effective
 
     @staticmethod
+    def normalize_phone_number(
+        phone: str, default_country_code: Optional[str] = None
+    ) -> str:
+        """Strip spaces, dashes, parentheses. If it starts with '+', return as is.
+        Otherwise prepend default_country_code (stripping a single leading zero if present)."""
+        val = (phone or "").strip()
+        if not val:
+            return val
+        # Strip spaces, dashes, parentheses
+        normalized = re.sub(r"[\s\-()]", "", val)
+        if normalized.startswith("+"):
+            return normalized
+
+        if default_country_code:
+            # Strip single leading zero
+            if normalized.startswith("0"):
+                normalized = normalized[1:]
+
+            cc = default_country_code.strip()
+            if not cc.startswith("+"):
+                cc = "+" + cc
+
+            return f"{cc}{normalized}"
+
+        return normalized
+
+    @staticmethod
     def validate_source_data(
         headers: List[str],
         rows: List[List[str]],
         column_mapping: Optional[Dict[str, str]] = None,
+        default_country_code: Optional[str] = None,
     ) -> ValidationResult:
         """
         Validate source data for campaign creation.
@@ -115,6 +143,7 @@ class CampaignSourceSyncService(ABC):
             rows: List of data rows (excluding header)
             column_mapping: optional CSV-header -> variable overrides; the phone
                 column is auto-detected when not mapped.
+            default_country_code: optional country calling code to prepend to local numbers
 
         Returns:
             ValidationResult with is_valid=True if valid, or error details if invalid
@@ -134,6 +163,19 @@ class CampaignSourceSyncService(ABC):
             )
 
         phone_number_idx = normalized_headers.index("phone_number")
+
+        # Normalize phone numbers in all data rows if default_country_code is provided
+        normalized_rows = []
+        for row in rows:
+            new_row = list(row)
+            if len(new_row) > phone_number_idx:
+                phone_val = new_row[phone_number_idx]
+                normalized_phone = CampaignSourceSyncService.normalize_phone_number(
+                    phone_val, default_country_code
+                )
+                new_row[phone_number_idx] = normalized_phone
+            normalized_rows.append(new_row)
+        rows = normalized_rows
 
         # Validate phone numbers in all data rows
         invalid_rows = []
@@ -247,6 +289,7 @@ class CampaignSourceSyncService(ABC):
         source_id: str,
         organization_id: Optional[int] = None,
         column_mapping: Optional[Dict[str, str]] = None,
+        default_country_code: Optional[str] = None,
     ) -> ValidationResult:
         """Validate source data before campaign creation."""
         pass

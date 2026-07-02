@@ -1,6 +1,6 @@
 import csv
 import hashlib
-from io import StringIO
+from io import BytesIO, StringIO
 from typing import List, Optional
 
 import httpx
@@ -16,35 +16,46 @@ from api.services.storage import storage_fs
 
 
 class CSVSyncService(CampaignSourceSyncService):
-    """Implementation for CSV file synchronization"""
+    """Implementation for CSV and Excel file synchronization"""
 
     async def _fetch_csv_data(self, file_key: str) -> List[List[str]]:
-        """Download and parse CSV file from storage. Returns all rows including header."""
+        """Download and parse CSV or Excel file from storage. Returns all rows including header."""
         signed_url = await storage_fs.aget_signed_url(
             file_key, expiration=3600, use_internal_endpoint=True
         )
 
         if not signed_url:
-            raise ValueError(f"Failed to access CSV file: {file_key}")
+            raise ValueError(f"Failed to access source file: {file_key}")
 
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(signed_url)
                 response.raise_for_status()
-                csv_content = response.text
+                file_content = response.content
             except httpx.HTTPError as e:
-                logger.error(f"Failed to download CSV file: {e} for url: {signed_url}")
-                raise ValueError(f"Failed to download CSV file from storage: {str(e)}")
+                logger.error(f"Failed to download source file: {e} for url: {signed_url}")
+                raise ValueError(f"Failed to download source file from storage: {str(e)}")
 
-        return self._parse_csv(csv_content)
+        ext = file_key.split(".")[-1].lower() if "." in file_key else ""
+        if ext == "xlsx":
+            return self._parse_xlsx(file_content)
+        elif ext == "xls":
+            return self._parse_xls(file_content)
+        else:
+            try:
+                csv_content = file_content.decode("utf-8")
+            except UnicodeDecodeError:
+                csv_content = file_content.decode("latin-1")
+            return self._parse_csv(csv_content)
 
     async def validate_source(
         self,
         source_id: str,
         organization_id: Optional[int] = None,
         column_mapping: Optional[dict] = None,
+        default_country_code: Optional[str] = None,
     ) -> ValidationResult:
-        """Validate a CSV source file for campaign creation."""
+        """Validate a CSV/Excel source file for campaign creation."""
         try:
             csv_data = await self._fetch_csv_data(source_id)
         except ValueError as e:
@@ -57,18 +68,20 @@ class CSVSyncService(CampaignSourceSyncService):
             return ValidationResult(
                 is_valid=False,
                 error=ValidationError(
-                    message="CSV file must have a header row and at least one data row"
+                    message="File must have a header row and at least one data row"
                 ),
             )
 
         headers = csv_data[0]
         data_rows = csv_data[1:]
 
-        return self.validate_source_data(headers, data_rows, column_mapping)
+        return self.validate_source_data(
+            headers, data_rows, column_mapping, default_country_code
+        )
 
     async def sync_source_data(self, campaign_id: int) -> int:
         """
-        Fetches data from CSV file in S3/MinIO and creates queued_runs
+        Fetches data from CSV/Excel file in S3/MinIO and creates queued_runs
         """
         # Get campaign
         campaign = await db_client.get_campaign_by_id(campaign_id)
@@ -79,15 +92,16 @@ class CSVSyncService(CampaignSourceSyncService):
         csv_data = await self._fetch_csv_data(file_key)
 
         if not csv_data or len(csv_data) < 2:
-            logger.warning(f"No data found in CSV for campaign {campaign_id}")
+            logger.warning(f"No data found in file for campaign {campaign_id}")
             return 0
 
         rows = csv_data[1:]
-        # Apply the campaign's saved column mapping + phone auto-detect so the
-        # phone column lands under "phone_number" and mapped columns become the
-        # variable names the workflow expects.
         column_mapping = (campaign.orchestrator_metadata or {}).get("column_mapping")
+        default_country_code = (campaign.orchestrator_metadata or {}).get("default_country_code")
         headers = self.apply_column_mapping(csv_data[0], rows, column_mapping)
+
+        # Get phone number column index so we can normalize it during sync
+        phone_number_idx = headers.index("phone_number") if "phone_number" in headers else None
 
         # Create hash of file_key for consistent source_uuid prefix
         file_hash = hashlib.md5(file_key.encode()).hexdigest()[:8]
@@ -103,6 +117,13 @@ class CSVSyncService(CampaignSourceSyncService):
         for idx, row_values in enumerate(rows, 1):
             # Pad row to match headers length
             padded_row = row_values + [""] * (len(headers) - len(row_values))
+
+            # Apply phone normalization to the row if country code is configured
+            if phone_number_idx is not None and phone_number_idx < len(padded_row):
+                phone_val = padded_row[phone_number_idx]
+                padded_row[phone_number_idx] = self.normalize_phone_number(
+                    phone_val, default_country_code
+                )
 
             # Create context variables dict
             context_vars = dict(zip(headers, padded_row))
@@ -154,3 +175,57 @@ class CSVSyncService(CampaignSourceSyncService):
         except Exception as e:
             logger.error(f"Failed to parse CSV: {e}")
             raise ValueError(f"Invalid CSV format: {str(e)}")
+
+    def _parse_xlsx(self, content: bytes) -> List[List[str]]:
+        """Parse XLSX content into rows using openpyxl"""
+        try:
+            import openpyxl
+        except ImportError:
+            logger.error("openpyxl is not installed but required for xlsx parsing")
+            raise ValueError(
+                "Excel (.xlsx) support is not installed on this server. Please install openpyxl."
+            )
+
+        try:
+            wb = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
+            sheet = wb.active
+            rows = []
+            if sheet:
+                for r in sheet.iter_rows(values_only=True):
+                    # Convert all cell values to string, handling None
+                    row = [str(cell) if cell is not None else "" for cell in r]
+                    # Keep row if it has at least one non-empty value
+                    if any(cell.strip() != "" for cell in row):
+                        rows.append(row)
+            return rows
+        except Exception as e:
+            logger.error(f"Failed to parse XLSX: {e}")
+            raise ValueError(f"Invalid XLSX format: {str(e)}")
+
+    def _parse_xls(self, content: bytes) -> List[List[str]]:
+        """Parse XLS content into rows using xlrd"""
+        try:
+            import xlrd
+        except ImportError:
+            logger.error("xlrd is not installed but required for xls parsing")
+            raise ValueError(
+                "Legacy Excel (.xls) support is not installed on this server. Please install xlrd."
+            )
+
+        try:
+            wb = xlrd.open_workbook(file_contents=content)
+            sheet = wb.sheet_by_index(0)
+            rows = []
+            for row_idx in range(sheet.nrows):
+                row = []
+                for col_idx in range(sheet.ncols):
+                    val = sheet.cell_value(row_idx, col_idx)
+                    if isinstance(val, float) and val.is_integer():
+                        val = int(val)
+                    row.append(str(val) if val is not None else "")
+                if any(cell.strip() != "" for cell in row):
+                    rows.append(row)
+            return rows
+        except Exception as e:
+            logger.error(f"Failed to parse XLS: {e}")
+            raise ValueError(f"Invalid XLS format: {str(e)}")

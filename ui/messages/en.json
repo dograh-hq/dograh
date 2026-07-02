@@ -471,7 +471,7 @@
   },
   "onboarding": {
     "welcome": "Welcome",
-    "welcomeToDograh": "Welcome to Dograh",
+    "welcomeTitle": "Welcome to Dograh",
     "description": "A few quick questions so we can tailor your experience. Takes ~20 seconds.",
     "getStarted": "Get started",
     "selectOne": "Select one",

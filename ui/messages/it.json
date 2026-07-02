@@ -128,7 +128,7 @@
     },
     "mcp": {
       "title": "MCP Server",
-      "description": "Let AI agents access your Dograh workspace and documentation via the Model Context Protocol.",
+      "description": "Let AI agents access your Sativoice workspace and documentation via the Model Context Protocol.",
       "learnMore": "Learn more"
     },
     "telemetry": {
@@ -471,7 +471,7 @@
   },
   "onboarding": {
     "welcome": "Benvenuto",
-    "welcomeToDograh": "Benvenuto su Dograh",
+    "welcomeTitle": "Benvenuto in Sativoice Enterprise",
     "description": "Qualche domanda per personalizzare la tua esperienza. Ci vogliono ~20 secondi.",
     "getStarted": "Inizia",
     "selectOne": "Seleziona",

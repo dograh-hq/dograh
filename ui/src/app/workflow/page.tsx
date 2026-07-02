@@ -1,4 +1,3 @@
-import { useTranslations } from 'next-intl';
 import { Suspense } from 'react';
 
 import { getWorkflowsApiV1WorkflowFetchGet, listFoldersApiV1FolderGet } from '@/client/sdk.gen';
@@ -31,8 +30,7 @@ async function WorkflowList() {
             // For OSS mode, this shouldn't happen as token is auto-generated
             return (
                 <div className="text-red-500">
-                    <div className="text-red-500">
-                    {t('authRequired')} Please refresh the page.
+                    {t("authRequired")}
                 </div>
             );
         }

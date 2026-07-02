@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, Download, Globe } from 'lucide-react';
+import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
@@ -33,6 +34,7 @@ import { ActiveFilter, DateRangeValue } from '@/types/filters';
 const getLocalTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export default function UsagePage() {
+    const t = useTranslations("usage");
     const router = useRouter();
     const searchParams = useSearchParams();
     const { organizationPricing } = useUserConfig();

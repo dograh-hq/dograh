@@ -474,7 +474,8 @@
     "settingsTitle": "Settings",
     "back": "Back",
     "settingsFetchFailed": "Failed to load workflow settings",
-    "modelConfigFetchFailed": "Failed to load model configuration"
+    "modelConfigFetchFailed": "Failed to load model configuration",
+    "testerTooltipMsgCont": "Inspect the transcript and validate the workflow before you customize it further."
   },
   "workflowCreate": {
     "title": "Create Voice Agent",
@@ -878,11 +879,10 @@
     "errorCompleteOnPrem": "Please complete the on-prem details below, or remove that section.",
     "successCheckInbox": "Check your inbox - we just emailed you the next steps (give it a minute).",
     "hireExpert": "Hire an Expert",
-    "hireExpertDescription": "We'll build your agent for you",
+    "hireExpertDescription": "Building good voice agents is nuanced. Tell us what you need and we'll take it end-to-end.",
     "dismiss": "Dismiss",
     "hireExpertEyebrow": "Done-for-you",
     "hireExpertTitle": "Let us build your voice agent",
-    "hireExpertDescription": "Building good voice agents is nuanced. Tell us what you need and we'll take it end-to-end.",
     "hireExpertSubmitLabel": "Submit",
     "hireExpertDoneLabel": "Done",
     "hireExpertCancelLabel": "Cancel",

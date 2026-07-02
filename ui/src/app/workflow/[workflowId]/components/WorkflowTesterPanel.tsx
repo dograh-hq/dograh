@@ -38,10 +38,6 @@ interface WorkflowTesterPanelProps {
 }
 
 export function WorkflowTesterPanel({
-    t,
-    ...rest
-}: any) {
-    // Placeholder - will be properly implemented
     workflowId,
     initialContextVariables,
     disabled,
@@ -136,7 +132,7 @@ export function WorkflowTesterPanel({
     }, [accessToken, disabled, markActionCompleted, markTooltipSeen, workflowId]);
 
     const authUnavailableReason = tokenReady && !accessToken
-        ? "{t("testerAuthRequired")}"
+        ? t("testerAuthRequired")
         : null;
     const effectiveDisabledReason = disabledReason ?? authUnavailableReason;
     const testerBlocked = disabled || authUnavailableReason !== null;
@@ -192,7 +188,7 @@ export function WorkflowTesterPanel({
                             </div>
                         ) : !accessToken ? (
                             <DisabledNotice
-                                reason={authUnavailableReason ?? "{t("testerAuthRequired")}"}
+                                reason={authUnavailableReason ?? t("testerAuthRequired")}
                             />
                         ) : voiceRunId ? (
                             <EmbeddedVoiceTester
@@ -200,7 +196,7 @@ export function WorkflowTesterPanel({
                                 workflowRunId={voiceRunId}
                                 initialContextVariables={initialContextVariables}
                                 accessToken={accessToken}
-                                on{t("tester{t("testerReset")}")}={() => setVoiceRunId(null)}
+                                onReset={() => setVoiceRunId(null)}
                                 onNodeTransition={onRuntimeNodeTransition}
                             />
                         ) : (
@@ -208,8 +204,8 @@ export function WorkflowTesterPanel({
                                 {effectiveDisabledReason ? <DisabledNotice reason={effectiveDisabledReason} /> : null}
                                 <EmptyState
                                     icon={<Phone className="h-7 w-7" />}
-                                    title="{t("testerCallInBrowser")}"
-                                    description="{t("testerVoiceCallDesc")}. Some telephony-only tools, like call transfer, are not yet supported here."
+                                    title={t("testerCallInBrowser")}
+                                    description={t("testerVoiceCallDesc")}
                                     action={
                                         <Button
                                             ref={runTestButtonRef}
@@ -248,7 +244,7 @@ export function WorkflowTesterPanel({
                                     className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                                 >
                                     <RefreshCw className="h-3.5 w-3.5" />
-                                    {t("tester{t("testerReset")}")}
+                                    {t("testerReset")}
                                 </Button>
                             ) : null}
                         </div>
@@ -273,8 +269,8 @@ export function WorkflowTesterPanel({
 
             <OnboardingTooltip
                 targetRef={runTestButtonRef}
-                title="{t('testerTooltipTitle')}"
-                message="{t('testerTooltipMsg')}, inspect the transcript, and validate the workflow before you customize it further."
+                title={t('testerTooltipTitle')}
+                message={`${t('testerTooltipMsg')}. ${t('testerTooltipMsgCont')}`}
                 onDismiss={() => markTooltipSeen("web_call")}
                 showNext={false}
                 isVisible={showRunTestTooltip}

@@ -474,7 +474,8 @@
     "settingsTitle": "Impostazioni",
     "back": "Indietro",
     "settingsFetchFailed": "Caricamento impostazioni workflow fallito",
-    "modelConfigFetchFailed": "Caricamento configurazione modello fallito"
+    "modelConfigFetchFailed": "Caricamento configurazione modello fallito",
+    "testerTooltipMsgCont": "Ispeziona il transcript e valida il workflow prima di personalizzarlo ulteriormente."
   },
   "workflowCreate": {
     "title": "Crea Voice Agent",
@@ -878,11 +879,10 @@
     "errorCompleteOnPrem": "Completa i dettagli on-prem qui sotto, oppure rimuovi la sezione.",
     "successCheckInbox": "Controlla la tua casella - ti abbiamo appena inviato i prossimi passi via email (dai un minuto).",
     "hireExpert": "Assumi un Sati-Expert",
-    "hireExpertDescription": "Costruiremo il tuo agente per te",
+    "hireExpertDescription": "Costruire buoni voice agent richiede competenza. Raccontaci cosa ti serve e lo gestiremo dall'inizio alla fine.",
     "dismiss": "Ignora",
     "hireExpertEyebrow": "Fatto-per-te",
     "hireExpertTitle": "Lascia che costruiamo il tuo voice agent",
-    "hireExpertDescription": "Costruire buoni voice agent richiede competenza. Raccontaci cosa ti serve e lo gestiremo dall'inizio alla fine.",
     "hireExpertSubmitLabel": "Invia",
     "hireExpertDoneLabel": "Fatto",
     "hireExpertCancelLabel": "Annulla",

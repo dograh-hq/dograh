@@ -427,7 +427,10 @@
     "title": "Knowledge Base Files",
     "description": "Upload and manage documents.",
     "yourDocuments": "Your Documents",
-    "uploadDocument": "Upload Document"
+    "yourDocumentsDesc": "Documents shared across all agents in your organization",
+    "uploadDocument": "Upload Document",
+    "uploadTitle": "Upload Document",
+    "uploadDesc": "Upload a PDF or document file to add to your knowledge base"
   },
   "recordings": {
     "title": "Recordings",

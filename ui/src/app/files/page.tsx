@@ -61,7 +61,7 @@ export default function FilesPage() {
                         <div>
                             <CardTitle>{t('yourDocuments')}</CardTitle>
                             <CardDescription>
-                                Documents shared across all agents in your organization
+                                {t('yourDocumentsDesc')}
                             </CardDescription>
                         </div>
                         <Button onClick={() => setIsUploadOpen(true)}>
@@ -78,9 +78,9 @@ export default function FilesPage() {
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Upload Document</DialogTitle>
+                        <DialogTitle>{t('uploadTitle')}</DialogTitle>
                         <DialogDescription>
-                            Upload a PDF or document file to add to your knowledge base
+                            {t('uploadDesc')}
                         </DialogDescription>
                     </DialogHeader>
                     <DocumentUpload onUploadSuccess={handleUploadSuccess} />

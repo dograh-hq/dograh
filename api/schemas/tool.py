@@ -205,6 +205,7 @@ class TransferCallConfig(BaseModel):
         description="Maximum seconds to wait for the destination to answer.",
     )
 
+
 class McpToolConfig(BaseModel):
     """Configuration for a customer MCP server tool definition."""
 

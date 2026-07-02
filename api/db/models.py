@@ -1022,6 +1022,103 @@ class ExternalCredentialModel(Base):
     )
 
 
+class WebhookDeliveryModel(Base):
+    """Durable record of an outbound webhook delivery attempt.
+
+    Final webhooks (e.g. a workflow's "Final Webhook" node) must not be lost to a
+    single transient network error. Instead of firing the HTTP request inline and
+    forgetting it, we persist one row per webhook node per workflow run and let an
+    ARQ task drive delivery with bounded, backed-off retries. The row is the source
+    of truth: it survives worker restarts and a periodic sweeper re-enqueues any
+    ``pending`` delivery whose ``scheduled_for`` is overdue. After ``max_attempts``
+    transient failures (or on a permanent 4xx) the row is parked as ``dead_letter``
+    for inspection rather than retried forever.
+
+    Mirrors the campaign retry pattern (``QueuedRunModel``): persisted state,
+    ``scheduled_for`` gating, a hard attempt ceiling, and a terminal failure state.
+    """
+
+    __tablename__ = "webhook_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Stable idempotency key sent to the receiver so it can dedupe retries.
+    delivery_uuid = Column(
+        String(36),
+        unique=True,
+        nullable=False,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    workflow_run_id = Column(
+        Integer,
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Frozen request definition. The payload is rendered once at enqueue time so
+    # retries are deterministic. Secrets are NOT stored here: the auth header is
+    # re-resolved from ``credential_uuid`` at send time (honours rotation/revocation).
+    webhook_name = Column(String, nullable=True)
+    endpoint_url = Column(String, nullable=False)
+    http_method = Column(String, nullable=False, default="POST")
+    payload = Column(JSON, nullable=False, default=dict)
+    custom_headers = Column(JSON, nullable=True)
+    credential_uuid = Column(String(36), nullable=True)
+
+    # Workflow node that produced this delivery. Combined with workflow_run_id it
+    # is the per-run/per-node idempotency key, so a retried run_integrations does
+    # not create (and send) a duplicate delivery for the same node. Non-nullable:
+    # a NULL would be distinct under the unique constraint and defeat the dedupe.
+    webhook_node_id = Column(String, nullable=False)
+
+    status = Column(
+        Enum(
+            "pending",
+            "succeeded",
+            "dead_letter",
+            name="webhook_delivery_status",
+        ),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+    attempt_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    max_attempts = Column(Integer, nullable=False, default=5, server_default=text("5"))
+    # When the next attempt becomes due. NULL once terminal (succeeded/dead_letter).
+    scheduled_for = Column(DateTime(timezone=True), nullable=True)
+
+    last_status_code = Column(Integer, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        # Sweeper lookup: due pending deliveries.
+        Index(
+            "idx_webhook_deliveries_pending_scheduled",
+            "scheduled_for",
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index("idx_webhook_deliveries_run", "workflow_run_id"),
+        # Per-run/per-node idempotency: one delivery per webhook node per run.
+        UniqueConstraint(
+            "workflow_run_id",
+            "webhook_node_id",
+            name="uq_webhook_deliveries_run_node",
+        ),
+    )
+
+
 class ToolModel(Base):
     """Model for storing reusable tools that can be invoked during workflows.
 

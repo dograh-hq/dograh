@@ -161,6 +161,18 @@ DEFAULT_CAMPAIGN_RETRY_CONFIG = {
 }
 
 
+# Outbound webhook delivery: bounded retry with exponential backoff.
+# Delivery is persisted (see WebhookDeliveryModel) and retried by an ARQ task so a
+# transient network error can't permanently drop a final webhook. After
+# ``max_attempts`` transient failures the delivery is parked as ``dead_letter``.
+DEFAULT_WEBHOOK_DELIVERY_CONFIG = {
+    "max_attempts": int(os.getenv("WEBHOOK_DELIVERY_MAX_ATTEMPTS", 5)),
+    "base_delay_seconds": int(os.getenv("WEBHOOK_DELIVERY_BASE_DELAY_SECONDS", 30)),
+    "max_delay_seconds": int(os.getenv("WEBHOOK_DELIVERY_MAX_DELAY_SECONDS", 600)),
+    "timeout_seconds": int(os.getenv("WEBHOOK_DELIVERY_TIMEOUT_SECONDS", 30)),
+}
+
+
 # Circuit breaker defaults for campaign call failure detection
 DEFAULT_CIRCUIT_BREAKER_CONFIG = {
     "enabled": True,

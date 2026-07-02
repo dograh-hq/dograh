@@ -2,5 +2,45 @@
   "app": {
     "name": "Dograh",
     "tagline": "Open Source Voice AI Platform"
+  },
+  "auth": {
+    "heroTitle": "The open-source voice AI platform.",
+    "highlights": ["Speech-to-speech", "MCP-native", "BYOK - any model"],
+    "enterpriseTitle": "Need on-prem, data residency & a data perimeter?",
+    "enterpriseDesc": "We deploy Dograh inside your environment for regulated and high-scale teams.",
+    "loginTitle": "Sign In",
+    "signupTitle": "Sign Up",
+    "login": {
+      "title": "Sign in",
+      "description": "Enter your email and password to continue",
+      "emailLabel": "Email",
+      "emailPlaceholder": "you@example.com",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "Enter your password",
+      "submit": "Sign in",
+      "submitting": "Signing in...",
+      "noAccount": "Don't have an account?",
+      "signupLink": "Sign up",
+      "loginFailed": "Login failed",
+      "errorGeneric": "An error occurred. Please try again."
+    },
+    "signup": {
+      "title": "Create an account",
+      "description": "Enter your details to get started",
+      "emailLabel": "Email",
+      "emailPlaceholder": "you@example.com",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "At least 8 characters",
+      "confirmPasswordLabel": "Confirm password",
+      "confirmPasswordPlaceholder": "Confirm your password",
+      "submit": "Create account",
+      "submitting": "Creating account...",
+      "hasAccount": "Already have an account?",
+      "loginLink": "Sign in",
+      "passwordTooShort": "Password must be at least 8 characters",
+      "passwordsDoNotMatch": "Passwords do not match",
+      "signupFailed": "Signup failed",
+      "errorGeneric": "An error occurred. Please try again."
+    }
   }
 }

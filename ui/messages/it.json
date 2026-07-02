@@ -2,5 +2,45 @@
   "app": {
     "name": "Sativoice Enterprise",
     "tagline": "Piattaforma Voice AI open-source"
+  },
+  "auth": {
+    "heroTitle": "La piattaforma voice AI open-source.",
+    "highlights": ["Speech-to-speech", "MCP-native", "BYOK - qualsiasi modello"],
+    "enterpriseTitle": "Serve on-prem, data residency e data perimeter?",
+    "enterpriseDesc": "Deployamo Sativoice nel tuo ambiente per team regolamentati e high-scale.",
+    "loginTitle": "Accedi",
+    "signupTitle": "Registrati",
+    "login": {
+      "title": "Accedi",
+      "description": "Inserisci email e password per continuare",
+      "emailLabel": "Email",
+      "emailPlaceholder": "nome@esempio.com",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "Inserisci la tua password",
+      "submit": "Accedi",
+      "submitting": "Accesso in corso...",
+      "noAccount": "Non hai un account?",
+      "signupLink": "Registrati",
+      "loginFailed": "Accesso fallito",
+      "errorGeneric": "Si e' verificato un errore. Riprova."
+    },
+    "signup": {
+      "title": "Crea un account",
+      "description": "Inserisci i tuoi dati per iniziare",
+      "emailLabel": "Email",
+      "emailPlaceholder": "nome@esempio.com",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "Almeno 8 caratteri",
+      "confirmPasswordLabel": "Conferma password",
+      "confirmPasswordPlaceholder": "Conferma la tua password",
+      "submit": "Crea account",
+      "submitting": "Creazione account in corso...",
+      "hasAccount": "Hai gia' un account?",
+      "loginLink": "Accedi",
+      "passwordTooShort": "La password deve essere di almeno 8 caratteri",
+      "passwordsDoNotMatch": "Le password non coincidono",
+      "signupFailed": "Registrazione fallita",
+      "errorGeneric": "Si e' verificato un errore. Riprova."
+    }
   }
 }

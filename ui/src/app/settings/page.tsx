@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 import { MCPSection } from "@/components/MCPSection";
 import { OrganizationPreferencesSection } from "@/components/OrganizationPreferencesSection";
@@ -14,22 +15,23 @@ import {
 } from "@/components/ui/card";
 
 export default function SettingsPage() {
+  const t = useTranslations("settings");
+
   return (
     <div className="flex justify-center py-12 px-4">
       <div className="w-full max-w-2xl space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Platform Settings</h1>
+          <h1 className="text-2xl font-bold">{t("title")}</h1>
           <p className="text-muted-foreground">
-            Manage your platform configuration and integrations.
+            {t("subtitle")}
           </p>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Preferences</CardTitle>
+            <CardTitle>{t("preferences.title")}</CardTitle>
             <CardDescription>
-              Set organization-wide defaults such as the test phone number and
-              timezone.
+              {t("preferences.description")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -39,17 +41,16 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>MCP Server</CardTitle>
+            <CardTitle>{t("mcp.title")}</CardTitle>
             <CardDescription>
-              Let AI agents access your Dograh workspace and documentation via
-              the Model Context Protocol.{" "}
+              {t("mcp.description")}{" "}
               <a
                 href="https://docs.dograh.com/integrations/mcp"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
               >
-                Learn more <ExternalLink className="h-3 w-3" />
+                {t("mcp.learnMore")} <ExternalLink className="h-3 w-3" />
               </a>
             </CardDescription>
           </CardHeader>
@@ -60,16 +61,16 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Telemetry</CardTitle>
+            <CardTitle>{t("telemetry.title")}</CardTitle>
             <CardDescription>
-              Configure Langfuse tracing for your voice agent calls.{" "}
+              {t("telemetry.description")}{" "}
               <a
                 href="https://docs.dograh.com/configurations/tracing"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
               >
-                Learn more <ExternalLink className="h-3 w-3" />
+                {t("telemetry.learnMore")} <ExternalLink className="h-3 w-3" />
               </a>
             </CardDescription>
           </CardHeader>

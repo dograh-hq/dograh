@@ -2,6 +2,7 @@
 
 import { Check, Copy } from "lucide-react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,10 +13,8 @@ import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 const MCP_PATH = "/api/v1/mcp/";
 
 export function MCPSection() {
+  const t = useTranslations("mcpSection");
   const { config } = useAppConfig();
-  // Backend URL: the address the deployment runs on (a private IP when the backend
-  // sits on one). Tunnel URL, when present: the publicly reachable Cloudflare tunnel
-  // URL externally-hosted assistants should use to reach an otherwise-private host.
   const backendUrl = resolveBrowserBackendUrl(config?.backendApiEndpoint);
   const tunnelUrl = config?.tunnelUrl ?? null;
 
@@ -24,12 +23,12 @@ export function MCPSection() {
       ? [
           {
             key: "tunnel",
-            label: "Public URL (Cloudflare tunnel)",
+            label: t("publicUrl"),
             url: `${tunnelUrl}${MCP_PATH}`,
           },
         ]
       : []),
-    { key: "backend", label: "Backend URL", url: `${backendUrl}${MCP_PATH}` },
+    { key: "backend", label: t("backendUrl"), url: `${backendUrl}${MCP_PATH}` },
   ];
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -46,16 +45,15 @@ export function MCPSection() {
   return (
     <div className="grid gap-6">
       <div className="grid gap-2">
-        <Label>MCP Endpoint</Label>
+        <Label>{t("endpoint")}</Label>
         <p className="text-xs text-muted-foreground">
-          Connect an MCP-compatible AI assistant to this URL over Streamable
-          HTTP. Requires an API key in the X-API-Key header.{" "}
+          {t("description")}{" "}
           <Link
             href="/api-keys"
             target="_blank"
             className="text-primary underline hover:no-underline"
           >
-            Get your API key
+            {t("getApiKey")}
           </Link>
         </p>
         <div className="grid gap-3">
@@ -88,22 +86,20 @@ export function MCPSection() {
         </div>
         {tunnelUrl && (
           <p className="text-xs text-muted-foreground">
-            Use the public URL from externally-hosted assistants; the backend URL
-            works from the deployment&apos;s own network.
+            {t("tunnelHint")}
           </p>
         )}
       </div>
 
       <p className="text-xs text-muted-foreground">
-        For step-by-step setup with Claude Code, Claude Desktop, Cursor, and
-        other clients, see the{" "}
+        {t("guideText")}{" "}
         <Link
           href="https://docs.dograh.com/integrations/mcp"
           target="_blank"
           rel="noopener noreferrer"
           className="text-primary underline hover:no-underline"
         >
-          MCP integration guide
+          {t("guideLink")}
         </Link>
         .
       </p>

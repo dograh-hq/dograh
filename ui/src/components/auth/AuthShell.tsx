@@ -11,7 +11,7 @@
 
 import type { ReactNode } from "react";
 
-import { useTranslations } from "next-intl";
+import { useMessages, useTranslations } from "next-intl";
 
 import { BrandLogo } from "@/components/BrandLogo";
 
@@ -23,6 +23,8 @@ export function AuthShell({
   enterpriseSlot?: ReactNode;
 }) {
   const t = useTranslations("auth");
+  const messages = useMessages();
+  const highlights = (messages as { auth: { highlights: string[] } }).auth.highlights;
   return (
     <div className="grid min-h-screen w-full bg-background lg:grid-cols-[55%_45%]">
       {/* Form column (LEFT) — scrolls and stays centered so tall forms never
@@ -57,7 +59,7 @@ export function AuthShell({
             {t("heroTitle")}
           </h1>
           <ul className="flex flex-wrap gap-2">
-            {t("highlights").map((point: string) => (
+            {highlights.map((point: string) => (
               <li
                 key={point}
                 className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-medium text-zinc-300"

@@ -11,6 +11,7 @@ from api.services.integrations.base import IntegrationCompletionContext
 
 from .client import TunerDeliveryConfig, post_call
 from .collector import TUNER_RECORDING_PLACEHOLDER
+from .cost import compute_call_cost_cents
 from .node import TunerNodeData
 
 
@@ -55,6 +56,14 @@ async def run_completion(
         payload = copy.deepcopy(payload_snapshot)
         payload["recording_url"] = recording_url
 
+        call_cost = compute_call_cost_cents(
+            tuner_data,
+            context.workflow_run.usage_info,
+            transcript_segments=payload.get("transcript_with_tool_calls"),
+        )
+        if call_cost is not None:
+            payload["call_cost"] = call_cost
+
         try:
             config = TunerDeliveryConfig(
                 base_url=TUNER_BASE_URL,
@@ -67,6 +76,7 @@ async def run_completion(
                 **delivery,
                 "workspace_id": tuner_data.tuner_workspace_id,
                 "agent_id": tuner_data.tuner_agent_id,
+                **({"call_cost": call_cost} if call_cost is not None else {}),
                 "exported_at": datetime.now(UTC).isoformat(),
             }
         except Exception as exc:

@@ -16,6 +16,7 @@ from api.services.workflow.node_specs._base import (
     NodeExample,
     NodeSpec,
     PropertyOption,
+    PropertyRendererOptions,
     PropertySpec,
     PropertyType,
 )
@@ -50,7 +51,7 @@ def spec_field(
     display_options: DisplayOptions | None = None,
     options: list[PropertyOption] | None = None,
     editor: str | None = None,
-    extra: dict[str, Any] | None = None,
+    renderer_options: PropertyRendererOptions | None = None,
     spec_exclude: bool = False,
     min_value: float | None = None,
     max_value: float | None = None,
@@ -69,7 +70,7 @@ def spec_field(
         "display_options": display_options,
         "options": options,
         "editor": editor,
-        "extra": extra or {},
+        "renderer_options": renderer_options,
         "spec_exclude": spec_exclude,
         "min_value": min_value,
         "max_value": max_value,
@@ -206,7 +207,7 @@ def _build_property_spec(
         max_length=max_length,
         pattern=pattern,
         editor=meta.get("editor"),
-        extra=meta.get("extra") or {},
+        renderer_options=meta.get("renderer_options"),
     )
 
 

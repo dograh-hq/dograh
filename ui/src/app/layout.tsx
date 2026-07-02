@@ -4,9 +4,11 @@ import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
+import { cookies } from "next/headers";
 import { Suspense } from "react";
 
 import itMessages from "../../messages/it.json";
+import enMessages from "../../messages/en.json";
 
 import ChatwootWidget from "@/components/ChatwootWidget";
 import AppLayout from "@/components/layout/AppLayout";
@@ -44,13 +46,17 @@ export const metadata: Metadata = {
   description: "Piattaforma Voice AI Enterprise per il mercato italiano",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const cookieStore = await cookies();
+  const locale = cookieStore.get("NEXT_LOCALE")?.value === "en" ? "en" : "it";
+  const messages = locale === "en" ? enMessages : itMessages;
+
   return (
-    <html lang="it" className="dark" suppressHydrationWarning>
+    <html lang={locale} className="dark" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -73,7 +79,7 @@ export default function RootLayout({
       </head>
       <body
         className={`${bodyFont.variable} ${displayFont.variable} ${geistMono.variable} antialiased`}>
-        <NextIntlClientProvider messages={itMessages} locale="it">
+        <NextIntlClientProvider messages={messages} locale={locale}>
           <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
             <SentryErrorBoundary>
               <AuthProvider>

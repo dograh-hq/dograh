@@ -1,7 +1,6 @@
 "use client";
 
 import { useLocale } from "next-intl";
-import { useRouter } from "@/i18n/routing";
 import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,14 +20,18 @@ const LABELS: Record<string, string> = {
   en: "English",
 };
 
+function setLocaleCookie(locale: string) {
+  document.cookie = `NEXT_LOCALE=${locale};path=/;max-age=31536000;SameSite=Lax`;
+}
+
 export function LanguageSwitcher() {
   const locale = useLocale();
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   function switchTo(nextLocale: string) {
+    setLocaleCookie(nextLocale);
     startTransition(() => {
-      router.replace("/", { locale: nextLocale });
+      window.location.reload();
     });
   }
 

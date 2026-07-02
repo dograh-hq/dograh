@@ -1,6 +1,6 @@
 # Sativoice Enterprise
 
-**Piattaforma Voice AI open-source per il mercato enterprise italiano** — basata su [Sativoice](https://github.com/TopCS/sativoice), l'alternativa self-hostabile a Vapi e Retell.
+**Piattaforma Voice AI open-source per il mercato enterprise italiano** — basata su [Dograh](https://github.com/TopCS/dograh), l'alternativa self-hostabile a Vapi e Retell.
 
 Sativoice Enterprise è la distribuzione italiana ufficiale mantenuta da **Satisfactory Group**.
 
@@ -13,7 +13,7 @@ Sativoice Enterprise è la distribuzione italiana ufficiale mantenuta da **Satis
 
 ## ⚖️ Sativoice vs Vapi vs Retell
 
-|  | **Sativoice** (basato su Sativoice) | **Vapi** | **Retell** |
+|  | **Sativoice** (basato su Dograh) | **Vapi** | **Retell** |
 |---|---|---|---|
 | **License** | BSD 2-Clause (open source) | Proprietary | Proprietary |
 | **Self-hostable** | ✅ Yes — un comando Docker | ❌ SaaS only | ❌ SaaS only |
@@ -82,14 +82,14 @@ Primo avvio: 2-3 minuti per scaricare le immagini. Poi apri [http://localhost:30
 
 ## 📦 SDK
 
-- **Python SDK** — `sativoice_sdk` (nel repo)
-- **TypeScript SDK** — `@sativoice/sdk` (nel repo)
+- **Python SDK** — `dograh_sdk` (nel repo)
+- **TypeScript SDK** — `@dograh/sdk` (nel repo)
 
 ---
 
 ## 🙌 Upstream
 
-Sativoice Enterprise è un fork di **[Sativoice](https://github.com/TopCS/sativoice)** — la piattaforma voice AI open-source mantenuta da YC alumni. Il codice interno (classi, SDK, env var) mantiene i riferimenti a Sativoice per garantire piena compatibilità con l'upstream.
+Sativoice Enterprise è un fork di **[Dograh](https://github.com/TopCS/dograh)** — la piattaforma voice AI open-source mantenuta da YC alumni. Il codice interno (classi, SDK, env var) mantiene i riferimenti a Dograh per garantire piena compatibilità con l'upstream.
 
 ---
 

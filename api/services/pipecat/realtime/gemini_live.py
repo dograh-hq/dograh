@@ -266,3 +266,19 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # a handle (e.g. node transitions before any handle was issued) are
         # followed by a function-call-result LLMContextFrame which feeds the
         # updated-context branch in _handle_context.
+
+    async def _handle_msg_usage_metadata(self, message):
+        """Intercept the usage metadata message for detailed STS multimodal extraction."""
+        # Allow Pipecat to process and emit standard LLM metrics
+        await super()._handle_msg_usage_metadata(message)
+        
+        try:
+            if getattr(message, "usage_metadata", None):
+                from api.services.pipecat.realtime.paygent_sts_frames import STSUsageFrame, extract_google_live_sts_usage
+                
+                # Extract highly accurate custom multimodal metadata
+                sts_meta = extract_google_live_sts_usage(message.usage_metadata)
+                if sts_meta:
+                    await self.push_frame(STSUsageFrame(usage_metadata=sts_meta))
+        except Exception as e:
+            logger.error(f"[paygent] Failed to extract custom Gemini STS usage: {e}")

@@ -395,7 +395,13 @@ async def create_campaign(
         from api.services.workflow.dto import ReactFlowDTO
         from api.services.workflow.workflow_graph import WorkflowGraph
 
-        workflow_def = workflow.released_definition.workflow_json
+        # A workflow that has never been published has no released definition —
+        # skip template-variable validation instead of 500ing on the deref.
+        workflow_def = (
+            workflow.released_definition.workflow_json
+            if workflow.released_definition
+            else None
+        )
         if workflow_def:
             try:
                 dto = ReactFlowDTO(**workflow_def)

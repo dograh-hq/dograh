@@ -261,7 +261,7 @@ COUNTRY_CODES = {
     "IE": "353",  # Ireland
 }
 
-DEFAULT_ORG_CONCURRENCY_LIMIT = os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", 2)
+DEFAULT_ORG_CONCURRENCY_LIMIT = int(os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", 2))
 DEFAULT_CAMPAIGN_RETRY_CONFIG = {
     "enabled": True,
     "max_retries": 1,
@@ -272,12 +272,17 @@ DEFAULT_CAMPAIGN_RETRY_CONFIG = {
 }
 
 
-# Circuit breaker defaults for campaign call failure detection
+# Circuit breaker defaults for campaign call failure detection.
+# VoiceLink has no busy/no-answer statuses — unanswered calls surface as
+# failures — so a cold list with a normal 40-70% answer rate trips a 50%
+# threshold within minutes and pauses a healthy campaign. Default to a
+# storm detector (real outages: auth/channel exhaustion fail ~100%), and
+# let campaigns opt into stricter settings per-campaign.
 DEFAULT_CIRCUIT_BREAKER_CONFIG = {
     "enabled": True,
-    "failure_threshold": 0.5,  # 50% failure rate trips the breaker
+    "failure_threshold": 0.9,  # only trip on near-total failure (outage storm)
     "window_seconds": 120,  # 2-minute sliding window
-    "min_calls_in_window": 5,  # Don't trip until at least 5 outcomes
+    "min_calls_in_window": 20,  # don't trip until at least 20 outcomes
 }
 
 

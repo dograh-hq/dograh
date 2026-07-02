@@ -67,6 +67,11 @@ class WorkerSettings:
     ]
     redis_settings = REDIS_SETTINGS
     max_jobs = 10
+    # Campaign batches legitimately block up to 600s waiting on concurrency
+    # slots / the DID pool; arq's default job_timeout (300s) cancels them
+    # mid-dispatch, stranding claimed contacts. Give jobs headroom past the
+    # longest in-batch wait.
+    job_timeout = 900
 
 
 LOG_CONFIG = {

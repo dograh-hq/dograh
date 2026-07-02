@@ -173,7 +173,14 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             await circuit_breaker.record_and_evaluate(
                 workflow_run.campaign_id, is_failure=False
             )
-            await _bump_campaign_consumed(workflow_run.campaign_id, status.duration)
+            # Bump spend only on the FIRST terminal transition. VoiceLink sends
+            # both call.completed and call.ended (plus duplicate CDR callbacks)
+            # for the same call — an unconditional bump double-counts the
+            # client-facing spend figure.
+            if workflow_run.state != WorkflowRunState.COMPLETED.value:
+                await _bump_campaign_consumed(
+                    workflow_run.campaign_id, status.duration
+                )
 
         if workflow_run.state != WorkflowRunState.COMPLETED.value:
             await db_client.update_workflow_run(

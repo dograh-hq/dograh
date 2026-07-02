@@ -527,6 +527,21 @@ class CampaignClient(BaseDBClient):
                 raise
 
     # QueuedRun methods
+    async def get_existing_source_uuids(self, campaign_id: int) -> set:
+        """Source UUIDs already queued for a campaign.
+
+        Used as the idempotency guard when a source sync re-runs (ARQ retries
+        the job after a mid-sync crash/cancel) — without it every contact is
+        inserted and dialed twice.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(QueuedRunModel.source_uuid).where(
+                    QueuedRunModel.campaign_id == campaign_id
+                )
+            )
+            return {row[0] for row in result}
+
     async def bulk_create_queued_runs(self, queued_runs_data: list[dict]) -> None:
         """Bulk create queued runs"""
         async with self.async_session() as session:

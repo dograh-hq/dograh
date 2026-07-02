@@ -85,9 +85,13 @@ class CampaignRunnerService:
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
 
-        if campaign.state != "paused":
+        # 'failed' is resumable too: a single transient batch error (DB/Redis
+        # blip) marks the campaign failed, and without this the only recovery
+        # is manual SQL. Pending queued_runs are still there; the orchestrator
+        # picks them up when the state returns to running.
+        if campaign.state not in ("paused", "failed"):
             raise ValueError(
-                f"Campaign must be in 'paused' state to resume, current state: {campaign.state}"
+                f"Campaign must be in 'paused' or 'failed' state to resume, current state: {campaign.state}"
             )
 
         # Update state to running. Do not queue batch since campaign orchestrator's

@@ -92,6 +92,12 @@ class CSVSyncService(CampaignSourceSyncService):
         # Create hash of file_key for consistent source_uuid prefix
         file_hash = hashlib.md5(file_key.encode()).hexdigest()[:8]
 
+        # A re-run of this sync (ARQ retries the job if the worker died or was
+        # cancelled mid-insert) must not enqueue the same contacts again —
+        # queued_runs has no unique constraint, and duplicates mean every
+        # contact gets dialed twice. Skip rows already queued.
+        existing_uuids = await db_client.get_existing_source_uuids(campaign_id)
+
         # Convert to queued_runs
         queued_runs = []
         for idx, row_values in enumerate(rows, 1):
@@ -109,6 +115,9 @@ class CSVSyncService(CampaignSourceSyncService):
             # Generate unique source UUID: csv_{hash(source_id)}_row_{idx}
             source_uuid = f"csv_{file_hash}_row_{idx}"
 
+            if source_uuid in existing_uuids:
+                continue
+
             queued_runs.append(
                 {
                     "campaign_id": campaign_id,
@@ -125,14 +134,16 @@ class CSVSyncService(CampaignSourceSyncService):
                 f"Created {len(queued_runs)} queued runs for campaign {campaign_id}"
             )
 
-        # Update campaign total_rows
+        # Update campaign total_rows. On a partial re-sync the previously
+        # inserted rows count too — len(queued_runs) alone would undercount.
+        total_rows = len(queued_runs) + len(existing_uuids)
         await db_client.update_campaign(
             campaign_id=campaign_id,
-            total_rows=len(queued_runs),
+            total_rows=total_rows,
             source_sync_status="completed",
         )
 
-        return len(queued_runs)
+        return total_rows
 
     def _parse_csv(self, csv_content: str) -> List[List[str]]:
         """Parse CSV content into rows"""

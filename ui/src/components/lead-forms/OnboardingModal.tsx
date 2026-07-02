@@ -192,7 +192,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
       }}
       icon={Rocket}
       eyebrow={t("welcome")}
-      title={t("welcomeToDograh")}
+      title={t("welcomeTitle")}
       description={t("description")}
       primary={{ label: t("getStarted"), onClick: handleSubmit, disabled: !canSubmit, loading: submitting }}
       overlay={captchaActive ? <CaptchaChallenge onVerified={submitWithOnPrem} onCancel={() => setCaptchaActive(false)} /> : undefined}

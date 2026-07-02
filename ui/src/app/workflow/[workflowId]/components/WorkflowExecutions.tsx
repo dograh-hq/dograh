@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from 'next-intl';
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -16,6 +17,8 @@ interface WorkflowExecutionsProps {
 }
 
 export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecutionsProps) {
+    const t = useTranslations("workflowList");
+    //({ workflowId, searchParams }: WorkflowExecutionsProps) {
     const router = useRouter();
     const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunResponseSchema[]>([]);
     const [loading, setLoading] = useState(true);
@@ -127,7 +130,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
             setError(null);
         } catch (err) {
             console.error("Error fetching workflow runs:", err);
-            setError("Failed to load workflow runs");
+            setError(t("workflowRunsFetchFailed"));
         } finally {
             setLoading(false);
         }

@@ -12,6 +12,7 @@ import { useTranslations } from 'next-intl';
 export function AiSimulatorPlaceholder({
     disabledReason,
 }: {
+    const t = useTranslations("workflowList");
     disabledReason: string | null;
 }) {
     const [simulatorPrompt, setSimulatorPrompt] = useState(

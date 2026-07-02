@@ -467,7 +467,13 @@
     "goToWorkflow": "Vai al Workflow",
     "noContextAvailable": "Nessun contesto disponibile",
     "noValue": "Nessun valore",
-    "testerAuthRequired": "L'autenticazione è necessaria prima di avviare il test."
+    "testerAuthRequired": "L'autenticazione è necessaria prima di avviare il test.",
+    "workflowFetchFailed": "Caricamento workflow fallito",
+    "workflowRunsFetchFailed": "Caricamento esecuzioni workflow fallito",
+    "settingsTitle": "Impostazioni",
+    "back": "Indietro",
+    "settingsFetchFailed": "Caricamento impostazioni workflow fallito",
+    "modelConfigFetchFailed": "Caricamento configurazione modello fallito"
   },
   "workflowCreate": {
     "title": "Crea Voice Agent",

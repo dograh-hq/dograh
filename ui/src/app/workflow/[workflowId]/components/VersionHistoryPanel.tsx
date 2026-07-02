@@ -52,6 +52,7 @@ export const VersionHistoryPanel = ({
     loadingMore,
     onLoadMore,
 }: VersionHistoryPanelProps) => {
+    const t = useTranslations("workflowList");
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && isOpen) {

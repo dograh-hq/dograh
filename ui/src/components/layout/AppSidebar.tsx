@@ -221,7 +221,7 @@ export function AppSidebar() {
     };
     const warningIndicator = (
       <AlertTriangle
-        aria-label="Action required on a telephony configuration"
+        aria-label={t("telephonyWarning")}
         className={cn(
           "text-amber-500",
           isCollapsed ? "absolute -right-0.5 -top-0.5 h-3 w-3" : "ml-auto h-3.5 w-3.5"

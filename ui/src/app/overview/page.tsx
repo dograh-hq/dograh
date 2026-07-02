@@ -8,6 +8,7 @@ import { GitHubStarBadge } from '@/components/layout/GitHubStarBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
+import { HIDE_EXTERNAL_LINKS } from '@/lib/env';
 
 export default function OverviewPage() {
     const t = useTranslations('overview');
@@ -38,7 +39,7 @@ export default function OverviewPage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isOSSMode && (
+                        {isOSSMode && !HIDE_EXTERNAL_LINKS && (
                             <div className="mb-6">
                                 <GitHubStarBadge label={t('resources.starOnGitHub')} showCount source="overview_page" />
                             </div>
@@ -82,6 +83,7 @@ export default function OverviewPage() {
                 </div>
 
                 {/* Resources Section */}
+                {!HIDE_EXTERNAL_LINKS && (
                 <Card className="mt-8">
                     <CardHeader>
                         <CardTitle>{t('resources.title')}</CardTitle>
@@ -112,6 +114,7 @@ export default function OverviewPage() {
                         </div>
                     </CardContent>
                 </Card>
+                )}
             </div>
         </div>
     );

@@ -11,6 +11,7 @@ import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sideb
 import { PostHogEvent } from "@/constants/posthog-events";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { LeadFormsProvider } from "@/context/LeadFormsContext";
+import { HIDE_EXTERNAL_LINKS } from "@/lib/env";
 
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { AppSidebar } from "./AppSidebar";
@@ -30,7 +31,7 @@ function AppHeader() {
       </div>
       <div className="flex items-center gap-3">
         <LanguageSwitcher />
-        <GitHubStarBadge source="app_header" />
+        {!HIDE_EXTERNAL_LINKS && <GitHubStarBadge source="app_header" />}
       </div>
     </header>
   );

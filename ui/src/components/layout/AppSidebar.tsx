@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { HIDE_EXTERNAL_LINKS } from "@/lib/env";
 import { useLeadForms } from "@/context/LeadFormsContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
@@ -356,7 +357,7 @@ export function AppSidebar() {
                 </span>
               )}
             </Link>
-            {isBehind && latestRelease && (
+            {isBehind && latestRelease && !HIDE_EXTERNAL_LINKS && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <a

@@ -145,6 +145,7 @@ class TelephonyConfigWarningsResponse(BaseModel):
     """
 
     telnyx_missing_webhook_public_key_count: int
+    vonage_missing_signature_secret_count: int
 
 
 @router.get("/context", response_model=OrganizationContextResponse)
@@ -200,8 +201,7 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
 async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
     """Return aggregated warning counts for the current org's telephony configs.
 
-    Today this surfaces only Telnyx configs missing ``webhook_public_key``;
-    additional warning types should be added as new fields on the response.
+    Surfaces provider configs missing webhook-verification credentials.
     """
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
@@ -209,8 +209,12 @@ async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
     telnyx_missing = await db_client.count_telnyx_configs_missing_webhook_public_key(
         user.selected_organization_id
     )
+    vonage_missing = await db_client.count_vonage_configs_missing_signature_secret(
+        user.selected_organization_id
+    )
     return TelephonyConfigWarningsResponse(
         telnyx_missing_webhook_public_key_count=telnyx_missing,
+        vonage_missing_signature_secret_count=vonage_missing,
     )
 
 

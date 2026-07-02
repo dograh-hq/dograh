@@ -1,11 +1,35 @@
 ---
 title: "Deployments"
-description: "Options to deploy Dograh Voice Agent Platform on your own infrastructure."
+description: "Options for self-hosting Dograh — from a local Docker install to a production remote server with a custom domain."
 ---
 
-### Deployment Options
-You can deploy Dograh Platform using Docker on a remote server using Docker, either using terminal commands, or using PaaS like Heroku, Coolify. 
+Dograh is self-hosted with Docker. Everything ships as two images (`dograh-api` and `dograh-ui`) plus Postgres, Redis, and MinIO, orchestrated with Docker Compose. Pick the deployment path that matches what you're trying to do:
 
-- [Docker](docker)
-- [Custom Domain](custom-domain)
-- [Heroku](heroku)
+| Path | Use it when | Guide |
+| --- | --- | --- |
+| **Local Docker** | You want to try Dograh on your own machine. No public URL, no telephony. | [Docker → Option 1](/deployment/docker#option-1-local-docker-deployment) |
+| **Remote server** | You want a real server reachable from the internet, with HTTPS out of the box (via a free `sslip.io` certificate — no domain required). | [Docker → Option 2](/deployment/docker#option-2-remote-server-deployment) |
+| **Custom domain** | You already have a remote deployment and want your own domain (e.g. `voice.yourcompany.com`) instead of the `sslip.io` URL. | [Custom Domain](/deployment/custom-domain) |
+| **Heroku** | One-click PaaS deployment. | [Heroku](/deployment/heroku) — coming soon |
+
+Browsers treat microphone access as a secure-context feature, so the app must be served over HTTPS — or accessed at localhost/127.0.0.1 over HTTP, which is also a secure context. Local Docker uses `http://localhost:3010` and therefore does not need a certificate.
+
+## After you deploy
+
+Once the platform is running, these guides cover keeping it running:
+
+- [**Authentication**](/deployment/authentication) — switch from the built-in local email/password provider to Stack Auth for social login.
+- [**Scaling**](/deployment/scaling) — run multiple FastAPI workers behind nginx for higher call throughput.
+- [**Update**](/deployment/update) — move an existing deployment to a newer Dograh version.
+
+## Where to start
+
+1. **Kicking the tires?** Start with [local Docker](/deployment/docker#option-1-local-docker-deployment) — running in a few minutes, no server needed.
+2. **Putting it in front of real callers?** Use [remote server deployment](/deployment/docker#option-2-remote-server-deployment), then layer on a [custom domain](/deployment/custom-domain) if you want one.
+3. **Already running and need to upgrade?** Go straight to [Update](/deployment/update).
+4. **Expecting high call volume?** Read [Scaling](/deployment/scaling) once your base deployment is live.
+
+## Related
+
+- [Contribution: Setup](/contribution/setup) — for developing on Dograh itself rather than deploying it
+- [Environment Variables](/developer/environment-variables)

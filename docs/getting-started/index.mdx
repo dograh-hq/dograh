@@ -33,9 +33,7 @@ Get the platform up and running using Docker with a small startup script on your
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
 ```powershell Windows
-Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
-Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1
-.\start_docker.ps1
+Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml; Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1; .\start_docker.ps1
 ```
 </CodeGroup>
 
@@ -60,4 +58,4 @@ Please check [Prerequisites](getting-started/prerequisites) for the system requi
 
 ## Next Steps
 
-You can see how to configure the inference provider in [Inference Provider](/configurations/inference-providers).
+Once the platform is running, build your first agent in [Your First Agent in 5 Minutes](/getting-started/first-agent) — no telephony setup required. Or configure an [inference provider](/configurations/inference-providers) first if you're bringing your own LLM keys.

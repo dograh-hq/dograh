@@ -11,6 +11,10 @@ from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
 )
+from api.services.pipecat.active_calls import (
+    register_active_call,
+    unregister_active_call,
+)
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
@@ -76,7 +80,8 @@ from pipecat.turns.user_mute import (
 )
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
-    TranscriptionUserTurnStartStrategy,
+    MinWordsUserTurnStartStrategy,
+    ProvisionalVADUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
     VADUserTurnStartStrategy,
@@ -95,6 +100,10 @@ ensure_tracing()
 
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+DEFAULT_TURN_START_STRATEGY = "default"
+DEFAULT_TURN_START_MIN_WORDS = 3
+DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5
+DEFAULT_SMART_TURN_STOP_SECS = 2.0
 
 
 def _resolve_user_turn_stop_timeout(
@@ -107,54 +116,160 @@ def _resolve_user_turn_stop_timeout(
     return DEFAULT_USER_TURN_STOP_TIMEOUT
 
 
+def _resolve_turn_start_min_words(run_configs: dict) -> int:
+    return max(
+        1,
+        int(run_configs.get("turn_start_min_words", DEFAULT_TURN_START_MIN_WORDS)),
+    )
+
+
+def _resolve_provisional_vad_pause_secs(run_configs: dict) -> float:
+    return max(
+        0.1,
+        float(
+            run_configs.get(
+                "provisional_vad_pause_secs", DEFAULT_PROVISIONAL_VAD_PAUSE_SECS
+            )
+        ),
+    )
+
+
+def _create_non_realtime_user_turn_start_strategies(
+    run_configs: dict, *, uses_external_turns: bool
+):
+    """Return user turn start strategies for non-realtime pipelines."""
+
+    turn_start_strategy = run_configs.get(
+        "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
+    )
+
+    if turn_start_strategy == "min_words":
+        return [
+            MinWordsUserTurnStartStrategy(
+                min_words=_resolve_turn_start_min_words(run_configs)
+            )
+        ]
+
+    if turn_start_strategy == "provisional_vad":
+        return [
+            ProvisionalVADUserTurnStartStrategy(
+                pause_secs=_resolve_provisional_vad_pause_secs(run_configs)
+            )
+        ]
+
+    if uses_external_turns:
+        # The STT emits its own turn boundaries and owns interruptions. Local
+        # VAD is deliberately kept out of the default start strategies: it would
+        # win the race on raw voice activity and start the turn before the STT
+        # confirms a real turn.
+        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
+
+    return [VADUserTurnStartStrategy()]
+
+
+def _create_non_realtime_user_turn_stop_strategies(
+    run_configs: dict, *, uses_external_turns: bool
+):
+    """Return user turn stop strategies for non-realtime pipelines."""
+
+    if uses_external_turns:
+        return [ExternalUserTurnStopStrategy()]
+
+    if run_configs.get("turn_stop_strategy") == "turn_analyzer":
+        smart_turn_params = SmartTurnParams(
+            stop_secs=run_configs.get(
+                "smart_turn_stop_secs", DEFAULT_SMART_TURN_STOP_SECS
+            )
+        )
+        return [
+            TurnAnalyzerUserTurnStopStrategy(
+                turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
+            )
+        ]
+
+    return [SpeechTimeoutUserTurnStopStrategy()]
+
+
 def _create_realtime_user_turn_config(provider: str):
     """Return user turn strategies and optional local VAD for realtime providers."""
+
+    def external_provider_turn_config():
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            None,
+        )
+
+    def local_vad_turn_config(*, enable_interruptions: bool):
+        return (
+            UserTurnStrategies(
+                start=[
+                    VADUserTurnStartStrategy(enable_interruptions=enable_interruptions)
+                ],
+                stop=[SpeechTimeoutUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+        )
+
     if provider in {
         ServiceProviders.GOOGLE_REALTIME.value,
         ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
     }:
         # Let Gemini Live own barge-in via its server-side VAD, but keep local
         # Silero VAD for early user-turn start and speaking-state tracking.
-        return (
-            UserTurnStrategies(
-                start=[VADUserTurnStartStrategy(enable_interruptions=False)],
-                stop=[SpeechTimeoutUserTurnStopStrategy()],
-            ),
-            SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-        )
+        return local_vad_turn_config(enable_interruptions=False)
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value:
-        # OpenAI Realtime already emits speaking-state frames and interruption
-        # events from the provider, so the aggregator should follow those
-        # external signals rather than run its own local VAD.
-        return (
-            UserTurnStrategies(
-                start=[ExternalUserTurnStartStrategy()],
-                stop=[ExternalUserTurnStopStrategy()],
-            ),
-            None,
-        )
+    if provider in {
+        ServiceProviders.OPENAI_REALTIME.value,
+        ServiceProviders.AZURE_REALTIME.value,
+    }:
+        # OpenAI-compatible Realtime services already emit speaking-state frames
+        # and interruption events from the provider, so the aggregator should
+        # follow those external signals rather than run its own local VAD.
+        return external_provider_turn_config()
     if provider == ServiceProviders.GROK_REALTIME.value:
         # Grok Voice Agent emits server-side speech-start/stop and
         # interruption signals, so local VAD should stay out of the way.
-        return (
-            UserTurnStrategies(
-                start=[ExternalUserTurnStartStrategy()],
-                stop=[ExternalUserTurnStopStrategy()],
-            ),
-            None,
-        )
+        return external_provider_turn_config()
+    if provider == ServiceProviders.ULTRAVOX_REALTIME.value:
+        # Ultravox does not emit user-turn frames, so local VAD supplies
+        # lifecycle signals for Dograh observers/controllers.
+        return local_vad_turn_config(enable_interruptions=True)
 
-    return (
-        UserTurnStrategies(
-            start=[VADUserTurnStartStrategy()],
-            stop=[SpeechTimeoutUserTurnStopStrategy()],
-        ),
-        SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-    )
+    return local_vad_turn_config(enable_interruptions=True)
 
 
 async def run_pipeline_telephony(
+    websocket,
+    *,
+    provider_name: str,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_id: str,
+    transport_kwargs: dict,
+) -> None:
+    """Run a pipeline for any telephony provider."""
+    # Register before any async setup so deploy drains see calls that are still
+    # resolving DB/config/transport state.
+    register_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_telephony_impl(
+            websocket,
+            provider_name=provider_name,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+            call_id=call_id,
+            transport_kwargs=transport_kwargs,
+        )
+    finally:
+        unregister_active_call(workflow_run_id)
+
+
+async def _run_pipeline_telephony_impl(
     websocket,
     *,
     provider_name: str,
@@ -236,7 +351,7 @@ async def run_pipeline_telephony(
     )
 
     try:
-        await _run_pipeline(
+        await _run_pipeline_impl(
             transport,
             workflow_id,
             workflow_run_id,
@@ -254,6 +369,31 @@ async def run_pipeline_telephony(
 
 
 async def run_pipeline_smallwebrtc(
+    webrtc_connection: SmallWebRTCConnection,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_context_vars: dict = {},
+    user_provider_id: str | None = None,
+) -> None:
+    """Run pipeline for WebRTC connections."""
+    # Register before any async setup so deploy drains see calls that are still
+    # resolving DB/config/transport state.
+    register_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_smallwebrtc_impl(
+            webrtc_connection,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            call_context_vars=call_context_vars,
+            user_provider_id=user_provider_id,
+        )
+    finally:
+        unregister_active_call(workflow_run_id)
+
+
+async def _run_pipeline_smallwebrtc_impl(
     webrtc_connection: SmallWebRTCConnection,
     workflow_id: int,
     workflow_run_id: int,
@@ -309,7 +449,7 @@ async def run_pipeline_smallwebrtc(
         ambient_noise_config,
         is_realtime=is_realtime,
     )
-    await _run_pipeline(
+    await _run_pipeline_impl(
         transport,
         workflow_id,
         workflow_run_id,
@@ -323,6 +463,35 @@ async def run_pipeline_smallwebrtc(
 
 
 async def _run_pipeline(
+    transport,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_context_vars: dict = {},
+    audio_config: AudioConfig = None,
+    user_provider_id: str | None = None,
+    workflow_run=None,
+    resolved_user_config=None,
+) -> None:
+    """Run the pipeline with active-call drain accounting."""
+    register_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_impl(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            call_context_vars=call_context_vars,
+            audio_config=audio_config,
+            user_provider_id=user_provider_id,
+            workflow_run=workflow_run,
+            resolved_user_config=resolved_user_config,
+        )
+    finally:
+        unregister_active_call(workflow_run_id)
+
+
+async def _run_pipeline_impl(
     transport,
     workflow_id: int,
     workflow_run_id: int,
@@ -371,8 +540,6 @@ async def _run_pipeline(
     # Extract configurations from the version's workflow_configurations
     max_call_duration_seconds = 300  # Default 5 minutes
     max_user_idle_timeout = 10.0  # Default 10 seconds
-    smart_turn_stop_secs = 2.0  # Default 2 seconds for incomplete turn timeout
-    turn_stop_strategy = "transcription"  # Default to transcription-based detection
     keyterms = None  # Dictionary words for STT boosting
 
     if run_configs:
@@ -381,12 +548,6 @@ async def _run_pipeline(
 
         if "max_user_idle_timeout" in run_configs:
             max_user_idle_timeout = run_configs["max_user_idle_timeout"]
-
-        if "smart_turn_stop_secs" in run_configs:
-            smart_turn_stop_secs = run_configs["smart_turn_stop_secs"]
-
-        if "turn_stop_strategy" in run_configs:
-            turn_stop_strategy = run_configs["turn_stop_strategy"]
 
         if "dictionary" in run_configs:
             dictionary = run_configs["dictionary"]
@@ -644,37 +805,27 @@ async def _run_pipeline(
         # follows those external signals. Other models use configurable turn
         # detection.
         uses_external_turns = stt_uses_external_turns(user_config)
-        if uses_external_turns:
-            user_turn_strategies = UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(),
-                    ExternalUserTurnStartStrategy(enable_interruptions=True),
-                ],
-                stop=[ExternalUserTurnStopStrategy()],
-            )
-        elif turn_stop_strategy == "turn_analyzer":
-            # Smart Turn Analyzer: best for longer responses with natural pauses
-            smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
-            user_turn_strategies = UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(),
-                    TranscriptionUserTurnStartStrategy(),
-                ],
-                stop=[
-                    TurnAnalyzerUserTurnStopStrategy(
-                        turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
-                    )
-                ],
-            )
-        else:
-            # Transcription-based (default): best for short 1-2 word responses
-            user_turn_strategies = UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(),
-                    TranscriptionUserTurnStartStrategy(),
-                ],
-                stop=[SpeechTimeoutUserTurnStopStrategy()],
-            )
+        user_turn_start_strategies = _create_non_realtime_user_turn_start_strategies(
+            run_configs,
+            uses_external_turns=uses_external_turns,
+        )
+        turn_start_strategy = run_configs.get(
+            "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
+        )
+        logger.info(
+            f"[run {workflow_run_id}] Non-realtime interrupt strategy "
+            f"requested={turn_start_strategy} "
+            f"uses_external_turns={uses_external_turns}"
+        )
+
+        user_turn_stop_strategies = _create_non_realtime_user_turn_stop_strategies(
+            run_configs,
+            uses_external_turns=uses_external_turns,
+        )
+        user_turn_strategies = UserTurnStrategies(
+            start=user_turn_start_strategies,
+            stop=user_turn_stop_strategies,
+        )
 
     user_turn_stop_timeout = _resolve_user_turn_stop_timeout(
         run_configs,
@@ -689,7 +840,10 @@ async def _run_pipeline(
         vad_analyzer=user_vad_analyzer,
     )
     context_aggregator = LLMContextAggregatorPair(
-        context, assistant_params=assistant_params, user_params=user_params
+        context,
+        assistant_params=assistant_params,
+        user_params=user_params,
+        realtime_service_mode=is_realtime,
     )
 
     # Create usage metrics aggregator with engine's callback

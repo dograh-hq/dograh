@@ -197,6 +197,7 @@ def create_stt_service(
         return OpenAISTTService(
             api_key=user_config.stt.api_key,
             settings=OpenAISTTSettings(model=user_config.stt.model),
+            should_interrupt=False,  # Let UserAggregator own interruption confirmation.
             **kwargs,
         )
     elif user_config.stt.provider == ServiceProviders.GOOGLE.value:

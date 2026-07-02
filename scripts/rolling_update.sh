@@ -28,6 +28,8 @@ NGINX_UPSTREAM_TEMPLATE="$BASE_DIR/nginx/dograh_upstream.conf.template"
 NGINX_UPSTREAM_CONF="/etc/nginx/conf.d/dograh_upstream.conf"
 
 HEALTH_CHECK_ENDPOINT="/api/v1/health"
+ACTIVE_CALLS_ENDPOINT="/api/v1/health/active-calls"
+DOGRAH_DEVOPS_SECRET_HEADER="X-Dograh-Devops-Secret"
 
 # Load environment
 if [[ -f "$ENV_FILE" ]]; then
@@ -40,7 +42,9 @@ FASTAPI_WORKERS=${FASTAPI_WORKERS:-$CPU_CORES}
 ARQ_WORKERS=${ARQ_WORKERS:-1}
 
 # Tuning knobs (override via environment)
-DRAIN_TIMEOUT=${DRAIN_TIMEOUT:-300}          # seconds to wait for old workers to drain
+DRAIN_TIMEOUT=${DRAIN_TIMEOUT:-300}          # seconds to wait for active calls to finish
+DRAIN_INTERVAL=${DRAIN_INTERVAL:-5}          # seconds between active-call drain polls
+STOP_TIMEOUT=${STOP_TIMEOUT:-30}             # seconds to wait for drained workers to exit after SIGTERM
 HEALTH_MAX_ATTEMPTS=${HEALTH_MAX_ATTEMPTS:-30}  # per-worker health-check retries
 HEALTH_INTERVAL=${HEALTH_INTERVAL:-2}        # seconds between health-check retries
 
@@ -53,6 +57,15 @@ cd "$BASE_DIR"
 log_info()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO:  $*"; }
 log_warn()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN:  $*"; }
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2; }
+
+if [[ -z "${DOGRAH_DEVOPS_SECRET:-}" ]]; then
+  log_error "DOGRAH_DEVOPS_SECRET is not set. Add it to $ENV_FILE before running rolling_update.sh."
+  exit 1
+fi
+if [[ "$DOGRAH_DEVOPS_SECRET" == "change-me-dograh-devops-secret" ]]; then
+  log_error "DOGRAH_DEVOPS_SECRET still has the example placeholder value. Replace it in $ENV_FILE."
+  exit 1
+fi
 
 # Band port calculation: band A = base, band B = base + 100
 band_base_port() {
@@ -94,6 +107,41 @@ kill_process_tree() {
   if kill -0 "$pid" 2>/dev/null; then
     kill "$signal" "$pid" 2>/dev/null || true
   fi
+}
+
+# Active in-progress call count for a single worker, via its health endpoint.
+# A worker that is unreachable (already exited) reports 0, so it never blocks the
+# drain. Non-200 responses or malformed bodies are hard failures: otherwise an
+# auth/configuration error could be mistaken for a fully drained worker.
+count_active_calls_on_port() {
+  local port=$1
+  local response http_code body n
+  response=$(curl -sS --max-time 3 \
+    -H "${DOGRAH_DEVOPS_SECRET_HEADER}: ${DOGRAH_DEVOPS_SECRET}" \
+    -w $'\n%{http_code}' \
+    "http://127.0.0.1:${port}${ACTIVE_CALLS_ENDPOINT}" 2>/dev/null || true)
+  http_code="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+
+  if [[ "$http_code" == "000" ]]; then
+    printf '0'
+    return 0
+  fi
+
+  if [[ "$http_code" != "200" ]]; then
+    log_error "uvicorn_${port} active-calls endpoint returned HTTP ${http_code}. Check DOGRAH_DEVOPS_SECRET in $ENV_FILE."
+    return 1
+  fi
+
+  n=$(printf '%s' "$body" \
+    | grep -o '"active_calls"[[:space:]]*:[[:space:]]*[0-9]\+' \
+    | grep -o '[0-9]\+$' || true)
+  if [[ -z "$n" ]]; then
+    log_error "uvicorn_${port} active-calls endpoint returned an invalid response body."
+    return 1
+  fi
+
+  printf '%s' "$n"
 }
 
 ###############################################################################
@@ -366,9 +414,49 @@ log_info "nginx reloaded — traffic now routed to band $NEW_BAND"
 ### PHASE 5: DRAIN OLD WORKERS
 ###############################################################################
 
-log_info "=== Phase 5: Draining old workers (band $OLD_BAND, timeout ${DRAIN_TIMEOUT}s) ==="
+# nginx (Phase 4) already routes new calls to the new band, so the old band only
+# holds calls still in progress. Wait for those to finish BEFORE signalling the
+# workers: SIGTERM makes uvicorn force-close live call WebSockets (close code
+# 1012), cutting calls mid-conversation. So we poll each old worker's in-flight
+# call count and only stop once it reaches zero (or DRAIN_TIMEOUT elapses).
 
-# Collect old worker PIDs
+log_info "=== Phase 5a: Draining active calls from band $OLD_BAND (timeout ${DRAIN_TIMEOUT}s) ==="
+
+drain_start=$(date +%s)
+while true; do
+  active=0
+  for ((w = 0; w < FASTAPI_WORKERS; w++)); do
+    port=$((OLD_BASE + w))
+    # Only poll workers still alive; an exited worker holds no calls.
+    pidfile="$RUN_DIR/uvicorn_${port}.pid"
+    if [[ -f "$pidfile" ]] && kill -0 "$(<"$pidfile")" 2>/dev/null; then
+      if ! call_count=$(count_active_calls_on_port "$port"); then
+        exit 1
+      fi
+      active=$((active + call_count))
+    fi
+  done
+
+  if [[ $active -eq 0 ]]; then
+    log_info "Band $OLD_BAND fully drained — no active calls"
+    break
+  fi
+
+  elapsed=$(( $(date +%s) - drain_start ))
+  if [[ $elapsed -ge $DRAIN_TIMEOUT ]]; then
+    log_warn "Drain timeout reached (${DRAIN_TIMEOUT}s) with $active active call(s) still running — stopping anyway."
+    break
+  fi
+
+  log_info "  Waiting for $active active call(s) to finish... (${elapsed}s / ${DRAIN_TIMEOUT}s)"
+  sleep "$DRAIN_INTERVAL"
+done
+
+log_info "=== Phase 5b: Stopping old workers (band $OLD_BAND, timeout ${STOP_TIMEOUT}s) ==="
+
+# Calls are drained — now signal the workers and reap them. A drained worker
+# exits within a second or two of SIGTERM; STOP_TIMEOUT bounds stragglers (e.g.
+# a call that outlived DRAIN_TIMEOUT) before we force-kill.
 OLD_PIDS=()
 for ((w = 0; w < FASTAPI_WORKERS; w++)); do
   port=$((OLD_BASE + w))
@@ -385,7 +473,7 @@ for ((w = 0; w < FASTAPI_WORKERS; w++)); do
 done
 
 if [[ ${#OLD_PIDS[@]} -gt 0 ]]; then
-  start_time=$(date +%s)
+  stop_start=$(date +%s)
 
   while true; do
     all_dead=true
@@ -397,13 +485,13 @@ if [[ ${#OLD_PIDS[@]} -gt 0 ]]; then
     done
 
     if $all_dead; then
-      log_info "All old workers exited gracefully"
+      log_info "All old workers exited"
       break
     fi
 
-    elapsed=$(( $(date +%s) - start_time ))
-    if [[ $elapsed -ge $DRAIN_TIMEOUT ]]; then
-      log_warn "Drain timeout reached (${DRAIN_TIMEOUT}s). Force-killing remaining old workers."
+    elapsed=$(( $(date +%s) - stop_start ))
+    if [[ $elapsed -ge $STOP_TIMEOUT ]]; then
+      log_warn "Stop timeout reached (${STOP_TIMEOUT}s). Force-killing remaining old workers."
       for pid in "${OLD_PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
           kill_process_tree "$pid" "-KILL"
@@ -414,11 +502,11 @@ if [[ ${#OLD_PIDS[@]} -gt 0 ]]; then
       break
     fi
 
-    log_info "  Waiting for old workers to drain... (${elapsed}s / ${DRAIN_TIMEOUT}s)"
-    sleep 5
+    log_info "  Waiting for old workers to exit... (${elapsed}s / ${STOP_TIMEOUT}s)"
+    sleep 2
   done
 else
-  log_warn "No old worker PIDs to drain"
+  log_warn "No old worker PIDs to stop"
 fi
 
 ###############################################################################

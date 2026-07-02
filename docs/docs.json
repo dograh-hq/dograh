@@ -21,6 +21,7 @@
                 "group": "Introduction",
                 "pages": [
                   "getting-started/index",
+                  "getting-started/first-agent",
                   "getting-started/prerequisites",
                   "getting-started/troubleshooting"
                 ]

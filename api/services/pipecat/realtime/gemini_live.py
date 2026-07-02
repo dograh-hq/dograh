@@ -20,11 +20,13 @@ Layers Dograh engine integration quirks onto upstream-pristine
 
 from typing import Any
 
+from google.genai.types import Content, Part
 from loguru import logger
 
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
+from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
@@ -63,6 +65,9 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # Function calls emitted by Gemini mid-bot-turn are deferred here and
         # invoked when the turn ends, so they don't race the turn's audio.
         self._pending_function_calls: list[FunctionCallFromLLM] = []
+        # Text greeting captured from the first TTSSpeakFrame while the Gemini
+        # session is still connecting.
+        self._pending_initial_greeting_text: str | None = None
 
     # ------------------------------------------------------------------
     # Hooks from upstream GeminiLiveLLMService
@@ -142,10 +147,15 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         if isinstance(frame, TTSSpeakFrame):
             # Greeting trigger: the engine queues a TTSSpeakFrame to start the
             # bot's first turn after node setup. Gemini Live renders its own
-            # audio, so we don't pass the frame through — we re-enter
-            # _handle_context to kick off the initial response.
+            # audio, so we don't pass the frame through. For configured static
+            # text greetings, ask Gemini to say the exact greeting; otherwise
+            # re-enter _handle_context to kick off the normal initial response.
             if not self._handled_initial_context:
-                await self._handle_context(self._context)
+                greeting_text = frame.text.strip() if frame.text else ""
+                if greeting_text:
+                    await self._handle_initial_greeting(self._context, greeting_text)
+                else:
+                    await self._handle_context(self._context)
             else:
                 logger.warning(
                     f"{self}: TTSSpeakFrame after initial context already "
@@ -183,6 +193,49 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
 
+    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+        """Trigger the first Gemini turn with an exact static text greeting."""
+        if context is None:
+            logger.warning(
+                f"{self}: received initial greeting trigger before context was set"
+            )
+            return
+
+        self._handled_initial_context = True
+        self._context = context
+        await self._create_initial_greeting_response(greeting_text)
+
+    async def _create_initial_greeting_response(self, greeting_text: str):
+        """Ask Gemini Live to speak the configured greeting exactly once."""
+        if self._disconnecting:
+            return
+
+        if not self._session:
+            self._pending_initial_greeting_text = greeting_text
+            self._run_llm_when_session_ready = True
+            return
+
+        self._pending_initial_greeting_text = None
+        prompt = format_static_greeting_prompt(greeting_text)
+        turn = Content(role="user", parts=[Part(text=prompt)])
+
+        logger.debug("Creating Gemini Live initial response from static greeting")
+
+        await self.start_ttfb_metrics()
+
+        try:
+            await self._session.send_client_content(
+                turns=[turn],
+                turn_complete=True,
+            )
+            # Gemini 3.x also needs a realtime-input nudge to begin inference.
+            if self._is_gemini_3:
+                await self._session.send_realtime_input(text=" ")
+        except Exception as e:
+            await self._handle_send_error(e)
+
+        self._ready_for_realtime_input = True
+
     # ------------------------------------------------------------------
     # Session lifecycle: drop upstream's automatic reconnect-seed and
     # initial-context-seed paths. The TTSSpeakFrame trigger and the
@@ -201,7 +254,12 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             # Context arrived before session was ready — fulfil the queued
             # initial response now.
             self._run_llm_when_session_ready = False
-            await self._create_initial_response()
+            if self._pending_initial_greeting_text is not None:
+                await self._create_initial_greeting_response(
+                    self._pending_initial_greeting_text
+                )
+            else:
+                await self._create_initial_response()
         await self._drain_pending_tool_results()
         # Otherwise: no automatic seed. Reconnect after a session-resumption
         # update relies on the server-side restored state; reconnects without

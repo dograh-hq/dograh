@@ -13,8 +13,17 @@ const BASE_URL = process.env.NEXT_PUBLIC_ONBOARDING_API_URL || "https://api-lead
 // failures are surfaced via console.error (Sentry breadcrumbs) but never thrown.
 const TIMEOUT_MS = 6000;
 
-// POST a JSON body to the onboarding service (public — no auth header).
-async function post(path: string, body: unknown): Promise<void> {
+// Shape the lead endpoints return: ok + the server's calendar verdict. The decision is
+// server-side — the app only RENDERS show_calendar; it holds no qualification logic.
+export type LeadResult = {
+  ok: boolean;
+  show_calendar?: boolean;
+  cal_link?: string | null;
+};
+
+// POST a JSON body to the onboarding service (public — no auth header). Returns the parsed
+// body on success, or null on a non-2xx / network error / timeout (best-effort, never throws).
+async function post(path: string, body: unknown): Promise<LeadResult | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -28,10 +37,13 @@ async function post(path: string, body: unknown): Promise<void> {
     // at least observable.
     if (!res.ok) {
       console.error(`[onboarding] POST ${path} failed with HTTP ${res.status}`);
+      return null;
     }
+    return (await res.json()) as LeadResult;
   } catch (err) {
     // Network error, or the timeout aborted the request. Never block the user.
     console.error(`[onboarding] POST ${path} did not complete:`, err);
+    return null;
   } finally {
     clearTimeout(timer);
   }
@@ -43,12 +55,13 @@ const LEAD_PATH: Record<"hire_expert" | "enterprise", string> = {
   enterprise: "/api/v1/leads/enterprise",
 };
 
-// Persist a lead submission (hire-expert / enterprise). Email is in the body.
+// Persist a lead submission (hire-expert / enterprise). Email is in the body. Returns the
+// server's verdict (show_calendar / cal_link) so the modal can embed the calendar.
 export async function postLeadToService(
   kind: "hire_expert" | "enterprise",
   body: Record<string, unknown>,
-): Promise<void> {
-  await post(LEAD_PATH[kind], body);
+): Promise<LeadResult | null> {
+  return post(LEAD_PATH[kind], body);
 }
 
 // Persist an onboarding submission (or skip — body carries `skipped`).

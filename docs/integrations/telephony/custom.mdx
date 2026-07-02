@@ -3,6 +3,15 @@ title: "Custom Telephony Provider"
 description: "Build your own telephony provider integration for Dograh AI"
 ---
 
+## Prerequisites
+
+This guide assumes familiarity with two libraries the provider interface is built on:
+
+- **[Pipecat](https://docs.pipecat.ai)** — the open-source real-time voice/multimodal pipeline framework Dograh's call pipeline is built on. Its [`FastAPIWebsocketTransport`](https://docs.pipecat.ai/server/services/transport/fastapi-websocket) is what streams audio between the telephony provider and Dograh's pipeline — you'll be constructing one of these in your transport factory. If you haven't built a Pipecat transport or frame serializer before, skim their [transports guide](https://docs.pipecat.ai/server/base-classes/transport) first.
+- **[Pydantic](https://docs.pydantic.dev)** — used for the request/response schemas that define a provider's stored credentials (`config.py` below). If you're new to Pydantic, its [models documentation](https://docs.pydantic.dev/latest/concepts/models/) covers everything used here (`BaseModel`, `Field`, `Literal` discriminators).
+
+You don't need deep expertise in either — enough to read a `BaseModel` and a Pipecat transport class is sufficient to follow this guide.
+
 ## Overview
 
 A telephony provider is implemented as a **self-registering package** under `api/services/telephony/providers/<name>/`. The package contributes everything Dograh needs to wire the provider in — the provider class, transport factory, audio config, request/response schemas, optional HTTP routes, and the form metadata used to render its configuration UI — through a single `ProviderSpec` registered at import time.
@@ -350,7 +359,7 @@ Each provider declares its wire format through its `AudioConfig`. Common shapes:
 - **Vonage**: 16 kHz Linear PCM as binary frames
 - **Asterisk ARI**: 8 kHz Linear PCM via externalMedia
 
-The pipeline sample rate is capped at 16 kHz to satisfy VAD; transports handle resampling between the wire format and the pipeline's internal rate.
+The pipeline sample rate is capped at 16 kHz to satisfy [VAD](/configurations/interruption#what-is-vad), which only accepts 8000 Hz or 16000 Hz; transports handle resampling between the wire format and the pipeline's internal rate.
 
 ## Testing
 

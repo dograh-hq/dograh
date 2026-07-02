@@ -177,6 +177,16 @@ export type AwsBedrockLlmConfiguration = {
 };
 
 /**
+ * ActiveCallsResponse
+ */
+export type ActiveCallsResponse = {
+    /**
+     * Active Calls
+     */
+    active_calls: number;
+};
+
+/**
  * AmbientNoiseUploadRequest
  */
 export type AmbientNoiseUploadRequest = {
@@ -3702,6 +3712,20 @@ export type NodeTypesResponse = {
 };
 
 /**
+ * NumberInputOptions
+ *
+ * Renderer hints for numeric inputs.
+ */
+export type NumberInputOptions = {
+    /**
+     * Fractional
+     *
+     * Allow arbitrary fractional values via step='any'.
+     */
+    fractional?: boolean;
+};
+
+/**
  * OnboardingState
  *
  * Per-user onboarding state, stored under UserConfigurationKey.ONBOARDING.
@@ -4344,6 +4368,20 @@ export type ProcessDocumentRequestSchema = {
 };
 
 /**
+ * PropertyLayoutOptions
+ *
+ * Renderer layout hints for a property in the node editor.
+ */
+export type PropertyLayoutOptions = {
+    /**
+     * Column Span
+     *
+     * Number of columns to occupy in the editor's 12-column grid.
+     */
+    column_span?: number | null;
+};
+
+/**
  * PropertyOption
  *
  * An option in an `options` or `multi_options` dropdown.
@@ -4361,6 +4399,18 @@ export type PropertyOption = {
      * Description
      */
     description?: string | null;
+};
+
+/**
+ * PropertyRendererOptions
+ *
+ * Typed renderer metadata for node properties.
+ *
+ * Add new renderer behavior here instead of using free-form property metadata.
+ */
+export type PropertyRendererOptions = {
+    layout?: PropertyLayoutOptions | null;
+    number_input?: NumberInputOptions | null;
 };
 
 /**
@@ -4444,12 +4494,7 @@ export type PropertySpec = {
      * Editor
      */
     editor?: string | null;
-    /**
-     * Extra
-     */
-    extra?: {
-        [key: string]: unknown;
-    };
+    renderer_options?: PropertyRendererOptions | null;
 };
 
 /**
@@ -5313,6 +5358,10 @@ export type TelephonyConfigWarningsResponse = {
      * Telnyx Missing Webhook Public Key Count
      */
     telnyx_missing_webhook_public_key_count: number;
+    /**
+     * Vonage Missing Signature Secret Count
+     */
+    vonage_missing_signature_secret_count: number;
 };
 
 /**
@@ -6418,6 +6467,12 @@ export type VonageConfigurationRequest = {
      */
     private_key: string;
     /**
+     * Signature Secret
+     *
+     * Vonage signature secret used to verify signed webhooks
+     */
+    signature_secret?: string | null;
+    /**
      * From Numbers
      *
      * List of Vonage phone numbers (without + prefix)
@@ -6451,6 +6506,10 @@ export type VonageConfigurationResponse = {
      * Private Key
      */
     private_key: string;
+    /**
+     * Signature Secret
+     */
+    signature_secret?: string | null;
     /**
      * From Numbers
      */
@@ -7537,6 +7596,27 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/vonage/events';
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostResponses = {
     /**
      * Successful Response
      */
@@ -13844,3 +13924,38 @@ export type HealthApiV1HealthGetResponses = {
 };
 
 export type HealthApiV1HealthGetResponse = HealthApiV1HealthGetResponses[keyof HealthApiV1HealthGetResponses];
+
+export type ActiveCallsApiV1HealthActiveCallsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Dograh-Devops-Secret
+         */
+        'X-Dograh-Devops-Secret'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/health/active-calls';
+};
+
+export type ActiveCallsApiV1HealthActiveCallsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ActiveCallsApiV1HealthActiveCallsGetError = ActiveCallsApiV1HealthActiveCallsGetErrors[keyof ActiveCallsApiV1HealthActiveCallsGetErrors];
+
+export type ActiveCallsApiV1HealthActiveCallsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ActiveCallsResponse;
+};
+
+export type ActiveCallsApiV1HealthActiveCallsGetResponse = ActiveCallsApiV1HealthActiveCallsGetResponses[keyof ActiveCallsApiV1HealthActiveCallsGetResponses];

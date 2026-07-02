@@ -1,7 +1,5 @@
 "use client";
 
-import {useState } from "react";
-
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,40 +45,6 @@ export function TransferCallToolConfig({
     timeout,
     onTimeoutChange,
 }: TransferCallToolConfigProps) {
-    const [sipMode, setSipMode] = useState(() => /^(PJSIP|SIP)\//i.test(destination));
-
-    // Validation patterns
-    const isValidPhoneNumber = (phone: string): boolean => {
-        const e164Pattern = /^\+[1-9]\d{1,14}$/;
-        return e164Pattern.test(phone);
-    };
-
-    const isValidSipEndpoint = (endpoint: string): boolean => {
-        const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
-        return sipPattern.test(endpoint);
-    };
-
-    const getValidationError = (): string | null => {
-        if (!destination) return null;
-
-        if (sipMode) {
-            return isValidSipEndpoint(destination)
-                ? null
-                : "Please enter a valid SIP endpoint (e.g., PJSIP/1234 or SIP/extension@domain.com)";
-        } else {
-            return isValidPhoneNumber(destination)
-                ? null
-                : "Please enter a valid phone number in E.164 format (e.g., +1234567890)";
-        }
-    };
-
-    const destinationError = getValidationError();
-
-    const handleSipModeToggle = () => {
-        setSipMode(!sipMode);
-        onDestinationChange(""); // Clear destination when switching modes
-    };
-
     return (
         <Card>
             <CardHeader>
@@ -117,30 +81,23 @@ export function TransferCallToolConfig({
 
                 <div className="grid gap-2 pt-4 border-t">
                     <Label>Transfer Destination</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        {sipMode
-                            ? "SIP endpoint to transfer the call to (e.g., PJSIP/1234 or SIP/extension@domain.com)"
-                            : "Phone number to transfer the call to (E.164 format with country code)"
-                        }
-                    </Label>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                        <p>Enter one of these destination formats:</p>
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>SIP endpoint, e.g. PJSIP/1234</li>
+                            <li>E.164 phone number, e.g. +1234567890</li>
+                            <li>
+                                Template variable, e.g. {"{{initial_context.transfer_destination}}"}
+                            </li>
+                        </ul>
+                    </div>
                     <Input
                         value={destination}
                         onChange={(e) => onDestinationChange(e.target.value)}
-                        placeholder={sipMode ? "PJSIP/1234 or SIP/extension@domain.com" : "+1234567890"}
-                        className={destinationError ? "border-red-500 focus:border-red-500" : ""}
+                        placeholder={
+                            "+1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}"
+                        }
                     />
-                    {destinationError && (
-                        <Label className="text-xs text-red-500">
-                            {destinationError}
-                        </Label>
-                    )}
-                    <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground underline w-fit"
-                        onClick={handleSipModeToggle}
-                    >
-                        {sipMode ? "Use phone number instead" : "Use SIP endpoint instead"}
-                    </button>
                 </div>
 
                 <div className="grid gap-4 pt-4 border-t">

@@ -399,7 +399,21 @@
       "storeKeyWarning": "Store this key securely.",
       "done": "Done"
     },
-    "securityWarning": "Important: Keep your API keys secure."
+    "securityWarning": "Important: Keep your API keys secure. Never share them publicly or commit them to version control. API keys provide full access to your organization's resources.",
+    "fetchError": "Failed to fetch API keys",
+    "fetchServiceKeysError": "Failed to fetch service keys",
+    "nameRequired": "Please enter a name for the API key",
+    "createError": "Failed to create API key",
+    "serviceNameRequired": "Please enter a name for the service key",
+    "createServiceError": "Failed to create service key",
+    "archiveError": "Failed to archive API key",
+    "archiveServiceError": "Failed to archive service key",
+    "reactivateError": "Failed to reactivate API key",
+    "ossServiceKeyNote": "To generate additional service keys, ",
+    "ossServiceKeyLink": "Sign up on app.dograh.com",
+    "serviceKeyPlaceholder": "e.g., Production AI Services, Development LLM Access",
+    "serviceKeyCreatedInfo": "This key provides access to Dograh AI services including LLM, Text-to-Speech, and Speech-to-Text.",
+    "expiresOn": "Expires on: {date}"
   },
   "campaigns": {
     "title": "Campaigns",

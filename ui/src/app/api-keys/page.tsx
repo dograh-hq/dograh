@@ -96,7 +96,7 @@ export default function APIKeysPage() {
                 setApiKeys(response.data);
             }
         } catch (err) {
-            setError('Failed to fetch API keys');
+            setError(t('fetchError'));
             console.error('Error fetching API keys:', err);
         } finally {
             setIsLoading(false);
@@ -136,7 +136,7 @@ export default function APIKeysPage() {
                 setServiceKeys(response.data);
             }
         } catch (err) {
-            setError('Failed to fetch service keys');
+            setError(t('fetchServiceKeysError'));
             console.error('Error fetching service keys:', err);
         } finally {
             setIsServiceKeysLoading(false);
@@ -155,7 +155,7 @@ export default function APIKeysPage() {
 
     const handleCreateKey = async () => {
         if (!newKeyName.trim()) {
-            setError('Please enter a name for the API key');
+            setError(t('nameRequired'));
             return;
         }
 
@@ -180,14 +180,14 @@ export default function APIKeysPage() {
                 fetchApiKeys();
             }
         } catch (err) {
-            setError('Failed to create API key');
+            setError(t('createError'));
             console.error('Error creating API key:', err);
         }
     };
 
     const handleCreateServiceKey = async () => {
         if (!newServiceKeyName.trim()) {
-            setError('Please enter a name for the service key');
+            setError(t('serviceNameRequired'));
             return;
         }
 
@@ -213,7 +213,7 @@ export default function APIKeysPage() {
                 fetchServiceKeys();
             }
         } catch (err) {
-            setError('Failed to create service key');
+            setError(t('createServiceError'));
             console.error('Error creating service key:', err);
         }
     };
@@ -234,7 +234,7 @@ export default function APIKeysPage() {
 
             fetchApiKeys();
         } catch (err) {
-            setError('Failed to archive API key');
+            setError(t('archiveError'));
             console.error('Error archiving API key:', err);
         }
     };
@@ -255,7 +255,7 @@ export default function APIKeysPage() {
 
             fetchServiceKeys();
         } catch (err) {
-            setError('Failed to archive service key');
+            setError(t('archiveServiceError'));
             console.error('Error archiving service key:', err);
         }
     };
@@ -278,7 +278,7 @@ export default function APIKeysPage() {
 
             fetchApiKeys();
         } catch (err) {
-            setError('Failed to reactivate API key');
+            setError(t('reactivateError'));
             console.error('Error reactivating API key:', err);
         }
     };
@@ -474,8 +474,8 @@ export default function APIKeysPage() {
                                         </Button>
                                     ) : (
                                         <span className="text">
-                                            To generate additional service keys, <a href="https://app.dograh.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Sign up on app.dograh.com</a>
-                                        </span>
+                                        {t('ossServiceKeyNote')}<a href="https://app.dograh.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t('ossServiceKeyLink')}</a>
+                                    </span>
                                     )}
                                 </div>
                             </div>
@@ -560,8 +560,7 @@ export default function APIKeysPage() {
 
                     <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                         <p className="text-sm text-yellow-600 dark:text-yellow-500">
-                            {t('securityWarning')} Never share them publicly or commit them to version control.
-                            API keys provide full access to your organization&apos;s resources.
+                            {t('securityWarning')}
                         </p>
                     </div>
                 </div>
@@ -658,7 +657,7 @@ export default function APIKeysPage() {
                                 id="service-name"
                                 value={newServiceKeyName}
                                 onChange={(e) => setNewServiceKeyName(e.target.value)}
-                                placeholder="e.g., Production AI Services, Development LLM Access"
+                                placeholder={t('serviceKeyPlaceholder')}
                             />
                         </div>
                     </div>
@@ -701,10 +700,10 @@ export default function APIKeysPage() {
                             </div>
                             <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                                 <p className="text-sm text-blue-600 dark:text-blue-500">
-                                    This key provides access to Dograh AI services including LLM, Text-to-Speech, and Speech-to-Text.
+                                    {t('serviceKeyCreatedInfo')}
                                     {createdServiceKey.expires_at && (
                                         <span className="block mt-1">
-                                            Expires on: {formatDate(createdServiceKey.expires_at)}
+                                            {t('expiresOn', { date: formatDate(createdServiceKey.expires_at) })}
                                         </span>
                                     )}
                                 </p>

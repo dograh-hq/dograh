@@ -3712,6 +3712,20 @@ export type NodeTypesResponse = {
 };
 
 /**
+ * NumberInputOptions
+ *
+ * Renderer hints for numeric inputs.
+ */
+export type NumberInputOptions = {
+    /**
+     * Fractional
+     *
+     * Allow arbitrary fractional values via step='any'.
+     */
+    fractional?: boolean;
+};
+
+/**
  * OnboardingState
  *
  * Per-user onboarding state, stored under UserConfigurationKey.ONBOARDING.
@@ -4354,6 +4368,20 @@ export type ProcessDocumentRequestSchema = {
 };
 
 /**
+ * PropertyLayoutOptions
+ *
+ * Renderer layout hints for a property in the node editor.
+ */
+export type PropertyLayoutOptions = {
+    /**
+     * Column Span
+     *
+     * Number of columns to occupy in the editor's 12-column grid.
+     */
+    column_span?: number | null;
+};
+
+/**
  * PropertyOption
  *
  * An option in an `options` or `multi_options` dropdown.
@@ -4371,6 +4399,18 @@ export type PropertyOption = {
      * Description
      */
     description?: string | null;
+};
+
+/**
+ * PropertyRendererOptions
+ *
+ * Typed renderer metadata for node properties.
+ *
+ * Add new renderer behavior here instead of using free-form property metadata.
+ */
+export type PropertyRendererOptions = {
+    layout?: PropertyLayoutOptions | null;
+    number_input?: NumberInputOptions | null;
 };
 
 /**
@@ -4454,12 +4494,7 @@ export type PropertySpec = {
      * Editor
      */
     editor?: string | null;
-    /**
-     * Extra
-     */
-    extra?: {
-        [key: string]: unknown;
-    };
+    renderer_options?: PropertyRendererOptions | null;
 };
 
 /**

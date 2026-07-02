@@ -8,7 +8,6 @@ when the same schema is surfaced through MCP or SDK authoring flows.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
@@ -186,8 +185,8 @@ class TransferCallConfig(BaseModel):
 
     destination: str = Field(
         description=(
-            "Phone number or SIP endpoint to transfer the call to, e.g. "
-            "+1234567890 or PJSIP/1234."
+            "Phone number, SIP endpoint, or template to transfer the call to, e.g. "
+            "+1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}."
         )
     )
     messageType: Literal["none", "custom", "audio"] = Field(
@@ -205,27 +204,6 @@ class TransferCallConfig(BaseModel):
         le=120,
         description="Maximum seconds to wait for the destination to answer.",
     )
-
-    @field_validator("destination")
-    @classmethod
-    def validate_destination(cls, v: str) -> str:
-        """Validate that destination is a valid E.164 phone number or SIP endpoint."""
-        if not v.strip():
-            return v
-
-        e164_pattern = r"^\+[1-9]\d{1,14}$"
-        sip_pattern = r"^(PJSIP|SIP)/[\w\-\.@]+$"
-
-        is_valid_e164 = re.match(e164_pattern, v)
-        is_valid_sip = re.match(sip_pattern, v, re.IGNORECASE)
-
-        if not (is_valid_e164 or is_valid_sip):
-            raise ValueError(
-                "Destination must be a valid E.164 phone number "
-                "(e.g., +1234567890) or SIP endpoint (e.g., PJSIP/1234)"
-            )
-        return v
-
 
 class McpToolConfig(BaseModel):
     """Configuration for a customer MCP server tool definition."""

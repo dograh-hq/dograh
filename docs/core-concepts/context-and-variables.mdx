@@ -89,11 +89,42 @@ You are speaking with the caller at {{caller_number}}.
 
 ### gathered_context
 
-Data the agent collects *during* the call. You configure what to extract in the agent node's extraction settings — each variable has a name, type, and a prompt that tells the LLM what to look for.
+Data the agent extracts *during* the call — the opposite direction of `initial_context`. Use it to turn a conversation into structured data: what the customer wants, whether they confirmed something, a value they gave you out loud.
+
+#### How it gets populated
+
+Turn on **extraction** on an [Agent](/voice-agent/agent) or [End Call](/voice-agent/end-call) node and define one or more variables to extract. Each variable has:
+
+| Field | Description |
+|---|---|
+| `name` | The key it will appear under in `gathered_context` |
+| `type` | `string`, `number`, or `boolean` |
+| `prompt` | A natural-language description of what to look for, e.g. *"Did the customer confirm the appointment?"* |
 
 <img src="../images/extracted_variables.png" alt="Extracted variables" style={{border: "1px solid #d1d5db", borderRadius: "8px", maxWidth: "100%"}} />
 
-`gathered_context` is returned in the run record after the call completes and is available in [webhook payloads](/developer/webhooks) for downstream processing. It is **not** available as a template variable in Agent prompts — prompts can only reference `initial_context` fields.
+When the conversation reaches that node, the LLM reads the transcript so far and fills in each variable based on its `prompt`. If a value can't be determined from the conversation, the variable is left empty rather than guessed — leave the `prompt` specific enough that the LLM knows exactly what counts as a match.
+
+You can add extraction to more than one node. Each node's extracted variables are merged into the same `gathered_context` object as the call progresses, keyed by `name` — reuse a `name` at a later node if you want to overwrite an earlier value.
+
+#### How to reference it downstream
+
+`gathered_context` is **not available in Agent prompts** — a prompt can only reference `initial_context` fields, because extraction typically happens after the conversation that would use it. To act on extracted data, send it out via a node instead:
+
+| Where | Syntax | Notes |
+|---|---|---|
+| [Webhook node](/voice-agent/webhook) payload | `{{gathered_context.field_name}}` | Prefixed, since the payload template can also reference `initial_context` |
+| [Run record](/developer/webhooks#payload-context-variables) (API / dashboard) | `gathered_context` object | Returned after the run completes, alongside `recording_url` and `transcript_url` |
+
+```json
+{
+  "customer": "{{initial_context.customer_name}}",
+  "resolution": "{{gathered_context.resolution}}",
+  "callback_requested": "{{gathered_context.wants_callback}}"
+}
+```
+
+See [Webhook Payloads](/developer/webhooks) for the full list of variables available alongside `gathered_context` in a payload template.
 
 ## Data flow example
 

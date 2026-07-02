@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from loguru import logger
+
 from api.services.integrations.base import (
     IntegrationCompletionContext,
     IntegrationNodeRegistration,
@@ -122,7 +124,17 @@ async def run_completion_handlers(
     for package, nodes in iter_completion_packages(context.workflow_definition):
         if package.run_completion is None:
             continue
-        package_result = await package.run_completion(nodes, context)
+        try:
+            package_result = await package.run_completion(nodes, context)
+        except Exception as exc:
+            logger.exception(
+                f"Integration completion handler failed for package "
+                f"{package.name!r}: {exc}"
+            )
+            results[f"integration_{package.name}"] = {
+                "error": "completion_handler_failed"
+            }
+            continue
         if package_result:
             results.update(package_result)
     return results

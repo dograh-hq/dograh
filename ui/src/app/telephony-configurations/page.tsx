@@ -220,7 +220,7 @@ export default function TelephonyConfigurationsPage() {
           <div className="grid gap-3">
             {items.map((item) => (
               <Card key={item.id}>
-                <CardContent className="flex items-center gap-4 py-4">
+                <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center">
                   <Link
                     href={`/telephony-configurations/${item.id}`}
                     className="flex flex-1 items-center gap-4 min-w-0"
@@ -258,7 +258,7 @@ export default function TelephonyConfigurationsPage() {
                       </button>
                     </div>
                   </Link>
-                  <div className="flex items-center gap-1">
+                  <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:flex-nowrap">
                     {!item.is_default_outbound && (
                       <Button
                         variant="ghost"
@@ -285,13 +285,15 @@ export default function TelephonyConfigurationsPage() {
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
-                    <Link
-                      href={`/telephony-configurations/${item.id}`}
-                      className="text-muted-foreground"
-                      aria-label={t('viewPhoneNumbers')}
-                    >
-                      <ChevronRight className="h-5 w-5" />
-                    </Link>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link
+                        href={`/telephony-configurations/${item.id}`}
+                        aria-label={t('managePhoneNumbers', { name: item.name })}
+                      >
+                        {t('managePhoneNumbersButton')}
+                        <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

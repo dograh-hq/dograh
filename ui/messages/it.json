@@ -175,7 +175,9 @@
     "vonageCount": "{count} configurazione Vonage",
     "vonageCountPlural": "{count} configurazioni Vonage",
     "vonageWarningBody": "non hanno un secret di firma. Senza di esso, i webhook firmati Vonage vengono respinti, quindi le chiamate in entrata e gli aggiornamenti di stato non funzioneranno. Copia il secret di firma dal tuo account Vonage e incollalo nella configurazione Vonage interessata qui sotto.",
-    "deleteSuccess": "Configurazione eliminata"
+    "deleteSuccess": "Configurazione eliminata",
+    "managePhoneNumbers": "Gestisci numeri per {name}",
+    "managePhoneNumbersButton": "Gestisci Numeri"
   },
   "telephonyDetail": {
     "back": "Indietro",

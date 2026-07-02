@@ -433,6 +433,7 @@
     "title": "Recordings",
     "description": "Manage audio recordings.",
     "allRecordings": "All Recordings",
+    "allRecordingsDesc": "Audio recordings shared across all agents in your organization",
     "uploadRecording": "Upload Recording"
   },
   "usage": {

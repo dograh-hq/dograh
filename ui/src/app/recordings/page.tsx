@@ -48,7 +48,7 @@ export default function RecordingsPage() {
                         <div>
                             <CardTitle>{t('allRecordings')}</CardTitle>
                             <CardDescription>
-                                Audio recordings shared across all agents in your organization
+                                {t('allRecordingsDesc')}
                             </CardDescription>
                         </div>
                         <Button onClick={() => setIsUploadOpen(true)}>

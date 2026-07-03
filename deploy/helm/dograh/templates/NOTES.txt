@@ -57,18 +57,6 @@ Alembic migrations run as a post-install / pre-upgrade hook. Inspect with:
   kubectl logs job/{{ include "dograh.migrate.fullname" . }} -n {{ .Release.Namespace }}
 {{- end }}
 
-=== /tmp shared volume ===
-{{- if .Values.sharedTmp.enabled }}
-sharedTmp.enabled=true — web and arq-worker pods mount a ReadWriteMany PVC
-at {{ .Values.sharedTmp.mountPath }} so end-of-call uploads survive pod boundaries.
-{{- else }}
-WARNING: sharedTmp.enabled=false. End-of-call uploads (event_handlers.py →
-ARQ s3_upload) hand off via /tmp paths. With separated web and worker pods
-this WILL fail unless you have an RWX storage class configured.
-
-See deploy/helm/dograh/README.md "/tmp audit" section.
-{{- end }}
-
 === Singletons ===
 ari-manager and campaign-orchestrator run with replicas=1 and
 strategy=Recreate by design. Do NOT scale these via kubectl scale —

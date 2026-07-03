@@ -1,5 +1,5 @@
 import asyncio
-import tempfile
+import io
 import wave
 from datetime import UTC, datetime
 from typing import List, Optional
@@ -15,7 +15,7 @@ from pipecat.utils.enums import RealtimeFeedbackType
 
 
 class InMemoryAudioBuffer:
-    """Buffer audio data in memory during a call, then write to temp file on disconnect."""
+    """Buffer audio data in memory during a call, then encode to WAV bytes on disconnect."""
 
     def __init__(self, workflow_run_id: int, sample_rate: int, num_channels: int = 1):
         self._workflow_run_id = workflow_run_id
@@ -41,28 +41,30 @@ class InMemoryAudioBuffer:
                 f"Appended {len(pcm_data)} bytes to audio buffer. Total size: {self._total_size}"
             )
 
-    async def write_to_temp_file(self) -> str:
-        """Write audio data to a temporary WAV file and return the path."""
+    async def to_wav_bytes(self) -> bytes:
+        """Encode the buffered PCM data as an in-memory WAV file."""
         async with self._lock:
-            temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            logger.debug(
-                f"Writing audio buffer to temp file {temp_file.name} for workflow {self._workflow_run_id}"
-            )
+            chunks = list(self._chunks)
 
-            # Write WAV header and PCM data
-            with wave.open(temp_file.name, "wb") as wf:
+        def _encode() -> bytes:
+            wav_io = io.BytesIO()
+            with wave.open(wav_io, "wb") as wf:
                 wf.setnchannels(self._num_channels)
                 wf.setsampwidth(2)  # 16-bit audio
                 wf.setframerate(self._sample_rate)
 
                 # Concatenate all chunks
-                for chunk in self._chunks:
+                for chunk in chunks:
                     wf.writeframes(chunk)
+            return wav_io.getvalue()
 
-            logger.info(
-                f"Successfully wrote {self._total_size} bytes of audio to {temp_file.name}"
-            )
-            return temp_file.name
+        # Encoding is mostly memcpy but can touch ~100MB; keep it off the event loop
+        data = await asyncio.to_thread(_encode)
+        logger.info(
+            f"Encoded {self._total_size} bytes of audio to {len(data)} WAV bytes "
+            f"for workflow {self._workflow_run_id}"
+        )
+        return data
 
     @property
     def is_empty(self) -> bool:
@@ -171,27 +173,6 @@ class InMemoryLogsBuffer:
         formats them as '[timestamp] user/assistant: text\\n'.
         """
         return _generate_transcript_text(self._sorted_events())
-
-    def write_transcript_to_temp_file(self) -> Optional[str]:
-        """Write transcript to a temporary text file and return the path.
-
-        Returns None if there are no transcript events.
-        """
-        content = self.generate_transcript_text()
-        if not content:
-            return None
-
-        temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
-        logger.debug(
-            f"Writing transcript to temp file {temp_file.name} for workflow {self._workflow_run_id}"
-        )
-        temp_file.write(content)
-        temp_file.close()
-
-        logger.info(
-            f"Successfully wrote {len(content)} chars of transcript to {temp_file.name}"
-        )
-        return temp_file.name
 
     @property
     def is_empty(self) -> bool:

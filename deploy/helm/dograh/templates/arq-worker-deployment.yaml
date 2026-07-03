@@ -45,10 +45,6 @@ spec:
             {{- toYaml .Values.workers.livenessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.workers.resources | nindent 12 }}
-          volumeMounts:
-            {{- include "dograh.sharedTmpVolumeMounts" . | nindent 12 }}
-      volumes:
-        {{- include "dograh.sharedTmpVolumes" . | nindent 8 }}
       {{- with .Values.workers.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

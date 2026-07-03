@@ -20,26 +20,26 @@ mistake the system has seen at least once.
 """
 
 DOGRAH_MCP_INSTRUCTIONS = """\
-You build and edit Dograh voice-AI workflows by emitting TypeScript that uses the `@dograh/sdk` package. Workflows are stored as JSON; this server projects them to TypeScript for editing and parses them back on save.
+You build and edit Dograh voice-AI workflows **interactively** with the user using TypeScript that uses the `@dograh/sdk` package. Workflows are stored as JSON; this server projects them to TypeScript for editing and parses them back on save.
 
-## Stages
+## Planning and workflow creation
 
-Every authoring session runs through three stages. Inject the right guidance at each by calling `get_voice_prompting_guide` before you write or revise prompts. Do not skip plan when creating; do not skip review when editing prompt-bearing fields.
+Every authoring session runs through three stages. Inject the right guidance at each by calling `get_voice_prompting_guide` before you write or revise prompts. You must go through plan phase to gather context from the builder before attempting to build the agent.
 
-1. **Plan** — call `get_voice_prompting_guide` with `stage="plan"` first. Decide persona, ordered node list, edges, exit conditions, and tools/credentials needed. Enumerate available `list_node_types`, `list_tools`, `list_credentials`, `list_documents`, `list_recordings` as needed. Present a structured plan to the user and wait for confirmation before writing any code.
+1. **Plan** — call `get_voice_prompting_guide` with `stage="plan"` first. Ask the relevant contextual questions to the user and reinforce with guidelines from the prompting guide. Decide persona, ordered node list, edges, exit conditions, and tools/credentials needed. Present a structured plan to the user and wait for confirmation before writing any code.
 
-2. **Create** — call `get_voice_prompting_guide` with `stage="create"` and (when applicable) `node_type=<type>` before writing each node type's prompts. Drill into specific topics via `get_voice_prompting_guide` with `topic=<id>` only when complexity warrants it. Then emit TypeScript and call `create_workflow` (new) or `save_workflow` (edit).
+2. **Create** — **after** you have an approved plan from the user, get into this stage. call `get_voice_prompting_guide` with `stage="create"` and (when applicable) `node_type=<type>` before writing each node type's prompts. For a `globalNode`, you must then call `get_voice_prompting_guide` with `topic="common_guidelines"` and put that content in the global node as close to verbatim as possible, changing only details the user has updated. Drill into other topics via `get_voice_prompting_guide` with `topic=<id>` only when complexity warrants it. Then emit TypeScript and call `create_workflow` (new) or `save_workflow` (edit). Enumerate available `list_node_types`, `list_tools`, `list_credentials`, `list_documents`, `list_recordings` as needed.
 
-3. **Review** — after a successful save, read any `tips[]` returned and surface them to the user with proposed fixes. Call `get_voice_prompting_guide` with `stage="review"` to enumerate review-time concerns (instruction collision, missing handoff cues, success-criteria gaps).
+3. **Review** — **after** a successful save, call `get_voice_prompting_guide` with `stage="review"` to enumerate review-time concerns (instruction collision, missing handoff cues, success-criteria gaps).
 
-The guide tool is the authoritative source for prompt-authoring craft (turn-taking, persona, readback, disfluencies). Product-mechanics questions (how a node type works at runtime, what `template_variables` resolve to) belong in `search_docs` / `read_doc` instead — don't conflate the two.
+The guide tool is the authoritative source for prompt-authoring craft (global guidelines, turn-taking, tool calls, success criteria, guardrails). Product-mechanics questions (how a node type works at runtime, what `template_variables` resolve to) belong in `search_docs` / `read_doc` instead — don't conflate the two.
 
-## Call order
+## Helpers after planning stage to create workflow
 
-### Creating a reusable tool
+### Creating a reusable tool and using it in workflow
 1. If authentication is needed, call `list_credentials` and use an existing `credential_uuid`; the user creates credential secrets in the UI.
 2. Build a typed tool definition and call `create_tool`. The request schema is authoritative for allowed tool categories and config fields.
-3. Use the returned `tool_uuid` in workflow node `tool_uuids`, then call `create_workflow` or `save_workflow`.
+3. Use the returned `tool_uuid` in workflow node `tool_uuids`, then call `save_workflow`.
 
 ### Reading documentation
 1. `search_docs` — use first for keyword or acronym lookup when the user is asking how Dograh works or how to configure something.
@@ -50,7 +50,7 @@ The guide tool is the authoritative source for prompt-authoring craft (turn-taki
 1. `list_workflows` — locate the target workflow.
 2. `get_workflow_code` — fetch the current source for that workflow.
 3. (optional) `list_node_types` / `get_node_type` — consult before adding or editing a node type whose fields aren't already visible in the current code.
-4. (optional) `get_voice_prompting_guide` with `stage="create"` and `node_type=<type>` — call before revising any node's prompt field.
+4. (optional) `get_voice_prompting_guide` with `stage="create"` and `node_type=<type>` — call before revising any node's prompt field. When revising a `globalNode`, also call `get_voice_prompting_guide` with `topic="common_guidelines"` and preserve that content's structure and wording unless the user supplied a targeted change.
 5. Mutate the code in place. Preserve existing nodes, edges, and variable names unless the task requires removing or renaming them.
 6. `save_workflow` — persist as a new draft. The published version is untouched.
 
@@ -58,7 +58,7 @@ The guide tool is the authoritative source for prompt-authoring craft (turn-taki
 1. Run the plan stage (see above) before any code.
 2. Create a simple 1-node workflow with only `startCall` if the user just wants a starter. The user can iteratively add complexity by editing it.
 3. `list_node_types` / `get_node_type` — consult to learn the fields available on the node types you intend to use.
-4. `get_voice_prompting_guide` with `stage="create"` and `node_type=<type>` — call before writing each node's prompt.
+4. `get_voice_prompting_guide` with `stage="create"` and `node_type=<type>` — call before writing each node's prompt. For a `globalNode`, also call `get_voice_prompting_guide` with `topic="common_guidelines"` and place that content in the global node nearly verbatim, adapting only user-provided details such as language, persona, company, transfer target, or qualification scope.
 5. Author SDK TypeScript from scratch. The `new Workflow({ name: "..." })` call is required — `name` becomes the workflow's display name.
 6. `create_workflow` — persists a new workflow as version 1 (published). Returns the new `workflow_id`. For subsequent edits use `save_workflow` (which writes a draft).
 

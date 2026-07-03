@@ -94,5 +94,5 @@ Example:
             ),
         ),
     ),
-    cross_refs=("persona_and_identity_lock",),
+    cross_refs=("common_guidelines",),
 )

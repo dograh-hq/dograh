@@ -39,7 +39,7 @@ The guide tool is the authoritative source for prompt-authoring craft (global gu
 ### Creating a reusable tool and using it in workflow
 1. If authentication is needed, call `list_credentials` and use an existing `credential_uuid`; the user creates credential secrets in the UI.
 2. Build a typed tool definition and call `create_tool`. The request schema is authoritative for allowed tool categories and config fields.
-3. Use the returned `tool_uuid` in workflow node `tool_uuids`, then call `save_workflow`.
+3. Use the returned `tool_uuid` in workflow node `tool_uuids`, then call `create_workflow` for a new workflow or `save_workflow` when editing an existing workflow.
 
 ### Reading documentation
 1. `search_docs` — use first for keyword or acronym lookup when the user is asking how Dograh works or how to configure something.

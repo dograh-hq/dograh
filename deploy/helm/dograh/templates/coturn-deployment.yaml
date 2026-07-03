@@ -39,17 +39,13 @@ spec:
         - name: coturn
           image: {{ include "dograh.coturn.image" . }}
           imagePullPolicy: {{ .Values.coturn.image.pullPolicy }}
-          # coturn doesn't expand env vars in its config file; we render
-          # via envsubst at start so static-auth-secret can come from a
-          # Kubernetes Secret instead of being baked into the ConfigMap.
+          # coturn doesn't expand env vars in its config file; pass the
+          # secret as a CLI flag instead so it can come from a Kubernetes
+          # Secret without being baked into the ConfigMap.
           command:
             - sh
             - -c
-            - |
-              set -e
-              apk add --no-cache gettext >/dev/null 2>&1 || true
-              envsubst < /etc/coturn-template/turnserver.conf > /tmp/turnserver.conf
-              exec turnserver -c /tmp/turnserver.conf
+            - exec turnserver -c /etc/coturn-template/turnserver.conf --static-auth-secret="${TURN_SECRET}"
           env:
             - name: TURN_SECRET
               valueFrom:

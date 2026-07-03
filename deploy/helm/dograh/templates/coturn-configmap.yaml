@@ -26,8 +26,9 @@ data:
 
     realm={{ .Values.coturn.realm }}
 
+    # static-auth-secret is passed on the turnserver command line (see the
+    # deployment); the ConfigMap stays secret-free.
     use-auth-secret
-    static-auth-secret=$(TURN_SECRET)
 
     fingerprint
     no-cli

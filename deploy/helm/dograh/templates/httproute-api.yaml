@@ -24,9 +24,11 @@ spec:
   {{- end }}
   rules:
     - matches:
+        # /api/v1/ (not /api/) — /api/auth/* and /api/config/* are Next.js
+        # routes on the UI and must not be captured here.
         - path:
             type: PathPrefix
-            value: /api/
+            value: /api/v1/
       backendRefs:
         - name: {{ include "dograh.web.fullname" . }}
           port: {{ .Values.web.service.port }}

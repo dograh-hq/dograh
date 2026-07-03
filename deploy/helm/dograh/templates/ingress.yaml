@@ -32,7 +32,11 @@ spec:
       {{- end }}
       http:
         paths:
-          - path: /api/
+          # /api/v1/ (not /api/) — the UI serves its own Next.js routes under
+          # /api/auth/* and /api/config/*, which must fall through to the UI.
+          # Everything browser→backend (REST + the signaling WebSocket) is
+          # namespaced under /api/v1/.
+          - path: /api/v1/
             pathType: Prefix
             backend:
               service:

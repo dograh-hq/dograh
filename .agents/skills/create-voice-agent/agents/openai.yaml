@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Voice Agent"
+  short_description: "Build Dograh voice agents from client material"
+  default_prompt: "Use $create-voice-agent to create a Dograh voice agent from this client script and call notes."

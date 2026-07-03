@@ -227,21 +227,3 @@ are added inline because they may need composition from subchart secrets.
 - secretRef:
     name: {{ include "dograh.secretName" . }}
 {{- end }}
-
-{{/*
-Volume mounts for the shared-tmp PVC when enabled.
-*/}}
-{{- define "dograh.sharedTmpVolumeMounts" -}}
-{{- if .Values.sharedTmp.enabled }}
-- name: shared-tmp
-  mountPath: {{ .Values.sharedTmp.mountPath }}
-{{- end }}
-{{- end }}
-
-{{- define "dograh.sharedTmpVolumes" -}}
-{{- if .Values.sharedTmp.enabled }}
-- name: shared-tmp
-  persistentVolumeClaim:
-    claimName: {{ include "dograh.fullname" . }}-shared-tmp
-{{- end }}
-{{- end }}

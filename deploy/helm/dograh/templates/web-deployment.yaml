@@ -68,10 +68,6 @@ spec:
                 command: ["sh", "-c", "sleep {{ .Values.web.preStopSleepSeconds }}"]
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
-          volumeMounts:
-            {{- include "dograh.sharedTmpVolumeMounts" . | nindent 12 }}
-      volumes:
-        {{- include "dograh.sharedTmpVolumes" . | nindent 8 }}
       {{- with .Values.web.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

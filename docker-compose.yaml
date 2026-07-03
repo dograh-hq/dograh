@@ -142,8 +142,6 @@ services:
 
   api:
     image: ${REGISTRY:-dograhai}/dograh-api:latest
-    volumes:
-      - shared-tmp:/tmp
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"
@@ -329,8 +327,6 @@ volumes:
   postgres_data:
   redis_data:
   minio-data:
-    driver: local
-  shared-tmp:
     driver: local
   nginx-generated:
     driver: local

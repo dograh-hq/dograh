@@ -151,28 +151,6 @@ secrets:
   langfuseHost: ""
 
 # -----------------------------------------------------------------------------
-# Shared /tmp PVC.
-#
-# AUDIT FINDING: api/services/pipecat/event_handlers.py writes WAV/transcript
-# tempfiles in the web process and enqueues an ARQ job that reads those exact
-# paths in the worker (api/tasks/s3_upload.py). In compose this works because
-# all processes share the `shared-tmp` volume. In Kubernetes web and worker run
-# in separate pods. Options:
-#   1. Enable this PVC (ReadWriteMany required) to mount /tmp/dograh-shared
-#      into both web and arq-worker pods. Use this for v1.
-#   2. Refactor event_handlers.py to upload from the web process and pass a
-#      storage key (not a local path) to the ARQ job. Preferred long-term;
-#      see deploy/helm/dograh/README.md "Open TODOs".
-# If your cluster lacks RWX (most cloud default storage classes are RWO),
-# you MUST take option (2) before splitting web and worker pods, or end-of-
-# call uploads will fail silently.
-sharedTmp:
-  enabled: false
-  storageClassName: ""  # must be an RWX-capable class (e.g. efs-sc, azurefile, longhorn-rwx)
-  size: 10Gi
-  mountPath: /tmp/dograh-shared
-
-# -----------------------------------------------------------------------------
 # Web tier (FastAPI + WebSocket signaling)
 # -----------------------------------------------------------------------------
 web:

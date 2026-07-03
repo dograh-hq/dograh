@@ -138,8 +138,6 @@ services:
   api:
     image: ${REGISTRY:-dograhai}/dograh-api:${DOGRAH_VERSION:-latest}
     restart: unless-stopped
-    volumes:
-      - shared-tmp:/tmp
     environment:
       # production => drop private-IP host ICE candidates on a public VPS and
       # order TURN URIs UDP-first. Required for correct remote WebRTC.
@@ -265,8 +263,6 @@ volumes:
   postgres_data:
   redis_data:
   minio-data:
-    driver: local
-  shared-tmp:
     driver: local
 
 networks:

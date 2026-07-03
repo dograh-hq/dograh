@@ -44,7 +44,9 @@ async def _upload_legacy_temp_artifacts(
     logger.info(
         f"Processing legacy temp-file artifacts for workflow run {workflow_run_id}"
     )
-    transcript_bytes = _read_and_remove_temp_file(transcript_temp_path, "transcript")
+    transcript_bytes = await asyncio.to_thread(
+        _read_and_remove_temp_file, transcript_temp_path, "transcript"
+    )
     await upload_workflow_run_artifacts(
         workflow_run_id,
         mixed_audio_wav=await asyncio.to_thread(

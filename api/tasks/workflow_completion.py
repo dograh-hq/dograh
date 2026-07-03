@@ -1,178 +1,116 @@
+import asyncio
 import os
-from typing import Optional
 
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
-from api.db import db_client
-from api.services.storage import get_current_storage_backend, storage_fs
+from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
 from api.services.workflow_run_billing import (
     report_completed_workflow_run_platform_usage,
 )
 from api.tasks.run_integrations import run_integrations_post_workflow_run
 
 
-def _recording_metadata(storage_key: str, storage_backend: str, track: str) -> dict:
-    return {
-        "storage_key": storage_key,
-        "storage_backend": storage_backend,
-        "format": "wav",
-        "track": track,
-    }
-
-
-async def _upload_temp_file(
-    workflow_run_id: int,
-    temp_file_path: str,
-    storage_key: str,
-    label: str,
-) -> bool:
+def _read_and_remove_temp_file(temp_file_path: str | None, label: str) -> bytes | None:
+    if not temp_file_path:
+        return None
     try:
         if not os.path.exists(temp_file_path):
             logger.warning(f"{label} temp file not found: {temp_file_path}")
-            return False
-
-        file_size = os.path.getsize(temp_file_path)
-        logger.debug(f"{label} file size: {file_size} bytes")
-
-        await storage_fs.aupload_file(temp_file_path, storage_key)
-        logger.info(f"Successfully uploaded {label}: {storage_key}")
-        return True
+            return None
+        with open(temp_file_path, "rb") as f:
+            data = f.read()
+        os.remove(temp_file_path)
+        return data
     except Exception as e:
-        logger.error(f"Error uploading {label} for workflow {workflow_run_id}: {e}")
-        return False
-    finally:
-        if os.path.exists(temp_file_path):
-            try:
-                os.remove(temp_file_path)
-                logger.debug(f"Cleaned up temp {label} file: {temp_file_path}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up temp {label} file: {e}")
+        logger.error(f"Error reading legacy {label} temp file {temp_file_path}: {e}")
+        return None
+
+
+async def _upload_legacy_temp_artifacts(
+    workflow_run_id: int,
+    audio_temp_path: str | None,
+    transcript_temp_path: str | None,
+    user_audio_temp_path: str | None,
+    bot_audio_temp_path: str | None,
+) -> None:
+    """Handle jobs enqueued before uploads moved into the pipeline process.
+
+    Pre-refactor web workers passed local temp-file paths; upload them if this
+    worker can still see the files (same host / shared volume).
+
+    Deprecated: remove once no pre-refactor jobs can remain in the queue.
+    """
+    logger.info(
+        f"Processing legacy temp-file artifacts for workflow run {workflow_run_id}"
+    )
+    transcript_bytes = _read_and_remove_temp_file(transcript_temp_path, "transcript")
+    await upload_workflow_run_artifacts(
+        workflow_run_id,
+        mixed_audio_wav=await asyncio.to_thread(
+            _read_and_remove_temp_file, audio_temp_path, "mixed audio"
+        ),
+        user_audio_wav=await asyncio.to_thread(
+            _read_and_remove_temp_file, user_audio_temp_path, "user audio"
+        ),
+        bot_audio_wav=await asyncio.to_thread(
+            _read_and_remove_temp_file, bot_audio_temp_path, "bot audio"
+        ),
+        transcript_text=(
+            transcript_bytes.decode("utf-8") if transcript_bytes else None
+        ),
+    )
 
 
 async def process_workflow_completion(
     _ctx,
     workflow_run_id: int,
-    audio_temp_path: Optional[str] = None,
-    transcript_temp_path: Optional[str] = None,
-    user_audio_temp_path: Optional[str] = None,
-    bot_audio_temp_path: Optional[str] = None,
+    audio_temp_path: str | None = None,
+    transcript_temp_path: str | None = None,
+    user_audio_temp_path: str | None = None,
+    bot_audio_temp_path: str | None = None,
 ):
-    """Process workflow completion: upload artifacts and run integrations.
+    """Process workflow completion: run integrations and report billing.
 
-    This task combines audio upload, transcript upload, and webhook integrations
-    into a single sequential task to ensure integrations run after uploads complete.
+    Recording/transcript uploads happen in the pipeline process itself
+    (api/services/workflow_run_artifacts.py) before this job is enqueued,
+    so this task needs no shared filesystem with the web tier. The temp-path
+    arguments only exist for jobs enqueued by pre-refactor web workers.
 
     Args:
         _ctx: ARQ context (unused)
         workflow_run_id: The workflow run ID
-        audio_temp_path: Optional path to temp audio file
-        transcript_temp_path: Optional path to temp transcript file
-        user_audio_temp_path: Optional path to temp user-track audio file
-        bot_audio_temp_path: Optional path to temp bot-track audio file
+        audio_temp_path: Deprecated, pre-refactor jobs only
+        transcript_temp_path: Deprecated, pre-refactor jobs only
+        user_audio_temp_path: Deprecated, pre-refactor jobs only
+        bot_audio_temp_path: Deprecated, pre-refactor jobs only
     """
     run_id = str(workflow_run_id)
     set_current_run_id(run_id)
 
     logger.info(f"Processing workflow completion for run {workflow_run_id}")
 
-    storage_backend = get_current_storage_backend()
-
-    # Step 1: Upload audio if provided
-    recordings_metadata: dict[str, dict] = {}
-
-    if audio_temp_path:
-        recording_url = f"recordings/{workflow_run_id}.wav"
-        logger.info(
-            f"Uploading mixed audio to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
-        )
-        if await _upload_temp_file(
-            workflow_run_id, audio_temp_path, recording_url, "mixed audio"
-        ):
-            recordings_metadata["mixed"] = _recording_metadata(
-                recording_url, storage_backend.value, "mixed"
-            )
-            await db_client.update_workflow_run(
-                run_id=workflow_run_id,
-                recording_url=recording_url,
-                storage_backend=storage_backend.value,
-            )
-
-    if user_audio_temp_path:
-        user_recording_url = f"recordings/{workflow_run_id}/user.wav"
-        logger.info(
-            f"Uploading user audio to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
-        )
-        if await _upload_temp_file(
-            workflow_run_id, user_audio_temp_path, user_recording_url, "user audio"
-        ):
-            recordings_metadata["user"] = _recording_metadata(
-                user_recording_url, storage_backend.value, "user"
-            )
-
-    if bot_audio_temp_path:
-        bot_recording_url = f"recordings/{workflow_run_id}/bot.wav"
-        logger.info(
-            f"Uploading bot audio to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
-        )
-        if await _upload_temp_file(
-            workflow_run_id, bot_audio_temp_path, bot_recording_url, "bot audio"
-        ):
-            recordings_metadata["bot"] = _recording_metadata(
-                bot_recording_url, storage_backend.value, "bot"
-            )
-
-    if recordings_metadata:
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            storage_backend=storage_backend.value,
-            extra={"recordings": recordings_metadata},
+    if (
+        audio_temp_path
+        or transcript_temp_path
+        or user_audio_temp_path
+        or bot_audio_temp_path
+    ):
+        await _upload_legacy_temp_artifacts(
+            workflow_run_id,
+            audio_temp_path,
+            transcript_temp_path,
+            user_audio_temp_path,
+            bot_audio_temp_path,
         )
 
-    # Step 2: Upload transcript if provided
-    if transcript_temp_path:
-        try:
-            if os.path.exists(transcript_temp_path):
-                file_size = os.path.getsize(transcript_temp_path)
-                logger.debug(f"Transcript file size: {file_size} bytes")
-
-                transcript_url = f"transcripts/{workflow_run_id}.txt"
-                logger.info(
-                    f"Uploading transcript to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
-                )
-
-                await storage_fs.aupload_file(transcript_temp_path, transcript_url)
-                await db_client.update_workflow_run(
-                    run_id=workflow_run_id,
-                    transcript_url=transcript_url,
-                    storage_backend=storage_backend.value,
-                )
-                logger.info(f"Successfully uploaded transcript: {transcript_url}")
-            else:
-                logger.warning(
-                    f"Transcript temp file not found: {transcript_temp_path}"
-                )
-        except Exception as e:
-            logger.error(
-                f"Error uploading transcript for workflow {workflow_run_id}: {e}"
-            )
-        finally:
-            if transcript_temp_path and os.path.exists(transcript_temp_path):
-                try:
-                    os.remove(transcript_temp_path)
-                    logger.debug(
-                        f"Cleaned up temp transcript file: {transcript_temp_path}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temp transcript file: {e}")
-
-    # Step 3: Run integrations including QA analysis (after uploads are complete)
+    # Run integrations including QA analysis (after uploads are complete)
     try:
         await run_integrations_post_workflow_run(_ctx, workflow_run_id)
     except Exception as e:
         logger.error(f"Error running integrations for workflow {workflow_run_id}: {e}")
 
-    # Step 4: Notify MPS after completion. MPS owns credit accounting.
+    # Notify MPS after completion. MPS owns credit accounting.
     try:
         await report_completed_workflow_run_platform_usage(workflow_run_id)
     except Exception as e:

@@ -71,39 +71,16 @@ silent. Each is exposed in `values.yaml` for operator override.
 
 ## `/tmp` audit (review fix #6)
 
-The current docker-compose mounts a `shared-tmp` volume across all
-logical services so file handoffs between processes Just Work. In
-Kubernetes with separated pods this is broken by default.
-
-**Findings:**
-
-| File | Process | Behavior | Cross-pod? |
-|------|---------|----------|------------|
-| `api/services/pipecat/event_handlers.py` (lines 364–383) | **web** | Writes WAV + transcript via `NamedTemporaryFile`, then `enqueue_job(...)` to ARQ with the local path | **YES — broken** |
-| `api/tasks/s3_upload.py` | **arq-worker** | Receives `temp_file_path`, `os.path.exists`, uploads, deletes | **reads from web's path** |
-| `api/services/pipecat/in_memory_buffers.py` | web | Writes tempfiles consumed in the same process | No |
-| `api/services/pipecat/audio_file_cache.py` | web | Per-process cache | No |
-| `api/tasks/knowledge_base_processing.py` | arq-worker | Writes + reads in the same task | No |
-
-**Mitigation in this chart:** `sharedTmp.enabled` flag in `values.yaml`.
-When enabled, the chart creates a `ReadWriteMany` PVC mounted into
-both `dograh-web` and `dograh-arq-worker` at
-`/tmp/dograh-shared/`. Default is `enabled: false` because most
-cloud-default storage classes are RWO; enabling it on RWO will fail
-PVC binding.
-
-**If your cluster lacks an RWX storage class** (most cloud defaults are
-RWO), you MUST either:
-- provision an RWX class (EFS, Azure Files, Longhorn-RWX, Rook-Ceph) and
-  set `sharedTmp.storageClassName`, or
-- complete the long-term fix in TODOs below before splitting web/worker.
+Resolved. End-of-call artifacts (recordings, transcript) are uploaded to
+object storage directly from the web process
+(`api/services/workflow_run_artifacts.py`) before the ARQ completion job
+is enqueued; the job carries only the workflow run id. No file handoff
+crosses a pod boundary, so web and arq-worker pods need no shared
+volume. The remaining `/tmp` uses (`audio_file_cache.py`,
+`knowledge_base_processing.py`) write and read within a single process.
 
 ## Open TODOs (deferred from v1)
 
-- **Refactor `event_handlers.py` to handle uploads in-web.** Upload to
-  object storage from the web process and pass the resulting storage
-  key (not a local path) to the ARQ job. This removes the need for a
-  shared `/tmp` PVC entirely.
 - **Leader election for singletons.** Adopt Kubernetes lease-based
   leader election so `ari-manager` / `campaign-orchestrator` can run
   HA. Until then, replicas remain hard-coded to 1.
@@ -162,7 +139,6 @@ deploy/helm/dograh/
     ├── configmap.yaml
     ├── secret.yaml
     ├── migrate-job.yaml
-    ├── shared-tmp-pvc.yaml
     ├── web-deployment.yaml
     ├── web-service.yaml
     ├── web-hpa.yaml

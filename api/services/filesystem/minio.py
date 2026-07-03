@@ -1,12 +1,12 @@
 import asyncio
 import json
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, Dict, Optional
 
 from loguru import logger
 from minio import Minio
 from minio.error import S3Error
 
-from .base import BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem
 
 
 class MinioFileSystem(BaseFileSystem):
@@ -89,7 +89,7 @@ class MinioFileSystem(BaseFileSystem):
             logger.debug(f"Bucket setup note: {e}")
             pass
 
-    async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
+    async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         try:
             data = await content.read()
 

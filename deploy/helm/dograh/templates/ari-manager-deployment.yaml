@@ -1,0 +1,64 @@
+{{- if .Values.ariManager.enabled }}
+# SINGLETON — replicas hard-coded to 1, strategy: Recreate.
+# ari-manager maintains an outbound WebSocket to Asterisk and is the
+# canonical receiver of ARI events. Running >1 replica produces duplicate
+# event handling. There is NO replica knob on purpose. Add leader
+# election before relaxing this constraint.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dograh.ariManager.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ari-manager
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "dograh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ari-manager
+  template:
+    metadata:
+      labels:
+        {{- include "dograh.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ari-manager
+      {{- with .Values.ariManager.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "dograh.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ari-manager
+          image: {{ include "dograh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["./scripts/run_ari_manager.sh"]
+          envFrom:
+            {{- include "dograh.backendEnvFrom" . | nindent 12 }}
+          env:
+            {{- include "dograh.dbEnv" . | nindent 12 }}
+          # exec probe — no HTTP endpoint exists on ari-manager.
+          livenessProbe:
+            {{- toYaml .Values.ariManager.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.ariManager.resources | nindent 12 }}
+      {{- with .Values.ariManager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ariManager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ariManager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

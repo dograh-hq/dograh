@@ -1,0 +1,59 @@
+# Single-node deployment (k3s, minikube, single VM).
+# All stateful deps bundled in-cluster, Ingress for HTTP, smaller resources.
+
+database:
+  mode: internal
+redis:
+  mode: internal
+storage:
+  mode: internalMinio
+exposure:
+  mode: ingress
+  ingress:
+    className: nginx
+    host: dograh.local
+
+config:
+  environment: production
+  logLevel: INFO
+
+web:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  pdb:
+    enabled: false
+
+workers:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+ui:
+  replicaCount: 1
+  pdb:
+    enabled: false
+
+autoscaling:
+  web:
+    enabled: false
+
+postgresql:
+  persistence:
+    size: 2Gi
+redisinternal:
+  persistence:
+    size: 1Gi
+minio:
+  persistence:
+    size: 5Gi

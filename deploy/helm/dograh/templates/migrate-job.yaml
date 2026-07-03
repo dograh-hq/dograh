@@ -1,0 +1,68 @@
+{{- if .Values.migrate.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "dograh.migrate.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # post-install (not pre-install): when the bundled Postgres subchart is in
+    # use it is a normal resource, so on a fresh install it does not exist until
+    # after pre-install hooks finish — a pre-install migration would deadlock
+    # waiting for a database Helm has not created yet. post-install runs after
+    # all resources (incl. Postgres) are applied. pre-upgrade is kept so
+    # migrations land before new app code rolls out on upgrades (where the DB
+    # already exists).
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "dograh.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      serviceAccountName: {{ include "dograh.serviceAccountName" . }}
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq .Values.database.mode "internal" }}
+      # post-install fires right after resources are applied — the bundled
+      # Postgres pod may still be starting. Block until its Service routes to a
+      # ready endpoint (endpoints only publish once the pod passes readiness)
+      # before alembic attempts to connect. Reuses the app image (already
+      # pulled for the migrate container) so no extra image is needed.
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ include "dograh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - bash
+            - -c
+            - |
+              until (exec 3<>/dev/tcp/{{ include "dograh.postgresHost" . }}/5432) 2>/dev/null; do
+                echo "waiting for postgres at {{ include "dograh.postgresHost" . }}:5432 ..."
+                sleep 2
+              done
+              echo "postgres is reachable"
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "dograh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["./scripts/run_migrate.sh"]
+          envFrom:
+            {{- include "dograh.backendEnvFrom" . | nindent 12 }}
+          env:
+            {{- include "dograh.dbEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+{{- end }}

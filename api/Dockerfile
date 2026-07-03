@@ -141,7 +141,22 @@ ENV PYTHONUNBUFFERED=1
 # Copy application code (chown at copy-time avoids a duplicate /app layer
 # from a later `RUN chown -R`, which would double the on-disk size of /app).
 COPY --chown=dograh:dograh ./api ./api
-COPY --chown=dograh:dograh ./scripts/start_services_docker.sh ./scripts/start_services_docker.sh
+
+# Entrypoint scripts.
+#   start_services_docker.sh — single-container (docker-compose) entrypoint
+#     that runs every service in one process tree.
+#   run_*.sh                 — per-service entrypoints used by the Helm chart,
+#     which runs each workload (web, arq-worker, ari-manager,
+#     campaign-orchestrator, migrate) as its own pod. Keep this list in sync
+#     with the command:[] entries in deploy/helm/dograh/templates/*.yaml.
+COPY --chown=dograh:dograh \
+     ./scripts/start_services_docker.sh \
+     ./scripts/run_migrate.sh \
+     ./scripts/run_web.sh \
+     ./scripts/run_arq_worker.sh \
+     ./scripts/run_ari_manager.sh \
+     ./scripts/run_campaign_orchestrator.sh \
+     ./scripts/
 
 # ts_validator Node deps (built in ts-deps stage with full node:22-slim image).
 # The validator runs as a short-lived subprocess from api/mcp_server/ts_bridge.py.

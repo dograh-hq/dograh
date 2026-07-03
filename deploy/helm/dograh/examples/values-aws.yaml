@@ -1,0 +1,66 @@
+# AWS EKS — uses ALB (via AWS Gateway API controller) for HTTP and NLB
+# for coturn. Assumes:
+#   - aws-load-balancer-controller is installed
+#   - aws Gateway API controller is installed (gateway.networking.k8s.io)
+#   - IRSA configured for the dograh ServiceAccount when using S3
+#
+# REQUIRED OVERRIDES:
+#   --set secrets.ossJwtSecret=$(openssl rand -hex 32)
+#   --set secrets.turnSecret=$(openssl rand -hex 32)
+#   --set exposure.gatewayApi.listenerHostname=dograh.example.com
+#   --set storage.s3.bucket=...
+#
+# After install, retrieve coturn NLB address and re-upgrade:
+#   LB_IP=$(kubectl get svc dograh-coturn -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+#   helm upgrade dograh . --reuse-values --set coturn.externalIp=$LB_IP --set config.turnHost=$LB_IP
+
+database:
+  mode: external  # use RDS Postgres
+redis:
+  mode: external  # use ElastiCache Redis
+storage:
+  mode: s3
+  s3:
+    region: us-east-1
+    bucket: ""  # set via --set
+
+exposure:
+  mode: gatewayApi
+  gatewayApi:
+    createGateway: true
+    gatewayClassName: aws-alb
+    listenerHostname: ""  # set via --set
+
+  ingress:
+    tls:
+      enabled: true
+      secretName: ""  # cert ARN via ALB annotations instead; see below
+
+# coturn on NLB. AWS Gateway API only handles L7; coturn keeps a plain
+# Service of type LoadBalancer with NLB annotations.
+coturn:
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: external
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+
+# IRSA: bind a role with S3 permissions to the dograh ServiceAccount.
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: ""  # set via --set
+
+web:
+  replicaCount: 3
+
+autoscaling:
+  web:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 12
+
+# No bundled deps: the in-chart Postgres/Redis/MinIO manifests are gated on the
+# internal modes, so the external/S3 modes above already keep them from rendering.

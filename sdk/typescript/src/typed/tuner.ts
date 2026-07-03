@@ -32,6 +32,34 @@ export interface Tuner {
      * Bearer token used when posting completed calls to Tuner.
      */
     tuner_api_key: string;
+    /**
+     * Send a per-call cost to Tuner, computed from your own provider rates (BYOK). All rates below are optional.
+     */
+    cost_calculation_enabled?: boolean;
+    /**
+     * USD per 1M tokens
+     */
+    cost_llm_input_rate?: number;
+    /**
+     * USD per 1M cached tokens
+     */
+    cost_llm_cached_input_rate?: number;
+    /**
+     * USD per 1M tokens
+     */
+    cost_llm_output_rate?: number;
+    /**
+     * USD per 1K characters
+     */
+    cost_tts_rate?: number;
+    /**
+     * USD per minute
+     */
+    cost_stt_rate?: number;
+    /**
+     * USD per minute
+     */
+    cost_telephony_rate?: number;
 }
 
 /** Factory — sets `type` for you so you don't repeat the discriminator. */

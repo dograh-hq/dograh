@@ -765,6 +765,18 @@ export interface components {
             node_types: components["schemas"]["NodeSpec"][];
         };
         /**
+         * NumberInputOptions
+         * @description Renderer hints for numeric inputs.
+         */
+        NumberInputOptions: {
+            /**
+             * Fractional
+             * @description Allow arbitrary fractional values via step='any'.
+             * @default false
+             */
+            fractional: boolean;
+        };
+        /**
          * PresetToolParameter
          * @description A parameter injected by Dograh at runtime.
          */
@@ -793,6 +805,17 @@ export interface components {
             required: boolean;
         };
         /**
+         * PropertyLayoutOptions
+         * @description Renderer layout hints for a property in the node editor.
+         */
+        PropertyLayoutOptions: {
+            /**
+             * Column Span
+             * @description Number of columns to occupy in the editor's 12-column grid.
+             */
+            column_span?: number | null;
+        };
+        /**
          * PropertyOption
          * @description An option in an `options` or `multi_options` dropdown.
          */
@@ -803,6 +826,16 @@ export interface components {
             label: string;
             /** Description */
             description?: string | null;
+        };
+        /**
+         * PropertyRendererOptions
+         * @description Typed renderer metadata for node properties.
+         *
+         *     Add new renderer behavior here instead of using free-form property metadata.
+         */
+        PropertyRendererOptions: {
+            layout?: components["schemas"]["PropertyLayoutOptions"] | null;
+            number_input?: components["schemas"]["NumberInputOptions"] | null;
         };
         /**
          * PropertySpec
@@ -859,10 +892,7 @@ export interface components {
             pattern?: string | null;
             /** Editor */
             editor?: string | null;
-            /** Extra */
-            extra?: {
-                [key: string]: unknown;
-            };
+            renderer_options?: components["schemas"]["PropertyRendererOptions"] | null;
         };
         /**
          * PropertyType
@@ -991,7 +1021,7 @@ export interface components {
         TransferCallConfig: {
             /**
              * Destination
-             * @description Phone number or SIP endpoint to transfer the call to, e.g. +1234567890 or PJSIP/1234.
+             * @description Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
              */
             destination: string;
             /**
@@ -1156,8 +1186,11 @@ export type NodeCategory = components['schemas']['NodeCategory'];
 export type NodeExample = components['schemas']['NodeExample'];
 export type NodeSpec = components['schemas']['NodeSpec'];
 export type NodeTypesResponse = components['schemas']['NodeTypesResponse'];
+export type NumberInputOptions = components['schemas']['NumberInputOptions'];
 export type PresetToolParameter = components['schemas']['PresetToolParameter'];
+export type PropertyLayoutOptions = components['schemas']['PropertyLayoutOptions'];
 export type PropertyOption = components['schemas']['PropertyOption'];
+export type PropertyRendererOptions = components['schemas']['PropertyRendererOptions'];
 export type PropertySpec = components['schemas']['PropertySpec'];
 export type PropertyType = components['schemas']['PropertyType'];
 export type RecordingListResponseSchema = components['schemas']['RecordingListResponseSchema'];

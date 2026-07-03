@@ -5804,7 +5804,7 @@ export type TransferCallConfig = {
     /**
      * Destination
      *
-     * Phone number or SIP endpoint to transfer the call to, e.g. +1234567890 or PJSIP/1234.
+     * Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
      */
     destination: string;
     /**

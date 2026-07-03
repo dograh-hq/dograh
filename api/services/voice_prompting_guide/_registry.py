@@ -15,16 +15,10 @@ from api.services.voice_prompting_guide._base import (
 )
 from api.services.voice_prompting_guide.topics import (
     call_flow_design,
-    disfluencies,
+    common_guideliines,
     end_call_logic,
     guardrails,
     instruction_collision,
-    language_and_format,
-    numbers_dates_money,
-    persona_and_identity_lock,
-    readback_and_extraction,
-    response_style,
-    speech_handling,
     success_criteria,
     tool_calls,
     turn_taking,
@@ -42,19 +36,10 @@ def _register(topic: VoicePromptingTopic) -> None:
     _TOPICS[topic.id] = topic
 
 
-# Registration order is the briefing display order. Roughly: the
-# global-behavior cluster first (persona, style, guardrails, format),
-# then node-specific authoring topics (flow, readback, numbers, tools,
-# success criteria, end-call), then the cross-cutting review checks.
-_register(persona_and_identity_lock.TOPIC)
-_register(response_style.TOPIC)
-_register(disfluencies.TOPIC)
+# Registration order is the briefing display order.
+_register(common_guideliines.TOPIC)
 _register(guardrails.TOPIC)
-_register(language_and_format.TOPIC)
-_register(speech_handling.TOPIC)
 _register(call_flow_design.TOPIC)
-_register(readback_and_extraction.TOPIC)
-_register(numbers_dates_money.TOPIC)
 _register(tool_calls.TOPIC)
 _register(success_criteria.TOPIC)
 _register(end_call_logic.TOPIC)
@@ -64,19 +49,41 @@ _register(instruction_collision.TOPIC)
 
 _STAGE_INTROS: dict[Stage, str] = {
     Stage.plan: (
-        "Plan stage. Decide persona, call goal, ordered node list, edges, "
-        "exit conditions, and tools/credentials needed. Do not draft prompts "
-        "yet — that is the create stage. Keep things simple in first version. "
-        "Subtract scope ruthlessly."
+        "Plan stage. First extract the business context: what the caller must "
+        "provide, what the agent must decide, and which policies constrain the "
+        "call. Ask the builder for company details, missing domain rules, eligibility or "
+        "disconnect conditions, and details only they know; for a rental agent "
+        "that might include vehicle type, rental length, trip type, start date, "
+        "distance, insurance, deposit method, qualification rules, and whether "
+        "one-way rentals are allowed. Decide the persona, call goal, **minimal** "
+        "ordered node list, edges, exit conditions, and required tools or "
+        "credentials. Do not draft prompts yet; keep the first version simple "
+        "and remove scope that does not serve the call goal. You must think and "
+        "come up with a plan and interactively refine it with user before moving "
+        "to create stage. Interactivity is the key - to be able to gather context "
+        "from the user. Its an art and a matter of taste."
     ),
     Stage.create: (
-        "Create stage. Write the prompts and emit SDK TypeScript. For each "
-        "node type, also call get_node_type to learn its property schema."
+        "Create stage. Turn the plan into prompts and SDK TypeScript. Build "
+        "nodes around the information the call must capture, grouping related "
+        "fields into one node when that keeps the conversation natural. Make "
+        "transition instructions explicit: if an edge is labeled 'Move to "
+        "Rental Details', the prompt should tell the agent when to call the "
+        "matching tool, such as 'move_to_rental_details'. For each node type, "
+        "call get_node_type to learn its property schema before emitting it. "
+        "When writing a globalNode, also call "
+        "get_voice_prompting_guide(topic='common_guidelines') and place that "
+        "content in the global node as close to verbatim as possible, adapting "
+        "only details the builder has changed."
     ),
     Stage.review: (
-        "Review stage. After saving, inspect any tips[] returned and surface "
-        "them to the user. Read prompts looking for instruction collisions "
-        "(global vs. node) and missing handoff cues."
+        "Review stage. Check that the workflow captures the information the "
+        "builder wanted and that each prompt names the conditions for moving "
+        "to the next node. Read prompts for global-vs-node instruction "
+        "collisions, missing handoff cues, and transitions that depend on "
+        "unstated business rules. For a globalNode, compare against "
+        "get_voice_prompting_guide(topic='common_guidelines') and restore its "
+        "structure unless the builder explicitly changed it."
     ),
 }
 

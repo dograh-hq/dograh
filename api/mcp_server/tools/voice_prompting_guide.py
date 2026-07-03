@@ -36,8 +36,9 @@ async def get_voice_prompting_guide(
     """Fetch staged voice-prompting guidance for authoring Dograh workflows.
 
     Call this BEFORE composing or revising any prompt field on a node. The
-    guide is the authoritative source for prompt-authoring craft (turn-taking,
-    persona, readback rules, disfluencies); product-mechanics questions
+    guide is the authoritative source for prompt-authoring craft (global
+    guidelines, turn-taking, tool calls, success criteria, guardrails);
+    product-mechanics questions
     (how a node type works at runtime) belong in `search_docs` / `read_doc`.
 
     Args:
@@ -60,7 +61,9 @@ async def get_voice_prompting_guide(
 
     Briefings are designed to be cheap — read the lens, decide what to
     drill into, then ask for full content for the 1–3 topics that matter
-    for the prompt you're about to write. Do not pull every topic.
+    for the prompt you're about to write. Always drill into
+    topic="common_guidelines" before writing or revising a globalNode so the
+    template content is actually read. Do not pull every topic.
     """
     await authenticate_mcp_request()
 

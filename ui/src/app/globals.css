@@ -61,8 +61,8 @@
   --secondary-foreground: oklch(0.18 0.005 80);
   --muted: oklch(0.975 0.008 5);
   --muted-foreground: oklch(0.50 0.01 80);
-  --accent: oklch(0.15 0.04 280);
-  --accent-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.92 0.01 280);
+  --accent-foreground: oklch(0.18 0.005 80);
   --destructive: oklch(0.55 0.22 20);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.90 0.005 5);
@@ -205,7 +205,14 @@
     .auth-waveform span { animation: none; }
   }
 
-  /* Matte app background — flat charcoal (dark) / soft paper (light), NO
+  /* Force correct hover state on Radix dropdown/menu/select items.
+   Un-layered: beats all Tailwind utility layers regardless of specificity. */
+[data-highlighted] {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* Matte app background — flat charcoal (dark) / soft paper (light), NO
      gradients, with one subtle graphic in BOTH themes: the giant faded
      "sativoice" wordmark (--brand-imprint, defined in :root/.dark) pinned to
      the bottom of the viewport. */

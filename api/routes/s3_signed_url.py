@@ -40,7 +40,7 @@ class PresignedUploadUrlResponse(BaseModel):
 router = APIRouter(prefix="/s3", tags=["s3"])
 
 
-ORG_SCOPED_STORAGE_PREFIXES = ("campaigns", "knowledge_base")
+ORG_SCOPED_STORAGE_PREFIXES = ("campaigns", "knowledge_base", "recordings")
 
 
 def _extract_org_id_from_key(key: str) -> Optional[int]:
@@ -56,6 +56,11 @@ def _extract_org_id_from_key(key: str) -> Optional[int]:
         and parts[0] in ORG_SCOPED_STORAGE_PREFIXES
         and parts[1].isdigit()
     ):
+        # For the "recordings" prefix, legacy keys use a ``run_id`` instead of
+        # an ``org_id`` in the second segment (e.g. ``recordings/1855/user.wav``).
+        # Only treat the key as org-scoped when it does NOT match a legacy pattern.
+        if parts[0] == "recordings" and _extract_legacy_workflow_run_id(key) is not None:
+            return None
         return int(parts[1])
     return None
 

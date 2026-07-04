@@ -187,6 +187,21 @@ export type ActiveCallsResponse = {
 };
 
 /**
+ * AmbientNoiseConfigurationDefaults
+ */
+export type AmbientNoiseConfigurationDefaults = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Volume
+     */
+    volume?: number;
+    [key: string]: unknown;
+};
+
+/**
  * AmbientNoiseUploadRequest
  */
 export type AmbientNoiseUploadRequest = {
@@ -1878,6 +1893,7 @@ export type DefaultConfigurationsResponse = {
     default_providers: {
         [key: string]: string;
     };
+    workflow_configurations: WorkflowConfigurationDefaults;
 };
 
 /**
@@ -6522,6 +6538,50 @@ export type VonageConfigurationResponse = {
  * Webhook credential authentication types
  */
 export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
+
+/**
+ * WorkflowConfigurationDefaults
+ */
+export type WorkflowConfigurationDefaults = {
+    ambient_noise_configuration?: AmbientNoiseConfigurationDefaults;
+    /**
+     * Max Call Duration
+     */
+    max_call_duration?: number;
+    /**
+     * Max User Idle Timeout
+     */
+    max_user_idle_timeout?: number;
+    /**
+     * Smart Turn Stop Secs
+     */
+    smart_turn_stop_secs?: number;
+    /**
+     * Turn Start Strategy
+     */
+    turn_start_strategy?: 'default' | 'min_words' | 'provisional_vad';
+    /**
+     * Turn Start Min Words
+     */
+    turn_start_min_words?: number;
+    /**
+     * Provisional Vad Pause Secs
+     */
+    provisional_vad_pause_secs?: number;
+    /**
+     * Turn Stop Strategy
+     */
+    turn_stop_strategy?: 'transcription' | 'turn_analyzer';
+    /**
+     * Dictionary
+     */
+    dictionary?: string;
+    /**
+     * Context Compaction Enabled
+     */
+    context_compaction_enabled?: boolean;
+    [key: string]: unknown;
+};
 
 /**
  * WorkflowCountResponse

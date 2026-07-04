@@ -4,7 +4,7 @@ import { create } from 'zustand';
 
 import { WorkflowError } from '@/client/types.gen';
 import { FlowEdge, FlowNode } from '@/components/flow/types';
-import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from '@/types/workflow-configurations';
+import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
 interface HistoryState {
   nodes: FlowNode[];
@@ -117,7 +117,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   rfInstance: null,
 
   // Actions
-  initializeWorkflow: (workflowId, workflowName, nodes, edges, templateContextVariables = {}, workflowConfigurations = DEFAULT_WORKFLOW_CONFIGURATIONS, dictionary = '') => {
+  initializeWorkflow: (workflowId, workflowName, nodes, edges, templateContextVariables = {}, workflowConfigurations = null, dictionary = '') => {
     const initialHistory: HistoryState = { nodes, edges, workflowName };
     set({
       workflowId,

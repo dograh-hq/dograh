@@ -48,7 +48,6 @@ import {
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
-    DEFAULT_WORKFLOW_CONFIGURATIONS,
     TURN_START_STRATEGY_OPTIONS,
     type TurnStartStrategy,
     type TurnStopStrategy,
@@ -62,11 +61,6 @@ import { useWorkflowState } from "../hooks/useWorkflowState";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const DEFAULT_AMBIENT_NOISE_CONFIG: AmbientNoiseConfiguration = {
-    enabled: false,
-    volume: 0.3,
-};
 
 const DEFAULT_VOICEMAIL_SYSTEM_PROMPT = `You are a voicemail detection classifier for an OUTBOUND calling system. A bot has called a phone number and you need to determine if a human answered or if the call went to voicemail based on the provided text.
 
@@ -279,25 +273,25 @@ function GeneralSection({
 }) {
     const [name, setName] = useState(workflowName);
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
-        workflowConfigurations.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG,
+        workflowConfigurations.ambient_noise_configuration,
     );
-    const [maxCallDuration, setMaxCallDuration] = useState(workflowConfigurations.max_call_duration || 600);
-    const [maxUserIdleTimeout, setMaxUserIdleTimeout] = useState(workflowConfigurations.max_user_idle_timeout || 10);
-    const [smartTurnStopSecs, setSmartTurnStopSecs] = useState(workflowConfigurations.smart_turn_stop_secs || 2);
+    const [maxCallDuration, setMaxCallDuration] = useState(workflowConfigurations.max_call_duration);
+    const [maxUserIdleTimeout, setMaxUserIdleTimeout] = useState(workflowConfigurations.max_user_idle_timeout);
+    const [smartTurnStopSecs, setSmartTurnStopSecs] = useState(workflowConfigurations.smart_turn_stop_secs);
     const [turnStartStrategy, setTurnStartStrategy] = useState<TurnStartStrategy>(
-        workflowConfigurations.turn_start_strategy || "default",
+        workflowConfigurations.turn_start_strategy,
     );
     const [turnStartMinWords, setTurnStartMinWords] = useState(
-        workflowConfigurations.turn_start_min_words || DEFAULT_TURN_START_MIN_WORDS,
+        workflowConfigurations.turn_start_min_words,
     );
     const [provisionalVadPauseSecs, setProvisionalVadPauseSecs] = useState(
-        workflowConfigurations.provisional_vad_pause_secs || DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
+        workflowConfigurations.provisional_vad_pause_secs,
     );
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
-        workflowConfigurations.turn_stop_strategy || "transcription",
+        workflowConfigurations.turn_stop_strategy,
     );
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
-        workflowConfigurations.context_compaction_enabled ?? false,
+        workflowConfigurations.context_compaction_enabled,
     );
     const [isSaving, setIsSaving] = useState(false);
     const [isUploadingAudio, setIsUploadingAudio] = useState(false);
@@ -309,18 +303,18 @@ function GeneralSection({
     );
 
     const isDirty = useMemo(() => {
-        const initAmbient = workflowConfigurations.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG;
+        const initAmbient = workflowConfigurations.ambient_noise_configuration;
         return (
             name !== workflowName ||
             JSON.stringify(ambientNoiseConfig) !== JSON.stringify(initAmbient) ||
-            maxCallDuration !== (workflowConfigurations.max_call_duration || 600) ||
-            maxUserIdleTimeout !== (workflowConfigurations.max_user_idle_timeout || 10) ||
-            smartTurnStopSecs !== (workflowConfigurations.smart_turn_stop_secs || 2) ||
-            turnStartStrategy !== (workflowConfigurations.turn_start_strategy || "default") ||
-            turnStartMinWords !== (workflowConfigurations.turn_start_min_words || DEFAULT_TURN_START_MIN_WORDS) ||
-            provisionalVadPauseSecs !== (workflowConfigurations.provisional_vad_pause_secs || DEFAULT_PROVISIONAL_VAD_PAUSE_SECS) ||
-            turnStopStrategy !== (workflowConfigurations.turn_stop_strategy || "transcription") ||
-            contextCompactionEnabled !== (workflowConfigurations.context_compaction_enabled ?? false)
+            maxCallDuration !== workflowConfigurations.max_call_duration ||
+            maxUserIdleTimeout !== workflowConfigurations.max_user_idle_timeout ||
+            smartTurnStopSecs !== workflowConfigurations.smart_turn_stop_secs ||
+            turnStartStrategy !== workflowConfigurations.turn_start_strategy ||
+            turnStartMinWords !== workflowConfigurations.turn_start_min_words ||
+            provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
+            turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
+            contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled
         );
     }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
 
@@ -611,6 +605,18 @@ function GeneralSection({
                             </p>
                         </div>
                     )}
+                </div>
+
+                <Separator />
+
+                {/* Interruption */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Interruption</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Configure when user speech should interrupt the agent while it is speaking.
+                        </p>
+                    </div>
                     <div className="space-y-2">
                         <Label htmlFor="turn_start_strategy" className="text-xs">Interruption Strategy</Label>
                         <Select
@@ -1428,7 +1434,11 @@ function WorkflowSettingsInner({
     );
 
     const initialWorkflowConfigurations = useMemo(
-        () => (workflow.workflow_configurations as WorkflowConfigurations) || DEFAULT_WORKFLOW_CONFIGURATIONS,
+        () => (
+            workflow.workflow_configurations
+                ? (workflow.workflow_configurations as WorkflowConfigurations)
+                : undefined
+        ),
         [workflow],
     );
 

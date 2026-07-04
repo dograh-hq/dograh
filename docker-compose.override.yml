@@ -1,0 +1,10 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile

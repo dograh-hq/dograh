@@ -10,6 +10,10 @@ from api.db.models import (
     UserModel,
 )
 from api.schemas.onboarding_state import OnboardingState, OnboardingStateUpdate
+from api.schemas.workflow_configurations import (
+    WorkflowConfigurationDefaults,
+    get_default_workflow_configurations,
+)
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
     get_resolved_ai_model_configuration,
@@ -40,13 +44,14 @@ class AuthUserResponse(TypedDict):
     is_superuser: bool
 
 
-class DefaultConfigurationsResponse(TypedDict):
+class DefaultConfigurationsResponse(BaseModel):
     llm: dict[str, dict]
     tts: dict[str, dict]
     stt: dict[str, dict]
     embeddings: dict[str, dict]
     realtime: dict[str, dict]
     default_providers: dict[str, str]
+    workflow_configurations: WorkflowConfigurationDefaults
 
 
 @router.get("/configurations/defaults")
@@ -73,8 +78,9 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
             for provider, model_cls in REGISTRY[ServiceType.REALTIME].items()
         },
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
+        "workflow_configurations": get_default_workflow_configurations(),
     }
-    return configurations
+    return DefaultConfigurationsResponse(**configurations)
 
 
 @router.get("/auth/user")

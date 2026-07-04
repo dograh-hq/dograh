@@ -6,6 +6,14 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
+from api.schemas.workflow_configurations import (
+    DEFAULT_MAX_CALL_DURATION_SECONDS,
+    DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
+    DEFAULT_SMART_TURN_STOP_SECS,
+    DEFAULT_TURN_START_MIN_WORDS,
+    DEFAULT_TURN_START_STRATEGY,
+)
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations import (
     IntegrationRuntimeContext,
@@ -100,10 +108,6 @@ ensure_tracing()
 
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
-DEFAULT_TURN_START_STRATEGY = "default"
-DEFAULT_TURN_START_MIN_WORDS = 3
-DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5
-DEFAULT_SMART_TURN_STOP_SECS = 2.0
 
 
 def _resolve_user_turn_stop_timeout(
@@ -538,8 +542,8 @@ async def _run_pipeline_impl(
     run_configs = run_definition.workflow_configurations or {}
 
     # Extract configurations from the version's workflow_configurations
-    max_call_duration_seconds = 300  # Default 5 minutes
-    max_user_idle_timeout = 10.0  # Default 10 seconds
+    max_call_duration_seconds = DEFAULT_MAX_CALL_DURATION_SECONDS
+    max_user_idle_timeout = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     keyterms = None  # Dictionary words for STT boosting
 
     if run_configs:

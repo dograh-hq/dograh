@@ -5,7 +5,11 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResponse
-from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
+from api.services.auth.depends import (
+    create_user_configuration_with_mps_key,
+    get_user,
+    require_local_auth,
+)
 from api.services.configuration.ai_model_configuration import (
     convert_legacy_ai_model_configuration_to_v2,
 )
@@ -15,6 +19,7 @@ from api.utils.auth import create_jwt_token, hash_password, verify_password
 router = APIRouter(
     prefix="/auth",
     tags=["auth"],
+    dependencies=[Depends(require_local_auth)],
 )
 
 

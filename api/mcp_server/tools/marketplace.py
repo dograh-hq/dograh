@@ -1,6 +1,7 @@
 """MCP tools for browsing and installing marketplace tools."""
 
 from api.services.tool_marketplace import get_catalog, install_marketplace_tool
+from api.mcp_server.auth import authenticate_mcp_request
 from api.mcp_server.tracing import traced_tool
 
 
@@ -16,7 +17,8 @@ async def list_marketplace_tools(
         category: Optional filter. One of: "mcp_direct", "dify_workflow", "http_api".
             Omit to list all categories.
     """
-    catalog = await get_catalog(org_id="", category=category)
+    user = await authenticate_mcp_request()
+    catalog = await get_catalog(org_id=user.selected_organization_id, category=category)
     # Return a leaner version for the LLM
     return [
         {
@@ -48,6 +50,15 @@ async def install_marketplace_tool_mcp(
         user_url: For tools that require a user-provided URL (e.g. Dify),
             paste the MCP server URL here.
     """
+    user = await authenticate_mcp_request()
+    
+    # Validate organization_id parameter matches authenticated user
+    if organization_id != str(user.selected_organization_id):
+        raise ValueError(
+            f"organization_id mismatch: caller org {user.selected_organization_id} "
+            f"does not match requested org {organization_id}"
+        )
+    
     result = await install_marketplace_tool(
         tool_id=marketplace_tool_id,
         org_id=organization_id,

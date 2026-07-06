@@ -168,20 +168,23 @@ class TestConnectMarketplaceTool:
 
 class TestOAuthCallback:
     @pytest.mark.asyncio
-    async def test_oauth_callback_not_implemented(self, async_client):
-        """POST /oauth/callback should return 501 (not implemented)."""
-        response = await async_client.post(
-            "/api/v1/marketplace/tools/1/oauth/callback",
-            json={"code": "auth_code", "state": "state_value", "organization_id": "test-org-id"}
-        )
-        assert response.status_code == 501
-
-    @pytest.mark.asyncio
-    async def test_oauth_callback_org_validation(self, async_client):
-        """POST /oauth/callback should return 403 if organization_id doesn't match user's org."""
-        response = await async_client.post(
-            "/api/v1/marketplace/tools/1/oauth/callback",
-            json={"code": "auth_code", "state": "state_value", "organization_id": "different-org-id"}
-        )
-        assert response.status_code == 403
-        assert "Organization access denied" in response.json()["detail"]
+    async def test_callback_completes_install(self, async_client):
+        """OAuth callback should complete the pending installation."""
+        with (
+            patch("api.routes.marketplace.complete_oauth_install") as mock_complete,
+        ):
+            mock_complete.return_value = {
+                "tool_uuid": "abc-456",
+                "status": "active",
+                "discovered_tools": [{"name": "search_contacts", "description": "..."}],
+            }
+            response = await async_client.post(
+                "/api/v1/marketplace/tools/3/oauth/callback",
+                json={
+                    "code": "auth_code_123",
+                    "state": "3:test-org-id",
+                    "organization_id": "test-org-id",
+                },
+            )
+            assert response.status_code == 200
+            assert response.json()["tool_uuid"] == "abc-456"

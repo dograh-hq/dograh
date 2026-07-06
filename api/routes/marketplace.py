@@ -8,6 +8,7 @@ from api.services.tool_marketplace import (
     get_catalog,
     get_marketplace_tool,
     install_marketplace_tool,
+    complete_oauth_install,
 )
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
@@ -74,6 +75,12 @@ async def oauth_callback(tool_id: int, request: OAuthCallbackRequest, user=Depen
     if request.organization_id != user.selected_organization_id:
         raise HTTPException(status_code=403, detail="Organization access denied")
     
-    # Exchange code for token and complete installation.
-    # This is implemented in a follow-up task (Task 6: OAuth flow).
-    raise HTTPException(status_code=501, detail="OAuth flow not yet implemented")
+    try:
+        result = await complete_oauth_install(
+            tool_id=tool_id,
+            org_id=request.organization_id,
+            code=request.code,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

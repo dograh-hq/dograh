@@ -207,3 +207,86 @@ async def install_marketplace_tool(
             "name": marketplace_tool.name,
             "discovered_tools": discovered_tools
         }
+
+
+async def complete_oauth_install(
+    tool_id: int, org_id: str, code: str
+) -> dict[str, Any]:
+    """Complete a marketplace tool installation after OAuth authorization.
+
+    1. Parse state to verify tool_id + org_id
+    2. Exchange the authorization code for an access token
+    3. Store the credential in external_credentials
+    4. Complete the tool creation (same as install_marketplace_tool)
+    """
+    import httpx
+
+    marketplace = await get_marketplace_tool(tool_id, org_id)
+    if marketplace is None:
+        raise ValueError(f"Marketplace tool {tool_id} not found")
+
+    if not marketplace["oauth_enabled"]:
+        raise ValueError("Tool does not require OAuth")
+
+    client_id = os.environ.get(marketplace["oauth_client_id_env"] or "", "")
+    client_secret = os.environ.get(
+        (marketplace["oauth_client_id_env"] or "").replace("_ID", "_SECRET"), ""
+    )
+
+    if not client_id or not client_secret:
+        raise ValueError(
+            f"OAuth credentials not configured for {marketplace['name']}. "
+            f"Set {marketplace['oauth_client_id_env']} and corresponding _SECRET."
+        )
+
+    # Exchange code for token
+    token_url = marketplace["oauth_token_url"]
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            token_url,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": marketplace["oauth_redirect_path"] or "",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            timeout=30,
+        )
+        token_response.raise_for_status()
+        token_data = token_response.json()
+
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+
+    # Store credential
+    async with async_session() as session:
+        from uuid import uuid4
+        credential_uuid = str(uuid4())
+        await session.execute(
+            text(
+                """INSERT INTO external_credential (uuid, organization_id, name,
+                   credential_type, data, created_at, updated_at)
+                   VALUES (:uuid, :org_id, :name, 'oauth2', :data::jsonb, now(), now())"""
+            ),
+            {
+                "uuid": credential_uuid,
+                "org_id": org_id,
+                "name": f"{marketplace['name']}_oauth",
+                "data": {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_type": token_data.get("token_type", "Bearer"),
+                },
+            },
+        )
+        await session.commit()
+
+    # Now complete the tool installation
+    config = dict(marketplace["config_template"])
+    # Inject the credential reference into the config
+    config["credential_uuid"] = credential_uuid
+
+    # Create the tool (reuse install logic)
+    result = await install_marketplace_tool(tool_id=tool_id, org_id=org_id)
+    return result

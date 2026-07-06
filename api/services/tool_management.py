@@ -26,6 +26,7 @@ from api.services.workflow.tools.mcp_tool import (
     McpDefinitionError,
     validate_mcp_definition,
 )
+from api.utils.url_validation import validate_public_url
 
 
 class ToolManagementError(ValueError):
@@ -118,6 +119,16 @@ async def populate_discovered_tools(
         cfg = validate_mcp_definition(definition)
     except McpDefinitionError:
         return definition
+
+    # SSRF protection: validate the MCP URL before attempting connection
+    try:
+        await validate_public_url(cfg["url"])
+    except ValueError as e:
+        raise ToolManagementError(
+            "invalid_mcp_url",
+            f"Invalid MCP URL: {e}",
+            status_code=400,
+        ) from e
 
     credential = await fetch_credential(cfg.get("credential_uuid"), organization_id)
 
@@ -214,6 +225,16 @@ async def refresh_mcp_tool_for_user(
         raise ToolManagementError(
             "invalid_mcp_definition",
             f"Invalid MCP definition: {e}",
+            status_code=400,
+        ) from e
+
+    # SSRF protection: validate the MCP URL before attempting connection
+    try:
+        await validate_public_url(cfg["url"])
+    except ValueError as e:
+        raise ToolManagementError(
+            "invalid_mcp_url",
+            f"Invalid MCP URL: {e}",
             status_code=400,
         ) from e
 

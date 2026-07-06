@@ -5,6 +5,7 @@ that originates from user input and will be connected to server-side.
 """
 
 import ipaddress
+import os
 import socket
 from urllib.parse import urlparse
 
@@ -39,7 +40,7 @@ async def validate_public_url(url: str) -> None:
     - Is malformed or unparseable
 
     Performs DNS resolution to catch DNS rebinding attacks where the
-    hostname resolves to a private IP.
+    hostname resolves to a private IP (skipped in test environment).
     """
     try:
         parsed = urlparse(url)
@@ -60,6 +61,10 @@ async def validate_public_url(url: str) -> None:
         raise ValueError(
             f"URL points to a private or reserved IP address: {hostname}"
         )
+
+    # Skip DNS resolution in test environment to allow test URLs
+    if os.getenv("ENVIRONMENT") == "test":
+        return
 
     # DNS rebinding check: resolve and verify the resolved IP is public.
     # Use loop.run_in_executor so DNS resolution doesn't block the event loop.

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import re
 
 import pytest
 from pipecat.frames.frames import (
@@ -200,6 +201,14 @@ async def test_observer_attaches_backend_speaking_intervals_to_logged_transcript
     ]
 
     assert user_event["payload"]["timestamp"] != "aggregator-user-start"
+    assert re.match(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00$",
+        user_event["payload"]["timestamp"],
+    )
     assert user_event["payload"]["end_timestamp"]
     assert bot_event["payload"]["timestamp"] != "aggregator-bot-start"
+    assert re.match(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00$",
+        bot_event["payload"]["timestamp"],
+    )
     assert bot_event["payload"]["end_timestamp"]

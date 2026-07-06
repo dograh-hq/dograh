@@ -129,7 +129,7 @@ class InMemoryLogsBuffer:
 
     @staticmethod
     def _now_iso() -> str:
-        return datetime.now(UTC).isoformat()
+        return datetime.now(UTC).isoformat(timespec="milliseconds")
 
     def mark_user_started_speaking(self):
         """Record when the user started speaking for the current turn."""

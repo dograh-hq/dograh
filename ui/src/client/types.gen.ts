@@ -519,6 +519,8 @@ export type ByokPipelineAiModelConfiguration = {
      * Tts
      */
     tts: ({
+        provider: 'google_vertex';
+    } & GoogleVertexTtsConfiguration) | ({
         provider: 'deepgram';
     } & DeepgramTtsConfiguration) | ({
         provider: 'google';
@@ -551,6 +553,8 @@ export type ByokPipelineAiModelConfiguration = {
      * Stt
      */
     stt: ({
+        provider: 'google_vertex';
+    } & GoogleVertexSttConfiguration) | ({
         provider: 'deepgram';
     } & DeepgramSttConfiguration) | ({
         provider: 'cartesia';
@@ -581,6 +585,8 @@ export type ByokPipelineAiModelConfiguration = {
      * Embeddings
      */
     embeddings?: ({
+        provider: 'google_vertex';
+    } & GoogleVertexEmbeddingConfiguration) | ({
         provider: 'openai';
     } & OpenAiEmbeddingsConfiguration) | ({
         provider: 'openrouter';
@@ -643,6 +649,8 @@ export type ByokRealtimeAiModelConfiguration = {
      * Embeddings
      */
     embeddings?: ({
+        provider: 'google_vertex';
+    } & GoogleVertexEmbeddingConfiguration) | ({
         provider: 'openai';
     } & OpenAiEmbeddingsConfiguration) | ({
         provider: 'openrouter';
@@ -1311,6 +1319,16 @@ export type CloudonixConfigurationResponse = {
 };
 
 /**
+ * ConnectRequest
+ */
+export type ConnectRequest = {
+    /**
+     * User Url
+     */
+    user_url?: string | null;
+};
+
+/**
  * CreateAPIKeyRequest
  */
 export type CreateApiKeyRequest = {
@@ -1610,6 +1628,10 @@ export type CreateWorkflowTemplateRequest = {
      * Activity Description
      */
     activity_description: string;
+    /**
+     * Language
+     */
+    language?: string;
 };
 
 /**
@@ -2653,6 +2675,46 @@ export type GoogleTtsConfiguration = {
 /**
  * Google Vertex
  */
+export type GoogleVertexEmbeddingConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'google_vertex';
+    /**
+     * Api Key
+     *
+     * Not used for Vertex AI. Leave blank.
+     */
+    api_key?: string | Array<string> | null;
+    /**
+     * Model
+     *
+     * Vertex AI embedding model.
+     */
+    model?: string;
+    /**
+     * Project Id
+     *
+     * Google Cloud project ID for Vertex AI.
+     */
+    project_id: string;
+    /**
+     * Location
+     *
+     * GCP region for the Vertex AI endpoint.
+     */
+    location?: string;
+    /**
+     * Credentials
+     *
+     * Paste the entire service-account JSON file contents. If omitted, falls back to Application Default Credentials (ADC).
+     */
+    credentials?: string | null;
+};
+
+/**
+ * Google Vertex
+ */
 export type GoogleVertexLlmConfiguration = {
     /**
      * Provider
@@ -2732,6 +2794,110 @@ export type GoogleVertexRealtimeLlmConfiguration = {
      * Location
      *
      * GCP region for the Vertex AI endpoint (e.g. 'global').
+     */
+    location?: string;
+    /**
+     * Credentials
+     *
+     * Paste the entire service-account JSON file contents. If omitted, falls back to Application Default Credentials (ADC).
+     */
+    credentials?: string | null;
+};
+
+/**
+ * Google Vertex
+ */
+export type GoogleVertexSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'google_vertex';
+    /**
+     * Api Key
+     *
+     * Not used for Vertex AI. Leave blank.
+     */
+    api_key?: string | Array<string> | null;
+    /**
+     * Model
+     *
+     * Google Cloud Speech-to-Text V2 model on Vertex AI.
+     */
+    model?: string;
+    /**
+     * Language
+     *
+     * Primary BCP-47 language code for recognition.
+     */
+    language?: string;
+    /**
+     * Project Id
+     *
+     * Google Cloud project ID for Vertex AI.
+     */
+    project_id: string;
+    /**
+     * Location
+     *
+     * GCP region for the Vertex AI STT endpoint.
+     */
+    location?: string;
+    /**
+     * Credentials
+     *
+     * Paste the entire service-account JSON file contents. If omitted, falls back to Application Default Credentials (ADC).
+     */
+    credentials?: string | null;
+};
+
+/**
+ * Google Vertex
+ */
+export type GoogleVertexTtsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'google_vertex';
+    /**
+     * Api Key
+     *
+     * Not used for Vertex AI. Leave blank.
+     */
+    api_key?: string | Array<string> | null;
+    /**
+     * Model
+     *
+     * Google Cloud Text-to-Speech model on Vertex AI.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Voice name for TTS synthesis.
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * BCP-47 language code for synthesis.
+     */
+    language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier.
+     */
+    speed?: number;
+    /**
+     * Project Id
+     *
+     * Google Cloud project ID for Vertex AI.
+     */
+    project_id: string;
+    /**
+     * Location
+     *
+     * GCP region for the Vertex AI TTS endpoint.
      */
     location?: string;
     /**
@@ -3723,6 +3889,24 @@ export type NumberInputOptions = {
      * Allow arbitrary fractional values via step='any'.
      */
     fractional?: boolean;
+};
+
+/**
+ * OAuthCallbackRequest
+ */
+export type OAuthCallbackRequest = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * State
+     */
+    state: string;
+    /**
+     * Organization Id
+     */
+    organization_id: string;
 };
 
 /**
@@ -5804,7 +5988,7 @@ export type TransferCallConfig = {
     /**
      * Destination
      *
-     * Phone number or SIP endpoint to transfer the call to, e.g. +1234567890 or PJSIP/1234.
+     * Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
      */
     destination: string;
     /**
@@ -10451,6 +10635,174 @@ export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses = {
 };
 
 export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponse = UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses[keyof UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses];
+
+export type ListToolsApiV1MarketplaceToolsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Category
+         */
+        category?: string | null;
+    };
+    url: '/api/v1/marketplace/tools';
+};
+
+export type ListToolsApiV1MarketplaceToolsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListToolsApiV1MarketplaceToolsGetError = ListToolsApiV1MarketplaceToolsGetErrors[keyof ListToolsApiV1MarketplaceToolsGetErrors];
+
+export type ListToolsApiV1MarketplaceToolsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetToolApiV1MarketplaceToolsToolIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Tool Id
+         */
+        tool_id: number;
+    };
+    query?: never;
+    url: '/api/v1/marketplace/tools/{tool_id}';
+};
+
+export type GetToolApiV1MarketplaceToolsToolIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetToolApiV1MarketplaceToolsToolIdGetError = GetToolApiV1MarketplaceToolsToolIdGetErrors[keyof GetToolApiV1MarketplaceToolsToolIdGetErrors];
+
+export type GetToolApiV1MarketplaceToolsToolIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ConnectToolApiV1MarketplaceToolsToolIdConnectPostData = {
+    body: ConnectRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Tool Id
+         */
+        tool_id: number;
+    };
+    query?: never;
+    url: '/api/v1/marketplace/tools/{tool_id}/connect';
+};
+
+export type ConnectToolApiV1MarketplaceToolsToolIdConnectPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ConnectToolApiV1MarketplaceToolsToolIdConnectPostError = ConnectToolApiV1MarketplaceToolsToolIdConnectPostErrors[keyof ConnectToolApiV1MarketplaceToolsToolIdConnectPostErrors];
+
+export type ConnectToolApiV1MarketplaceToolsToolIdConnectPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: unknown;
+};
+
+export type OauthCallbackApiV1MarketplaceToolsToolIdOauthCallbackPostData = {
+    body: OAuthCallbackRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Tool Id
+         */
+        tool_id: number;
+    };
+    query?: never;
+    url: '/api/v1/marketplace/tools/{tool_id}/oauth/callback';
+};
+
+export type OauthCallbackApiV1MarketplaceToolsToolIdOauthCallbackPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OauthCallbackApiV1MarketplaceToolsToolIdOauthCallbackPostError = OauthCallbackApiV1MarketplaceToolsToolIdOauthCallbackPostErrors[keyof OauthCallbackApiV1MarketplaceToolsToolIdOauthCallbackPostErrors];
+
+export type OauthCallbackApiV1MarketplaceToolsToolIdOauthCallbackPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type GetCurrentOrganizationContextApiV1OrganizationsContextGetData = {
     body?: never;

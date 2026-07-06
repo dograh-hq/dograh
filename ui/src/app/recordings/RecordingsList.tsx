@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { AudioLines, Check, Pause, Pencil, Play, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -17,12 +18,12 @@ import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import logger from "@/lib/logger";
 
 export default function RecordingsList({ refreshKey }: { refreshKey?: number }) {
+    const t = useTranslations("recordingsList");
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
     const [error, setError] = useState<string | null>(null);
 
-    // Inline edit state
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editValue, setEditValue] = useState("");
     const [editError, setEditError] = useState<string | null>(null);
@@ -39,24 +40,24 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
             });
 
             if (response.error || !response.data) {
-                throw new Error("Failed to fetch recordings");
+                throw new Error(t("fetchFailed"));
             }
 
             setRecordings(response.data.recordings);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to fetch recordings");
+            setError(err instanceof Error ? err.message : t("fetchFailed"));
             logger.error("Error fetching recordings:", err);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         fetchRecordings();
     }, [fetchRecordings, refreshKey]);
 
     const handleDelete = async (recordingId: string) => {
-        if (!confirm("Are you sure you want to delete this recording?")) return;
+        if (!confirm(t("deleteConfirm"))) return;
 
         try {
             const response = await deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete({
@@ -64,13 +65,13 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
             });
 
             if (response.error) {
-                throw new Error("Failed to delete recording");
+                throw new Error(t("deleteFailed"));
             }
 
-            toast.success("Recording deleted");
+            toast.success(t("deleted"));
             fetchRecordings();
         } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Failed to delete recording");
+            toast.error(err instanceof Error ? err.message : t("deleteFailed"));
             logger.error("Error deleting recording:", err);
         }
     };
@@ -79,7 +80,7 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
         try {
             await togglePlayback(rec.recording_id, rec.storage_key, rec.storage_backend);
         } catch {
-            toast.error("Failed to play recording");
+            toast.error(t("playFailed"));
         }
     };
 
@@ -98,11 +99,11 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
     const saveRecordingId = async (rec: RecordingResponseSchema) => {
         const newId = editValue.trim();
         if (!newId) {
-            setEditError("ID cannot be empty");
+            setEditError(t("idEmpty"));
             return;
         }
         if (!/^[a-zA-Z0-9_-]+$/.test(newId)) {
-            setEditError("Only letters, numbers, hyphens, and underscores");
+            setEditError(t("idInvalidChars"));
             return;
         }
         if (newId === rec.recording_id) {
@@ -119,14 +120,14 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
 
             if (response.error) {
                 const errData = response.error as { detail?: string };
-                throw new Error(errData?.detail || "Failed to update recording ID");
+                throw new Error(errData?.detail || t("idUpdateFailed"));
             }
 
-            toast.success(`Recording ID updated to "${newId}". All workflow references have been updated.`);
+            toast.success(t("idUpdated", { id: newId }));
             cancelEditing();
             fetchRecordings();
         } catch (err) {
-            setEditError(err instanceof Error ? err.message : "Failed to update recording ID");
+            setEditError(err instanceof Error ? err.message : t("idUpdateFailed"));
         }
     };
 
@@ -172,12 +173,11 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
 
     return (
         <div className="space-y-4">
-            {/* Search and Refresh */}
             <div className="flex items-center gap-4">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search by filename, transcript, or ID..."
+                        placeholder={t("searchPlaceholder")}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-10"
@@ -193,20 +193,16 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
                 </Button>
             </div>
 
-            {/* Results count */}
             <div className="text-sm text-muted-foreground">
-                {filteredRecordings.length} recording{filteredRecordings.length !== 1 ? "s" : ""}
-                {searchQuery && ` matching "${searchQuery}"`}
+                {t("resultsCount", { count: filteredRecordings.length, plural: filteredRecordings.length !== 1 ? "s" : "" })}
+                {searchQuery && t("resultsMatching", { query: searchQuery })}
             </div>
 
-            {/* Recordings List */}
             {filteredRecordings.length === 0 ? (
                 <div className="text-center py-12">
                     <AudioLines className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">
-                        {searchQuery
-                            ? "No recordings match your search"
-                            : "No recordings yet"}
+                        {searchQuery ? t("noMatch") : t("noRecordings")}
                     </p>
                 </div>
             ) : (
@@ -225,7 +221,6 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
                                         <AudioLines className="w-5 h-5 text-primary" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        {/* Recording ID (editable) */}
                                         <div className="flex items-center gap-2 mb-1">
                                             {isEditing ? (
                                                 <div className="flex items-center gap-1 flex-wrap">
@@ -240,76 +235,29 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
                                                         maxLength={64}
                                                         autoFocus
                                                     />
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-7 w-7 p-0"
-                                                        onClick={() => saveRecordingId(rec)}
-                                                    >
-                                                        <Check className="w-3.5 h-3.5" />
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-7 w-7 p-0"
-                                                        onClick={cancelEditing}
-                                                    >
-                                                        <X className="w-3.5 h-3.5" />
-                                                    </Button>
-                                                    {editError && (
-                                                        <span className="text-xs text-destructive">{editError}</span>
-                                                    )}
+                                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => saveRecordingId(rec)}><Check className="w-3.5 h-3.5" /></Button>
+                                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={cancelEditing}><X className="w-3.5 h-3.5" /></Button>
+                                                    {editError && <span className="text-xs text-destructive">{editError}</span>}
                                                 </div>
                                             ) : (
                                                 <div className="flex items-center gap-1.5">
-                                                    <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded truncate max-w-[250px]">
-                                                        {rec.recording_id}
-                                                    </code>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-6 px-1.5 text-xs text-muted-foreground gap-1"
-                                                        onClick={() => startEditing(rec)}
-                                                    >
-                                                        <Pencil className="w-3 h-3" />
-                                                        Edit ID
+                                                    <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded truncate max-w-[250px]">{rec.recording_id}</code>
+                                                    <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs text-muted-foreground gap-1" onClick={() => startEditing(rec)}>
+                                                        <Pencil className="w-3 h-3" />{t("editId")}
                                                     </Button>
                                                 </div>
                                             )}
                                         </div>
-                                        {/* Filename */}
-                                        {filename && (
-                                            <p className="text-xs text-muted-foreground mb-0.5 truncate max-w-[300px]">
-                                                {filename}
-                                            </p>
-                                        )}
-                                        {/* Transcript */}
-                                        <p className="text-sm text-muted-foreground line-clamp-1 mb-1">
-                                            {rec.transcript}
-                                        </p>
-                                        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                                            <span>{formatDate(rec.created_at)}</span>
-                                        </div>
+                                        {filename && <p className="text-xs text-muted-foreground mb-0.5 truncate max-w-[300px]">{filename}</p>}
+                                        <p className="text-sm text-muted-foreground line-clamp-1 mb-1">{rec.transcript}</p>
+                                        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap"><span>{formatDate(rec.created_at)}</span></div>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0 ml-2">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handlePlay(rec)}
-                                    >
-                                        {playingId === rec.recording_id ? (
-                                            <Pause className="w-4 h-4" />
-                                        ) : (
-                                            <Play className="w-4 h-4" />
-                                        )}
+                                    <Button variant="ghost" size="sm" onClick={() => handlePlay(rec)}>
+                                        {playingId === rec.recording_id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                                     </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleDelete(rec.recording_id)}
-                                        className="text-destructive hover:text-destructive/90"
-                                    >
+                                    <Button variant="ghost" size="sm" onClick={() => handleDelete(rec.recording_id)} className="text-destructive hover:text-destructive/90">
                                         <Trash2 className="w-4 h-4" />
                                     </Button>
                                 </div>

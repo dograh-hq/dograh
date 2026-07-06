@@ -47,6 +47,9 @@ EMBEDDING_PROVIDER = os.getenv("LOCAL_MPS_EMBEDDING_PROVIDER", "openai")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1")
 EMBEDDING_MODEL = os.getenv("LOCAL_MPS_EMBEDDING_MODEL", "text-embedding-3-small")
+# Vertex AI settings
+VERTEX_PROJECT_ID = os.getenv("VERTEX_PROJECT_ID", "")
+VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "us-central1")
 
 _MIN_TEXT_LENGTH = 50
 
@@ -151,6 +154,8 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
         return _openai_embeddings(texts)
     elif EMBEDDING_PROVIDER == "gemini":
         return _gemini_embeddings(texts)
+    elif EMBEDDING_PROVIDER == "vertex":
+        return _vertex_embeddings(texts)
     else:
         return _openai_embeddings(texts)
 
@@ -180,6 +185,68 @@ def _gemini_embeddings(texts: list[str]) -> list[list[float]]:
     if embeddings and isinstance(embeddings[0], list):
         return embeddings
     return [embeddings]
+
+
+def _vertex_embeddings(texts: list[str]) -> list[list[float]]:
+    """Get embeddings from Vertex AI (text-embedding-004).
+
+    Auth: reads GOOGLE_APPLICATION_CREDENTIALS (service account JSON path)
+    or falls back to VERTEX_CREDENTIALS inline JSON.
+    """
+    import httpx
+    import google.auth
+    import google.auth.transport.requests
+
+    project = VERTEX_PROJECT_ID
+    location = VERTEX_LOCATION
+
+    if not project:
+        raise ValueError("VERTEX_PROJECT_ID is required for Vertex AI embeddings")
+
+    # Try explicit inline credentials first, then ADC
+    credentials_json = os.getenv("VERTEX_CREDENTIALS", "")
+    if credentials_json:
+        import json as _json
+        from google.oauth2.service_account import Credentials
+        creds = Credentials.from_service_account_info(
+            _json.loads(credentials_json),
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+    else:
+        creds, _project = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        if not project:
+            project = _project
+
+    creds.refresh(google.auth.transport.requests.Request())
+    token = creds.token
+
+    url = (
+        f"https://{location}-aiplatform.googleapis.com/v1/"
+        f"projects/{project}/locations/{location}/"
+        f"publishers/google/models/text-embedding-004:predict"
+    )
+
+    instances = [{"content": t} for t in texts]
+
+    resp = httpx.post(
+        url,
+        json={"instances": instances},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        timeout=httpx.Timeout(60.0),
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    # Response shape: {"predictions": [{"embeddings": {"values": [...]}}]}
+    return [
+        pred["embeddings"]["values"]
+        for pred in data["predictions"]
+    ]
 
 
 # ────────────────────────────────────────────────────────────────────

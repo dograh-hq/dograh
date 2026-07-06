@@ -842,6 +842,7 @@ class MPSServiceKeyClient:
         call_type: str,
         use_case: str,
         activity_description: str,
+        language: str = "en",
         organization_id: Optional[int] = None,
         created_by: Optional[str] = None,
     ) -> dict:
@@ -855,6 +856,7 @@ class MPSServiceKeyClient:
             call_type: INBOUND or OUTBOUND
             use_case: Description of the use case
             activity_description: Description of what the agent should do
+            language: Language code (e.g. 'en', 'it') for prompt generation
             organization_id: Organization ID (for authenticated mode)
             created_by: User provider ID (for OSS mode)
 
@@ -871,6 +873,7 @@ class MPSServiceKeyClient:
                     "call_type": call_type,
                     "use_case": use_case,
                     "activity_description": activity_description,
+                    "language": language,
                 },
                 headers=self._get_headers(organization_id, created_by),
             )

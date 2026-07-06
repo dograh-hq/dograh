@@ -1,3 +1,4 @@
+import { useTranslations, useLocale } from 'next-intl';
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
 import * as LucideIcons from "lucide-react";
 import { Check, Circle, Copy, Edit, type LucideIcon, Trash2Icon } from "lucide-react";
@@ -135,6 +136,13 @@ function resolveIntegrationSummary(
         }
     }
     return "Not configured";
+}
+
+function useTranslatedNodeName(nodeType: string, fallback: string): string {
+    const t = useTranslations('nodeNames');
+    const key = `${nodeType}.name`;
+    const translated = t(key);
+    return translated !== key ? translated : fallback;
 }
 
 function getBadgeForSpec(
@@ -602,10 +610,10 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
         ? "Prompt"
         : "Details";
 
-    // Edit dialog title: "Edit {display_name}". Webhook keeps the original
-    // "Edit Webhook" wording — display_name is "Webhook" so it works out.
-    const dialogTitle = spec ? `Edit ${spec.display_name}` : "Edit Node";
-    const fallbackTitle = spec?.display_name ?? "Node";
+    // Edit dialog title: translated node name
+    const translatedNodeName = useTranslatedNodeName(type, spec?.display_name ?? "Node");
+    const dialogTitle = `Edit ${translatedNodeName}`;
+    const fallbackTitle = translatedNodeName;
 
     return (
         <>
@@ -670,6 +678,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                             spec={spec}
                             values={values}
                             onChange={setValues}
+                            nodeType={type}
                             context={{
                                 tools: tools ?? [],
                                 documents: documents ?? [],

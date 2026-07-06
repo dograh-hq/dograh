@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,184 +8,49 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-
 import { type EndCallMessageType } from "../../config";
 
 export interface TransferCallToolConfigProps {
-    name: string;
-    onNameChange: (name: string) => void;
-    description: string;
-    onDescriptionChange: (description: string) => void;
-    destination: string;
-    onDestinationChange: (destination: string) => void;
-    messageType: EndCallMessageType;
-    onMessageTypeChange: (messageType: EndCallMessageType) => void;
-    customMessage: string;
-    onCustomMessageChange: (message: string) => void;
-    audioRecordingId: string;
-    onAudioRecordingIdChange: (id: string) => void;
+    name: string; onNameChange: (n: string) => void;
+    description: string; onDescriptionChange: (d: string) => void;
+    destination: string; onDestinationChange: (d: string) => void;
+    messageType: EndCallMessageType; onMessageTypeChange: (t: EndCallMessageType) => void;
+    customMessage: string; onCustomMessageChange: (m: string) => void;
+    audioRecordingId: string; onAudioRecordingIdChange: (id: string) => void;
     recordings?: RecordingResponseSchema[];
-    timeout?: number;  // Make optional to match API type
-    onTimeoutChange: (timeout: number) => void;
+    timeout?: number; onTimeoutChange: (t: number) => void;
 }
 
 export function TransferCallToolConfig({
-    name,
-    onNameChange,
-    description,
-    onDescriptionChange,
-    destination,
-    onDestinationChange,
-    messageType,
-    onMessageTypeChange,
-    customMessage,
-    onCustomMessageChange,
-    audioRecordingId,
-    onAudioRecordingIdChange,
-    recordings = [],
-    timeout,
-    onTimeoutChange,
+    name, onNameChange, description, onDescriptionChange, destination, onDestinationChange,
+    messageType, onMessageTypeChange, customMessage, onCustomMessageChange,
+    audioRecordingId, onAudioRecordingIdChange, recordings = [], timeout, onTimeoutChange,
 }: TransferCallToolConfigProps) {
+    const t = useTranslations("toolEditor");
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle>Transfer Call Configuration</CardTitle>
-                <CardDescription>
-                    Configure call transfer settings. Supports phone numbers (Twilio) and SIP endpoints (Asterisk ARI).
-                </CardDescription>
-            </CardHeader>
+        <Card><CardHeader><CardTitle>{t("transferTitle")}</CardTitle><CardDescription>{t("transferDesc")}</CardDescription></CardHeader>
             <CardContent className="space-y-6">
-                <div className="grid gap-2">
-                    <Label>Tool Name</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        A descriptive name for this tool
-                    </Label>
-                    <Input
-                        value={name}
-                        onChange={(e) => onNameChange(e.target.value)}
-                        placeholder="e.g., Transfer Call"
-                    />
-                </div>
-
-                <div className="grid gap-2">
-                    <Label>Description</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        Helps the LLM understand when to use this tool
-                    </Label>
-                    <Textarea
-                        value={description}
-                        onChange={(e) => onDescriptionChange(e.target.value)}
-                        placeholder="When should the AI transfer the call?"
-                        rows={3}
-                    />
-                </div>
-
+                <div className="grid gap-2"><Label>{t("toolName")}</Label><Label className="text-xs text-muted-foreground">{t("toolNameHintBuiltin")}</Label><Input value={name} onChange={(e) => onNameChange(e.target.value)} placeholder="e.g., Transfer Call" /></div>
+                <div className="grid gap-2"><Label>{t("description")}</Label><Label className="text-xs text-muted-foreground">{t("transferHint")}</Label><Textarea value={description} onChange={(e) => onDescriptionChange(e.target.value)} placeholder={t("transferPlaceholder")} rows={3} /></div>
                 <div className="grid gap-2 pt-4 border-t">
-                    <Label>Transfer Destination</Label>
-                    <div className="text-xs text-muted-foreground space-y-1">
-                        <p>Enter one of these destination formats:</p>
-                        <ul className="list-disc pl-4 space-y-1">
-                            <li>SIP endpoint, e.g. PJSIP/1234</li>
-                            <li>E.164 phone number, e.g. +1234567890</li>
-                            <li>
-                                Template variable, e.g. {"{{initial_context.transfer_destination}}"}
-                            </li>
-                        </ul>
-                    </div>
-                    <Input
-                        value={destination}
-                        onChange={(e) => onDestinationChange(e.target.value)}
-                        placeholder={
-                            "+1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}"
-                        }
-                    />
+                    <Label>{t("transferDest")}</Label>
+                    <div className="text-xs text-muted-foreground space-y-1"><p>{t("transferDestHint")}</p><ul className="list-disc pl-4 space-y-1"><li>{t("transferDestSip")}</li><li>{t("transferDestE164")}</li><li>{t("transferDestTemplate")}</li></ul></div>
+                    <Input value={destination} onChange={(e) => onDestinationChange(e.target.value)} placeholder={t("transferDestPlaceholder")} />
                 </div>
-
                 <div className="grid gap-4 pt-4 border-t">
-                    <Label>Pre-Transfer Message</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        Choose whether to play a message before transferring
-                    </Label>
-                    <RadioGroup
-                        value={messageType}
-                        onValueChange={(v) => onMessageTypeChange(v as EndCallMessageType)}
-                        className="space-y-3"
-                    >
-                        <label
-                            htmlFor="none"
-                            className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
-                        >
-                            <RadioGroupItem value="none" id="none" />
-                            <div className="flex-1">
-                                <span className="font-medium">No Message</span>
-                                <p className="text-xs text-muted-foreground">
-                                    Transfer the call immediately without any message
-                                </p>
-                            </div>
-                        </label>
-                        <div className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50">
-                            <RadioGroupItem value="custom" id="custom" className="mt-1" />
-                            <label htmlFor="custom" className="flex-1 space-y-2 cursor-pointer">
-                                <span className="font-medium">Custom Message</span>
-                                <p className="text-xs text-muted-foreground">
-                                    Play a custom message before transferring
-                                </p>
-                            </label>
-                        </div>
-                        {messageType === "custom" && (
-                            <div className="pl-8 space-y-2">
-                                <StaticTextWarning />
-                                <Textarea
-                                    value={customMessage}
-                                    onChange={(e) => onCustomMessageChange(e.target.value)}
-                                    placeholder="e.g., Please hold while I transfer your call."
-                                    rows={2}
-                                />
-                            </div>
-                        )}
-                        <div className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50">
-                            <RadioGroupItem value="audio" id="audio" className="mt-1" />
-                            <label htmlFor="audio" className="flex-1 space-y-2 cursor-pointer">
-                                <span className="font-medium">Pre-recorded Audio</span>
-                                <p className="text-xs text-muted-foreground">
-                                    Play a pre-recorded audio file before transferring
-                                </p>
-                            </label>
-                        </div>
-                        {messageType === "audio" && (
-                            <div className="pl-8">
-                                <RecordingSelect
-                                    value={audioRecordingId}
-                                    onChange={onAudioRecordingIdChange}
-                                    recordings={recordings}
-                                />
-                            </div>
-                        )}
+                    <Label>{t("preTransferMessage")}</Label><Label className="text-xs text-muted-foreground">{t("preTransferHint")}</Label>
+                    <RadioGroup value={messageType} onValueChange={(v) => onMessageTypeChange(v as EndCallMessageType)} className="space-y-3">
+                        <label htmlFor="none" className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"><RadioGroupItem value="none" id="none" /><div className="flex-1"><span className="font-medium">{t("noMessage")}</span><p className="text-xs text-muted-foreground">{t("noMessageDesc2")}</p></div></label>
+                        <div className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50"><RadioGroupItem value="custom" id="custom" className="mt-1" /><label htmlFor="custom" className="flex-1 space-y-2 cursor-pointer"><span className="font-medium">{t("customMessageOption")}</span><p className="text-xs text-muted-foreground">{t("customMessageOptionDesc2")}</p></label></div>
+                        {messageType === "custom" && <div className="pl-8 space-y-2"><StaticTextWarning /><Textarea value={customMessage} onChange={(e) => onCustomMessageChange(e.target.value)} placeholder={t("customMessagePlaceholder3")} rows={2} /></div>}
+                        <div className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50"><RadioGroupItem value="audio" id="audio" className="mt-1" /><label htmlFor="audio" className="flex-1 space-y-2 cursor-pointer"><span className="font-medium">{t("preRecordedAudio")}</span><p className="text-xs text-muted-foreground">{t("preRecordedAudioDesc2")}</p></label></div>
+                        {messageType === "audio" && <div className="pl-8"><RecordingSelect value={audioRecordingId} onChange={onAudioRecordingIdChange} recordings={recordings} /></div>}
                     </RadioGroup>
                 </div>
-
                 <div className="grid gap-2 pt-4 border-t">
-                    <Label>Transfer Timeout</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        Maximum time to wait for destination to answer (5-120 seconds)
-                    </Label>
-                    <Input
-                        type="number"
-                        value={timeout ?? 30}
-                        onChange={(e) => {
-                            const value = parseInt(e.target.value) || 30;
-                            // Clamp value between 5 and 120 seconds
-                            const clampedValue = Math.min(Math.max(value, 5), 120);
-                            onTimeoutChange(clampedValue);
-                        }}
-                        placeholder="30"
-                        min="5"
-                        max="120"
-                        className="w-32"
-                    />
-                    <Label className="text-xs text-muted-foreground">
-                        Default: 30 seconds
-                    </Label>
+                    <Label>{t("transferTimeout")}</Label><Label className="text-xs text-muted-foreground">{t("transferTimeoutHint")}</Label>
+                    <Input type="number" value={timeout ?? 30} onChange={(e) => { const v = Math.min(Math.max(parseInt(e.target.value) || 30, 5), 120); onTimeoutChange(v); }} placeholder="30" min="5" max="120" className="w-32" />
+                    <Label className="text-xs text-muted-foreground">{t("transferTimeoutDefault")}</Label>
                 </div>
             </CardContent>
         </Card>

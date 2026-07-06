@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -49,14 +50,14 @@ const ADDRESS_FORMAT_STRIP_RE = /[\s\-()]/g;
 const ADDRESS_E164_RE = /^\+\d{8,15}$/;
 const ADDRESS_BARE_DIGITS_RE = /^\d{8,15}$/;
 
-function validateAddress(rawAddress: string, countryCode: string): string | null {
+function validateAddress(rawAddress: string, countryCode: string, addressRequired: string, addressCountryHint: string): string | null {
   const trimmed = rawAddress.trim();
-  if (!trimmed) return "Address is required";
+  if (!trimmed) return addressRequired;
   if (/^sips?:/i.test(trimmed)) return null;
   const stripped = trimmed.replace(ADDRESS_FORMAT_STRIP_RE, "");
   if (ADDRESS_E164_RE.test(stripped)) return null;
   if (ADDRESS_BARE_DIGITS_RE.test(stripped) && !countryCode.trim()) {
-    return "PSTN addresses without a leading '+' need a Country (ISO-2) hint, or include the country code in the address (e.g. +14155551234).";
+    return addressCountryHint;
   }
   return null;
 }
@@ -68,6 +69,7 @@ export function PhoneNumberDialog({
   existing,
   onSaved,
 }: PhoneNumberDialogProps) {
+  const t = useTranslations("phoneNumberForm");
   const { user, getAccessToken } = useAuth();
   const isEdit = !!existing;
 
@@ -96,7 +98,7 @@ export function PhoneNumberDialog({
   }, [open, existing]);
 
   // Only validate the address on create — edits keep the immutable address.
-  const addressError = isEdit ? null : validateAddress(address, countryCode);
+  const addressError = isEdit ? null : validateAddress(address, countryCode, t("addressRequired"), t("addressCountryHint"));
 
   // Load workflows for the inbound dropdown.
   useEffect(() => {
@@ -119,7 +121,7 @@ export function PhoneNumberDialog({
 
   const handleSubmit = async () => {
     if (!isEdit) {
-      const err = validateAddress(address, countryCode);
+      const err = validateAddress(address, countryCode, t("addressRequired"), t("addressCountryHint"));
       if (err) {
         setAddressTouched(true);
         toast.error(err);
@@ -147,9 +149,9 @@ export function PhoneNumberDialog({
             },
           },
         );
-        if (res.error) throw new Error(detailFromError(res.error, "Failed to save phone number"));
+        if (res.error) throw new Error(detailFromError(res.error, t("saveFailed")));
         providerSync = res.data?.provider_sync;
-        toast.success("Phone number updated");
+        toast.success(t("updated"));
       } else {
         const res = await createPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPost(
           {
@@ -165,20 +167,19 @@ export function PhoneNumberDialog({
             },
           },
         );
-        if (res.error) throw new Error(detailFromError(res.error, "Failed to save phone number"));
+        if (res.error) throw new Error(detailFromError(res.error, t("saveFailed")));
         providerSync = res.data?.provider_sync;
-        toast.success("Phone number added");
+        toast.success(t("added"));
       }
       if (providerSync && !providerSync.ok) {
         toast.warning(
-          providerSync.message ??
-            "Saved, but failed to sync inbound webhook to the provider.",
+          providerSync.message ?? t("syncFailed"),
         );
       }
       onOpenChange(false);
       onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save phone number");
+      toast.error(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -189,19 +190,19 @@ export function PhoneNumberDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? "Edit phone number" : "Add phone number"}
+            {isEdit ? t("editTitle") : t("addTitle")}
           </DialogTitle>
           <DialogDescription>
-            PSTN numbers (E.164), SIP URIs (sip:user@host), and SIP extensions are all supported.
+            {t("dialogDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1">
-            <Label htmlFor="pn-address">Address</Label>
+            <Label htmlFor="pn-address">{t("address")}</Label>
             <Input
               id="pn-address"
-              placeholder="+19781899185, sip:101@asterisk.local, or 101"
+              placeholder={t("addressPlaceholder")}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               onBlur={() => setAddressTouched(true)}
@@ -213,20 +214,19 @@ export function PhoneNumberDialog({
             )}
             {isEdit && (
               <p className="text-xs text-muted-foreground">
-                Address cannot be changed. Delete this number and create a new one to
-                change it.
+                {t("addressLocked")}
               </p>
             )}
             {isEdit && (
               <p className="text-xs text-muted-foreground">
-                Stored as <code>{existing?.address_normalized}</code> ({existing?.address_type})
+                {t("storedAs")} <code>{existing?.address_normalized}</code> ({existing?.address_type})
               </p>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label htmlFor="pn-country">Country (ISO-2)</Label>
+              <Label htmlFor="pn-country">{t("country")}</Label>
               <Input
                 id="pn-country"
                 placeholder="US"
@@ -236,10 +236,10 @@ export function PhoneNumberDialog({
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="pn-label">Label</Label>
+              <Label htmlFor="pn-label">{t("label")}</Label>
               <Input
                 id="pn-label"
-                placeholder="e.g. Boston caller ID"
+                placeholder={t("labelPlaceholder")}
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />
@@ -247,13 +247,13 @@ export function PhoneNumberDialog({
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="pn-workflow">Inbound workflow</Label>
+            <Label htmlFor="pn-workflow">{t("inboundWorkflow")}</Label>
             <Select value={inboundWorkflowId} onValueChange={setInboundWorkflowId}>
               <SelectTrigger id="pn-workflow">
-                <SelectValue placeholder="(none)" />
+                <SelectValue placeholder={t("none")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_WORKFLOW}>(none)</SelectItem>
+                <SelectItem value={NO_WORKFLOW}>{t("none")}</SelectItem>
                 {workflows.map((w) => (
                   <SelectItem key={w.id} value={String(w.id)}>
                     #{w.id} - {w.name}
@@ -262,22 +262,21 @@ export function PhoneNumberDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Used when per-number inbound routing is enabled. Today, inbound calls still
-              route by the workflow_id in the webhook URL.
+              {t("inboundHelp")}
             </p>
           </div>
 
           <div className="flex items-center justify-between rounded border p-3">
-            <Label className="text-sm">Active</Label>
+            <Label className="text-sm">{t("active")}</Label>
             <Switch checked={isActive} onCheckedChange={setIsActive} />
           </div>
 
           {!isEdit && (
             <div className="flex items-center justify-between rounded border p-3">
               <div>
-                <Label className="text-sm">Default caller ID for this configuration</Label>
+                <Label className="text-sm">{t("defaultCallerId")}</Label>
                 <p className="text-xs text-muted-foreground">
-                  Used as the from-number for test calls when set.
+                  {t("defaultCallerIdDesc")}
                 </p>
               </div>
               <Switch
@@ -290,13 +289,13 @@ export function PhoneNumberDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button
             onClick={handleSubmit}
             disabled={submitting || (!isEdit && !!addressError)}
           >
-            {submitting ? "Saving..." : isEdit ? "Save changes" : "Add"}
+            {submitting ? t("saving") : isEdit ? t("save") : t("add")}
           </Button>
         </DialogFooter>
       </DialogContent>

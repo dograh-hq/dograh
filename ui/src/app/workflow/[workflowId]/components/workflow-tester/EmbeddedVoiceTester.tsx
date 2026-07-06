@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Loader2, Phone, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
@@ -28,6 +29,7 @@ export function EmbeddedVoiceTester({
     onReset,
     onNodeTransition,
 }: EmbeddedVoiceTesterProps) {
+    const t = useTranslations("tester");
     const router = useRouter();
     const {
         audioRef,

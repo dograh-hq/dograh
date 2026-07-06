@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from 'next-intl';
 import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -32,6 +33,7 @@ import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../Ca
 import CsvUploadSelector from '../CsvUploadSelector';
 
 export default function NewCampaignPage() {
+    const t = useTranslations('campaignNew');
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const router = useRouter();
 
@@ -109,11 +111,11 @@ export default function NewCampaignPage() {
             }
         } catch (error) {
             console.error('Failed to fetch workflows:', error);
-            toast.error('Failed to load workflows');
+            toast.error(t('loadWorkflowsFailed'));
         } finally {
             setIsLoadingWorkflows(false);
         }
-    }, [user, getAccessToken]);
+    }, [user, getAccessToken, t]);
 
     // Fetch telephony configurations
     const fetchTelephonyConfigs = useCallback(async () => {
@@ -136,11 +138,11 @@ export default function NewCampaignPage() {
             }
         } catch (error) {
             console.error('Failed to fetch telephony configurations:', error);
-            toast.error('Failed to load telephony configurations');
+            toast.error(t('loadTelephonyConfigsFailed'));
         } finally {
             setIsLoadingTelephonyConfigs(false);
         }
-    }, [user, getAccessToken]);
+    }, [user, getAccessToken, t]);
 
     // Fetch campaign limits
     const fetchCampaignDefaults = useCallback(async () => {
@@ -165,7 +167,6 @@ export default function NewCampaignPage() {
                 } | null }).last_campaign_settings;
 
                 if (last) {
-                    // Pre-populate from last campaign
                     if (last.retry_config) {
                         setRetryEnabled(last.retry_config.enabled);
                         setMaxRetries(String(last.retry_config.max_retries));
@@ -197,7 +198,6 @@ export default function NewCampaignPage() {
                         setCircuitBreakerMinCalls(String(last.circuit_breaker.min_calls_in_window));
                     }
                 } else {
-                    // No previous campaign — use defaults
                     const retryConfig = response.data.default_retry_config;
                     setRetryEnabled(retryConfig.enabled);
                     setMaxRetries(String(retryConfig.max_retries));
@@ -240,7 +240,7 @@ export default function NewCampaignPage() {
         setCreateError(null);
 
         if (!campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId) {
-            toast.error('Please fill in all fields');
+            toast.error(t('fillAllFields'));
             return;
         }
 
@@ -248,14 +248,14 @@ export default function NewCampaignPage() {
         const maxConcurrencyValue = maxConcurrency ? parseInt(maxConcurrency) : null;
         if (maxConcurrencyValue !== null) {
             if (isNaN(maxConcurrencyValue) || maxConcurrencyValue < 1 || maxConcurrencyValue > 100) {
-                toast.error('Max concurrent calls must be between 1 and 100');
+                toast.error(t('maxConcurrencyRange'));
                 return;
             }
             if (maxConcurrencyValue > effectiveLimit) {
                 if (availableFromNumbersCount > 0 && availableFromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. The selected configuration has ${availableFromNumbersCount} phone number(s) - add more CLIs to increase concurrency.`);
+                    toast.error(t('maxConcurrencyExceeded', { limit: effectiveLimit, count: availableFromNumbersCount }));
                 } else {
-                    toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
+                    toast.error(t('maxConcurrencyOrgLimit', { limit: effectiveLimit }));
                 }
                 return;
             }
@@ -275,7 +275,6 @@ export default function NewCampaignPage() {
                 retry_on_voicemail: retryOnVoicemail,
             };
 
-            // Build schedule_config if enabled
             const timezoneValue = getTimezoneValue(scheduleTimezone);
             const scheduleConfig = scheduleEnabled && timeSlots.length > 0
                 ? {
@@ -285,7 +284,6 @@ export default function NewCampaignPage() {
                 }
                 : undefined;
 
-            // Build circuit_breaker config
             const circuitBreakerConfig = {
                 enabled: circuitBreakerEnabled,
                 failure_threshold: (parseInt(circuitBreakerFailureThreshold) || 50) / 100,
@@ -312,21 +310,20 @@ export default function NewCampaignPage() {
             });
 
             if (response.error) {
-                // Extract error message from API response
                 const errorDetail = (response.error as { detail?: string })?.detail;
-                const errorMessage = errorDetail || 'Failed to create campaign';
+                const errorMessage = errorDetail || t('createFailed');
                 setCreateError(errorMessage);
                 toast.error(errorMessage);
                 return;
             }
 
             if (response.data) {
-                toast.success('Campaign created successfully');
+                toast.success(t('createdSuccessfully'));
                 router.push(`/campaigns/${response.data.id}`);
             }
         } catch (error: unknown) {
             console.error('Failed to create campaign:', error);
-            const errorMessage = 'Failed to create campaign';
+            const errorMessage = t('createFailed');
             setCreateError(errorMessage);
             toast.error(errorMessage);
         } finally {
@@ -355,54 +352,54 @@ export default function NewCampaignPage() {
                     className="mb-4"
                 >
                     <ArrowLeft className="h-4 w-4 mr-2" />
-                    Back to Campaigns
+                    {t('back')}
                 </Button>
-                <h1 className="text-3xl font-bold mb-2">Create New Campaign</h1>
-                <p className="text-muted-foreground">Set up a new campaign to execute workflows at scale</p>
+                <h1 className="text-3xl font-bold mb-2">{t('title')}</h1>
+                <p className="text-muted-foreground">{t('descriptionExtended')}</p>
             </div>
 
             <Card>
                     <CardHeader>
-                        <CardTitle>Campaign Details</CardTitle>
+                        <CardTitle>{t('campaignDetails')}</CardTitle>
                         <CardDescription>
-                            Configure your campaign settings
+                            {t('campaignDetailsDesc')}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleSubmit} className="space-y-6">
                             <div className="space-y-2">
-                                <Label htmlFor="campaign-name">Campaign Name</Label>
+                                <Label htmlFor="campaign-name">{t('campaignName')}</Label>
                                 <Input
                                     id="campaign-name"
-                                    placeholder="Enter campaign name"
+                                    placeholder={t('campaignNamePlaceholder')}
                                     value={campaignName}
                                     onChange={(e) => setCampaignName(e.target.value)}
                                     maxLength={255}
                                     required
                                 />
                                 <p className="text-sm text-muted-foreground">
-                                    Choose a descriptive name for your campaign
+                                    {t('campaignNameHint')}
                                 </p>
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="workflow">Workflow</Label>
+                                <Label htmlFor="workflow">{t('workflow')}</Label>
                                 <Select
                                     value={selectedWorkflowId}
                                     onValueChange={setSelectedWorkflowId}
                                     required
                                 >
                                     <SelectTrigger id="workflow">
-                                        <SelectValue placeholder="Select a workflow" />
+                                        <SelectValue placeholder={t('workflowPlaceholder')} />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {isLoadingWorkflows ? (
                                             <SelectItem value="loading" disabled>
-                                                Loading workflows...
+                                                {t('workflowLoading')}
                                             </SelectItem>
                                         ) : workflows.length === 0 ? (
                                             <SelectItem value="none" disabled>
-                                                No workflows found
+                                                {t('workflowEmpty')}
                                             </SelectItem>
                                         ) : (
                                             workflows.map((workflow) => (
@@ -417,22 +414,22 @@ export default function NewCampaignPage() {
                                     </SelectContent>
                                 </Select>
                                 <p className="text-sm text-muted-foreground">
-                                    Select the workflow to execute for each row in the data source
+                                    {t('workflowHint')}
                                 </p>
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="telephony-config">Telephony Configuration</Label>
+                                <Label htmlFor="telephony-config">{t('telephonyConfig')}</Label>
                                 {!isLoadingTelephonyConfigs && telephonyConfigs.length === 0 ? (
                                     <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                                        No telephony configurations yet.{' '}
+                                        {t('telephonyConfigEmpty')}{' '}
                                         <Link
                                             href="/telephony-configurations"
                                             className="underline text-foreground"
                                         >
-                                            Add one
+                                            {t('telephonyConfigAddOne')}
                                         </Link>{' '}
-                                        to create a campaign.
+                                        {t('telephonyConfigAddToCreate')}
                                     </div>
                                 ) : (
                                     <Select
@@ -441,12 +438,12 @@ export default function NewCampaignPage() {
                                         required
                                     >
                                         <SelectTrigger id="telephony-config">
-                                            <SelectValue placeholder="Select a telephony configuration" />
+                                            <SelectValue placeholder={t('telephonyConfigPlaceholder')} />
                                         </SelectTrigger>
                                         <SelectContent>
                                             {isLoadingTelephonyConfigs ? (
                                                 <SelectItem value="loading" disabled>
-                                                    Loading configurations...
+                                                    {t('telephonyConfigLoading')}
                                                 </SelectItem>
                                             ) : (
                                                 telephonyConfigs.map((config) => (
@@ -455,7 +452,7 @@ export default function NewCampaignPage() {
                                                         value={config.id.toString()}
                                                     >
                                                         {config.name} ({config.provider})
-                                                        {config.is_default_outbound ? ' - default' : ''}
+                                                        {config.is_default_outbound ? t('telephonyConfigDefault') : ''}
                                                     </SelectItem>
                                                 ))
                                             )}
@@ -463,12 +460,12 @@ export default function NewCampaignPage() {
                                     </Select>
                                 )}
                                 <p className="text-sm text-muted-foreground">
-                                    Outbound calls for this campaign will use this configuration&apos;s caller IDs
+                                    {t('telephonyConfigHint')}
                                 </p>
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="source-type">Data Source Type</Label>
+                                <Label htmlFor="source-type">{t('dataSourceType')}</Label>
                                 <Select
                                     value={sourceType}
                                     onValueChange={(value) => {
@@ -479,14 +476,14 @@ export default function NewCampaignPage() {
                                     required
                                 >
                                     <SelectTrigger id="source-type">
-                                        <SelectValue placeholder="Select source type" />
+                                        <SelectValue placeholder={t('dataSourceTypePlaceholder')} />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="csv">CSV File</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <p className="text-sm text-muted-foreground">
-                                    Choose where your contact data is stored
+                                    {t('dataSourceTypeHint')}
                                 </p>
                             </div>
 
@@ -502,7 +499,7 @@ export default function NewCampaignPage() {
                                 className="border rounded-lg"
                             >
                                 <CollapsibleTrigger className="flex items-center justify-between w-full p-4 hover:bg-muted/50 transition-colors">
-                                    <span className="font-medium">Advanced Settings</span>
+                                    <span className="font-medium">{t('advancedSettings')}</span>
                                     {showAdvancedSettings ? (
                                         <ChevronDown className="h-4 w-4" />
                                     ) : (
@@ -557,7 +554,7 @@ export default function NewCampaignPage() {
                                     type="submit"
                                     disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId}
                                 >
-                                    {isSubmitting ? 'Creating...' : 'Create Campaign'}
+                                    {isSubmitting ? t('creating') : t('createCampaign')}
                                 </Button>
                                 <Button
                                     type="button"
@@ -565,7 +562,7 @@ export default function NewCampaignPage() {
                                     onClick={handleBack}
                                     disabled={isSubmitting}
                                 >
-                                    Cancel
+                                    {t('cancel')}
                                 </Button>
                             </div>
                         </form>

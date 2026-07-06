@@ -950,6 +950,48 @@ class OpenAITTSService(BaseTTSConfiguration):
     )
 
 
+GOOGLE_VERTEX_TTS_MODELS = ("chirp_3_hd",)
+GOOGLE_VERTEX_TTS_VOICES = ("en-US-Chirp3-HD-Charon",)
+
+
+@register_tts
+class GoogleVertexTTSConfiguration(BaseTTSConfiguration):
+    model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
+    model: str = Field(
+        default="chirp_3_hd",
+        description="Google Cloud Text-to-Speech model on Vertex AI.",
+        json_schema_extra={"examples": GOOGLE_VERTEX_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="en-US-Chirp3-HD-Charon",
+        description="Voice name for TTS synthesis.",
+        json_schema_extra={"examples": GOOGLE_VERTEX_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for synthesis.",
+    )
+    speed: float = Field(default=1.0, ge=0.25, le=2.0, description="Speech speed multiplier.")
+    project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
+    location: str = Field(
+        default="europe-west2",
+        description="GCP region for the Vertex AI TTS endpoint.",
+    )
+    credentials: str | None = Field(
+        default=None,
+        description=(
+            "Paste the entire service-account JSON file contents. If omitted, "
+            "falls back to Application Default Credentials (ADC)."
+        ),
+        json_schema_extra={"multiline": True},
+    )
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description="Not used for Vertex AI. Leave blank.",
+    )
+
+
 DOGRAH_TTS_MODELS = ["default"]
 
 
@@ -1280,6 +1322,7 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
 
 TTSConfig = Annotated[
     Union[
+        GoogleVertexTTSConfiguration,
         DeepgramTTSConfiguration,
         GoogleTTSConfiguration,
         OpenAITTSService,
@@ -1403,6 +1446,42 @@ class GoogleSTTConfiguration(BaseSTTConfiguration):
     api_key: str | list[str] | None = Field(
         default=None,
         description="Not used for Google Cloud STT. Leave blank.",
+    )
+
+
+GOOGLE_VERTEX_STT_MODELS = ("latest_long", "latest_short", "chirp_3")
+
+
+@register_stt
+class GoogleVertexSTTConfiguration(BaseSTTConfiguration):
+    model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
+    model: str = Field(
+        default="latest_long",
+        description="Google Cloud Speech-to-Text V2 model on Vertex AI.",
+        json_schema_extra={"examples": GOOGLE_VERTEX_STT_MODELS, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en-US",
+        description="Primary BCP-47 language code for recognition.",
+        json_schema_extra={"examples": GOOGLE_STT_LANGUAGES, "allow_custom_input": True},
+    )
+    project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
+    location: str = Field(
+        default="europe-west2",
+        description="GCP region for the Vertex AI STT endpoint.",
+    )
+    credentials: str | None = Field(
+        default=None,
+        description=(
+            "Paste the entire service-account JSON file contents. If omitted, "
+            "falls back to Application Default Credentials (ADC)."
+        ),
+        json_schema_extra={"multiline": True},
+    )
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description="Not used for Vertex AI. Leave blank.",
     )
 
 
@@ -1662,6 +1741,7 @@ class SmallestAISTTConfiguration(BaseSTTConfiguration):
 
 STTConfig = Annotated[
     Union[
+        GoogleVertexSTTConfiguration,
         DeepgramSTTConfiguration,
         CartesiaSTTConfiguration,
         OpenAISTTConfiguration,
@@ -1752,8 +1832,40 @@ class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
+GOOGLE_VERTEX_EMBEDDING_MODELS = ("text-embedding-004",)
+
+
+@register_embeddings
+class GoogleVertexEmbeddingConfiguration(BaseEmbeddingsConfiguration):
+    model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
+    model: str = Field(
+        default="text-embedding-004",
+        description="Vertex AI embedding model.",
+        json_schema_extra={"examples": GOOGLE_VERTEX_EMBEDDING_MODELS},
+    )
+    project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
+    location: str = Field(
+        default="europe-west2",
+        description="GCP region for the Vertex AI endpoint.",
+    )
+    credentials: str | None = Field(
+        default=None,
+        description=(
+            "Paste the entire service-account JSON file contents. If omitted, "
+            "falls back to Application Default Credentials (ADC)."
+        ),
+        json_schema_extra={"multiline": True},
+    )
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description="Not used for Vertex AI. Leave blank.",
+    )
+
+
 EmbeddingsConfig = Annotated[
     Union[
+        GoogleVertexEmbeddingConfiguration,
         OpenAIEmbeddingsConfiguration,
         OpenRouterEmbeddingsConfiguration,
         AzureOpenAIEmbeddingsConfiguration,

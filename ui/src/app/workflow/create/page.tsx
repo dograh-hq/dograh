@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { useState } from 'react';
 
 import { createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost } from '@/client/sdk.gen';
@@ -25,6 +25,8 @@ import logger from '@/lib/logger';
 export default function CreateWorkflowPage() {
     const router = useRouter();
     const t = useTranslations('workflowCreate');
+    const locale = useLocale();
+    const langName = locale === 'it' ? 'Italiano' : 'English';
     const { user, getAccessToken } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -54,11 +56,14 @@ export default function CreateWorkflowPage() {
 
             // Call the API to create workflow from template
             const response = await createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost({
+                // Cast body as any since `language` is a new field not yet in the generated SDK.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 body: {
                     call_type: callType,
                     use_case: useCase,
                     activity_description: activityDescription,
-                },
+                    language: locale,
+                } as any,
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                 },
@@ -203,7 +208,7 @@ export default function CreateWorkflowPage() {
                                     {t('successDesc1')}
                                 </p>
                                 <p>
-                                    {t('successDesc2')}
+                                    {t('successDesc2', { language: langName })}
                                 </p>
                                 <p>
                                     {t('successDesc3')}

@@ -321,6 +321,7 @@ class CreateWorkflowTemplateRequest(BaseModel):
     call_type: Literal[CallType.INBOUND.value, CallType.OUTBOUND.value]
     use_case: str
     activity_description: str
+    language: str = "en"
 
 
 @router.post("/{workflow_id}/validate")
@@ -495,6 +496,7 @@ async def create_workflow_from_template(
                 call_type=request.call_type.upper(),
                 use_case=request.use_case,
                 activity_description=request.activity_description,
+                language=request.language,
                 created_by=str(user.provider_id),
             )
         else:
@@ -505,6 +507,7 @@ async def create_workflow_from_template(
                 call_type=request.call_type.upper(),
                 use_case=request.use_case,
                 activity_description=request.activity_description,
+                language=request.language,
                 organization_id=user.selected_organization_id,
             )
 

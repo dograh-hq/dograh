@@ -145,7 +145,7 @@ export function WorkflowTable({
                         {workflows.map((workflow) => (
                             <TableRow
                                 key={workflow.id}
-                                className={`hover:bg-accent transition-colors ${showArchived ? 'opacity-60' : ''}`}
+                                className={`hover:bg-muted/50 transition-colors ${showArchived ? 'opacity-60' : ''}`}
                             >
                                 <TableCell className="text-muted-foreground">
                                     {workflow.id}

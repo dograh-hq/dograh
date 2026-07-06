@@ -1,4 +1,4 @@
-import { useTranslations } from 'next-intl';
+import { useTranslations, useMessages } from 'next-intl';
 
 import * as LucideIcons from 'lucide-react';
 import { Circle, ExternalLink, type LucideIcon, X } from 'lucide-react';
@@ -9,6 +9,27 @@ import { useNodeSpecs } from '@/components/flow/renderer';
 import { Button } from '@/components/ui/button';
 
 import { FlowNode, NodeType } from './types';
+
+/** Resolve a translated node name, falling back to spec.display_name. */
+function useNodeName(nodeType: string | undefined, fallback: string): string {
+    const t = useTranslations('nodeNames');
+    const messages = useMessages() as Record<string, Record<string, string>>;
+    if (!nodeType) return fallback;
+    const exists = messages?.nodeNames?.[nodeType]?.name;
+    if (!exists) return fallback;
+    const translated = t(`${nodeType}.name`);
+    return translated;
+}
+
+function useNodeDesc(nodeType: string | undefined, fallback?: string): string | undefined {
+    const t = useTranslations('nodeNames');
+    const messages = useMessages() as Record<string, Record<string, string>>;
+    if (!nodeType) return fallback;
+    const exists = messages?.nodeNames?.[nodeType]?.desc;
+    if (!exists) return fallback;
+    const translated = t(`${nodeType}.desc`);
+    return translated;
+}
 
 type AddNodePanelProps = {
     isOpen: boolean;
@@ -63,6 +84,8 @@ function NodeSection({
                         maxInstances !== undefined &&
                         maxInstances !== null &&
                         (nodeTypeCounts.get(spec.name) ?? 0) >= maxInstances;
+                    const nodeName = useNodeName(spec.name, spec.display_name);
+                    const nodeDesc = useNodeDesc(spec.name, spec.description);
                     return (
                         <Button
                             key={spec.name}
@@ -72,7 +95,7 @@ function NodeSection({
                             disabled={disabled}
                             title={
                                 disabled
-                                    ? `${spec.display_name} limit reached for this workflow`
+                                    ? `${nodeName} limit reached for this workflow`
                                     : undefined
                             }
                         >
@@ -82,10 +105,10 @@ function NodeSection({
                                 </div>
                                 <div className="flex flex-col items-start text-left min-w-0">
                                     <span className="font-medium text-sm">
-                                        {spec.display_name}
+                                        {nodeName}
                                     </span>
                                     <span className="text-xs text-muted-foreground whitespace-normal">
-                                        {spec.description}
+                                        {nodeDesc}
                                     </span>
                                 </div>
                             </div>
@@ -138,6 +161,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: A
                 <div className="flex justify-between items-center mb-6">
                     <div className="flex flex-col gap-1">
                         <h2 className="text-lg font-semibold">{t('addNewNode')}</h2>
+                        {process.env.NEXT_PUBLIC_SHOW_DOCS_LINKS !== "false" && (
                         <a
                             href="https://docs.dograh.com/voice-agent/introduction"
                             target="_blank"
@@ -147,6 +171,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: A
                             <ExternalLink className="w-3 h-3" />
                             {t('viewNodesDocs')}
                         </a>
+                        )}
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose}>
                         <X className="w-5 h-5" />

@@ -224,6 +224,10 @@ services:
       # LANGFUSE_PUBLIC_KEY: ""
       # LANGFUSE_HOST: ""
 
+      # Local MPS Gateway — set to http://local-mps:9000 when using the
+      # local-mps profile. Leave empty to use cloud MPS (services.dograh.com).
+      MPS_API_URL: "${MPS_API_URL:-}"
+
       # TURN server configuration (for WebRTC NAT traversal in remote server)
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
       TURN_HOST: "${TURN_HOST:-}"
@@ -293,6 +297,39 @@ services:
     networks:
       - app-network
 
+  # ────────────────────────────────────────────────────────────────
+  # Local MPS Gateway — replaces Dograh cloud MPS for offline use.
+  # Enables Agent Builder (workflow generation) and document
+  # processing without internet connectivity.
+  # Start with: docker compose --profile local-mps up -d local-mps
+  # ────────────────────────────────────────────────────────────────
+  local-mps:
+    build:
+      context: .
+      dockerfile: api/Dockerfile.mps
+    image: dograh-local-mps:latest
+    profiles: ["local-mps"]
+    container_name: dograh_local_mps
+    restart: unless-stopped
+    environment:
+      LOCAL_MPS_PORT: "9000"
+      LOCAL_MPS_DATA_DIR: "/data/docstore"
+      LOCAL_MPS_EMBEDDING_PROVIDER: "${MPS_EMBEDDING_PROVIDER:-openai}"
+      LOCAL_MPS_EMBEDDING_MODEL: "${MPS_EMBEDDING_MODEL:-text-embedding-3-small}"
+      LOCAL_MPS_CHUNK_SIZE: "${MPS_CHUNK_SIZE:-512}"
+      LOCAL_MPS_CHUNK_OVERLAP: "${MPS_CHUNK_OVERLAP:-64}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_API_URL: "${OPENAI_API_URL:-https://api.openai.com/v1}"
+    volumes:
+      - mps-docstore:/data/docstore
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
   # Cloudflare tunnel for inbound webhook / WSS reachability when the host has no
   # usable public IP (behind NAT or a firewall). Gated behind the "tunnel" profile
   # so public-IP installs (served directly by nginx) never start it, and the api
@@ -335,6 +372,8 @@ volumes:
   nginx-generated:
     driver: local
   coturn-generated:
+    driver: local
+  mps-docstore:
     driver: local
 
 networks:

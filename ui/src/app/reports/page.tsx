@@ -156,7 +156,7 @@ export default function ReportsPage() {
 
       if (response.data && response.data.length > 0) {
         // Prepare CSV content
-        const headers = ['Phone Number', 'Disposition', 'Duration (seconds)', 'Workflow Run URL'];
+        const headers = [t('csv.phoneNumber'), t('csv.disposition'), t('csv.duration'), t('csv.workflowRunUrl')];
         const rows = response.data.map((run: WorkflowRunDetail) => {
           const url = `${window.location.origin}/workflow/${run.workflow_id}/run/${run.run_id}`;
           return [

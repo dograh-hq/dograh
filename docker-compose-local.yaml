@@ -46,7 +46,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
       MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
-      - "127.0.0.1:9000:9000" # Bind to localhost explicitly
+      - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
@@ -58,10 +58,43 @@ services:
     networks:
       - app-network
 
+  # ────────────────────────────────────────────────────────────────
+  # Local MPS Gateway — replaces Dograh cloud MPS for offline dev.
+  # Start with: docker compose -f docker-compose-local.yaml --profile local-mps up -d local-mps
+  # Then set in api/.env: MPS_API_URL=http://localhost:9000
+  # ────────────────────────────────────────────────────────────────
+  local-mps:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile.mps
+    image: dograh-local-mps:latest
+    profiles: ["local-mps"]
+    container_name: dograh_local_mps
+    restart: unless-stopped
+    environment:
+      LOCAL_MPS_PORT: "9000"
+      LOCAL_MPS_DATA_DIR: "/data/docstore"
+      LOCAL_MPS_EMBEDDING_PROVIDER: "openai"
+      LOCAL_MPS_EMBEDDING_MODEL: "text-embedding-3-small"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+    ports:
+      - "9000:9000"
+    volumes:
+      - mps-docstore:/data/docstore
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  mps-docstore:
+    driver: local
 
 networks:
   app-network:

@@ -200,7 +200,7 @@ def create_stt_service(
             should_interrupt=False,  # Let UserAggregator own interruption confirmation.
             **kwargs,
         )
-    elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
+    elif user_config.stt.provider == ServiceProviders.GOOGLE.value or user_config.stt.provider == ServiceProviders.GOOGLE_VERTEX.value:
         language = getattr(user_config.stt, "language", None) or "en-US"
         location = getattr(user_config.stt, "location", None) or "global"
         credentials = getattr(user_config.stt, "credentials", None)
@@ -457,7 +457,7 @@ def create_tts_service(
             silence_time_s=1.0,
             **kwargs,
         )
-    elif user_config.tts.provider == ServiceProviders.GOOGLE.value:
+    elif user_config.tts.provider == ServiceProviders.GOOGLE.value or user_config.tts.provider == ServiceProviders.GOOGLE_VERTEX.value:
         model = getattr(user_config.tts, "model", None) or "chirp_3_hd"
         language = getattr(user_config.tts, "language", None) or "en-US"
         voice = getattr(user_config.tts, "voice", None) or "en-US-Chirp3-HD-Charon"

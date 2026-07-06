@@ -60,6 +60,14 @@ export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfig
     long_speech_timeout: 8.0,
 };
 
+export interface TranscriptConfiguration {
+    include_end_timestamps: boolean;
+}
+
+export const DEFAULT_TRANSCRIPT_CONFIGURATION: TranscriptConfiguration = {
+    include_end_timestamps: false,
+};
+
 export interface ModelOverrides {
     llm?: {
         provider?: string;
@@ -115,6 +123,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     turn_stop_strategy: TurnStopStrategy;  // Strategy for detecting end of user turn
     dictionary?: string;  // Comma-separated words for voice agent to listen for
     voicemail_detection?: VoicemailDetectionConfiguration;
+    transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
@@ -134,6 +143,7 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     provisional_vad_pause_secs: DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     turn_stop_strategy: 'transcription',  // Default to transcription-based detection
     dictionary: '',
+    transcript_configuration: DEFAULT_TRANSCRIPT_CONFIGURATION,
     context_compaction_enabled: false,
 };
 
@@ -186,5 +196,9 @@ export function resolveWorkflowConfigurations(
             configurations?.context_compaction_enabled
             ?? defaults?.context_compaction_enabled
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
+        transcript_configuration: {
+            ...DEFAULT_TRANSCRIPT_CONFIGURATION,
+            ...(configurations?.transcript_configuration as Partial<TranscriptConfiguration> | undefined),
+        },
     };
 }

@@ -1,7 +1,14 @@
 from types import SimpleNamespace
 
 import pytest
-from pipecat.frames.frames import TranscriptionFrame, TTSTextFrame
+from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    TranscriptionFrame,
+    TTSTextFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
+)
 from pipecat.observers.base_observer import FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_output import BaseOutputTransport
@@ -144,3 +151,55 @@ async def test_turn_log_handlers_persist_user_message_added_events():
         "timestamp": "2026-01-01T00:00:00+00:00",
     }
     assert events[0]["turn"] == 1
+
+
+@pytest.mark.asyncio
+async def test_observer_attaches_backend_speaking_intervals_to_logged_transcript_events():
+    async def ws_sender(_message):
+        pass
+
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=123)
+    observer = RealtimeFeedbackObserver(ws_sender=ws_sender, logs_buffer=logs_buffer)
+
+    user_aggregator = _FakeAggregator()
+    assistant_aggregator = _FakeAggregator()
+    register_turn_log_handlers(logs_buffer, user_aggregator, assistant_aggregator)
+
+    await observer.on_push_frame(
+        _frame_pushed(UserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+    )
+    await observer.on_push_frame(
+        _frame_pushed(UserStoppedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+    )
+    await user_aggregator.handlers["on_user_turn_message_added"](
+        user_aggregator,
+        SimpleNamespace(
+            content="January fifth",
+            timestamp="aggregator-user-start",
+        ),
+    )
+
+    await observer.on_push_frame(
+        _frame_pushed(BotStartedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+    )
+    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
+        assistant_aggregator,
+        SimpleNamespace(
+            content="Thank you",
+            timestamp="aggregator-bot-start",
+        ),
+    )
+    await observer.on_push_frame(
+        _frame_pushed(BotStoppedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+    )
+
+    user_event, bot_event = [
+        event
+        for event in logs_buffer.get_events()
+        if event["type"] in {"rtf-user-transcription", "rtf-bot-text"}
+    ]
+
+    assert user_event["payload"]["timestamp"] != "aggregator-user-start"
+    assert user_event["payload"]["end_timestamp"]
+    assert bot_event["payload"]["timestamp"] != "aggregator-bot-start"
+    assert bot_event["payload"]["end_timestamp"]

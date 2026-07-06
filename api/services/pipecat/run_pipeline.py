@@ -545,6 +545,10 @@ async def _run_pipeline_impl(
     max_call_duration_seconds = DEFAULT_MAX_CALL_DURATION_SECONDS
     max_user_idle_timeout = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     keyterms = None  # Dictionary words for STT boosting
+    transcript_config = run_configs.get("transcript_configuration") or {}
+    include_transcript_end_timestamps = bool(
+        transcript_config.get("include_end_timestamps", False)
+    )
 
     if run_configs:
         if "max_call_duration" in run_configs:
@@ -1045,6 +1049,7 @@ async def _run_pipeline_impl(
         pre_call_fetch_task=pre_call_fetch_task,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
+        include_transcript_end_timestamps=include_transcript_end_timestamps,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

@@ -57,7 +57,9 @@ class _RecordingARIConnection(ARIConnection):
     async def _handle_transfer_failed(
         self, transfer_id: str, channel_id: str, reason: str
     ):
-        raise AssertionError("completed transfer hangup should not publish transfer failure")
+        raise AssertionError(
+            "completed transfer hangup should not publish transfer failure"
+        )
 
 
 def _completed_transfer_context():
@@ -73,7 +75,9 @@ def _completed_transfer_context():
 
 
 @pytest.mark.asyncio
-async def test_completed_transfer_tears_down_destination_when_caller_leaves(monkeypatch):
+async def test_completed_transfer_tears_down_destination_when_caller_leaves(
+    monkeypatch,
+):
     fake_db = _FakeDbClient(_completed_transfer_context())
     monkeypatch.setattr(ari_manager, "db_client", fake_db)
     conn = _RecordingARIConnection()
@@ -89,7 +93,9 @@ async def test_completed_transfer_tears_down_destination_when_caller_leaves(monk
 
 
 @pytest.mark.asyncio
-async def test_completed_transfer_tears_down_caller_when_destination_leaves(monkeypatch):
+async def test_completed_transfer_tears_down_caller_when_destination_leaves(
+    monkeypatch,
+):
     fake_db = _FakeDbClient(_completed_transfer_context())
     monkeypatch.setattr(ari_manager, "db_client", fake_db)
     conn = _RecordingARIConnection()

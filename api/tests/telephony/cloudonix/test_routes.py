@@ -6,6 +6,8 @@ or a ``null`` ``session`` / ``disposition``) must produce a graceful error
 response, not an unhandled ``AttributeError`` (HTTP 500).
 """
 
+import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -32,6 +34,116 @@ def _json_request(body: bytes) -> Request:
         },
         receive,
     )
+
+
+class _FakeWebSocket:
+    def __init__(self, *messages: str):
+        self.receive_text = AsyncMock(side_effect=messages)
+        self.close = AsyncMock()
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_reads_call_metadata_from_start_message():
+    """Cloudonix agent-stream uses start metadata, not call query params."""
+    provider = CloudonixProvider({})
+    websocket = _FakeWebSocket(
+        json.dumps({"event": "connected"}),
+        json.dumps(
+            {
+                "event": "start",
+                "start": {
+                    "streamSid": "stream-123",
+                    "callSid": "call-123",
+                    "session": "session-123",
+                    "accountSid": "acme",
+                    "from": "+15551230001",
+                    "to": "+15551230002",
+                    "context": "inbound",
+                    "tracks": ["inbound"],
+                    "mediaFormat": {
+                        "encoding": "audio/x-mulaw",
+                        "sampleRate": 8000,
+                        "channels": 1,
+                    },
+                },
+            }
+        ),
+    )
+    config = SimpleNamespace(
+        id=7,
+        credentials={
+            "domain_id": "acme.cloudonix.net",
+            "bearer_token": "secret-token",
+        },
+    )
+    provider._find_config_by_domain = AsyncMock(return_value=config)
+    provider._validate_session = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "api.services.telephony.providers.cloudonix.provider.db_client"
+        ) as db_client,
+        patch(
+            "api.services.pipecat.run_pipeline.run_pipeline_telephony",
+            new_callable=AsyncMock,
+        ) as run_pipeline,
+    ):
+        db_client.update_workflow_run = AsyncMock()
+
+        await provider.handle_external_websocket(
+            websocket,
+            organization_id=44,
+            workflow_id=101,
+            user_id=202,
+            workflow_run_id=303,
+            params={},
+        )
+
+    provider._find_config_by_domain.assert_awaited_once_with(44, "acme.cloudonix.net")
+    provider._validate_session.assert_awaited_once_with(
+        "acme.cloudonix.net", "session-123", "secret-token"
+    )
+    db_client.update_workflow_run.assert_awaited_once_with(
+        run_id=303,
+        initial_context={
+            "caller_number": "+15551230001",
+            "called_number": "+15551230002",
+            "direction": "inbound",
+            "cloudonix_context": "inbound",
+        },
+        gathered_context={
+            "call_id": "session-123",
+            "cloudonix_call_sid": "call-123",
+            "cloudonix_stream_sid": "stream-123",
+        },
+        logs={
+            "inbound_webhook": {
+                "domain": "acme.cloudonix.net",
+                "session": "session-123",
+                "callSid": "call-123",
+                "streamSid": "stream-123",
+                "from": "+15551230001",
+                "to": "+15551230002",
+                "context": "inbound",
+                "tracks": ["inbound"],
+                "mediaFormat": {
+                    "encoding": "audio/x-mulaw",
+                    "sampleRate": 8000,
+                    "channels": 1,
+                },
+            },
+        },
+    )
+    run_pipeline.assert_awaited_once()
+    _, kwargs = run_pipeline.await_args
+    assert kwargs["call_id"] == "session-123"
+    assert kwargs["transport_kwargs"] == {
+        "call_id": "session-123",
+        "stream_sid": "stream-123",
+        "bearer_token": "secret-token",
+        "domain_id": "acme.cloudonix.net",
+    }
+    websocket.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio

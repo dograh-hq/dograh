@@ -150,6 +150,35 @@ class WhatsAppPlatformProvider(TelephonyProvider):
             },
         )
 
+    # ── Agent Stream Entry Point ──────────────────────────────────────────────
+    async def handle_external_websocket(
+        self,
+        websocket: "WebSocket",
+        *,
+        organization_id: int,
+        workflow_id: int,
+        user_id: int,
+        workflow_run_id: int,
+        params: Dict[str, str],
+    ) -> None:
+        """Agent-stream entry point for WhatsApp bridge."""
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
+
+        logger.info(
+            f"[WhatsAppPlatform] Agent stream connected for run {workflow_run_id}, "
+            f"workflow {workflow_id}"
+        )
+
+        await run_pipeline_telephony(
+            websocket=websocket,
+            provider_name=self.PROVIDER_NAME,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+            call_id=params.get("callId", ""),
+            transport_kwargs={"params": params},
+        )
+
     # ── Config sync ───────────────────────────────────────────────────────────
 
     async def configure_inbound(self, **kwargs: Any) -> ProviderSyncResult:
@@ -158,6 +187,46 @@ class WhatsAppPlatformProvider(TelephonyProvider):
 
     def validate_config(self) -> bool:
         return bool(self.platform_api_url and self.webhook_secret)
+
+    # ── Missing abstract methods ──────────────────────────────────────────────
+
+    def can_handle_webhook(self, request_path: str) -> bool:
+        return False
+
+    @staticmethod
+    def generate_error_response(error_type: str, message: str) -> tuple:
+        return {"error": message}, "application/json"
+
+    async def get_webhook_response(self, workflow_id: int, user_id: int, workflow_run_id: int) -> str:
+        return "{}"
+
+    async def handle_websocket(self, websocket: Any, workflow_id: int, user_id: int, workflow_run_id: int) -> None:
+        raise NotImplementedError("Use handle_external_websocket instead")
+
+    def parse_inbound_webhook(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return data
+
+    def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return data
+
+    async def start_inbound_stream(self, data: Dict[str, Any], workflow_id: int, user_id: int, workflow_run_id: int) -> tuple:
+        return {"error": "Not used"}, "application/json"
+
+    def supports_transfers(self) -> bool:
+        return True
+
+    async def transfer_call(self, destination: str, transfer_id: str, conference_name: str, timeout: int = 30, **kwargs: Any) -> Dict[str, Any]:
+        """Handled by WhatsAppTransferStrategy via save_transcript/etc"""
+        return {"status": "transferring"}
+
+    async def validate_account_id(self, account_id: str) -> bool:
+        return True
+
+    async def verify_inbound_signature(self, headers: Dict[str, str], raw_body: bytes) -> bool:
+        return True
+
+    async def verify_webhook_signature(self, url: str, params: Dict[str, Any], signature: str) -> bool:
+        return True
 
     # ── Internal helper ───────────────────────────────────────────────────────
 

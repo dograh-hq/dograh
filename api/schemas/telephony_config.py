@@ -40,6 +40,10 @@ from api.services.telephony.providers.vonage.config import (
     VonageConfigurationRequest,
     VonageConfigurationResponse,
 )
+from api.services.telephony.providers.whatsapp_platform.config import (
+    WhatsAppPlatformConfigurationRequest,
+    WhatsAppPlatformConfigurationResponse,
+)
 
 # Discriminated union for incoming save requests. Pydantic dispatches on the
 # ``provider`` Literal field of each request class. Replaces the manual
@@ -53,6 +57,7 @@ TelephonyConfigRequest = Annotated[
         TwilioConfigurationRequest,
         VobizConfigurationRequest,
         VonageConfigurationRequest,
+        WhatsAppPlatformConfigurationRequest,
     ],
     Field(discriminator="provider"),
 ]
@@ -73,7 +78,7 @@ class TelephonyConfigurationResponse(BaseModel):
     cloudonix: Optional[CloudonixConfigurationResponse] = None
     ari: Optional[ARIConfigurationResponse] = None
     telnyx: Optional[TelnyxConfigurationResponse] = None
-
+    whatsapp_platform: Optional[WhatsAppPlatformConfigurationResponse] = None
 
 # ---------------------------------------------------------------------------
 # Multi-config CRUD schemas
@@ -148,4 +153,6 @@ __all__ = [
     "VobizConfigurationResponse",
     "VonageConfigurationRequest",
     "VonageConfigurationResponse",
+    "WhatsAppPlatformConfigurationRequest",
+    "WhatsAppPlatformConfigurationResponse",
 ]

@@ -5,6 +5,7 @@ from the WhatsApp bridge. The bridge connects directly to Dograh's
 /api/v1/audio-stream/{run_id} WebSocket endpoint.
 """
 
+from typing import Any
 from fastapi import WebSocket
 
 from api.services.pipecat.audio_config import AudioConfig
@@ -27,7 +28,8 @@ async def create_transport(
     organization_id: int,
     *,
     ambient_noise_config: dict | None = None,
-    telephony_configuration_id: int,
+    telephony_configuration_id: int | None = None,
+    **kwargs: Any,
 ) -> FastAPIWebsocketTransport:
     """
     Build a Pipecat FastAPIWebsocketTransport for the WhatsApp bridge.
@@ -43,8 +45,9 @@ async def create_transport(
 
     # Load provider credentials (platform_api_url, webhook_secret)
     credentials = await load_credentials_for_transport(
-        telephony_configuration_id=telephony_configuration_id,
         organization_id=organization_id,
+        telephony_configuration_id=telephony_configuration_id,
+        expected_provider="whatsapp_platform",
     )
 
     platform_api_url = credentials.get("platform_api_url", "")
@@ -62,7 +65,7 @@ async def create_transport(
     }
 
     audio_out_mixer = await build_audio_out_mixer(
-        audio_config=audio_config,
+        audio_out_sample_rate=WhatsAppPlatformFrameSerializer.SAMPLE_RATE,
         ambient_noise_config=ambient_noise_config,
     )
 
@@ -70,8 +73,6 @@ async def create_transport(
         audio_in_enabled=True,
         audio_out_enabled=True,
         add_wav_header=False,          # raw PCM — no WAV header
-        vad_enabled=True,
-        vad_analyzer=audio_config.vad_analyzer,
         audio_out_sample_rate=WhatsAppPlatformFrameSerializer.SAMPLE_RATE,
         audio_in_sample_rate=WhatsAppPlatformFrameSerializer.SAMPLE_RATE,
         serializer=serializer,
@@ -80,7 +81,7 @@ async def create_transport(
         hangup_strategy=WhatsAppHangupStrategy(),
         transfer_context=strategy_context,
         hangup_context=strategy_context,
-        **realtime_param_overrides(audio_config),
+        **realtime_param_overrides(kwargs.get("is_realtime", False)),
     )
 
     return FastAPIWebsocketTransport(websocket=websocket, params=params)

@@ -9,7 +9,7 @@ binary PCM frames with no framing headers.
 """
 
 from pipecat.serializers.base_serializer import FrameSerializer
-from pipecat.frames.frames import AudioRawFrame, Frame
+from pipecat.frames.frames import AudioRawFrame, InputAudioRawFrame, OutputAudioRawFrame, Frame
 from loguru import logger
 import struct
 
@@ -33,19 +33,19 @@ class WhatsAppPlatformFrameSerializer(FrameSerializer):
     NUM_CHANNELS  = 1
     BYTES_PER_SAMPLE = 2  # 16-bit
 
-    def serialize(self, frame: Frame) -> bytes | None:
+    async def serialize(self, frame: Frame) -> bytes | None:
         """Convert an AudioRawFrame into raw PCM bytes to send to the bridge."""
-        if not isinstance(frame, AudioRawFrame):
+        if not isinstance(frame, (AudioRawFrame, InputAudioRawFrame, OutputAudioRawFrame)):
             return None
         # frame.audio is already bytes of Int16LE PCM from TTS
         return frame.audio
 
-    def deserialize(self, data: bytes) -> Frame | None:
-        """Convert raw PCM bytes from the bridge into an AudioRawFrame."""
+    async def deserialize(self, data: bytes) -> Frame | None:
+        """Convert raw PCM bytes from the bridge into an InputAudioRawFrame."""
         if not data:
             return None
         try:
-            return AudioRawFrame(
+            return InputAudioRawFrame(
                 audio=data,
                 sample_rate=self.SAMPLE_RATE,
                 num_channels=self.NUM_CHANNELS,

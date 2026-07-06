@@ -48,7 +48,7 @@ _UI_METADATA = ProviderUIMetadata(
             type="text",
             placeholder="https://your-whatsapp-saas-backend.com",
             required=True,
-            help_text=(
+            description=(
                 "Base URL of your WhatsApp SaaS backend. "
                 "Dograh will call /dograh-webhook/* on this host."
             ),
@@ -59,7 +59,7 @@ _UI_METADATA = ProviderUIMetadata(
             type="password",
             placeholder="A strong shared secret (32+ chars)",
             required=True,
-            help_text=(
+            description=(
                 "Shared secret used to authenticate Dograh → Platform webhooks. "
                 "Must match the key configured in the Platform admin panel."
             ),
@@ -69,11 +69,12 @@ _UI_METADATA = ProviderUIMetadata(
 
 _PROVIDER_SPEC = ProviderSpec(
     name="whatsapp_platform",
-    provider_class=WhatsAppPlatformProvider,
-    config_request_class=WhatsAppPlatformConfigurationRequest,
-    config_response_class=WhatsAppPlatformConfigurationResponse,
+    provider_cls=WhatsAppPlatformProvider,
     config_loader=_config_loader,
-    create_transport=create_transport,
+    transport_factory=create_transport,
+    transport_sample_rate=16000,
+    config_request_cls=WhatsAppPlatformConfigurationRequest,
+    config_response_cls=WhatsAppPlatformConfigurationResponse,
     ui_metadata=_UI_METADATA,
 )
 

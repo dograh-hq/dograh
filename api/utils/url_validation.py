@@ -56,8 +56,8 @@ async def validate_public_url(url: str) -> None:
     if hostname is None:
         raise ValueError(f"URL has no hostname: {url}")
 
-    # Check if hostname itself is a private IP (e.g. http://127.0.0.1/...)
-    if _is_private_ip(hostname):
+    # Check if hostname is localhost or a private IP (e.g. http://127.0.0.1/...)
+    if hostname == "localhost" or _is_private_ip(hostname):
         raise ValueError(
             f"URL points to a private or reserved IP address: {hostname}"
         )

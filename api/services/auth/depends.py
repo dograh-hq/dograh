@@ -20,6 +20,19 @@ from api.services.posthog_client import (
 )
 from api.utils.auth import decode_jwt_token
 
+
+async def require_local_auth() -> None:
+    """Reject email/password auth requests outside OSS (local) deployments.
+
+    The auth router stays mounted in every mode so the OpenAPI spec — and the
+    clients generated from it — don't vary with AUTH_PROVIDER; the gate has to
+    happen at request time. Without it, the SaaS deployment accepts
+    unauthenticated signups that mint oss_* users bypassing Stack Auth.
+    """
+    if AUTH_PROVIDER != "local":
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
 POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY = "uses_mps_billing_v2"
 

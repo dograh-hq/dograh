@@ -776,7 +776,9 @@ class ARIConnection:
             bridge_id = ctx.get("bridge_id")
             transfer_state = ctx.get("transfer_state")
             transfer_bridge_id = ctx.get("transfer_bridge_id") or bridge_id
-            transfer_caller_channel_id = ctx.get("transfer_caller_channel_id") or call_id
+            transfer_caller_channel_id = (
+                ctx.get("transfer_caller_channel_id") or call_id
+            )
             transfer_destination_channel_id = ctx.get("transfer_destination_channel_id")
 
             # Check if this is a call transfer scenario external channel. Skip full teardown if
@@ -813,7 +815,8 @@ class ARIConnection:
                 and transfer_bridge_id
                 and transfer_caller_channel_id
                 and transfer_destination_channel_id
-                and channel_id in (
+                and channel_id
+                in (
                     transfer_caller_channel_id,
                     transfer_destination_channel_id,
                 )
@@ -884,9 +887,7 @@ class ARIConnection:
 
             # Clean up the Redis marker for external channel
             await self._delete_ext_channel(ext_channel_id)
-            await self._delete_transfer_channel_mapping(
-                transfer_destination_channel_id
-            )
+            await self._delete_transfer_channel_mapping(transfer_destination_channel_id)
 
             logger.info(
                 f"[ARI org={self.organization_id}] StasisEnd full teardown for "

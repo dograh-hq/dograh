@@ -359,13 +359,12 @@ class TelephonyProvider(ABC):
         workflow_run_id: int,
         params: Dict[str, str],
     ) -> None:
-        """Handle the agent-stream WebSocket where credentials are passed inline.
+        """Handle the provider-specific agent-stream WebSocket.
 
-        Used by ``/api/v1/agent-stream/{workflow_uuid}`` when the caller carries
-        provider credentials in the query string (no stored
-        ``TelephonyConfigurationModel`` row required). ``organization_id`` is
-        passed so providers can scope any config lookups to the workflow's
-        org. Default raises so providers that haven't opted in fail loudly.
+        Used by ``/api/v1/agent-stream/{provider_name}/{workflow_uuid}`` when
+        the caller carries a provider stream protocol. ``organization_id`` is
+        passed so providers can scope any config lookups to the workflow's org.
+        Default raises so providers that haven't opted in fail loudly.
         """
         raise NotImplementedError(
             f"Agent-stream not supported for provider {self.PROVIDER_NAME}"

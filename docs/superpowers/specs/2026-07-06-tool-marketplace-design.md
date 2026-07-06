@@ -1,7 +1,7 @@
 # Tool Marketplace — Design Document
 
 **Data:** 2026-07-06  
-**Status:** Draft  
+**Status:** Draft (post-advisor review)  
 **Autore:** brainstorming session  
 
 ## Panoramica
@@ -35,10 +35,11 @@ Aggiungere a Dograh un **marketplace di tool** (catalogo di integrazioni esterne
 │  • get_catalog(org_id, category) → list                 │
 │  • get_marketplace_tool(tool_id)  → dettaglio           │
 │  • install_tool(tool_id, org_id)  → ToolModel           │
-│    1. Carica config dal marketplace                      │
-│    2. Crea ToolModel con definition pre-popolata         │
-│    3. Se MCP: avvia auto-discovery (riusa McpToolSession)│
-│    4. Associa credenziali se OAuth completato            │
+│    1. Valida URL (SSRF check su URL forniti dall'utente) │
+│    2. Carica config dal marketplace                      │
+│    3. Crea ToolModel con definition pre-popolata         │
+│    4. Se MCP: avvia auto-discovery (riusa McpToolSession)│
+│    5. Associa credenziali se OAuth completato            │
 └──────────────────────┬──────────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────────┐
@@ -64,10 +65,11 @@ Aggiungere a Dograh un **marketplace di tool** (catalogo di integrazioni esterne
 
 ### Cosa è nuovo
 - `tool_marketplace` tabella PostgreSQL
+- `api/utils/url_validation.py` — validazione SSRF
 - `api/routes/marketplace.py`
 - `api/services/tool_marketplace.py`
 - UI marketplace (`src/app/(workspace)/marketplace/`)
-- Seed data (~12 tool + category Dify)
+- Seed data (Day 1: 2 tool; Day 2: 9 tool OAuth con attivazione progressiva)
 
 ---
 
@@ -125,13 +127,13 @@ Lista catalogo marketplace. Query params: `?category=mcp_direct`.
 [
   {
     "id": 1,
-    "name": "hubspot_crm",
-    "display_name": "HubSpot CRM",
+    "name": "serper_search",
+    "display_name": "Serper Google Search",
     "category": "mcp_direct",
-    "subcategory": "CRM",
-    "icon": "🟠",
-    "description": "Accedi a contatti, deal e aziende HubSpot...",
-    "oauth_enabled": true,
+    "subcategory": "Search",
+    "icon": "🔍",
+    "description": "Effettua ricerche Google via API...",
+    "oauth_enabled": false,
     "is_installed": false
   }
 ]
@@ -141,21 +143,22 @@ Lista catalogo marketplace. Query params: `?category=mcp_direct`.
 Dettaglio tool, incluso `is_installed` (controlla se l'org ha già un tool con questo nome).
 
 ### `POST /api/v1/marketplace/tools/{tool_id}/connect`
-Installa il tool per l'organizzazione corrente:
+Installa il tool per l'organizzazione corrente. **Eredita gli stessi permission check della creazione tool esistente** (RBAC invariato).
 
 1. Carica `tool_marketplace` record
 2. Controlla che non sia già installato
-3. Se `oauth_enabled` e credenziali mancanti → restituisce `redirect_url` OAuth
-4. Crea `ToolModel` con `config_template` dal marketplace
-5. Se `tool_category == "mcp"`: avvia `discover_mcp_tools()` per popolare `discovered_tools`
-6. Restituisce il tool creato
+3. **SSRF check:** se l'URL MCP proviene dall'utente (Dify import) → `validate_public_url()`
+4. Se `oauth_enabled` e credenziali mancanti → restituisce `redirect_url` OAuth
+5. Crea `ToolModel` con `config_template` dal marketplace
+6. Se `tool_category == "mcp"`: avvia `discover_mcp_tools()` per popolare `discovered_tools`
+7. Restituisce il tool creato
 
 **Response (senza OAuth):**
 ```json
 {
   "tool_uuid": "abc-123",
   "status": "active",
-  "discovered_tools": [{"name": "search_contacts", "description": "..."}]
+  "discovered_tools": [{"name": "search", "description": "..."}]
 }
 ```
 
@@ -172,13 +175,45 @@ Callback OAuth. Scambia il code per un token, lo salva in `external_credentials`
 
 ---
 
+## Sicurezza
+
+### RBAC
+
+Il marketplace **eredita gli stessi permission check della creazione tool esistente.**
+Qualsiasi utente autorizzato a creare un `ToolModel` nella propria organizzazione può installare tool dal marketplace.
+Non viene introdotto alcun ruolo aggiuntivo.
+
+### SSRF Protection (bloccante)
+
+Il flusso Dify "paste your MCP URL" e la creazione tool MCP generica permettono all'utente
+di fornire un URL arbitrario. Prima di chiamare `discover_mcp_tools()` (o qualsiasi connessione
+server-side verso un URL fornito dall'utente), il backend **deve** validare l'URL.
+
+Implementazione in `api/utils/url_validation.py`:
+
+```python
+async def validate_public_url(url: str) -> bool:
+    """Return True if the URL points to a public internet host.
+    
+    Blocks: localhost, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12,
+    192.168.0.0/16, 169.254.0.0/16 (cloud metadata), 0.0.0.0.
+    Only http:// and https:// schemes allowed.
+    Resolves hostname and checks resulting IP is not private (DNS rebinding protection).
+    """
+```
+
+Questa validazione si applica sia al nuovo flusso marketplace che al flusso esistente
+di creazione tool MCP (va fixato anche lì, come parte di questo lavoro).
+
+---
+
 ## Integrazione Dify
 
 ### Flusso
 1. Utente crea workflow su Dify → attiva "MCP Server" → ottiene URL
 2. In Dograh, l'utente può:
-   - **Aggiungere un marketplace tool Dify esistente** (se pre-configurato)
-   - **Incollare manualmente l'URL MCP** nella creazione tool (flusso esistente, nessuna modifica)
+   - Usare l'entry marketplace "Dify Workflow" per incollare l'URL
+   - Incollare manualmente l'URL MCP nella creazione tool (flusso esistente)
 
 ### Marketplace entry per Dify
 Il marketplace includerà un'entry speciale:
@@ -200,21 +235,35 @@ Il marketplace includerà un'entry speciale:
 }
 ```
 
-L'utente incolla il suo URL Dify e Dograh fa auto-discovery dei tool esposti.
+L'utente incolla il suo URL Dify, il backend esegue `validate_public_url()`, poi fa auto-discovery dei tool esposti.
 
 ### Esperienza migliorata (opzionale, 1 giorno extra)
 Un pulsante "Import from Dify" nel marketplace che:
 1. Apre un dialog per incollare l'URL MCP di Dify
-2. Fa auto-discovery immediato
-3. Mostra i tool scoperti prima dell'installazione
+2. Valida l'URL (SSRF check)
+3. Fa auto-discovery immediato
+4. Mostra i tool scoperti prima dell'installazione
 
 ---
 
 ## Seed Data
 
-### Server MCP diretti (~10 integrazioni)
+### Day 1 (lancio immediato) — tool senza OAuth
 
-> ⚠️ Gli URL MCP nel seed sono placeholder. Prima del deploy vanno verificati/sostituiti con endpoint MCP reali per ciascun servizio. In alternativa, si possono usare server MCP hosted verificati dal catalogo [mcp.so](https://mcp.so).
+Questi tool funzionano con API key o URL fornito dall'utente. Nessuna dipendenza esterna da app review.
+
+| Nome | Categoria | Auth | URL MCP |
+|---|---|---|---|
+| Serper (Google Search) | Search | API key | https://mcp.serper.dev |
+| Dify Workflow | dify_workflow | URL incollato | _inserito dall'utente_ |
+
+### Day 2 (attivazione progressiva) — tool con OAuth
+
+Ciascuno di questi tool richiede che Dograh registri un'app OAuth presso il vendor.
+L'app review è un processo esterno (giorni/settimane per vendor) — **non è effort di codice**.
+Ogni vendor va attivato con un ticket separato quando l'app è approvata.
+
+> ⚠️ Gli URL MCP nel seed sono placeholder. Prima dell'attivazione vanno verificati/sostituiti con endpoint MCP reali per ciascun servizio. In alternativa, si possono usare server MCP hosted verificati dal catalogo [mcp.so](https://mcp.so).
 
 | Nome | Categoria | OAuth | URL MCP |
 |---|---|---|---|
@@ -227,13 +276,6 @@ Un pulsante "Import from Dify" nel marketplace che:
 | Stripe | Payments | ✅ | https://mcp.stripe.com/v1 |
 | Airtable | Database | ✅ | https://mcp.airtable.com/v1 |
 | Zendesk | Support | ✅ | https://mcp.zendesk.com/v1 |
-| Serper (Google Search) | Search | ❌ (API key) | https://mcp.serper.dev |
-
-### Dify (entry speciale)
-
-| Nome | Categoria | URL MCP |
-|---|---|---|
-| Dify Workflow | dify_workflow | _inserito dall'utente_ |
 
 ---
 
@@ -281,6 +323,7 @@ Riusa `TemplateCard` come base, ma adattato per mostrare:
 
 ## Error Handling
 
+- **URL privato / SSRF:** `validate_public_url()` restituisce 400 con messaggio descrittivo
 - **Server MCP irraggiungibile:** `discover_mcp_tools()` già restituisce `[]` senza crash — il tool viene creato comunque con `discovered_tools: []`
 - **OAuth fallito:** `callback` restituisce errore descrittivo, il tool marketplace resta in stato `oauth_required`
 - **Tool già installato:** `connect` restituisce 409 Conflict con il `tool_uuid` esistente
@@ -291,6 +334,7 @@ Riusa `TemplateCard` come base, ma adattato per mostrare:
 ## Testing
 
 ### Unit test
+- `test_url_validation.py` — SSRF: localhost, IP privati, DNS rebinding, URL validi
 - `test_tool_marketplace.py` — modelli Pydantic, validazione
 - `test_marketplace_routes.py` — endpoint CRUD + OAuth flow
 - `test_marketplace_service.py` — logica install, deduplicazione, auto-discovery
@@ -299,6 +343,7 @@ Riusa `TemplateCard` come base, ma adattato per mostrare:
 - Marketplace seed idempotente (run multipli = stesso stato)
 - Installazione tool con MCP discovery mock
 - OAuth callback flow end-to-end
+- SSRF: URL privato bloccato in tutti i flussi (Dify import + creazione tool MCP esistente)
 
 ---
 
@@ -307,19 +352,29 @@ Riusa `TemplateCard` come base, ma adattato per mostrare:
 | Attività | Giorni |
 |---|---|
 | Tabella `tool_marketplace` + migration | 0.5 |
+| `api/utils/url_validation.py` + integrazione SSRF | 1 |
 | `api/services/tool_marketplace.py` | 1.5 |
 | `api/routes/marketplace.py` | 1 |
-| OAuth flow (connect + callback) | 2 |
-| Seed data (12 tool) | 0.5 |
+| OAuth flow — solo codice (connect + callback) | 2 |
+| Seed data (Day 1: 2 tool; Day 2: 9 tool OAuth, attivazione progressiva) | 0.5 |
 | Estensioni MCP server | 0.5 |
 | UI marketplace page + card | 2 |
 | UI Dify import dialog | 1 |
-| Test | 2 |
-| **Totale** | **~11 giorni** |
+| Test (inclusi test SSRF + OAuth mock) | 2.5 |
+| **Totale** | **~12.5 giorni** |
+
+> **Nota:** la stima copre solo il codice. L'attivazione dei tool OAuth richiede app review
+> esterne presso ciascun vendor (HubSpot, Slack, ecc.) — processo non incluso in questa stima.
 
 ---
 
 ## Fase 2: Skill Marketplace (rinviata)
+
+> **Open question da risolvere in fase di design Fase 2:** quando un template/skill viene duplicato
+> in una nuova organizzazione, se il template contiene `tool_uuids` che referenziano tool installati
+> da marketplace, quegli UUID non esisteranno nella nuova org. Le opzioni sono: (a) auto-installare
+> i tool mancanti durante la duplicazione, (b) rimuovere i `tool_uuids` dal template duplicato e
+> mostrarli come "missing", (c) usare nomi simbolici invece di UUID. Da decidere.
 
 ### Infrastruttura già esistente
 - `workflow_templates` tabella

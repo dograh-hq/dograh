@@ -8,6 +8,10 @@ from api.mcp_server.tools.catalog import (
     list_recordings,
     list_tools,
 )
+from api.mcp_server.tools.marketplace import (
+    list_marketplace_tools,
+    install_marketplace_tool_mcp,
+)
 from api.mcp_server.tools.create_workflow import create_workflow
 from api.mcp_server.tools.docs_search import list_docs, read_doc, search_docs
 from api.mcp_server.tools.get_workflow_code import get_workflow_code
@@ -53,3 +57,13 @@ _DOCS_TOOL_ANNOTATIONS = ToolAnnotations(
 
 for _tool in (list_docs, read_doc, search_docs):
     mcp.tool(_tool, annotations=_DOCS_TOOL_ANNOTATIONS)
+
+_MARKETPLACE_TOOL_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    idempotentHint=True,
+    destructiveHint=False,
+    openWorldHint=False,
+)
+
+mcp.tool(list_marketplace_tools, annotations=_MARKETPLACE_TOOL_ANNOTATIONS)
+mcp.tool(install_marketplace_tool_mcp)

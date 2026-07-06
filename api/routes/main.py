@@ -23,6 +23,7 @@ from api.routes.service_keys import router as service_keys_router
 from api.routes.superuser import router as superuser_router
 from api.routes.telephony import router as telephony_router
 from api.routes.tool import router as tool_router
+from api.routes.marketplace import router as marketplace_router
 from api.routes.turn_credentials import router as turn_credentials_router
 from api.routes.user import router as user_router
 from api.routes.webrtc_signaling import router as webrtc_signaling_router
@@ -45,6 +46,7 @@ router.include_router(user_router)
 router.include_router(campaign_router)
 router.include_router(credentials_router)
 router.include_router(tool_router)
+router.include_router(marketplace_router)
 router.include_router(organization_router)
 router.include_router(s3_router)
 router.include_router(service_keys_router)

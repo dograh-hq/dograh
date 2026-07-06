@@ -187,9 +187,11 @@ async def install_marketplace_tool(
                     sse_read_timeout_secs=sse_read_timeout_secs
                 )
                 # Tools discovered successfully means the MCP server is working
-            except Exception:
-                # Discovery failed, but tool is still installed
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"MCP discovery failed for '{marketplace_tool.name}' "
+                    f"at {tool_url}: {e}"
+                )
         
         return {
             "status": "active",

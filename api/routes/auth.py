@@ -19,11 +19,14 @@ from api.utils.auth import create_jwt_token, hash_password, verify_password
 router = APIRouter(
     prefix="/auth",
     tags=["auth"],
-    dependencies=[Depends(require_local_auth)],
 )
 
 
-@router.post("/signup", response_model=AuthResponse)
+@router.post(
+    "/signup",
+    response_model=AuthResponse,
+    dependencies=[Depends(require_local_auth)],
+)
 async def signup(request: SignupRequest):
     # Check if email is already taken
     existing_user = await db_client.get_user_by_email(request.email)
@@ -90,7 +93,11 @@ async def signup(request: SignupRequest):
     )
 
 
-@router.post("/login", response_model=AuthResponse)
+@router.post(
+    "/login",
+    response_model=AuthResponse,
+    dependencies=[Depends(require_local_auth)],
+)
 async def login(request: LoginRequest):
     # Look up user by email
     user = await db_client.get_user_by_email(request.email)

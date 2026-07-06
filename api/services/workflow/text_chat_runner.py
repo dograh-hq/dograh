@@ -532,6 +532,9 @@ async def execute_text_chat_pending_turn(
     embeddings_api_key = None
     embeddings_model = None
     embeddings_base_url = None
+    embeddings_provider = None
+    embeddings_endpoint = None
+    embeddings_api_version = None
     if user_config.embeddings:
         from api.services.configuration.ai_model_configuration import (
             apply_managed_embeddings_base_url,
@@ -544,6 +547,8 @@ async def execute_text_chat_pending_turn(
             provider=embeddings_provider,
             base_url=getattr(user_config.embeddings, "base_url", None),
         )
+        embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+        embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
@@ -560,6 +565,9 @@ async def execute_text_chat_pending_turn(
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
         embeddings_base_url=embeddings_base_url,
+        embeddings_provider=embeddings_provider,
+        embeddings_endpoint=embeddings_endpoint,
+        embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
     )

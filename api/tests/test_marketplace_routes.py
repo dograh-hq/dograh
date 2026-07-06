@@ -50,6 +50,11 @@ class TestListMarketplaceTools:
 
             response = await async_client.get("/api/v1/marketplace/tools")
 
+            # Verify it calls get_catalog with the auth user's org_id
+            mock_get_catalog.assert_called_once_with(
+                org_id="test-org-id",
+                category=None,
+            )
             assert response.status_code == 200
             data = response.json()
             assert len(data) == 1
@@ -64,6 +69,12 @@ class TestListMarketplaceTools:
             mock_get_catalog.return_value = []
             response = await async_client.get(
                 "/api/v1/marketplace/tools?category=dify_workflow"
+            )
+            
+            # Verify it calls get_catalog with the auth user's org_id and category filter
+            mock_get_catalog.assert_called_once_with(
+                org_id="test-org-id",
+                category="dify_workflow",
             )
             assert response.status_code == 200
             assert response.json() == []
@@ -85,6 +96,9 @@ class TestGetMarketplaceTool:
                 "oauth_enabled": False,
             }
             response = await async_client.get("/api/v1/marketplace/tools/1")
+            
+            # Verify it calls get_marketplace_tool with the auth user's org_id
+            mock_get.assert_called_once_with(1, org_id="test-org-id")
             assert response.status_code == 200
             assert response.json()["name"] == "serper_search"
 
@@ -96,6 +110,9 @@ class TestGetMarketplaceTool:
         ) as mock_get:
             mock_get.return_value = None
             response = await async_client.get("/api/v1/marketplace/tools/999")
+            
+            # Verify it calls get_marketplace_tool with the auth user's org_id
+            mock_get.assert_called_once_with(999, org_id="test-org-id")
             assert response.status_code == 404
 
 
@@ -155,6 +172,16 @@ class TestOAuthCallback:
         """POST /oauth/callback should return 501 (not implemented)."""
         response = await async_client.post(
             "/api/v1/marketplace/tools/1/oauth/callback",
-            json={"code": "auth_code", "state": "state_value", "organization_id": "test-org"}
+            json={"code": "auth_code", "state": "state_value", "organization_id": "test-org-id"}
         )
         assert response.status_code == 501
+
+    @pytest.mark.asyncio
+    async def test_oauth_callback_org_validation(self, async_client):
+        """POST /oauth/callback should return 403 if organization_id doesn't match user's org."""
+        response = await async_client.post(
+            "/api/v1/marketplace/tools/1/oauth/callback",
+            json={"code": "auth_code", "state": "state_value", "organization_id": "different-org-id"}
+        )
+        assert response.status_code == 403
+        assert "Organization access denied" in response.json()["detail"]

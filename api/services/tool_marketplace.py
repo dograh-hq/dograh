@@ -4,6 +4,7 @@ import os
 import uuid
 from typing import Dict, List, Optional, Any
 from sqlalchemy import text
+from loguru import logger
 
 from api.db.database import async_session
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
@@ -52,12 +53,18 @@ async def get_catalog(org_id: str, category: Optional[str] = None) -> List[Dict[
         ]
 
 
-async def get_marketplace_tool(tool_id: int) -> Optional[Dict[str, Any]]:
-    """Get a specific marketplace tool by ID."""
+async def get_marketplace_tool(tool_id: int, org_id: str) -> Optional[Dict[str, Any]]:
+    """Get a specific marketplace tool by ID, with installation status for the organization."""
     async with async_session() as session:
         result = await session.execute(
-            text("SELECT * FROM tool_marketplace WHERE id = :tool_id"),
-            {"tool_id": tool_id}
+            text("""
+                SELECT tm.*, 
+                       (CASE WHEN t.id IS NOT NULL THEN true ELSE false END) as is_installed
+                FROM tool_marketplace tm
+                LEFT JOIN tools t ON tm.name = t.name AND t.organization_id = :org_id
+                WHERE tm.id = :tool_id
+            """),
+            {"tool_id": tool_id, "org_id": org_id}
         )
         row = result.fetchone()
         if not row:
@@ -80,6 +87,7 @@ async def get_marketplace_tool(tool_id: int) -> Optional[Dict[str, Any]]:
             "oauth_redirect_path": row.oauth_redirect_path,
             "oauth_client_id_env": row.oauth_client_id_env,
             "is_active": row.is_active,
+            "is_installed": row.is_installed,
         }
 
 

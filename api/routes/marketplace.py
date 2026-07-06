@@ -24,19 +24,19 @@ class OAuthCallbackRequest(BaseModel):
 
 
 @router.get("/tools")
-async def list_tools(category: str | None = Query(default=None)):
+async def list_tools(category: str | None = Query(default=None), user=Depends(get_user)):
     """List all available marketplace tools, optionally filtered by category."""
     catalog = await get_catalog(
-        org_id="",  # org_id not needed for listing; individual installs scope
+        org_id=user.selected_organization_id,  # Use auth user's org_id for security
         category=category,
     )
     return catalog
 
 
 @router.get("/tools/{tool_id}")
-async def get_tool(tool_id: int):
+async def get_tool(tool_id: int, user=Depends(get_user)):
     """Get a single marketplace tool by ID."""
-    tool = await get_marketplace_tool(tool_id)
+    tool = await get_marketplace_tool(tool_id, org_id=user.selected_organization_id)
     if tool is None:
         raise HTTPException(status_code=404, detail="Marketplace tool not found")
     return tool
@@ -68,8 +68,12 @@ async def connect_tool(tool_id: int, request: ConnectRequest, user=Depends(get_u
 
 
 @router.post("/tools/{tool_id}/oauth/callback")
-async def oauth_callback(tool_id: int, request: OAuthCallbackRequest):
+async def oauth_callback(tool_id: int, request: OAuthCallbackRequest, user=Depends(get_user)):
     """Handle OAuth callback after user authorizes the tool."""
+    # Validate the user has access to the specified organization
+    if request.organization_id != user.selected_organization_id:
+        raise HTTPException(status_code=403, detail="Organization access denied")
+    
     # Exchange code for token and complete installation.
     # This is implemented in a follow-up task (Task 6: OAuth flow).
     raise HTTPException(status_code=501, detail="OAuth flow not yet implemented")

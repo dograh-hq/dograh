@@ -7,6 +7,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.db import db_client
 from api.db.models import WorkflowRunModel
+from api.services.managed_model_services import get_mps_correlation_id
 from api.services.pipecat.service_factory import create_llm_service_from_provider
 from api.services.workflow.dto import NodeType, QANodeData
 from api.services.workflow.qa.llm_config import resolve_llm_config
@@ -75,7 +76,15 @@ async def ensure_node_summaries(
         logger.warning("No API key for node summary generation, skipping")
         return existing_summaries
 
-    llm = create_llm_service_from_provider(provider, model, api_key, **service_kwargs)
+    # Reuse the run's MPS correlation id (minted at run start, persisted on
+    # initial_context) so managed-model-services calls carry billing-v2
+    # markers — orgs on billing v2 reject managed calls that lack them.
+    mps_correlation_id = get_mps_correlation_id(
+        getattr(workflow_run, "initial_context", None)
+    )
+    llm = create_llm_service_from_provider(
+        provider, model, api_key, correlation_id=mps_correlation_id, **service_kwargs
+    )
 
     updated_summaries = dict(existing_summaries)
 

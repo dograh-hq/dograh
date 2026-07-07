@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import pytest
 from starlette.requests import Request
-from starlette.testclient import TestClient
 
 from api.utils.telephony_helper import effective_public_url
 
@@ -37,27 +36,27 @@ def _make_request(
 
 
 class TestEffectivePublicUrl:
-    def test_public_base_url_overrides_request_scheme(self):
-        """PUBLIC_BASE_URL env takes priority; internal http:// becomes https://."""
+    def test_backend_endpoint_overrides_request_scheme(self):
+        """BACKEND_API_ENDPOINT takes priority; internal http:// becomes https://."""
         request = _make_request("http://internal:8000/telephony/inbound/run")
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", "https://prod.dograh.example"):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", "https://prod.dograh.example"):
             result = effective_public_url(request)
         assert result == "https://prod.dograh.example/telephony/inbound/run"
 
-    def test_public_base_url_preserves_query_string(self):
+    def test_backend_endpoint_preserves_query_string(self):
         request = _make_request("http://internal:8000/telephony/inbound/run?foo=bar&baz=1")
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", "https://prod.dograh.example"):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", "https://prod.dograh.example"):
             result = effective_public_url(request)
         assert result == "https://prod.dograh.example/telephony/inbound/run?foo=bar&baz=1"
 
-    def test_public_base_url_strips_trailing_slash(self):
+    def test_backend_endpoint_strips_trailing_slash(self):
         request = _make_request("http://internal:8000/telephony/inbound/run")
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", "https://prod.dograh.example/"):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", "https://prod.dograh.example/"):
             result = effective_public_url(request)
         assert result == "https://prod.dograh.example/telephony/inbound/run"
 
-    def test_forwarded_proto_upgrades_scheme_when_no_base_url(self):
-        """X-Forwarded-Proto: https upgrades scheme when PUBLIC_BASE_URL not set."""
+    def test_forwarded_proto_upgrades_scheme_when_no_backend_endpoint(self):
+        """X-Forwarded-Proto: https upgrades scheme when BACKEND_API_ENDPOINT not set."""
         request = _make_request(
             "http://internal:8000/telephony/inbound/run",
             headers={
@@ -65,7 +64,7 @@ class TestEffectivePublicUrl:
                 "x-forwarded-host": "myvoice.example.com",
             },
         )
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", None):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", None):
             result = effective_public_url(request)
         assert result == "https://myvoice.example.com/telephony/inbound/run"
 
@@ -77,7 +76,7 @@ class TestEffectivePublicUrl:
                 "x-forwarded-host": "myvoice.example.com",
             },
         )
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", None):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", None):
             result = effective_public_url(request)
         assert result == "https://myvoice.example.com/telephony/inbound/run?CallSid=CA123"
 
@@ -90,19 +89,33 @@ class TestEffectivePublicUrl:
                 "host": "myvoice.example.com",
             },
         )
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", None):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", None):
             result = effective_public_url(request)
         assert result == "https://myvoice.example.com/telephony/inbound/run"
 
     def test_falls_back_to_request_url_without_proxy_headers(self):
         """Local dev with no proxy: returns str(request.url) unchanged."""
         request = _make_request("http://localhost:8000/telephony/inbound/run")
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", None):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", None):
             result = effective_public_url(request)
         assert result == "http://localhost:8000/telephony/inbound/run"
 
-    def test_public_base_url_takes_precedence_over_forwarded_headers(self):
-        """PUBLIC_BASE_URL wins even when X-Forwarded-Proto is present."""
+    def test_localhost_backend_endpoint_falls_through_to_proxy_headers(self):
+        """BACKEND_API_ENDPOINT=http://localhost:8000 (local dev default) is not used
+        for signature reconstruction; proxy headers take over when present."""
+        request = _make_request(
+            "http://internal:8000/telephony/inbound/run",
+            headers={
+                "x-forwarded-proto": "https",
+                "x-forwarded-host": "myvoice.example.com",
+            },
+        )
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", "http://localhost:8000"):
+            result = effective_public_url(request)
+        assert result == "https://myvoice.example.com/telephony/inbound/run"
+
+    def test_backend_endpoint_takes_precedence_over_forwarded_headers(self):
+        """BACKEND_API_ENDPOINT wins even when X-Forwarded-Proto is present."""
         request = _make_request(
             "http://internal:8000/telephony/inbound/run",
             headers={
@@ -110,6 +123,6 @@ class TestEffectivePublicUrl:
                 "x-forwarded-host": "other.example.com",
             },
         )
-        with patch("api.utils.telephony_helper.PUBLIC_BASE_URL", "https://canonical.example.com"):
+        with patch("api.utils.telephony_helper.BACKEND_API_ENDPOINT", "https://canonical.example.com"):
             result = effective_public_url(request)
         assert result == "https://canonical.example.com/telephony/inbound/run"

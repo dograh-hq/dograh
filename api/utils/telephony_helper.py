@@ -9,7 +9,7 @@ from fastapi import Request
 from loguru import logger
 from starlette.responses import HTMLResponse
 
-from api.constants import COUNTRY_CODES, PUBLIC_BASE_URL
+from api.constants import BACKEND_API_ENDPOINT, COUNTRY_CODES
 
 
 def numbers_match(
@@ -196,15 +196,17 @@ def effective_public_url(request: Request) -> str:
     http:// scheme. Twilio and Vobiz sign the public https:// URL so the HMAC
     never matches without this reconstruction. Priority order:
 
-    1. PUBLIC_BASE_URL env — deterministic operator-supplied canonical origin.
+    1. BACKEND_API_ENDPOINT env — the public origin the backend is reachable at.
+       Derives from PUBLIC_BASE_URL when not set explicitly; covers split
+       deployments where the backend host differs from the UI/CDN origin.
     2. X-Forwarded-Proto + X-Forwarded-Host headers — set by the proxy.
     3. str(request.url) — fallback for local dev without a proxy.
 
-    ponytail: X-Forwarded-Proto trust is only safe when the deployment nginx
-    sets it; PUBLIC_BASE_URL is the deterministic override.
+    Note: X-Forwarded-Proto trust is only safe when the deployment nginx sets
+    it; BACKEND_API_ENDPOINT is the deterministic override.
     """
-    if PUBLIC_BASE_URL:
-        base = PUBLIC_BASE_URL.rstrip("/")
+    if BACKEND_API_ENDPOINT and not BACKEND_API_ENDPOINT.startswith("http://localhost"):
+        base = BACKEND_API_ENDPOINT.rstrip("/")
         path = request.url.path
         qs = str(request.url.query)
         return f"{base}{path}?{qs}" if qs else f"{base}{path}"

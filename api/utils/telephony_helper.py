@@ -9,7 +9,7 @@ from fastapi import Request
 from loguru import logger
 from starlette.responses import HTMLResponse
 
-from api.constants import COUNTRY_CODES
+from api.constants import COUNTRY_CODES, PUBLIC_BASE_URL
 
 
 def numbers_match(
@@ -187,3 +187,36 @@ def get_countries_for_code(dialing_code: str) -> list[str]:
         return []
 
     return [country for country, code in COUNTRY_CODES.items() if code == dialing_code]
+
+
+def effective_public_url(request: Request) -> str:
+    """Return the URL to use for webhook signature verification.
+
+    Behind a TLS-terminating proxy (nginx), request.url carries the internal
+    http:// scheme. Twilio and Vobiz sign the public https:// URL so the HMAC
+    never matches without this reconstruction. Priority order:
+
+    1. PUBLIC_BASE_URL env — deterministic operator-supplied canonical origin.
+    2. X-Forwarded-Proto + X-Forwarded-Host headers — set by the proxy.
+    3. str(request.url) — fallback for local dev without a proxy.
+
+    ponytail: X-Forwarded-Proto trust is only safe when the deployment nginx
+    sets it; PUBLIC_BASE_URL is the deterministic override.
+    """
+    if PUBLIC_BASE_URL:
+        base = PUBLIC_BASE_URL.rstrip("/")
+        path = request.url.path
+        qs = str(request.url.query)
+        return f"{base}{path}?{qs}" if qs else f"{base}{path}"
+
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = (
+        request.headers.get("x-forwarded-host") or request.headers.get("host")
+    )
+    if forwarded_proto and forwarded_host:
+        path = request.url.path
+        qs = str(request.url.query)
+        base = f"{forwarded_proto}://{forwarded_host}"
+        return f"{base}{path}?{qs}" if qs else f"{base}{path}"
+
+    return str(request.url)

@@ -39,6 +39,7 @@ from api.services.telephony.transfer_event_protocol import (
 )
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_helper import (
+    effective_public_url,
     generic_hangup_response,
     normalize_webhook_data,
     numbers_match,
@@ -754,7 +755,7 @@ async def handle_inbound_run(request: Request):
             telephony_configuration_id, config.organization_id
         )
         signature_valid = await provider_instance.verify_inbound_signature(
-            str(request.url), webhook_data, headers, raw_body
+            effective_public_url(request), webhook_data, headers, raw_body
         )
         if not signature_valid:
             logger.warning(

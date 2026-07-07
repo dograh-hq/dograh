@@ -1,7 +1,9 @@
 'use client';
 
 import { PackageOpen } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { connectToolApiV1MarketplaceToolsToolIdConnectPost } from '@/client/sdk.gen';
 import { Badge } from '@/components/ui/badge';
@@ -38,15 +40,25 @@ export function ToolCard({ tool }: ToolCardProps) {
                 path: { tool_id: tool.id },
                 body: {},
             });
+            if (response.error) {
+                toast.error(`Connection failed: ${typeof response.error === 'string' ? response.error : 'Unknown error'}`);
+                return;
+            }
             if (response.data) {
                 setIsInstalled(true);
+                toast.success(`${tool.display_name} installed successfully!`);
                 const data = response.data as Record<string, unknown>;
                 if (data.status === 'oauth_required' && data.redirect_url) {
-                    window.location.href = data.redirect_url;
+                    window.location.href = data.redirect_url as string;
+                }
+                if (data.status === 'already_installed') {
+                    toast.info(`${tool.display_name} is already installed.`);
+                    setIsInstalled(true);
                 }
             }
         } catch (error) {
             console.error('Failed to install marketplace tool:', error);
+            toast.error('Failed to connect tool. Check the browser console for details.');
         } finally {
             setIsLoading(false);
         }

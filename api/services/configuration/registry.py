@@ -123,6 +123,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
         ServiceProviders.SMALLEST,
+        ServiceProviders.XAI,
     ]
     api_key: str | list[str]
 
@@ -1294,7 +1295,7 @@ class XAITTSConfiguration(BaseServiceConfiguration):
     )
     language: str = Field(
         default="en",
-        description="BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de').",
+        description="BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de'), or 'auto' for automatic language detection.",
         json_schema_extra={"allow_custom_input": True},
     )
 

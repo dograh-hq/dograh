@@ -378,10 +378,9 @@ class UserConfigurationValidator:
         return True
 
     def _check_xai_api_key(self, model: str, api_key: str) -> bool:
-        # Validate against the TTS voices endpoint — the scope this key actually
-        # needs for TTS — rather than /v1/models. xAI supports endpoint-scoped
-        # keys, so a TTS-only key may lack the models ACL and would otherwise be
-        # rejected here even though it works for synthesis.
+        # Use the TTS voices endpoint as a best-effort smoke test. Some xAI keys
+        # can be scoped in ways that block listing voices even though the key is
+        # still intended for TTS usage, so only a clear auth failure rejects save.
         try:
             response = httpx.get(
                 "https://api.x.ai/v1/tts/voices",
@@ -395,17 +394,14 @@ class UserConfigurationValidator:
             )
         if response.status_code == 200:
             return True
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             raise ValueError(
                 "Invalid xAI API key. The key was rejected by the xAI API. "
-                "Please check that your API key is correct, active, and has "
-                "access to the Text-to-Speech API. You can verify your keys at "
+                "Please check that your API key is correct and active. "
+                "You can verify your keys at "
                 "https://console.x.ai."
             )
-        raise ValueError(
-            "The xAI API returned an error while validating the API key "
-            f"(HTTP {response.status_code}). Please try again later."
-        )
+        return True
 
     def _check_ultravox_realtime_api_key(self, model: str, api_key: str) -> bool:
         return True

@@ -24,7 +24,10 @@ def test_xai_tts_configuration_defaults():
     assert XAI_TTS_VOICES == ["eve", "ara", "leo", "rex", "sal"]
 
 
-def test_create_xai_tts_service_passes_voice():
+@pytest.mark.parametrize("transport_out_sample_rate", [8000, 16000])
+def test_create_xai_tts_service_uses_pipeline_compatible_audio_format(
+    transport_out_sample_rate,
+):
     user_config = SimpleNamespace(
         tts=SimpleNamespace(
             provider=ServiceProviders.XAI.value,
@@ -35,16 +38,18 @@ def test_create_xai_tts_service_passes_voice():
         )
     )
     audio_config = SimpleNamespace(
-        transport_out_sample_rate=24000,
+        transport_out_sample_rate=transport_out_sample_rate,
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.XAITTSService") as mock_service:
+    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
         create_tts_service(user_config, audio_config)
 
     assert mock_service.call_count == 1
     kwargs = mock_service.call_args.kwargs
     assert kwargs["api_key"] == "test-key"
+    assert kwargs["sample_rate"] == transport_out_sample_rate
+    assert kwargs["encoding"] == "pcm"
     assert kwargs["settings"].voice == "rex"
     assert kwargs["settings"].language == Language.EN
 
@@ -64,7 +69,7 @@ def test_create_xai_tts_service_converts_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.XAITTSService") as mock_service:
+    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
@@ -86,11 +91,33 @@ def test_create_xai_tts_service_falls_back_to_english_for_unknown_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.XAITTSService") as mock_service:
+    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
     assert kwargs["settings"].language == Language.EN
+
+
+def test_create_xai_tts_service_preserves_auto_language():
+    user_config = SimpleNamespace(
+        tts=SimpleNamespace(
+            provider=ServiceProviders.XAI.value,
+            api_key="test-key",
+            model="xai-tts",
+            voice="eve",
+            language="auto",
+        )
+    )
+    audio_config = SimpleNamespace(
+        transport_out_sample_rate=24000,
+        transport_in_sample_rate=16000,
+    )
+
+    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
+        create_tts_service(user_config, audio_config)
+
+    kwargs = mock_service.call_args.kwargs
+    assert kwargs["settings"].language == "auto"
 
 
 def test_xai_is_registered_for_key_validation():
@@ -122,3 +149,12 @@ def test_xai_key_validation_rejects_bad_key():
         mock_get.return_value.status_code = 401
         with pytest.raises(ValueError):
             validator._check_xai_api_key("xai", "bad-key")
+
+
+def test_xai_key_validation_allows_scoped_key_without_voice_list_access():
+    validator = UserConfigurationValidator()
+    with patch(
+        "api.services.configuration.check_validity.httpx.get"
+    ) as mock_get:
+        mock_get.return_value.status_code = 403
+        assert validator._check_xai_api_key("xai", "tts-scoped-key") is True

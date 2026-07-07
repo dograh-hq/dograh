@@ -81,7 +81,7 @@ from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
 )
-from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
+from pipecat.services.xai.tts import XAIHttpTTSService, XAITTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -743,13 +743,18 @@ def create_tts_service(
     elif user_config.tts.provider == ServiceProviders.XAI.value:
         voice = getattr(user_config.tts, "voice", None) or "eve"
         language_code = getattr(user_config.tts, "language", None) or "en"
-        try:
-            pipecat_language = Language(language_code)
-        except ValueError:
-            pipecat_language = Language.EN
-        return XAITTSService(
+        if language_code.lower() == "auto":
+            pipecat_language = "auto"
+        else:
+            try:
+                pipecat_language = Language(language_code)
+            except ValueError:
+                pipecat_language = Language.EN
+        return XAIHttpTTSService(
             api_key=user_config.tts.api_key,
-            settings=XAIWebsocketTTSSettings(
+            sample_rate=audio_config.transport_out_sample_rate,
+            encoding="pcm",
+            settings=XAITTSSettings(
                 voice=voice,
                 language=pipecat_language,
             ),

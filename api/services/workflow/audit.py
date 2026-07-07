@@ -1,9 +1,8 @@
 """Rule-based audit of a workflow definition's nodes + edges.
 
 Pure, dependency-free helpers derived from `NodeSpec.graph_constraints`.
-Lives in tracked code so the regression tests in
-`test_workflow_graph_constraints.py` can pin it; admin cleanup scripts
-under `api/services/admin_utils/` are the production consumers.
+Lives in tracked code so `test_workflow_graph_constraints.py` can pin the
+verdicts that one-off cleanup tooling needs to share with runtime validation.
 """
 
 from collections import Counter

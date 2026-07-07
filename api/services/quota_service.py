@@ -27,8 +27,8 @@ MINIMUM_DOGRAH_CREDITS_FOR_CALL = 0.10
 
 OSS_QUOTA_EXCEEDED_MESSAGE = (
     "You have exhausted your trial credits. "
-    "Please email founders@dograh.com for additional Dograh credits "
-    "or change providers in Models configurations."
+    "Please sign up on app.dograh.com to create a "
+    "new service key and set up in your model configurations."
 )
 
 HOSTED_QUOTA_EXCEEDED_MESSAGE = (

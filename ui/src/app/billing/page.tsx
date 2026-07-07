@@ -116,7 +116,7 @@ export default function BillingPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const auth = useAuth();
-    const { config } = useAppConfig();
+    const { config, loading: configLoading } = useAppConfig();
     const [credits, setCredits] = useState<MpsBillingCreditsResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -125,8 +125,9 @@ export default function BillingPage() {
         () => getPageFromSearchParams(searchParams),
     );
 
-    const isOssMode = config?.deploymentMode === "oss";
-    const canPurchaseCredits = !isOssMode;
+    const hasAppConfig = !configLoading && config !== null;
+    const isOssMode = hasAppConfig && config.deploymentMode === "oss";
+    const canPurchaseCredits = hasAppConfig && config.deploymentMode !== "oss";
     const totalQuota = credits?.total_quota ?? 0;
     const remainingCredits = credits?.remaining_credits ?? 0;
     const usedCredits = credits?.total_credits_used ?? 0;
@@ -228,7 +229,7 @@ export default function BillingPage() {
         }
     };
 
-    if (loading) {
+    if (loading || configLoading) {
         return (
             <div className="container mx-auto p-6 space-y-6">
                 <div className="space-y-2">

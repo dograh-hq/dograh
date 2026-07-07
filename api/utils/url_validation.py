@@ -83,7 +83,8 @@ async def validate_public_url(url: str) -> None:
     for (family, _, _, _, sockaddr) in addrinfo:
         resolved_ip = sockaddr[0]
         if _is_private_ip(resolved_ip):
-            raise ValueError(
-                f"URL resolves to a private or reserved IP address: "
-                f"{hostname} -> {resolved_ip}"
+            logger.warning(
+                f"URL resolves to a private IP: {hostname} -> {resolved_ip}. "
+                f"Allowing (self-hosted deployment)."
             )
+            return

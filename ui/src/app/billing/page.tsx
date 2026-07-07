@@ -125,9 +125,8 @@ export default function BillingPage() {
         () => getPageFromSearchParams(searchParams),
     );
 
-    const isBillingV2 = credits?.billing_version === "v2";
     const isOssMode = config?.deploymentMode === "oss";
-    const canPurchaseCredits = isBillingV2 && !isOssMode;
+    const canPurchaseCredits = !isOssMode;
     const totalQuota = credits?.total_quota ?? 0;
     const remainingCredits = credits?.remaining_credits ?? 0;
     const usedCredits = credits?.total_credits_used ?? 0;
@@ -301,7 +300,7 @@ export default function BillingPage() {
             <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardDescription>{isBillingV2 ? "Credit balance" : "Credits remaining"}</CardDescription>
+                        <CardDescription>{isOssMode ? "Credits remaining" : "Credit balance"}</CardDescription>
                         <CardTitle className="flex items-center gap-2 text-3xl">
                             <CircleDollarSign className="h-6 w-6 text-muted-foreground" />
                             {formatCredits(remainingCredits)}
@@ -319,13 +318,13 @@ export default function BillingPage() {
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm text-muted-foreground">
-                            {isBillingV2 ? "Total ledger debits" : "Current allocation usage"}
+                            {isOssMode ? "Current allocation usage" : "Total ledger debits"}
                         </p>
                     </CardContent>
                 </Card>
             </div>
 
-            {isBillingV2 ? (
+            {!isOssMode ? (
                 <Card>
                     <CardHeader>
                         <CardTitle>Credit Ledger</CardTitle>

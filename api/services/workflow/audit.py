@@ -2,9 +2,8 @@
 
 Pure, dependency-free helpers derived from `NodeSpec.graph_constraints`.
 Lives in tracked code so the regression tests in
-`test_workflow_graph_constraints.py` can pin it; the admin cleanup
-script in `api/services/admin_utils/local_exec.py` is the production
-consumer.
+`test_workflow_graph_constraints.py` can pin it; admin cleanup scripts
+under `api/services/admin_utils/` are the production consumers.
 """
 
 from collections import Counter

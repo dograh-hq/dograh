@@ -215,7 +215,7 @@ async def process_knowledge_base_document(
             return
 
         # Ingestion runs outside any workflow run, so resolve the MPS correlation
-        # id here (mint only for orgs already on v2; never create an account).
+        # id here.
         embedding_service = await build_embedding_service(
             db_client=db_client,
             provider=embeddings_provider,
@@ -224,8 +224,6 @@ async def process_knowledge_base_document(
             base_url=embeddings_base_url,
             endpoint=embeddings_endpoint,
             api_version=embeddings_api_version,
-            organization_id=organization_id,
-            created_by=created_by_provider_id,
             resolve_correlation=True,
         )
 

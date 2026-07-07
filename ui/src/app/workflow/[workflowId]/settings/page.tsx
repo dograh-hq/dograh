@@ -25,7 +25,6 @@ import {
 } from "@/components/AIModelConfigurationV2Editor";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { LLMConfigSelector } from "@/components/LLMConfigSelector";
-import { ServiceConfigurationForm } from "@/components/ServiceConfigurationForm";
 import SpinLoader from "@/components/SpinLoader";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -1185,17 +1184,7 @@ function WorkflowModelOverridesSection({
         setOverrideEnabled(Boolean(workflowConfigurations.model_configuration_v2_override));
     }, [workflowConfigurations.model_configuration_v2_override]);
 
-    const source = organizationModelConfiguration?.source || "empty";
-    const isV2 = source === "organization_v2";
-
-    const saveLegacyOverrides = async (config: Record<string, unknown>) => {
-        const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
-        const modelOverrides = config.model_overrides as WorkflowConfigurations["model_overrides"] | undefined;
-        if (modelOverrides) {
-            nextConfigurations.model_overrides = modelOverrides;
-        }
-        await onSave(nextConfigurations, workflowName);
-    };
+    const hasOrgConfiguration = organizationModelConfiguration?.source === "organization_v2";
 
     const saveV2Override = async (configuration: OrganizationAiModelConfigurationV2) => {
         const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
@@ -1223,9 +1212,7 @@ function WorkflowModelOverridesSection({
                     Model Overrides
                 </CardTitle>
                 <CardDescription>
-                    {isV2
-                        ? "Override the full organization model configuration for this workflow."
-                        : "Override global model settings for this workflow. Toggle individual services to customize."}{" "}
+                    Override the full organization model configuration for this workflow.{" "}
                     <a href={SETTINGS_DOCUMENTATION_URLS.modelOverrides} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">Learn more <ExternalLink className="h-3 w-3" /></a>
                 </CardDescription>
             </CardHeader>
@@ -1243,28 +1230,18 @@ function WorkflowModelOverridesSection({
                     </div>
                 )}
 
-                {!modelConfigurationLoading && !modelConfigurationError && !isV2 && (
-                    <>
-                        {source === "legacy_user_v1" && (
-                            <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-sm text-muted-foreground">
-                                    This workflow is using legacy model overrides. Migrate organization model configuration to use v2 overrides.
-                                </p>
-                                <Button type="button" variant="outline" size="sm" asChild>
-                                    <Link href="/model-configurations?action=migrate_to_v2">Migrate to v2</Link>
-                                </Button>
-                            </div>
-                        )}
-                        <ServiceConfigurationForm
-                            mode="override"
-                            currentOverrides={workflowConfigurations.model_overrides}
-                            submitLabel="Save Model Overrides"
-                            onSave={saveLegacyOverrides}
-                        />
-                    </>
+                {!modelConfigurationLoading && !modelConfigurationError && !hasOrgConfiguration && (
+                    <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm text-muted-foreground">
+                            Set up your organization model configuration before overriding it per workflow.
+                        </p>
+                        <Button type="button" variant="outline" size="sm" asChild>
+                            <Link href="/model-configurations">Configure Models</Link>
+                        </Button>
+                    </div>
                 )}
 
-                {!modelConfigurationLoading && !modelConfigurationError && isV2 && modelConfigurationDefaults && organizationModelConfiguration && (
+                {!modelConfigurationLoading && !modelConfigurationError && hasOrgConfiguration && modelConfigurationDefaults && organizationModelConfiguration && (
                     <>
                         <div className="flex items-center justify-between rounded-md border p-4">
                             <div className="space-y-0.5">

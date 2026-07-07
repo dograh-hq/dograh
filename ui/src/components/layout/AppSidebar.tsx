@@ -18,6 +18,7 @@ import {
   Megaphone,
   Phone,
   Settings,
+  Store,
   TrendingUp,
   UserRound,
   Workflow,
@@ -113,6 +114,11 @@ function getNavSections(t: ReturnType<typeof useTranslations<"sidebar">>): Sideb
           title: t("nav.tools"),
           url: "/tools",
           icon: Wrench,
+        },
+        {
+          title: t("nav.marketplace"),
+          url: "/marketplace",
+          icon: Store,
         },
         {
           title: t("nav.files"),

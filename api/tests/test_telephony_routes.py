@@ -393,4 +393,4 @@ async def test_smallwebrtc_run_reaching_telephony_websocket_closes_without_runni
     )
     assert mock_db.update_workflow_run.await_count == 0
     assert provider_lookup.await_count == 0
-    mock_concurrency.unregister_active_call.assert_awaited_once_with(501)
+    mock_concurrency.unregister_active_call.assert_not_awaited()

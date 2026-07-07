@@ -686,9 +686,6 @@ async def _handle_telephony_websocket(
         except RuntimeError:
             # WebSocket already closed, ignore
             pass
-    finally:
-        await call_concurrency.unregister_active_call(workflow_run_id)
-
 
 @router.post("/inbound/run")
 async def handle_inbound_run(request: Request):

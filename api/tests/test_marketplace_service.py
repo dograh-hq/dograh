@@ -19,7 +19,7 @@ _MARKETPLACE_ROW.is_installed = False
 class TestGetCatalog:
     @pytest.mark.asyncio
     async def test_returns_all_active_tools(self):
-        with patch("api.services.tool_marketplace.async_session") as mock_sess:
+        with patch("api.services.tool_marketplace.db_client.async_session") as mock_sess:
             session = AsyncMock()
             mock_sess.return_value.__aenter__.return_value = session
             
@@ -35,7 +35,7 @@ class TestGetCatalog:
     
     @pytest.mark.asyncio
     async def test_filters_by_category(self):
-        with patch("api.services.tool_marketplace.async_session") as mock_sess:
+        with patch("api.services.tool_marketplace.db_client.async_session") as mock_sess:
             session = AsyncMock()
             mock_sess.return_value.__aenter__.return_value = session
             
@@ -53,7 +53,7 @@ class TestGetCatalog:
 class TestInstallMarketplaceTool:
     @pytest.mark.asyncio
     async def test_installs_non_oauth_tool(self):
-        with patch("api.services.tool_marketplace.async_session") as mock_sess, \
+        with patch("api.services.tool_marketplace.db_client.async_session") as mock_sess, \
              patch("api.services.tool_marketplace.discover_mcp_tools") as mock_discover:
             session = AsyncMock()
             mock_sess.return_value.__aenter__.return_value = session
@@ -77,7 +77,7 @@ class TestInstallMarketplaceTool:
 
     @pytest.mark.asyncio
     async def test_rejects_private_url(self):
-        with patch("api.services.tool_marketplace.async_session") as mock_sess, \
+        with patch("api.services.tool_marketplace.db_client.async_session") as mock_sess, \
              patch("api.services.tool_marketplace.validate_public_url") as mock_val:
             session = AsyncMock()
             mock_sess.return_value.__aenter__.return_value = session
@@ -109,7 +109,7 @@ class TestInstallMarketplaceTool:
         oauth_row.category = "mcp_direct"
         oauth_row.description = "CRM"
 
-        with patch("api.services.tool_marketplace.async_session") as mock_sess, \
+        with patch("api.services.tool_marketplace.db_client.async_session") as mock_sess, \
              patch("api.services.tool_marketplace.os.environ.get") as mock_env:
             session = AsyncMock()
             mock_sess.return_value.__aenter__.return_value = session

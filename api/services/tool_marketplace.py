@@ -6,21 +6,21 @@ from typing import Dict, List, Optional, Any
 from sqlalchemy import text
 from loguru import logger
 
-from api.db.database import async_session
+from api.db import db_client
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
 from api.utils.url_validation import validate_public_url
 
 
 async def get_catalog(org_id: str, category: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get all active tools from the marketplace."""
-    async with async_session() as session:
+    async with db_client.async_session() as session:
         # Base query
         base_query = """
             SELECT tm.id, tm.name, tm.display_name, tm.category, tm.subcategory, tm.icon, 
                    tm.description, tm.tool_category, tm.config_template, tm.oauth_enabled, tm.is_active,
                    (CASE WHEN t.id IS NOT NULL THEN true ELSE false END) as is_installed
             FROM tool_marketplace tm
-            LEFT JOIN tools t ON tm.name = t.name AND t.organization_id = :org_id
+            LEFT JOIN tools t ON tm.name = t.name AND t.organization_id = CAST(:org_id AS INTEGER)
             WHERE tm.is_active = true
         """
         
@@ -55,13 +55,13 @@ async def get_catalog(org_id: str, category: Optional[str] = None) -> List[Dict[
 
 async def get_marketplace_tool(tool_id: int, org_id: str) -> Optional[Dict[str, Any]]:
     """Get a specific marketplace tool by ID, with installation status for the organization."""
-    async with async_session() as session:
+    async with db_client.async_session() as session:
         result = await session.execute(
             text("""
                 SELECT tm.*, 
                        (CASE WHEN t.id IS NOT NULL THEN true ELSE false END) as is_installed
                 FROM tool_marketplace tm
-                LEFT JOIN tools t ON tm.name = t.name AND t.organization_id = :org_id
+                LEFT JOIN tools t ON tm.name = t.name AND t.organization_id = CAST(:org_id AS INTEGER)
                 WHERE tm.id = :tool_id
             """),
             {"tool_id": tool_id, "org_id": org_id}
@@ -98,7 +98,7 @@ async def install_marketplace_tool(
     created_by: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Install a marketplace tool for an organization."""
-    async with async_session() as session:
+    async with db_client.async_session() as session:
         # Get the marketplace tool
         marketplace_result = await session.execute(
             text("SELECT * FROM tool_marketplace WHERE id = :tool_id"),
@@ -260,7 +260,7 @@ async def complete_oauth_install(
     refresh_token = token_data.get("refresh_token")
 
     # Store credential
-    async with async_session() as session:
+    async with db_client.async_session() as session:
         from uuid import uuid4
         credential_uuid = str(uuid4())
         await session.execute(

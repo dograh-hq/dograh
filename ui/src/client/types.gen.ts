@@ -3308,10 +3308,6 @@ export type MpsBillingAccountResponse = {
  */
 export type MpsBillingCreditsResponse = {
     /**
-     * Billing Version
-     */
-    billing_version: 'legacy' | 'v2';
-    /**
      * Total Credits Used
      */
     total_credits_used?: number;
@@ -3434,24 +3430,6 @@ export type MpsCreditPurchaseUrlResponse = {
      * Checkout Url
      */
     checkout_url: string;
-};
-
-/**
- * MPSCreditsResponse
- */
-export type MpsCreditsResponse = {
-    /**
-     * Total Credits Used
-     */
-    total_credits_used: number;
-    /**
-     * Remaining Credits
-     */
-    remaining_credits: number;
-    /**
-     * Total Quota
-     */
-    total_quota: number;
 };
 
 /**
@@ -12030,45 +12008,6 @@ export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponse
 };
 
 export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponse = GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses[keyof GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses];
-
-export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/v1/organizations/usage/mps-credits';
-};
-
-export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetError = GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors[keyof GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors];
-
-export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: MpsCreditsResponse;
-};
-
-export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponse = GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses[keyof GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses];
 
 export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetData = {
     body?: never;

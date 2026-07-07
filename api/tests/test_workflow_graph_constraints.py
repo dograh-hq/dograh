@@ -9,9 +9,9 @@ category of violation we found in production. We pin two layers:
      layer ever stops rejecting one of these fixtures, the production
      write paths will quietly start accepting bad workflows again.
   2. audit_definition (api.services.workflow.audit) — read-only sweep
-     over persisted rows used by the admin cleanup script to find
+     over persisted rows for one-off cleanup tooling that finds
      legacy/imported breakage. Pinned so refactors of the rule set
-     don't silently change the verdicts the migration relies on.
+     don't silently change those cleanup verdicts.
 
 DTO-level shape validation is covered by `test_dto.py` and isn't
 re-pinned here.

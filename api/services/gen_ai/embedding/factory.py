@@ -2,9 +2,8 @@
 
 Centralizes the provider branching (Azure BYOK / Dograh-managed / OpenAI-compatible
 BYOK) that was previously duplicated across document ingestion, the search route,
-and the RAG tool, and resolves the MPS billing v2 protocol the same way the voice
-path does: attach it only for orgs already on v2, and never create a billing
-account to do so.
+and the RAG tool, and resolves the MPS correlation id the same way the voice
+path does.
 """
 
 from typing import Optional
@@ -24,46 +23,23 @@ DEFAULT_AZURE_API_VERSION = "2024-02-15-preview"
 
 async def resolve_embedding_correlation_id(
     *,
-    organization_id: Optional[int],
     service_key: Optional[str],
-    created_by: Optional[str] = None,
 ) -> Optional[str]:
-    """Resolve an MPS correlation id for a managed embedding call made outside a run.
+    """Mint an MPS correlation id for a managed embedding call made outside a run.
 
-    Mirrors the voice path's gating:
-
-    - OSS deployments use a pasted hosted v2 key (v2 by definition), so mint
-      directly via the bearer endpoint — matching ``_authorize_oss_managed_v2_correlation``.
-    - Hosted/SaaS: read the org's billing mode (no side effects) and mint only when
-      it is already v2. Minting for an already-v2 org is a no-op on the account.
-
-    Returns ``None`` when the call should be sent without the protocol; MPS accepts
-    un-gated embedding calls from v1 orgs. Never creates a v2 billing account.
+    Matches the voice path's ``_authorize_oss_managed_v2_correlation``: the
+    correlation is minted via the bearer service-key endpoint, so it works for
+    hosted orgs and OSS keys alike. Returns ``None`` when minting fails; MPS
+    accepts un-correlated embedding calls.
     """
     if not service_key:
         return None
 
     # Imported lazily to avoid import-time cycles between the gen_ai and service
     # layers (matches the inline-import convention used elsewhere in the app).
-    from api.constants import DEPLOYMENT_MODE
     from api.services.mps_service_key_client import mps_service_key_client
 
     try:
-        if DEPLOYMENT_MODE == "oss":
-            minted = await mps_service_key_client.create_correlation_id(
-                service_key=service_key
-            )
-            return minted.get("correlation_id")
-
-        if organization_id is None:
-            return None
-
-        status = await mps_service_key_client.get_billing_account_status(
-            organization_id, created_by=created_by
-        )
-        if not status or status.get("billing_mode") != "v2":
-            return None
-
         minted = await mps_service_key_client.create_correlation_id(
             service_key=service_key
         )
@@ -71,7 +47,7 @@ async def resolve_embedding_correlation_id(
     except Exception as e:
         logger.warning(
             "Could not resolve MPS correlation id for managed embeddings; "
-            "sending without v2 protocol: {}",
+            "sending without it: {}",
             e,
         )
         return None
@@ -87,8 +63,6 @@ async def build_embedding_service(
     endpoint: Optional[str] = None,
     api_version: Optional[str] = None,
     correlation_id: Optional[str] = None,
-    organization_id: Optional[int] = None,
-    created_by: Optional[str] = None,
     resolve_correlation: bool = False,
 ) -> BaseEmbeddingService:
     """Construct the right embedding service for a provider/config.
@@ -116,11 +90,7 @@ async def build_embedding_service(
     if provider == ServiceProviders.DOGRAH.value:
         cid = correlation_id
         if cid is None and resolve_correlation:
-            cid = await resolve_embedding_correlation_id(
-                organization_id=organization_id,
-                service_key=api_key,
-                created_by=created_by,
-            )
+            cid = await resolve_embedding_correlation_id(service_key=api_key)
         return DograhEmbeddingService(
             db_client=db_client,
             api_key=api_key,

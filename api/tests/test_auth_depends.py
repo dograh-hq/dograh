@@ -209,7 +209,7 @@ def test_associate_user_with_posthog_org_supports_backfill_arguments(monkeypatch
     assert "backfilled" not in capture_kwargs["properties"]
 
 
-def test_sync_created_organization_to_posthog_supports_billing_flag(monkeypatch):
+def test_sync_created_organization_to_posthog_with_provider_id(monkeypatch):
     organization = SimpleNamespace(id=42, provider_id="team-1")
     group_calls = []
     capture_calls = []
@@ -228,11 +228,9 @@ def test_sync_created_organization_to_posthog_supports_billing_flag(monkeypatch)
     auth_depends._sync_created_organization_to_posthog(
         organization=organization,
         created_by_provider_id="stack-user-1",
-        uses_mps_billing_v2=True,
     )
 
-    _, group_kwargs = group_calls[0]
-    group_args, _ = group_calls[0]
+    group_args, group_kwargs = group_calls[0]
     assert group_args == (
         "organization",
         "42",
@@ -241,69 +239,9 @@ def test_sync_created_organization_to_posthog_supports_billing_flag(monkeypatch)
             "organization_provider_id": "team-1",
             "auth_provider": "stack",
             "created_by_provider_id": "stack-user-1",
-            "uses_mps_billing_v2": True,
         },
     )
     assert group_kwargs == {"distinct_id": "stack-user-1"}
 
     _, capture_kwargs = capture_calls[0]
     assert capture_kwargs["distinct_id"] == "stack-user-1"
-    assert capture_kwargs["properties"]["uses_mps_billing_v2"] is True
-
-
-def test_sync_posthog_organization_group_properties_has_no_distinct_id(monkeypatch):
-    organization = SimpleNamespace(id=42, provider_id="team-1")
-    group_calls = []
-
-    monkeypatch.setattr(
-        auth_depends,
-        "group_identify",
-        lambda *args, **kwargs: group_calls.append((args, kwargs)),
-    )
-
-    auth_depends._sync_posthog_organization_group_properties(
-        organization=organization,
-        uses_mps_billing_v2=True,
-    )
-
-    assert group_calls == [
-        (
-            (
-                "organization",
-                "42",
-                {
-                    "organization_id": 42,
-                    "organization_provider_id": "team-1",
-                    "auth_provider": "stack",
-                    "uses_mps_billing_v2": True,
-                },
-            ),
-            {},
-        )
-    ]
-
-
-def test_sync_posthog_organization_mps_billing_v2_status(monkeypatch):
-    group_calls = []
-
-    monkeypatch.setattr(
-        auth_depends,
-        "group_identify",
-        lambda *args, **kwargs: group_calls.append((args, kwargs)),
-    )
-
-    auth_depends._sync_posthog_organization_mps_billing_v2_status(
-        42,
-        uses_mps_billing_v2=True,
-    )
-
-    assert group_calls == [
-        (
-            (
-                "organization",
-                "42",
-                {"uses_mps_billing_v2": True},
-            ),
-            {},
-        )
-    ]

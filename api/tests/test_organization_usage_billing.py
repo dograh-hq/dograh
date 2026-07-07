@@ -6,41 +6,36 @@ import pytest
 from api.routes import organization_usage
 
 
-def test_is_mps_billing_v2_depends_only_on_account_mode():
-    assert organization_usage._is_mps_billing_v2({"billing_mode": "v2"}) is True
-    assert organization_usage._is_mps_billing_v2({"billing_mode": "v1"}) is False
-    assert organization_usage._is_mps_billing_v2({"billing_mode": "shadow"}) is False
-    assert organization_usage._is_mps_billing_v2(None) is False
-
-
 @pytest.mark.asyncio
-async def test_get_mps_billing_account_status_uses_user_provider_id(monkeypatch):
-    get_status = AsyncMock(return_value={"billing_mode": "v2"})
+async def test_get_billing_credits_oss_aggregates_by_created_by(monkeypatch):
+    monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "oss")
+    get_usage = AsyncMock(
+        return_value={"total_credits_used": 12.5, "remaining_credits": 487.5}
+    )
     monkeypatch.setattr(
         organization_usage.mps_service_key_client,
-        "get_billing_account_status",
-        get_status,
+        "get_usage_by_created_by",
+        get_usage,
     )
 
-    user = SimpleNamespace(provider_id="provider-123")
+    user = SimpleNamespace(provider_id="provider-123", selected_organization_id=None)
 
-    assert await organization_usage._get_mps_billing_account_status(user, 42) == {
-        "billing_mode": "v2"
-    }
-    get_status.assert_awaited_once_with(
-        organization_id=42,
-        created_by="provider-123",
+    response = await organization_usage.get_billing_credits(
+        page=1,
+        limit=50,
+        user=user,
     )
+
+    get_usage.assert_awaited_once_with("provider-123")
+    assert response.total_credits_used == 12.5
+    assert response.remaining_credits == 487.5
+    assert response.total_quota == 500.0
+    assert response.ledger_entries == []
 
 
 @pytest.mark.asyncio
-async def test_get_billing_credits_pages_v2_ledger(monkeypatch):
+async def test_get_billing_credits_pages_hosted_ledger(monkeypatch):
     monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "saas")
-    monkeypatch.setattr(
-        organization_usage,
-        "_get_mps_billing_account_status",
-        AsyncMock(return_value={"billing_mode": "v2"}),
-    )
     get_ledger = AsyncMock(
         return_value={
             "account": {
@@ -90,7 +85,6 @@ async def test_get_billing_credits_pages_v2_ledger(monkeypatch):
         limit=25,
         created_by="provider-123",
     )
-    assert response.billing_version == "v2"
     assert response.total_credits_used == 75
     assert response.total_count == 101
     assert response.page == 3

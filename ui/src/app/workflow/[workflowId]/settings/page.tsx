@@ -48,6 +48,7 @@ import {
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
+    resolveWorkflowConfigurations,
     TURN_START_STRATEGY_OPTIONS,
     type TurnStartStrategy,
     type TurnStopStrategy,
@@ -293,6 +294,9 @@ function GeneralSection({
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
         workflowConfigurations.context_compaction_enabled,
     );
+    const [includeTranscriptEndTimestamps, setIncludeTranscriptEndTimestamps] = useState(
+        workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false,
+    );
     const [isSaving, setIsSaving] = useState(false);
     const [isUploadingAudio, setIsUploadingAudio] = useState(false);
     const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
@@ -314,9 +318,11 @@ function GeneralSection({
             turnStartMinWords !== workflowConfigurations.turn_start_min_words ||
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
-            contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled
+            contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
+            includeTranscriptEndTimestamps !==
+            (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -393,6 +399,10 @@ function GeneralSection({
                     provisional_vad_pause_secs: provisionalVadPauseSecs,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
+                    transcript_configuration: {
+                        ...(workflowConfigurations.transcript_configuration ?? {}),
+                        include_end_timestamps: includeTranscriptEndTimestamps,
+                    },
                 },
                 name,
             );
@@ -682,6 +692,34 @@ function GeneralSection({
                             </p>
                         </div>
                     )}
+                </div>
+
+                <Separator />
+
+                {/* Transcript */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Transcript</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Include start and stop timestamps for each speaker in the uploaded transcript.
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="transcript-end-timestamps-enabled" className="text-sm">
+                            Enhanced Timestamped Transcript
+                        </Label>
+                        <Switch
+                            id="transcript-end-timestamps-enabled"
+                            checked={includeTranscriptEndTimestamps}
+                            onCheckedChange={setIncludeTranscriptEndTimestamps}
+                        />
+                    </div>
+                    <div className="rounded-md border bg-muted/20 p-3">
+                        <pre className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                            {`[2026-07-06T10:00:00.000Z -> 2026-07-06T10:00:04.800Z] assistant: Can you confirm your date of birth?
+[2026-07-06T10:00:06.200Z -> 2026-07-06T10:00:08.700Z] user: January fifth, nineteen ninety.`}
+                        </pre>
+                    </div>
                 </div>
 
                 <Separator />
@@ -1458,6 +1496,9 @@ function WorkflowSettingsInner({
         initialWorkflowConfigurations,
         user,
     });
+    const resolvedWorkflowConfigurationsForRender = workflowConfigurations
+        ? resolveWorkflowConfigurations(workflowConfigurations)
+        : null;
 
     useEffect(() => {
         if (hasFetchedModelConfiguration.current) return;
@@ -1532,18 +1573,18 @@ function WorkflowSettingsInner({
             <div className="mx-auto flex max-w-5xl gap-8 px-6 py-8">
                 {/* Sections */}
                 <div className="min-w-0 flex-1 space-y-8">
-                    {workflowConfigurations && (
+                    {resolvedWorkflowConfigurationsForRender && (
                         <>
                             {/* General */}
                             <GeneralSection
-                                workflowConfigurations={workflowConfigurations}
+                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName || workflow.name}
                                 workflowId={workflowId}
                                 onSave={saveWorkflowConfigurations}
                             />
 
                             <WorkflowModelOverridesSection
-                                workflowConfigurations={workflowConfigurations}
+                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName}
                                 onSave={saveWorkflowConfigurations}
                                 modelConfigurationDefaults={modelConfigurationDefaults}
@@ -1563,7 +1604,7 @@ function WorkflowSettingsInner({
 
                             {/* Voicemail Detection */}
                             <VoicemailSection
-                                workflowConfigurations={workflowConfigurations}
+                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName}
                                 onSave={saveWorkflowConfigurations}
                             />

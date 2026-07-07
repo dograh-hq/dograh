@@ -70,6 +70,7 @@ def register_event_handlers(
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
+    include_transcript_end_timestamps: bool = False,
 ):
     """Register all event handlers for transport and task events.
 
@@ -386,7 +387,9 @@ def register_event_handlers(
             else:
                 logger.debug("Bot audio buffer is empty, skipping upload")
 
-            transcript_text = in_memory_logs_buffer.generate_transcript_text()
+            transcript_text = in_memory_logs_buffer.generate_transcript_text(
+                include_end_timestamps=include_transcript_end_timestamps
+            )
             if not transcript_text:
                 logger.debug("No transcript events in logs buffer, skipping upload")
 

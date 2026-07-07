@@ -265,3 +265,28 @@ async def test_completed_bot_speech_interval_is_not_reused_for_next_pre_playback
     second_event = logs_buffer.get_events()[-1]
 
     assert second_event["payload"] == {"text": "Second"}
+
+
+@pytest.mark.asyncio
+async def test_non_vad_user_turn_after_completed_vad_turn_gets_fresh_timestamps():
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=123)
+
+    logs_buffer.mark_user_started_speaking(
+        "2026-01-01T00:00:01.000+00:00", from_vad=True
+    )
+    logs_buffer.mark_user_stopped_speaking(
+        "2026-01-01T00:00:02.000+00:00", from_vad=True
+    )
+    await logs_buffer.append(
+        {"type": "rtf-user-transcription", "payload": {"text": "First", "final": True}}
+    )
+
+    logs_buffer.mark_user_started_speaking("2026-01-01T00:00:10.000+00:00")
+    logs_buffer.mark_user_stopped_speaking("2026-01-01T00:00:12.000+00:00")
+    await logs_buffer.append(
+        {"type": "rtf-user-transcription", "payload": {"text": "Second", "final": True}}
+    )
+
+    second_event = logs_buffer.get_events()[-1]
+    assert second_event["payload"]["timestamp"] == "2026-01-01T00:00:10.000+00:00"
+    assert second_event["payload"]["end_timestamp"] == "2026-01-01T00:00:12.000+00:00"

@@ -137,7 +137,10 @@ class InMemoryLogsBuffer:
         self, timestamp: Optional[str] = None, *, from_vad: bool = False
     ):
         """Record when the user started speaking for the current turn."""
-        if self._user_speech_start_from_vad and not from_vad:
+        vad_interval_is_open = (
+            self._user_speech_start_from_vad and self._user_speech_end_timestamp is None
+        )
+        if vad_interval_is_open and not from_vad:
             return
 
         self._user_speech_start_timestamp = timestamp or self._now_iso()

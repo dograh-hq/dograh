@@ -3,6 +3,9 @@
     "name": "Sativoice Enterprise",
     "tagline": "Piattaforma Voice AI open-source"
   },
+  "marketplace": {
+    "noToolsAvailable": "Nessuno strumento disponibile in questa categoria."
+  },
   "overview": {
     "welcome": {
       "ossTitle": "Benvenuto in Sativoice Enterprise",

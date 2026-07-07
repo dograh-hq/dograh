@@ -3,6 +3,9 @@
     "name": "Dograh",
     "tagline": "Open Source Voice AI Platform"
   },
+  "marketplace": {
+    "noToolsAvailable": "No tools available in this category."
+  },
   "overview": {
     "welcome": {
       "ossTitle": "Welcome to Dograh",

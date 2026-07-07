@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { useTranslations } from "next-intl";
+
 import { listToolsApiV1MarketplaceToolsGet } from '@/client/sdk.gen';
 import { CategoryFilter, DifyImportDialog, ToolCard } from '@/components/marketplace';
 
@@ -18,6 +20,7 @@ interface MarketplaceTool {
 }
 
 export default function MarketplacePage() {
+    const t = useTranslations("marketplace");
     const [tools, setTools] = useState<MarketplaceTool[]>([]);
     const [category, setCategory] = useState('');
     const [isLoading, setIsLoading] = useState(true);
@@ -63,7 +66,7 @@ export default function MarketplacePage() {
                 </div>
             ) : tools.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
-                    No tools available in this category.
+                    {t("noToolsAvailable")}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

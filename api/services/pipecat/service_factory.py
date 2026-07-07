@@ -11,6 +11,7 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
 )
 from api.services.configuration.registry import ServiceProviders
+from api.services.pipecat.gemini_history_sanitizer import sanitize_gemini_history
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
@@ -120,9 +121,17 @@ def stt_uses_external_turns(user_config) -> bool:
 class DograhGoogleLLMService(GoogleLLMService):
     adapter_class = DograhGeminiJSONSchemaAdapter
 
+    async def _stream_content(self, context):
+        context.set_messages(sanitize_gemini_history(context.get_messages()))
+        return await super()._stream_content(context)
+
 
 class DograhGoogleVertexLLMService(GoogleVertexLLMService):
     adapter_class = DograhGeminiJSONSchemaAdapter
+
+    async def _stream_content(self, context):
+        context.set_messages(sanitize_gemini_history(context.get_messages()))
+        return await super()._stream_content(context)
 
 
 def _validate_runtime_service_url(url: str, field_name: str) -> None:

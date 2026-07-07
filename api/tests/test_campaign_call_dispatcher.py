@@ -25,6 +25,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
+from api.services.call_concurrency import CallConcurrencySlot
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
 
 # =============================================================================
@@ -257,6 +258,26 @@ def mock_rate_limiter():
         "get_workflow_from_number_mapping": mock_get_from_number_mapping,
         "delete_workflow_from_number_mapping": mock_delete_from_number_mapping,
     }
+
+
+@pytest.fixture(autouse=True)
+def mock_call_concurrency():
+    async def acquire_slot(organization_id, *, source, **kwargs):
+        return CallConcurrencySlot(
+            organization_id=organization_id,
+            slot_id=f"slot-{uuid.uuid4().hex[:8]}",
+            max_concurrent=kwargs.get("max_concurrent_override") or 20,
+            source=source,
+        )
+
+    with patch(
+        "api.services.campaign.campaign_call_dispatcher.call_concurrency"
+    ) as mock_concurrency:
+        mock_concurrency.acquire_org_slot = AsyncMock(side_effect=acquire_slot)
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_slot = AsyncMock(return_value=True)
+        mock_concurrency.release_workflow_run_slot = AsyncMock(return_value=True)
+        yield mock_concurrency
 
 
 # =============================================================================

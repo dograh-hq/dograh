@@ -677,15 +677,20 @@ class TestProcessStatusUpdateCircuitBreaker:
 
         with (
             patch("api.services.telephony.status_processor.db_client") as mock_db,
+            patch(
+                "api.services.telephony.status_processor.campaign_call_dispatcher"
+            ) as mock_dispatcher,
             patch("api.services.telephony.status_processor.circuit_breaker") as mock_cb,
         ):
             mock_db.get_workflow_run_by_id = AsyncMock(return_value=mock_workflow_run)
             mock_db.update_workflow_run = AsyncMock()
+            mock_dispatcher.release_call_slot = AsyncMock(return_value=True)
 
             await _process_status_update(100, status)
 
             # Circuit breaker should NOT be called for non-campaign calls
             mock_cb.record_and_evaluate.assert_not_called()
+            mock_dispatcher.release_call_slot.assert_awaited_once_with(100)
 
 
 # =============================================================================

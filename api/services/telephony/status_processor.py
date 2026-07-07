@@ -144,8 +144,9 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             f"[run {workflow_run_id}] Call completed with duration: {status.duration}s"
         )
 
+        await campaign_call_dispatcher.release_call_slot(workflow_run_id)
+
         if workflow_run.campaign_id:
-            await campaign_call_dispatcher.release_call_slot(workflow_run_id)
             await circuit_breaker.record_and_evaluate(
                 workflow_run.campaign_id, is_failure=False
             )
@@ -162,8 +163,9 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             f"[run {workflow_run_id}] Call failed with status: {normalized_status.value}"
         )
 
+        await campaign_call_dispatcher.release_call_slot(workflow_run_id)
+
         if workflow_run.campaign_id:
-            await campaign_call_dispatcher.release_call_slot(workflow_run_id)
             is_failure = normalized_status in FAILURE_NOT_CONNECTED_STATUSES
             await circuit_breaker.record_and_evaluate(
                 workflow_run.campaign_id,

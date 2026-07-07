@@ -14,6 +14,10 @@ from pydantic import BaseModel
 
 from api.db import db_client
 from api.enums import TriggerState, WorkflowStatus
+from api.services.call_concurrency import (
+    CallConcurrencyLimitError,
+    call_concurrency,
+)
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.factory import (
     get_default_telephony_provider,
@@ -243,15 +247,32 @@ async def _execute_resolved_target(
         initial_context["api_key_created_by"] = api_key_created_by
     initial_context.update(request.initial_context or {})
 
-    workflow_run = await db_client.create_workflow_run(
-        name=workflow_run_name,
-        workflow_id=target.workflow.id,
-        mode=workflow_run_mode,
-        initial_context=initial_context,
-        user_id=execution_user_id,
-        use_draft=use_draft,
-        organization_id=target.organization_id,
-    )
+    try:
+        concurrency_slot = await call_concurrency.acquire_org_slot(
+            target.organization_id,
+            source="public_agent",
+            timeout=0,
+        )
+    except CallConcurrencyLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Concurrent call limit reached",
+        )
+
+    try:
+        workflow_run = await db_client.create_workflow_run(
+            name=workflow_run_name,
+            workflow_id=target.workflow.id,
+            mode=workflow_run_mode,
+            initial_context=initial_context,
+            user_id=execution_user_id,
+            use_draft=use_draft,
+            organization_id=target.organization_id,
+        )
+        await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
+    except Exception:
+        await call_concurrency.release_slot(concurrency_slot)
+        raise
 
     logger.info(
         f"Created workflow run {workflow_run.id} for public agent "
@@ -267,10 +288,15 @@ async def _execute_resolved_target(
         workflow_run_id=workflow_run.id,
     )
     if not quota_result.has_quota:
+        await call_concurrency.release_workflow_run_slot(workflow_run.id)
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # 9. Construct webhook URL for telephony provider callback
-    backend_endpoint, _ = await get_backend_endpoints()
+    try:
+        backend_endpoint, _ = await get_backend_endpoints()
+    except Exception:
+        await call_concurrency.release_workflow_run_slot(workflow_run.id)
+        raise
     webhook_endpoint = provider.WEBHOOK_ENDPOINT
 
     webhook_url = (
@@ -297,6 +323,7 @@ async def _execute_resolved_target(
         logger.warning(
             f"Failed to initiate call for workflow run {workflow_run.id}: {e}"
         )
+        await call_concurrency.release_workflow_run_slot(workflow_run.id)
         raise HTTPException(
             status_code=400,
             detail=f"Failed to initiate call: {e}",

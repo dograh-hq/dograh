@@ -1,11 +1,18 @@
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
 import redis.asyncio as aioredis
 from loguru import logger
 
 from api.constants import REDIS_URL
+
+
+@dataclass(frozen=True)
+class ConcurrentSlotAcquisition:
+    slot_id: str
+    active_count: int
 
 
 class RateLimiter:
@@ -100,6 +107,19 @@ class RateLimiter:
         Try to acquire a concurrent call slot.
         Returns a unique slot_id if successful, None if limit reached.
         """
+        acquisition = await self.try_acquire_concurrent_slot_details(
+            organization_id, max_concurrent
+        )
+        return acquisition.slot_id if acquisition else None
+
+    async def try_acquire_concurrent_slot_details(
+        self, organization_id: int, max_concurrent: int = 20
+    ) -> Optional[ConcurrentSlotAcquisition]:
+        """
+        Try to acquire a concurrent call slot.
+        Returns the slot_id and post-acquire active count if successful,
+        or None if the limit is reached.
+        """
         redis_client = await self._get_redis()
 
         concurrent_key = f"concurrent_calls:{organization_id}"
@@ -124,7 +144,7 @@ class RateLimiter:
             -- Add new slot
             redis.call('ZADD', key, now, slot_id)
             redis.call('EXPIRE', key, 3600)  -- Expire after 1 hour
-            return slot_id
+            return {slot_id, current_count + 1}
         else
             return nil
         end
@@ -143,7 +163,14 @@ class RateLimiter:
                 stale_cutoff,
                 slot_id,
             )
-            return result
+            if not result:
+                return None
+
+            acquired_slot_id, active_count = result
+            return ConcurrentSlotAcquisition(
+                slot_id=str(acquired_slot_id),
+                active_count=int(active_count),
+            )
         except Exception as e:
             logger.error(f"Concurrent limiter error: {e}")
             return None
@@ -210,6 +237,46 @@ class RateLimiter:
             return True
         except Exception as e:
             logger.error(f"Error storing workflow slot mapping: {e}")
+            return False
+
+    async def store_workflow_slot_mapping_if_absent(
+        self, workflow_run_id: int, organization_id: int, slot_id: str
+    ) -> bool:
+        """
+        Store the workflow_run_id -> concurrent slot mapping only if no mapping
+        already exists. This prevents duplicate public/WebRTC starts for the
+        same workflow run from overwriting the cleanup pointer.
+        """
+        redis_client = await self._get_redis()
+        mapping_key = f"workflow_slot_mapping:{workflow_run_id}"
+
+        lua_script = """
+        local key = KEYS[1]
+        local org_id = ARGV[1]
+        local slot_id = ARGV[2]
+        local ttl = tonumber(ARGV[3])
+
+        if redis.call('EXISTS', key) == 1 then
+            return 0
+        end
+
+        redis.call('HSET', key, 'org_id', org_id, 'slot_id', slot_id)
+        redis.call('EXPIRE', key, ttl)
+        return 1
+        """
+
+        try:
+            stored = await redis_client.eval(
+                lua_script,
+                1,
+                mapping_key,
+                organization_id,
+                slot_id,
+                self.stale_call_timeout,
+            )
+            return bool(stored)
+        except Exception as e:
+            logger.error(f"Error storing workflow slot mapping if absent: {e}")
             return False
 
     async def get_workflow_slot_mapping(

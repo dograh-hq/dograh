@@ -313,6 +313,7 @@ async def initialize_embed_session(
                 **(init_request.context_variables or {}),
                 "provider": WorkflowRunMode.SMALLWEBRTC.value,
             },
+            organization_id=embed_token.organization_id,
         )
     except Exception as e:
         logger.error(f"Failed to create workflow run: {e}")

@@ -356,7 +356,7 @@ async def authorize_workflow_run_start(
             )
 
         actor_id = getattr(actor_user, "id", None)
-        if actor_id is not None:
+        if actor_id is not None and workflow.organization_id is not None:
             is_member = await db_client.is_user_member_of_organization(
                 user_id=actor_id,
                 organization_id=workflow.organization_id,

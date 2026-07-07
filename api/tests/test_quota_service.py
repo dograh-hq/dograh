@@ -448,3 +448,40 @@ async def test_authorize_workflow_run_allows_invited_member(monkeypatch):
     )
 
     assert result.has_quota is True
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_allows_personal_workflow_with_actor(monkeypatch):
+    """Personal/legacy workflows (organization_id=None) bypass membership check."""
+    personal_workflow = SimpleNamespace(
+        id=7,
+        user_id=123,
+        organization_id=None,
+        workflow_configurations={"model_overrides": {}},
+    )
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch, workflow=personal_workflow)
+    is_member_mock = AsyncMock()
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "is_user_member_of_organization",
+        is_member_mock,
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_byok_config()),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "_authorize_hosted_workflow_run_start",
+        AsyncMock(return_value=QuotaCheckResult(has_quota=True)),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        actor_user=SimpleNamespace(id=456),
+    )
+
+    assert result.has_quota is True
+    is_member_mock.assert_not_awaited()

@@ -94,7 +94,8 @@ async def get_marketplace_tool(tool_id: int, org_id: str) -> Optional[Dict[str, 
 async def install_marketplace_tool(
     tool_id: int, 
     org_id: str, 
-    user_url: Optional[str] = None
+    user_url: Optional[str] = None,
+    created_by: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Install a marketplace tool for an organization."""
     async with async_session() as session:
@@ -129,9 +130,8 @@ async def install_marketplace_tool(
             # Construct redirect URI from marketplace configuration
             auth_url = marketplace_tool.oauth_auth_url or "https://example.com/oauth"
             redirect_path = marketplace_tool.oauth_redirect_path or "/oauth/callback"
-            # TODO: Get base URL from app config
-            base_url = os.environ.get("APP_BASE_URL", "http://localhost:3000")
-            redirect_uri = f"{base_url}{redirect_path}"
+            base_url_for_redirect = os.environ.get("APP_BASE_URL", "http://localhost:3000")
+            redirect_uri = f"{base_url_for_redirect}{redirect_path}"
             
             redirect_url = f"{auth_url}?client_id={client_id}&redirect_uri={redirect_uri}"
             return {
@@ -174,7 +174,7 @@ async def install_marketplace_tool(
                         "transport": marketplace_tool.config_template.get("transport", "streamable_http")
                     }
                 },
-                "created_by": 1  # TODO: Get actual user ID from context
+                "created_by": created_by or 1
             }
         )
         
@@ -210,7 +210,7 @@ async def install_marketplace_tool(
 
 
 async def complete_oauth_install(
-    tool_id: int, org_id: str, code: str
+    tool_id: int, org_id: str, code: str, created_by: Optional[int] = None, base_url: str = "http://localhost:3000"
 ) -> dict[str, Any]:
     """Complete a marketplace tool installation after OAuth authorization.
 
@@ -288,5 +288,7 @@ async def complete_oauth_install(
     config["credential_uuid"] = credential_uuid
 
     # Create the tool (reuse install logic)
-    result = await install_marketplace_tool(tool_id=tool_id, org_id=org_id)
+    result = await install_marketplace_tool(
+        tool_id=tool_id, org_id=org_id, created_by=created_by
+    )
     return result

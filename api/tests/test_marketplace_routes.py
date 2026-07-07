@@ -138,6 +138,7 @@ class TestConnectMarketplaceTool:
                 tool_id=1,
                 org_id="test-org-id",
                 user_url=None,
+                created_by=1,
             )
             assert response.status_code == 201
             assert response.json()["tool_uuid"] == "abc-123"
@@ -162,6 +163,7 @@ class TestConnectMarketplaceTool:
                 tool_id=1,
                 org_id="test-org-id",
                 user_url=None,
+                created_by=1,
             )
             assert response.status_code == 409
 

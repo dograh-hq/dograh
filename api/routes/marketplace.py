@@ -1,6 +1,6 @@
 """Marketplace tool REST routes."""
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from pydantic import BaseModel
 
 from api.services.auth.depends import get_user
@@ -51,6 +51,7 @@ async def connect_tool(tool_id: int, request: ConnectRequest, user=Depends(get_u
             tool_id=tool_id,
             org_id=user.selected_organization_id,  # Use auth user's org_id for security
             user_url=request.user_url,
+            created_by=user.id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -69,17 +70,20 @@ async def connect_tool(tool_id: int, request: ConnectRequest, user=Depends(get_u
 
 
 @router.post("/tools/{tool_id}/oauth/callback")
-async def oauth_callback(tool_id: int, request: OAuthCallbackRequest, user=Depends(get_user)):
+async def oauth_callback(tool_id: int, oauth_req: OAuthCallbackRequest, user=Depends(get_user), req: Request = None):
     """Handle OAuth callback after user authorizes the tool."""
-    # Validate the user has access to the specified organization
-    if request.organization_id != user.selected_organization_id:
+    if oauth_req.organization_id != user.selected_organization_id:
         raise HTTPException(status_code=403, detail="Organization access denied")
+    
+    base_url = f"{req.url.scheme}://{req.url.netloc}" if req else "http://localhost:3000"
     
     try:
         result = await complete_oauth_install(
             tool_id=tool_id,
-            org_id=request.organization_id,
-            code=request.code,
+            org_id=oauth_req.organization_id,
+            code=oauth_req.code,
+            created_by=user.id,
+            base_url=base_url,
         )
         return result
     except ValueError as e:

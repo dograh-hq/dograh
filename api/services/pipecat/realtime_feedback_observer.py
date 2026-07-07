@@ -21,6 +21,7 @@ node changes.
 """
 
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
 from loguru import logger
@@ -56,12 +57,18 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.utils.enums import RealtimeFeedbackType
+
+
+def _epoch_seconds_to_utc_iso(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, UTC).isoformat(timespec="milliseconds")
 
 
 class RealtimeFeedbackObserver(BaseObserver):
@@ -157,6 +164,18 @@ class RealtimeFeedbackObserver(BaseObserver):
         elif isinstance(frame, UserStoppedSpeakingFrame):
             if self._logs_buffer:
                 self._logs_buffer.mark_user_stopped_speaking()
+        elif isinstance(frame, VADUserStartedSpeakingFrame):
+            if self._logs_buffer:
+                self._logs_buffer.mark_user_started_speaking(
+                    _epoch_seconds_to_utc_iso(frame.timestamp - frame.start_secs),
+                    from_vad=True,
+                )
+        elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            if self._logs_buffer:
+                self._logs_buffer.mark_user_stopped_speaking(
+                    _epoch_seconds_to_utc_iso(frame.timestamp - frame.stop_secs),
+                    from_vad=True,
+                )
         # User mute state - WS only (ephemeral state signals, not persisted)
         elif isinstance(frame, UserMuteStartedFrame):
             await self._send_ws(

@@ -109,6 +109,8 @@ class InMemoryLogsBuffer:
         self._current_node_name: Optional[str] = None
         self._user_speech_start_timestamp: Optional[str] = None
         self._user_speech_end_timestamp: Optional[str] = None
+        self._user_speech_start_from_vad = False
+        self._user_speech_end_from_vad = False
         self._bot_speech_start_timestamp: Optional[str] = None
         self._bot_speech_end_timestamp: Optional[str] = None
 
@@ -131,37 +133,50 @@ class InMemoryLogsBuffer:
     def _now_iso() -> str:
         return datetime.now(UTC).isoformat(timespec="milliseconds")
 
-    def mark_user_started_speaking(self):
+    def mark_user_started_speaking(
+        self, timestamp: Optional[str] = None, *, from_vad: bool = False
+    ):
         """Record when the user started speaking for the current turn."""
-        self._user_speech_start_timestamp = self._now_iso()
+        if self._user_speech_start_from_vad and not from_vad:
+            return
+
+        self._user_speech_start_timestamp = timestamp or self._now_iso()
         self._user_speech_end_timestamp = None
+        self._user_speech_start_from_vad = from_vad
+        self._user_speech_end_from_vad = False
         self._update_latest_payload_start_timestamp(
             RealtimeFeedbackType.USER_TRANSCRIPTION.value,
             self._user_speech_start_timestamp,
             require_final=True,
         )
 
-    def mark_user_stopped_speaking(self):
+    def mark_user_stopped_speaking(
+        self, timestamp: Optional[str] = None, *, from_vad: bool = False
+    ):
         """Record when the user stopped speaking and update the latest user event."""
-        self._user_speech_end_timestamp = self._now_iso()
+        if self._user_speech_end_from_vad and not from_vad:
+            return
+
+        self._user_speech_end_timestamp = timestamp or self._now_iso()
+        self._user_speech_end_from_vad = from_vad
         self._update_latest_payload_end_timestamp(
             RealtimeFeedbackType.USER_TRANSCRIPTION.value,
             self._user_speech_end_timestamp,
             require_final=True,
         )
 
-    def mark_bot_started_speaking(self):
+    def mark_bot_started_speaking(self, timestamp: Optional[str] = None):
         """Record when the bot started speaking for the current assistant turn."""
-        self._bot_speech_start_timestamp = self._now_iso()
+        self._bot_speech_start_timestamp = timestamp or self._now_iso()
         self._bot_speech_end_timestamp = None
         self._update_latest_payload_start_timestamp(
             RealtimeFeedbackType.BOT_TEXT.value,
             self._bot_speech_start_timestamp,
         )
 
-    def mark_bot_stopped_speaking(self):
+    def mark_bot_stopped_speaking(self, timestamp: Optional[str] = None):
         """Record when the bot stopped speaking and update the latest bot event."""
-        self._bot_speech_end_timestamp = self._now_iso()
+        self._bot_speech_end_timestamp = timestamp or self._now_iso()
         self._update_latest_payload_end_timestamp(
             RealtimeFeedbackType.BOT_TEXT.value,
             self._bot_speech_end_timestamp,
@@ -217,10 +232,9 @@ class InMemoryLogsBuffer:
             if self._user_speech_end_timestamp:
                 payload_with_timestamps["end_timestamp"] = self._user_speech_end_timestamp
         elif event_type == RealtimeFeedbackType.BOT_TEXT.value:
-            if self._bot_speech_start_timestamp:
+            bot_interval_is_active = self._bot_speech_end_timestamp is None
+            if bot_interval_is_active and self._bot_speech_start_timestamp:
                 payload_with_timestamps["timestamp"] = self._bot_speech_start_timestamp
-            if self._bot_speech_end_timestamp:
-                payload_with_timestamps["end_timestamp"] = self._bot_speech_end_timestamp
 
         if payload_with_timestamps == payload:
             return event

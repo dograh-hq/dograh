@@ -198,6 +198,7 @@ export function resolveWorkflowConfigurations(
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
         transcript_configuration: {
             ...DEFAULT_TRANSCRIPT_CONFIGURATION,
+            ...(defaults?.transcript_configuration as Partial<TranscriptConfiguration> | undefined),
             ...(configurations?.transcript_configuration as Partial<TranscriptConfiguration> | undefined),
         },
     };

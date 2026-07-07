@@ -98,6 +98,31 @@ def test_empty_messages():
     assert sanitize_gemini_history([]) == []
 
 
+def test_injects_missing_response_when_only_partial_tool_responses_appended():
+    """assistant(c1,c2) -> tool(c1) -> user: inject synthetic for c2 only."""
+    msgs = [
+        _user("go"),
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "tool_a", "arguments": "{}"}},
+                {"id": "c2", "function": {"name": "tool_b", "arguments": "{}"}},
+            ],
+        },
+        _tool_response("tool_a", "c1"),
+        _user("interrupted"),
+    ]
+    result = sanitize_gemini_history(msgs)
+    # expect: user, assistant, tool(c1), tool(c2 synthetic), user
+    assert len(result) == 5
+    tool_ids = {m["tool_call_id"] for m in result if m.get("role") == "tool"}
+    assert tool_ids == {"c1", "c2"}
+    synthetic = next(m for m in result if m.get("tool_call_id") == "c2")
+    assert synthetic["content"] == "interrupted_by_user"
+    assert result[-1] == _user("interrupted")
+
+
 def test_does_not_mutate_input():
     msgs = [
         _assistant_tool_call("end_call", "c1"),

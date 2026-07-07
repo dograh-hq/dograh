@@ -3,8 +3,8 @@
 Vertex AI and Gemini reject completions where an assistant turn containing
 tool_calls is immediately followed by a user text turn instead of a tool
 response turn. This happens when a call is interrupted mid-tool execution.
-The sanitizer injects synthetic tool response messages so the sequence is
-always: assistant(tool_calls) -> tool(response) -> user(text).
+The sanitizer injects synthetic tool response messages so every pending
+tool_call_id has a response before the next user text turn.
 """
 
 from __future__ import annotations
@@ -25,39 +25,59 @@ def _is_tool_response(msg: Any) -> bool:
 
 
 def sanitize_gemini_history(
-    messages: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    messages: list[Any],
+) -> list[Any]:
     """Return messages with synthetic tool responses injected where needed.
 
-    If an assistant turn with tool_calls is followed by a non-tool user turn,
-    inserts a synthetic tool response per pending call before the user turn.
+    For each assistant turn with tool_calls, walks the immediately following
+    tool response turns to collect which call IDs are already answered. Any
+    unanswered call IDs are injected as synthetic tool responses
+    (content: "interrupted_by_user") before the next non-tool turn.
+
+    Handles:
+    - Zero responses appended: inject all (fully interrupted)
+    - Some responses appended: inject only the missing ones (partially interrupted)
+    - All responses present: pass through unchanged
+
     Operates on the universal LLMContext dict format (role/content/tool_calls).
+    Non-dict messages (LLMSpecificMessage) pass through unchanged.
     """
     if not messages:
         return messages
 
-    result: list[dict[str, Any]] = []
-    for i, msg in enumerate(messages):
+    result: list[Any] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
         result.append(msg)
+        i += 1
 
         if not _has_tool_calls(msg):
             continue
 
-        next_msg = messages[i + 1] if i + 1 < len(messages) else None
-        if next_msg is None or _is_tool_response(next_msg):
-            continue
+        # Collect IDs and names for all pending calls in this assistant turn.
+        pending: dict[str, str] = {
+            tc.get("id", ""): tc.get("function", {}).get("name", "tool_call")
+            for tc in msg["tool_calls"]
+        }
 
-        # Next turn is not a tool response — inject one synthetic response per call.
-        for tc in msg["tool_calls"]:
-            tc_id = tc.get("id", "")
-            name = tc.get("function", {}).get("name", "tool_call")
-            result.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "name": name,
-                    "content": "interrupted_by_user",
-                }
-            )
+        # Consume consecutive tool response turns, tracking which IDs are answered.
+        answered: set[str] = set()
+        while i < len(messages) and _is_tool_response(messages[i]):
+            answered.add(messages[i].get("tool_call_id", ""))
+            result.append(messages[i])
+            i += 1
+
+        # Inject synthetics for any call IDs that have no response yet.
+        for call_id, name in pending.items():
+            if call_id not in answered:
+                result.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "name": name,
+                        "content": "interrupted_by_user",
+                    }
+                )
 
     return result

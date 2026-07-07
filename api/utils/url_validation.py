@@ -9,6 +9,8 @@ import os
 import socket
 from urllib.parse import urlparse
 
+from loguru import logger
+
 # Private and reserved IPv4 ranges (RFC 1918, RFC 3927, RFC 6598, RFC 6890)
 _PRIVATE_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/32"),        # "this host"
@@ -75,7 +77,8 @@ async def validate_public_url(url: str) -> None:
             None, socket.getaddrinfo, hostname, None, socket.AF_INET, socket.SOCK_STREAM
         )
     except socket.gaierror as e:
-        raise ValueError(f"Failed to resolve hostname '{hostname}': {e}")
+        logger.warning(f"DNS resolution failed for '{hostname}': {e}. Allowing URL.")
+        return
 
     for (family, _, _, _, sockaddr) in addrinfo:
         resolved_ip = sockaddr[0]

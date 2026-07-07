@@ -1,5 +1,6 @@
 """Tool marketplace service for discovering and installing tools from the marketplace."""
 
+import json
 import os
 import uuid
 from typing import Dict, List, Optional, Any
@@ -166,14 +167,14 @@ async def install_marketplace_tool(
                 "category": marketplace_tool.tool_category,
                 "icon": marketplace_tool.icon,
                 "status": "active",
-                "definition": {
+                "definition": json.dumps({
                     "schema_version": 1,
                     "type": marketplace_tool.tool_category,
                     "config": {
                         "url": tool_url,
                         "transport": marketplace_tool.config_template.get("transport", "streamable_http")
                     }
-                },
+                }),
                 "created_by": created_by or 1
             }
         )

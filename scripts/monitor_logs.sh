@@ -40,12 +40,24 @@ monitor_mps() {
 }
 
 monitor_api() {
-    log "API logs — tailing api/app.log (if file logging configured)..." "$MAGENTA"
-    if [ -f "$DOGRAH_DIR/api/app.log" ]; then
-        tail -f "$DOGRAH_DIR/api/app.log" | while IFS= read -r line; do echo -e "${MAGENTA}[api]${NC} $line"; done
+    local latest_logs="$DOGRAH_DIR/logs/latest"
+    log "API logs — tailing from $latest_logs ..." "$MAGENTA"
+    if [ -d "$latest_logs" ]; then
+        tail -f "$latest_logs"/*.log | while IFS= read -r line; do
+            if [[ "$line" == *"uvicorn"* ]] || [[ -n "$(echo "$line" | grep -o 'uvicorn')" ]]; then
+                echo -e "${MAGENTA}[api]${NC} $line"
+            elif [[ "$line" == *"ari"* ]]; then
+                echo -e "${CYAN}[ari]${NC} $line"
+            elif [[ "$line" == *"campaign"* ]]; then
+                echo -e "${BLUE}[campaign]${NC} $line"
+            elif [[ "$line" == *"arq"* ]]; then
+                echo -e "${GREEN}[arq]${NC} $line"
+            else
+                echo -e "${MAGENTA}[api]${NC} $line"
+            fi
+        done
     else
-        log "  No api/app.log found. API logs go to stdout." "$YELLOW"
-        log "  Start API with: cd api && LOG_LEVEL=DEBUG uvicorn api.app:app --reload --port 8000" "$YELLOW"
+        log "  No logs/latest directory found. Run restart_services.sh first." "$YELLOW"
     fi
 }
 

@@ -561,7 +561,9 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'azure_speech';
     } & AzureSpeechTtsConfiguration) | ({
         provider: 'smallest';
-    } & SmallestAittsConfiguration);
+    } & SmallestAittsConfiguration) | ({
+        provider: 'xai';
+    } & XaittsConfiguration);
     /**
      * Stt
      */
@@ -7154,6 +7156,32 @@ export type WorkflowVersionResponse = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
+};
+
+/**
+ * xAI
+ */
+export type XaittsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'xai';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Voice
+     *
+     * xAI voice persona.
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de'), or 'auto' for automatic language detection.
+     */
+    language?: string;
 };
 
 export type InitiateCallApiV1TelephonyInitiateCallPostData = {

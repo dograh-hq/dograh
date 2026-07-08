@@ -16,6 +16,7 @@ from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggr
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.posthog_client import capture_event
 from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 from pipecat.frames.frames import (
@@ -69,6 +70,7 @@ def register_event_handlers(
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
+    include_transcript_end_timestamps: bool = False,
 ):
     """Register all event handlers for transport and task events.
 
@@ -361,50 +363,51 @@ def register_event_handlers(
             except Exception as e:
                 logger.error(f"Error saving workflow run logs: {e}", exc_info=True)
 
-        # Write buffers to temp files and enqueue combined processing task
-        audio_temp_path = None
-        user_audio_temp_path = None
-        bot_audio_temp_path = None
-        transcript_temp_path = None
-
+        # Upload artifacts straight from the in-memory buffers so nothing has
+        # to cross a process/host boundary via temp files. Must complete
+        # before the completion job is enqueued so QA and webhooks see the
+        # artifacts in storage.
         try:
+            mixed_audio_wav = None
+            user_audio_wav = None
+            bot_audio_wav = None
+
             if not in_memory_audio_buffers.mixed.is_empty:
-                audio_temp_path = (
-                    await in_memory_audio_buffers.mixed.write_to_temp_file()
-                )
+                mixed_audio_wav = await in_memory_audio_buffers.mixed.to_wav_bytes()
             else:
                 logger.debug("Audio buffer is empty, skipping upload")
 
             if not in_memory_audio_buffers.user.is_empty:
-                user_audio_temp_path = (
-                    await in_memory_audio_buffers.user.write_to_temp_file()
-                )
+                user_audio_wav = await in_memory_audio_buffers.user.to_wav_bytes()
             else:
                 logger.debug("User audio buffer is empty, skipping upload")
 
             if not in_memory_audio_buffers.bot.is_empty:
-                bot_audio_temp_path = (
-                    await in_memory_audio_buffers.bot.write_to_temp_file()
-                )
+                bot_audio_wav = await in_memory_audio_buffers.bot.to_wav_bytes()
             else:
                 logger.debug("Bot audio buffer is empty, skipping upload")
 
-            transcript_temp_path = in_memory_logs_buffer.write_transcript_to_temp_file()
-            if not transcript_temp_path:
+            transcript_text = in_memory_logs_buffer.generate_transcript_text(
+                include_end_timestamps=include_transcript_end_timestamps
+            )
+            if not transcript_text:
                 logger.debug("No transcript events in logs buffer, skipping upload")
 
+            await upload_workflow_run_artifacts(
+                workflow_run_id,
+                mixed_audio_wav=mixed_audio_wav,
+                user_audio_wav=user_audio_wav,
+                bot_audio_wav=bot_audio_wav,
+                transcript_text=transcript_text,
+            )
         except Exception as e:
-            logger.error(f"Error preparing buffers for S3 upload: {e}", exc_info=True)
+            logger.error(f"Error uploading call artifacts: {e}", exc_info=True)
 
-        # Combined task: uploads artifacts, runs integrations (including QA),
-        # then calculates cost (so QA token usage is captured in usage_info)
+        # Combined task: runs integrations (including QA), then calculates
+        # cost (so QA token usage is captured in usage_info)
         await enqueue_job(
             FunctionNames.PROCESS_WORKFLOW_COMPLETION,
             workflow_run_id,
-            audio_temp_path,
-            transcript_temp_path,
-            user_audio_temp_path,
-            bot_audio_temp_path,
         )
 
     # Return the buffer so it can be passed to other handlers

@@ -21,6 +21,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.enums import WorkflowRunMode, WorkflowRunState
+from api.services.pipecat import active_calls
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.run_pipeline import _run_pipeline
 from api.services.pipecat.worker_runner import wait_for_pipeline_worker_started
@@ -135,3 +136,74 @@ async def test_run_pipeline_fires_initial_response_and_completes_run(
     # on_pipeline_finished merges call_tags into gathered_context.
     assert "Start" in refreshed.gathered_context.get("nodes_visited", [])
     assert "call_tags" in refreshed.gathered_context
+
+
+@pytest.mark.asyncio
+async def test_call_stays_registered_for_drain_until_artifacts_uploaded(
+    workflow_run_setup, monkeypatch
+):
+    """The active-call registry must not drop a run while its artifacts are
+    still uploading: deploy draining polls the registry and SIGTERMs the
+    worker at zero, which would kill in-flight uploads.
+
+    The ordering rests on pipecat waiting for spawned ``on_pipeline_finished``
+    handler tasks before ``PipelineWorker.run()`` — and therefore
+    ``run_pipeline_worker()`` — returns, with ``unregister_active_call`` in
+    the ``finally`` after that. This test pins the guarantee: a slow upload
+    samples the registry mid-flight and must still see the call registered.
+    """
+    workflow_run, user, workflow = workflow_run_setup
+    active_calls._active_run_ids.clear()
+
+    run_task_ref: list[asyncio.Task] = []
+    observed: dict = {}
+
+    async def slow_upload(workflow_run_id, **_kwargs):
+        # Give _run_pipeline a chance to (incorrectly) return and unregister
+        # while the upload is still in flight, then sample the registry.
+        await asyncio.sleep(0.2)
+        observed["count_during_upload"] = active_calls.active_call_count()
+        observed["run_task_done_during_upload"] = run_task_ref[0].done()
+
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers.upload_workflow_run_artifacts",
+        slow_upload,
+    )
+
+    transport = MockTransport(
+        TransportParams(audio_in_enabled=True, audio_out_enabled=True)
+    )
+    captured_task: list = []
+    audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
+    with patch_run_pipeline_externals(captured_task):
+        run_task = asyncio.create_task(
+            _run_pipeline(
+                transport=transport,
+                workflow_id=workflow.id,
+                workflow_run_id=workflow_run.id,
+                user_id=user.id,
+                audio_config=audio_config,
+                user_provider_id=user.provider_id,
+            )
+        )
+        run_task_ref.append(run_task)
+
+        for _ in range(60):
+            if captured_task or run_task.done():
+                break
+            await asyncio.sleep(0.05)
+        if run_task.done() and not captured_task:
+            run_task.result()  # re-raise the failure
+        assert captured_task, "create_pipeline_task was never invoked"
+        pipeline_task = captured_task[0]
+        await wait_for_pipeline_worker_started(
+            pipeline_task, timeout=3.0, run_task=run_task
+        )
+        assert active_calls.active_call_count() == 1
+        await pipeline_task.cancel()
+        await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert observed, "upload_workflow_run_artifacts was never called"
+    assert observed["count_during_upload"] == 1
+    assert observed["run_task_done_during_upload"] is False
+    assert active_calls.active_call_count() == 0

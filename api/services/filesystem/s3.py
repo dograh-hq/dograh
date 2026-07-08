@@ -1,10 +1,10 @@
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, Dict, Optional
 
 import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from .base import BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem
 
 
 class S3FileSystem(BaseFileSystem):
@@ -57,7 +57,7 @@ class S3FileSystem(BaseFileSystem):
             kwargs["config"] = self._config
         return kwargs
 
-    async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
+    async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         try:
             async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.put_object(

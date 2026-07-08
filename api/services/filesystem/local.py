@@ -1,11 +1,11 @@
 import asyncio
 import os
 from datetime import datetime
-from typing import BinaryIO, Optional
+from typing import Optional
 
 import aiofiles
 
-from .base import BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem
 
 
 class LocalFileSystem(BaseFileSystem):
@@ -24,7 +24,7 @@ class LocalFileSystem(BaseFileSystem):
         """Get the full path by joining with base path."""
         return os.path.join(self.base_path, file_path)
 
-    async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
+    async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         try:
             full_path = self._get_full_path(file_path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)

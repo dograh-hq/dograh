@@ -1,5 +1,6 @@
 "use client";
 
+import Cal from "@calcom/embed-react";
 import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -35,6 +36,8 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
   const [emailError, setEmailError] = useState<string | null>(null);
   const [captchaActive, setCaptchaActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Cal.com booking link from the server's response (the server decides; the app only renders).
+  const [calLink, setCalLink] = useState<string | null>(null);
 
   // The deployment question is only surfaced for custom-volume / Contact-Us /
   // pricing-custom-volume entry points; elsewhere it is hidden and the payload
@@ -46,6 +49,7 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
     setEmailError(null);
     setCaptchaActive(false);
     setSubmitting(false);
+    setCalLink(null);
   };
 
   const onFieldsChange = (patch: Partial<EnterpriseFieldsValue>) => {
@@ -89,7 +93,7 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
     setCaptchaActive(false);
     setSubmitting(true);
     try {
-      await submitLead({
+      const result = await submitLead({
         kind: "enterprise",
         source,
         origin,
@@ -105,14 +109,45 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
           agentGoal: value.agentGoal,
         },
       });
-      toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
-      reset();
-      onOpenChange(false);
+      // The server decides whether to return a booking link; if it does, show the calendar
+      // inline, else the email note. The app only reads the response — no logic of its own.
+      if (result?.show_calendar && result.cal_link) {
+        setSubmitting(false);
+        setCalLink(result.cal_link);
+      } else {
+        toast.success("Check your inbox - we just emailed you the next steps (give it a minute).");
+        reset();
+        onOpenChange(false);
+      }
     } catch {
       toast.error("Something went wrong. Please try again.");
       setSubmitting(false);
     }
   };
+
+  // Booking state: the server returned a booking link — show the inline calendar in the modal.
+  if (calLink) {
+    return (
+      <LeadModalShell
+        open={open}
+        onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}
+        icon={ShieldCheck}
+        eyebrow="Enterprise"
+        title="Book a Strategy Call"
+        description="Pick a time that works for you."
+        primary={{ label: "Done", onClick: () => { reset(); onOpenChange(false); } }}
+      >
+        {/* Compact, zoomed-out calendar: render it larger, scale to 0.8, and clip the layout box left behind. */}
+        <div className="overflow-hidden" style={{ height: "440px" }}>
+          <Cal
+            calLink={calLink}
+            config={{ layout: "month_view", name: value.name, email: value.workEmail }}
+            style={{ width: "113.64%", height: "500px", overflow: "auto", transform: "scale(0.88)", transformOrigin: "top left" }}
+          />
+        </div>
+      </LeadModalShell>
+    );
+  }
 
   return (
     <LeadModalShell

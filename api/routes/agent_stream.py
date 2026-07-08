@@ -1,19 +1,15 @@
 """Agent-stream WebSocket endpoint.
 
-A single ``/agent-stream/{workflow_uuid}`` socket where a caller can drive
-an agent run by passing everything inline in the query string — including
-provider credentials. The standard ``/telephony/ws/...`` path requires a
-``TelephonyConfigurationModel`` row stored in the org; this one does not.
+A single ``/agent-stream/{provider_name}/{workflow_uuid}`` socket where a
+caller can drive an agent run. The provider is part of the URL path;
+provider-specific call metadata is read from that provider's stream protocol.
 
 Auth: the workflow UUID itself acts as the identifier — no API key.
-Routing: when ``?provider=<registered>`` matches a telephony provider, we
-dispatch to that provider's ``handle_external_websocket``. The raw-audio
-branch (no provider) is reserved for a future protocol decision and
-currently rejects with 1011.
+Routing: when ``/{provider_name}`` matches a telephony provider, we
+dispatch to that provider's ``handle_external_websocket``.
 """
 
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, WebSocket
 from loguru import logger
@@ -28,32 +24,20 @@ from api.services.telephony import registry as telephony_registry
 router = APIRouter(prefix="/agent-stream")
 
 
-@router.websocket("/{workflow_uuid}")
+@router.websocket("/{provider_name}/{workflow_uuid}")
 async def agent_stream_websocket(
     websocket: WebSocket,
+    provider_name: str,
     workflow_uuid: str,
 ):
     """Generic agent-stream WebSocket.
 
-    Query params:
-        provider: registered telephony provider name (e.g. ``cloudonix``)
-        from / to / callId: call metadata persisted on the workflow run
-        ...: provider-specific credentials/identifiers (e.g. ``session``,
-             ``AccountSid``, ``CallSid`` for cloudonix)
-
-    Without ``provider`` the raw-audio branch is currently not implemented.
+    ``provider_name`` is the registered telephony provider name
+    (e.g. ``cloudonix``).
     """
     await websocket.accept()
     params = dict(websocket.query_params)
-    provider_name: Optional[str] = params.get("provider")
-
-    if not provider_name:
-        logger.warning(
-            f"agent-stream raw audio branch not yet supported "
-            f"(workflow_uuid={workflow_uuid})"
-        )
-        await websocket.close(code=1011, reason="Raw audio stream not yet implemented")
-        return
+    params.pop("provider", None)
 
     spec = telephony_registry.get_optional(provider_name)
     if spec is None:
@@ -69,12 +53,9 @@ async def agent_stream_websocket(
 
     numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
     workflow_run_name = f"WR-AGS-{numeric_suffix:08d}"
-    call_id = params.get("callId") or params.get("CallSid")
     initial_context = {
         **(workflow.template_context_variables or {}),
         "provider": provider_name,
-        "caller_number": params.get("from"),
-        "called_number": params.get("to"),
         "direction": "inbound",
     }
     workflow_run = await db_client.create_workflow_run(
@@ -84,12 +65,6 @@ async def agent_stream_websocket(
         user_id=workflow.user_id,
         call_type=CallType.INBOUND,
         initial_context=initial_context,
-        gathered_context={"call_id": call_id} if call_id else {},
-        logs={
-            "inbound_webhook": {
-                "domain": params.get("Domain"),
-            },
-        },
     )
 
     set_current_run_id(workflow_run.id)

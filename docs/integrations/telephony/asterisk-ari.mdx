@@ -107,6 +107,10 @@ The section name (e.g., `dograh`) is the **WebSocket Client Name** you'll enter 
 </Note>
 
 <Note>
+Configure the `uri` as a base URL only, without a query string. During each call, Dograh asks Asterisk to create an `externalMedia` channel and Asterisk appends `workflow_id`, `user_id`, and `workflow_run_id` through the `v()` transport data for that call. Opening `/api/v1/telephony/ws/ari` directly in a browser or with `wscat` can return HTTP 403 because those routing parameters are missing; that is expected and does not indicate a `websocket_client.conf` misconfiguration.
+</Note>
+
+<Note>
 Dograh's external media channel uses **G.711 μ-law (`ulaw`)**. Make sure any PJSIP endpoint or SIP trunk that places or receives calls through Dograh allows `ulaw` (e.g. `allow=ulaw` in the endpoint config).
 </Note>
 

@@ -66,6 +66,17 @@ function localeRegion(): string | undefined {
   }
 }
 
+// Raw IANA browser timezone (e.g. "America/New_York"). A neutral analytics value sent with
+// leads; the BACKEND alone decides anything from it — this app holds no such logic.
+// Returns undefined if Intl is unavailable.
+export function detectTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function detectCountry(): string | undefined {
   let iso: string | undefined;
   try {

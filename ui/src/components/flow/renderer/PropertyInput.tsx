@@ -18,6 +18,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 import { evaluateDisplayOptions } from "./displayOptions";
+import {
+    getPropertyColumnSpan,
+    isFractionalNumberInput,
+} from "./propertyRendererOptions";
 
 export interface RendererContext {
     tools: ToolResponse[];
@@ -175,13 +179,21 @@ function StringWidget({ spec, value, onChange }: WidgetProps) {
 
 function NumberWidget({ spec, value, onChange }: WidgetProps) {
     const v = (value as number | undefined) ?? "";
+    const isCompact = getPropertyColumnSpan(spec.renderer_options) < 12;
+    const isFractional = isFractionalNumberInput(spec.renderer_options);
     return (
         <div className="grid gap-2">
             <StackedLabel spec={spec} />
             <Input
                 type="number"
                 value={v as number | string}
-                step={spec.min_value && spec.min_value < 1 ? 0.1 : 1}
+                step={
+                    isFractional
+                        ? "any"
+                        : spec.min_value && spec.min_value < 1
+                          ? 0.1
+                          : 1
+                }
                 min={spec.min_value ?? undefined}
                 max={spec.max_value ?? undefined}
                 onChange={(e) => {
@@ -189,7 +201,7 @@ function NumberWidget({ spec, value, onChange }: WidgetProps) {
                     onChange(next === "" ? undefined : parseFloat(next));
                 }}
                 placeholder={spec.placeholder ?? undefined}
-                className="w-32"
+                className={isCompact ? "w-full" : "w-32"}
             />
         </div>
     );

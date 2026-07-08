@@ -23,7 +23,8 @@
 <p align="center">
   <a href="https://docs.dograh.com">📖 文档</a> &nbsp;·&nbsp;
   <a href="LICENSE">📜 BSD 2-Clause</a> &nbsp;·&nbsp;
-  <a href="README.md">🌐 English</a>
+  <a href="README.md">🌐 English</a> &nbsp;·&nbsp;
+  <a href="README.ja-JP.md">🌐 日本語</a>
 </p>
 
 <p align="center">
@@ -97,7 +98,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 > **提示**
 > 首次启动需要 2-3 分钟拉取所有镜像。启动完成后,打开 http://localhost:3010 即可创建你的第一个 AI 语音助手!
-> 常见问题及解决方案请参见 🔧 **[故障排查](docs/troubleshooting.md)**。
+> 常见问题及解决方案请参见 🔧 **[故障排查](docs/getting-started/troubleshooting.mdx)**。
 
 ### 🎙️ 你的第一个语音机器人
 

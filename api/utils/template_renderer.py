@@ -12,6 +12,7 @@ from api.services.workflow.workflow_graph import TEMPLATE_VAR_PATTERN
 
 _CURRENT_TIME_PREFIX = "current_time"
 _CURRENT_WEEKDAY_PREFIX = "current_weekday"
+_INITIAL_CONTEXT_PREFIX = "initial_context."
 
 
 def get_nested_value(obj: Any, path: str) -> Any:
@@ -184,8 +185,14 @@ def _render_string(template_str: str, context: Dict[str, Any]) -> str:
         if builtin_value is not None:
             return builtin_value
 
-        # Get value using nested path lookup
+        # Get value using nested path lookup. Prompts commonly reference
+        # initial_context.<key>, while some runtime callers pass the initial
+        # context itself as the render context.
         value = get_nested_value(context, variable_path)
+        if value is None and variable_path.startswith(_INITIAL_CONTEXT_PREFIX):
+            value = get_nested_value(
+                context, variable_path[len(_INITIAL_CONTEXT_PREFIX) :]
+            )
 
         # Apply fallback: new syntax {{var | default}} or legacy {{var | fallback:default}}
         if filter_name is not None:

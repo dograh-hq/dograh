@@ -6,7 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { AmbientNoiseConfiguration, TurnStopStrategy, WorkflowConfigurations } from "@/types/workflow-configurations";
+import {
+    AmbientNoiseConfiguration,
+    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
+    DEFAULT_TURN_START_MIN_WORDS,
+    resolveWorkflowConfigurations,
+    TURN_START_STRATEGY_OPTIONS,
+    TurnStartStrategy,
+    TurnStopStrategy,
+    WorkflowConfigurations,
+} from "@/types/workflow-configurations";
 
 interface ConfigurationsDialogProps {
     open: boolean;
@@ -16,11 +25,6 @@ interface ConfigurationsDialogProps {
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
 }
 
-const DEFAULT_AMBIENT_NOISE_CONFIG: AmbientNoiseConfiguration = {
-    enabled: false,
-    volume: 0.3,
-};
-
 export const ConfigurationsDialog = ({
     open,
     onOpenChange,
@@ -28,26 +32,39 @@ export const ConfigurationsDialog = ({
     workflowName,
     onSave
 }: ConfigurationsDialogProps) => {
+    const resolvedWorkflowConfigurations = resolveWorkflowConfigurations(workflowConfigurations);
     const [name, setName] = useState<string>(workflowName);
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
-        workflowConfigurations?.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG
+        resolvedWorkflowConfigurations.ambient_noise_configuration
     );
     const [maxCallDuration, setMaxCallDuration] = useState<number>(
-        workflowConfigurations?.max_call_duration || 600  // Default 10 minutes
+        resolvedWorkflowConfigurations.max_call_duration
     );
     const [maxUserIdleTimeout, setMaxUserIdleTimeout] = useState<number>(
-        workflowConfigurations?.max_user_idle_timeout || 10  // Default 10 seconds
+        resolvedWorkflowConfigurations.max_user_idle_timeout
     );
     const [smartTurnStopSecs, setSmartTurnStopSecs] = useState<number>(
-        workflowConfigurations?.smart_turn_stop_secs || 2  // Default 2 seconds
+        resolvedWorkflowConfigurations.smart_turn_stop_secs
+    );
+    const [turnStartStrategy, setTurnStartStrategy] = useState<TurnStartStrategy>(
+        resolvedWorkflowConfigurations.turn_start_strategy
+    );
+    const [turnStartMinWords, setTurnStartMinWords] = useState<number>(
+        resolvedWorkflowConfigurations.turn_start_min_words
+    );
+    const [provisionalVadPauseSecs, setProvisionalVadPauseSecs] = useState<number>(
+        resolvedWorkflowConfigurations.provisional_vad_pause_secs
     );
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
-        workflowConfigurations?.turn_stop_strategy || 'transcription'
+        resolvedWorkflowConfigurations.turn_stop_strategy
     );
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState<boolean>(
-        workflowConfigurations?.context_compaction_enabled ?? false
+        resolvedWorkflowConfigurations.context_compaction_enabled
     );
     const [isSaving, setIsSaving] = useState(false);
+    const selectedTurnStartStrategy = TURN_START_STRATEGY_OPTIONS.find(
+        (option) => option.value === turnStartStrategy
+    );
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -57,7 +74,11 @@ export const ConfigurationsDialog = ({
                 max_call_duration: maxCallDuration,
                 max_user_idle_timeout: maxUserIdleTimeout,
                 smart_turn_stop_secs: smartTurnStopSecs,
+                turn_start_strategy: turnStartStrategy,
+                turn_start_min_words: turnStartMinWords,
+                provisional_vad_pause_secs: provisionalVadPauseSecs,
                 turn_stop_strategy: turnStopStrategy,
+                transcript_configuration: resolvedWorkflowConfigurations.transcript_configuration,
                 context_compaction_enabled: contextCompactionEnabled,
             }, name);
             onOpenChange(false);
@@ -71,13 +92,17 @@ export const ConfigurationsDialog = ({
     // Sync state with props when dialog opens
     useEffect(() => {
         if (open) {
+            const nextWorkflowConfigurations = resolveWorkflowConfigurations(workflowConfigurations);
             setName(workflowName);
-            setAmbientNoiseConfig(workflowConfigurations?.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG);
-            setMaxCallDuration(workflowConfigurations?.max_call_duration || 600);
-            setMaxUserIdleTimeout(workflowConfigurations?.max_user_idle_timeout || 10);
-            setSmartTurnStopSecs(workflowConfigurations?.smart_turn_stop_secs || 2);
-            setTurnStopStrategy(workflowConfigurations?.turn_stop_strategy || 'transcription');
-            setContextCompactionEnabled(workflowConfigurations?.context_compaction_enabled ?? false);
+            setAmbientNoiseConfig(nextWorkflowConfigurations.ambient_noise_configuration);
+            setMaxCallDuration(nextWorkflowConfigurations.max_call_duration);
+            setMaxUserIdleTimeout(nextWorkflowConfigurations.max_user_idle_timeout);
+            setSmartTurnStopSecs(nextWorkflowConfigurations.smart_turn_stop_secs);
+            setTurnStartStrategy(nextWorkflowConfigurations.turn_start_strategy);
+            setTurnStartMinWords(nextWorkflowConfigurations.turn_start_min_words);
+            setProvisionalVadPauseSecs(nextWorkflowConfigurations.provisional_vad_pause_secs);
+            setTurnStopStrategy(nextWorkflowConfigurations.turn_stop_strategy);
+            setContextCompactionEnabled(nextWorkflowConfigurations.context_compaction_enabled);
         }
     }, [open, workflowName, workflowConfigurations]);
 
@@ -220,6 +245,90 @@ export const ConfigurationsDialog = ({
                         )}
                     </div>
 
+                    {/* Interruption Section */}
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-sm font-semibold mb-1">Interruption</h3>
+                            <p className="text-xs text-muted-foreground">
+                                Configure when user speech should interrupt the agent while it is speaking.
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="turn_start_strategy" className="text-xs">
+                                Interruption Strategy
+                            </Label>
+                            <Select
+                                value={turnStartStrategy}
+                                onValueChange={(value: TurnStartStrategy) => setTurnStartStrategy(value)}
+                            >
+                                <SelectTrigger id="turn_start_strategy">
+                                    <SelectValue placeholder="Select strategy" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {TURN_START_STRATEGY_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                                {selectedTurnStartStrategy?.description}
+                            </p>
+                        </div>
+
+                        {turnStartStrategy === 'min_words' && (
+                            <div className="space-y-2">
+                                <Label htmlFor="turn_start_min_words" className="text-xs">
+                                    Minimum Words Before Interruption
+                                </Label>
+                                <Input
+                                    id="turn_start_min_words"
+                                    type="number"
+                                    step="1"
+                                    min="1"
+                                    max="10"
+                                    value={turnStartMinWords}
+                                    onChange={(e) => {
+                                        const value = parseInt(e.target.value);
+                                        if (!isNaN(value) && value >= 1) {
+                                            setTurnStartMinWords(value);
+                                        }
+                                    }}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Number of transcribed words needed to interrupt while the bot is speaking. Default: {DEFAULT_TURN_START_MIN_WORDS}
+                                </p>
+                            </div>
+                        )}
+
+                        {turnStartStrategy === 'provisional_vad' && (
+                            <div className="space-y-2">
+                                <Label htmlFor="provisional_vad_pause_secs" className="text-xs">
+                                    Provisional Pause (seconds)
+                                </Label>
+                                <Input
+                                    id="provisional_vad_pause_secs"
+                                    type="number"
+                                    step="0.1"
+                                    min="0.1"
+                                    max="5"
+                                    value={provisionalVadPauseSecs}
+                                    onChange={(e) => {
+                                        const value = parseFloat(e.target.value);
+                                        if (!isNaN(value) && value >= 0.1) {
+                                            setProvisionalVadPauseSecs(value);
+                                        }
+                                    }}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Seconds to pause bot audio while waiting for transcript confirmation. Default: {DEFAULT_PROVISIONAL_VAD_PAUSE_SECS}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Context Management Section */}
                     <div className="space-y-4">
                         <div>
@@ -306,4 +415,3 @@ export const ConfigurationsDialog = ({
         </Dialog>
     );
 };
-

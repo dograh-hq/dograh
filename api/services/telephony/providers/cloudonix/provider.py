@@ -459,10 +459,15 @@ class CloudonixProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Expected start event")
                 return
 
-            # Extract Twilio-compatible identifiers
+            start = start_msg.get("start")
+            if not isinstance(start, dict):
+                logger.error("Cloudonix start message missing start object")
+                await websocket.close(code=4400, reason="Missing start metadata")
+                return
+
             try:
-                stream_sid = start_msg["start"]["streamSid"]
-                call_sid = start_msg["start"]["callSid"]
+                stream_sid = start["streamSid"]
+                call_sid = start["callSid"]
             except KeyError:
                 logger.error("Missing streamSid or callSid in start message")
                 await websocket.close(code=4400, reason="Missing stream identifiers")
@@ -512,47 +517,20 @@ class CloudonixProvider(TelephonyProvider):
     ) -> None:
         """Agent-stream entry point.
 
-        ``Domain`` (domain id) is read from the query string. The bearer
-        token comes from the stored Cloudonix telephony configuration
-        matched by ``domain_id`` within the workflow's organization — never
-        from the URL or stream payload. The websocket handshake (connected
-        / start) is identical to the standard inbound flow.
+        The Cloudonix domain is read from the ``start.accountSid`` field
+        in the start message. The bearer token comes from the stored
+        Cloudonix telephony configuration matched by ``domain_id`` within
+        the workflow's organization — never from the URL or stream payload.
+        The websocket handshake (connected / start) is identical to the
+        standard inbound flow.
 
         Before starting the pipeline we (a) require an existing Cloudonix
-        telephony configuration for the supplied ``domain_id`` and (b)
+        telephony configuration for the stream's ``domain_id`` and (b)
         validate the call session with Cloudonix using the bearer token
         from that configuration. Either failure closes the socket with
         4400.
         """
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
-
-        domain_id = self._normalize_domain(params.get("Domain"))
-        if not domain_id:
-            logger.error("Cloudonix agent-stream missing required param: Domain")
-            await websocket.close(code=4400, reason="Missing Domain query param")
-            return
-
-        config = await self._find_config_by_domain(organization_id, domain_id)
-        if not config:
-            logger.error(
-                f"Cloudonix agent-stream: no telephony configuration found "
-                f"for domain_id={domain_id}"
-            )
-            await websocket.close(
-                code=4400, reason=f"Unknown Cloudonix domain: {domain_id}"
-            )
-            return
-
-        bearer_token = (config.credentials or {}).get("bearer_token")
-        if not bearer_token:
-            logger.error(
-                f"Cloudonix agent-stream: telephony configuration {config.id} "
-                f"is missing bearer_token in credentials"
-            )
-            await websocket.close(
-                code=4400, reason="Cloudonix configuration missing bearer_token"
-            )
-            return
 
         try:
             first_msg = await websocket.receive_text()
@@ -568,13 +546,53 @@ class CloudonixProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Expected start event")
                 return
 
+            start = start_msg.get("start")
+            if not isinstance(start, dict):
+                logger.error(
+                    "Cloudonix agent-stream start message missing start object"
+                )
+                await websocket.close(code=4400, reason="Missing start metadata")
+                return
+
             try:
-                stream_sid = start_msg["start"]["streamSid"]
-                call_sid = start_msg["start"]["callSid"]
-                call_session = start_msg["start"]["session"]
+                stream_sid = start["streamSid"]
+                call_sid = start["callSid"]
+                call_session = start["session"]
+                domain_id = self._normalize_domain(start["accountSid"])
             except KeyError:
-                logger.error("Missing streamSid or callSid or session in start message")
+                logger.error(
+                    "Missing streamSid, callSid, session, or accountSid in start message"
+                )
                 await websocket.close(code=4400, reason="Missing stream identifiers")
+                return
+
+            if not domain_id:
+                logger.error("Cloudonix agent-stream start message missing accountSid")
+                await websocket.close(
+                    code=4400, reason="Missing Cloudonix domain in start message"
+                )
+                return
+
+            config = await self._find_config_by_domain(organization_id, domain_id)
+            if not config:
+                logger.error(
+                    f"Cloudonix agent-stream: no telephony configuration found "
+                    f"for domain_id={domain_id}"
+                )
+                await websocket.close(
+                    code=4400, reason=f"Unknown Cloudonix domain: {domain_id}"
+                )
+                return
+
+            bearer_token = (config.credentials or {}).get("bearer_token")
+            if not bearer_token:
+                logger.error(
+                    f"Cloudonix agent-stream: telephony configuration {config.id} "
+                    f"is missing bearer_token in credentials"
+                )
+                await websocket.close(
+                    code=4400, reason="Cloudonix configuration missing bearer_token"
+                )
                 return
 
             if not await self._validate_session(domain_id, call_session, bearer_token):
@@ -583,9 +601,45 @@ class CloudonixProvider(TelephonyProvider):
                 )
                 return
 
+            start_context = start.get("context")
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id,
+                initial_context={
+                    key: value
+                    for key, value in {
+                        "caller_number": start.get("from"),
+                        "called_number": start.get("to"),
+                        "direction": (
+                            "outbound" if start_context == "outbound-api" else "inbound"
+                        ),
+                        "cloudonix_context": start_context,
+                    }.items()
+                    if value is not None
+                },
+                gathered_context={
+                    "call_id": call_session,
+                    "cloudonix_call_sid": call_sid,
+                    "cloudonix_stream_sid": stream_sid,
+                },
+                logs={
+                    "inbound_webhook": {
+                        "domain": domain_id,
+                        "session": call_session,
+                        "callSid": call_sid,
+                        "streamSid": stream_sid,
+                        "from": start.get("from"),
+                        "to": start.get("to"),
+                        "context": start_context,
+                        "tracks": start.get("tracks"),
+                        "mediaFormat": start.get("mediaFormat"),
+                    },
+                },
+            )
+
             logger.info(
                 f"Cloudonix agent-stream connected for workflow_run "
-                f"{workflow_run_id} stream_sid={stream_sid} call_sid={call_sid} session={call_session}"
+                f"{workflow_run_id} stream_sid={stream_sid} call_sid={call_sid} "
+                f"session={call_session} "
                 f"telephony_configuration_id={config.id}"
             )
 
@@ -628,7 +682,7 @@ class CloudonixProvider(TelephonyProvider):
                     if response.status == 200:
                         return True
                     body = await response.text()
-                    logger.error(
+                    logger.warning(
                         f"Cloudonix session validation failed: "
                         f"HTTP {response.status} domain_id={domain_id} "
                         f"call_id={call_session} body={body}"

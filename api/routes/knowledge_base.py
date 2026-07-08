@@ -402,7 +402,7 @@ async def search_chunks(
             )
 
         # Manual search runs outside any workflow run, so resolve the MPS
-        # correlation id here (mint only for orgs already on v2; never create one).
+        # correlation id here.
         embedding_service = await build_embedding_service(
             db_client=db_client,
             provider=embeddings_provider,
@@ -411,8 +411,6 @@ async def search_chunks(
             base_url=embeddings_base_url,
             endpoint=embeddings_endpoint,
             api_version=embeddings_api_version,
-            organization_id=user.selected_organization_id,
-            created_by=str(user.provider_id),
             resolve_correlation=True,
         )
 

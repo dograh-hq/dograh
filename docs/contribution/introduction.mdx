@@ -1,4 +1,50 @@
 ---
 title: Contribution
-description: If you would like to set up Dograh development environment in your IDE and use a coding agent like Claude/ Codex to make changes to the codebase, you can follow this document to help setup the right development environment for yourself.
+description: How the Dograh codebase is laid out, and how to get a local dev environment running so you can contribute.
 ---
+
+Dograh is an open-source, full-stack voice agent platform: a Next.js UI, a FastAPI backend, Postgres/Redis/MinIO for storage, and a [Pipecat](https://github.com/pipecat-ai/pipecat)-based pipeline (checked in as a git submodule) that drives the actual voice conversation.
+
+## Repository layout
+
+| Path | What's there |
+| --- | --- |
+| `ui/` | Next.js frontend — the workflow builder, dashboard, and agent editor |
+| `api/` | FastAPI backend — REST API, campaign orchestration, ARI/telephony integration, ARQ background workers |
+| `pipecat/` | Git submodule for the voice pipeline (STT → LLM → TTS) |
+| `docs/` | This documentation site, built with Mintlify |
+| `sdk/` | Python/TypeScript SDKs for driving Dograh programmatically |
+| `scripts/` | Setup, deployment, and update scripts referenced throughout these docs |
+| `deploy/` | nginx and coturn config templates used by remote deployment |
+
+## Setting up a dev environment
+
+There are two supported paths:
+
+1. **[Devcontainer setup](/contribution/setup)** (recommended) — a VS Code / Dev Containers environment that bootstraps Postgres, Redis, MinIO, the Python venv, and UI dependencies for you.
+2. **[Host-managed setup](/contribution/host-managed-setup)** — run everything directly on your machine if you'd rather not use a devcontainer.
+
+If you cloned `dograh-hq/dograh` directly instead of forking first, see [Fork Workflow](/contribution/fork-workflow) to fix up your `origin`/`upstream` remotes.
+
+## Contribution flow
+
+1. Fork the repo and clone your fork.
+2. Set up your dev environment ([devcontainer](/contribution/setup) or [host-managed](/contribution/host-managed-setup)).
+3. Create a branch, make your change.
+4. Push to your fork (`origin`) and open a pull request against `dograh-hq/dograh:main`.
+5. A maintainer reviews and merges.
+
+Bug reports and feature ideas go through [GitHub Issues](https://github.com/dograh-hq/dograh/issues) and [Ideas](https://github.com/orgs/dograh-hq/discussions/categories/ideas). Issues tagged `good first issue` are a good place to start. For questions while you're working, use the [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g).
+
+## Where to start
+
+- **First time setting up?** Go to [Setup](/contribution/setup).
+- **Contributing to these docs?** Docs live in `docs/`, written in MDX, previewed with `mint dev` inside that folder.
+- **Working on the voice pipeline?** You'll be in `pipecat/` and `api/` — remember to `git submodule update --init --recursive` after pulling submodule bumps.
+- **Deploying your own build instead of contributing upstream?** See [Deployments](/deployment/introduction) instead.
+
+## Related
+
+- [Setup](/contribution/setup)
+- [Devcontainer Workflow](/contribution/devcontainer)
+- [Fork Workflow](/contribution/fork-workflow)

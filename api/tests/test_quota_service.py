@@ -166,33 +166,21 @@ async def test_authorize_workflow_run_v2_insufficient_credits_prompts_billing(
 
 
 @pytest.mark.asyncio
-async def test_authorize_workflow_run_v1_uses_legacy_key_usage(
+async def test_authorize_workflow_run_oss_exhausted_key_blocks_run(
     monkeypatch,
 ):
     api_key = "mps_sk_12345678"
     get_config = AsyncMock(return_value=_dograh_config(api_key))
-    authorize = AsyncMock(
-        return_value={
-            "allowed": True,
-            "billing_mode": "v1",
-            "remaining_credits": "0.0000",
-        }
-    )
     check_usage = AsyncMock(
         return_value={"total_credits_used": 500.0, "remaining_credits": 0.0}
     )
 
-    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
     _patch_workflow_context(monkeypatch)
     monkeypatch.setattr(
         quota_service,
         "get_effective_ai_model_configuration_for_workflow",
         get_config,
-    )
-    monkeypatch.setattr(
-        quota_service.mps_service_key_client,
-        "authorize_workflow_run_start",
-        authorize,
     )
     monkeypatch.setattr(
         quota_service.mps_service_key_client,
@@ -206,12 +194,7 @@ async def test_authorize_workflow_run_v1_uses_legacy_key_usage(
     assert result.error_code == "quota_exceeded"
     assert "founders@dograh.com" in result.error_message
     assert "/billing" not in result.error_message
-    authorize.assert_awaited_once()
-    check_usage.assert_awaited_once_with(
-        api_key,
-        organization_id=42,
-        created_by="provider-123",
-    )
+    check_usage.assert_awaited_once_with(api_key)
 
 
 @pytest.mark.asyncio
@@ -404,11 +387,7 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
 
     assert result.has_quota is True
     hosted_authorize.assert_not_awaited()
-    check_usage.assert_awaited_once_with(
-        api_key,
-        organization_id=None,
-        created_by="provider-123",
-    )
+    check_usage.assert_awaited_once_with(api_key)
     create_correlation.assert_awaited_once_with(
         service_key=api_key,
         workflow_run_id=88,

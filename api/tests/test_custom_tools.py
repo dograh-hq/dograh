@@ -8,6 +8,7 @@ This module tests:
 """
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -27,6 +28,7 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 
+from api.enums import WorkflowRunMode
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools.custom_tool import (
     _coerce_parameter_value,
@@ -1156,6 +1158,186 @@ class TestCustomToolManagerUnit:
 
             # Verify result was returned
             assert result_received["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_transfer_call_renders_destination_from_initial_context(self):
+        """Transfer call tools resolve destination templates before provider calls."""
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        mock_engine = Mock()
+        mock_engine._workflow_run_id = 1
+        mock_engine._call_context_vars = {
+            "transfer_destination": "+14155550123",
+        }
+        mock_engine._gathered_context = {}
+        mock_engine._fetch_recording_audio = None
+        mock_engine._audio_config = SimpleNamespace(transport_out_sample_rate=8000)
+        mock_engine._transport_output = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine._get_organization_id = AsyncMock(return_value=1)
+        mock_engine.set_mute_pipeline = Mock()
+        mock_engine.end_call_with_reason = AsyncMock()
+
+        manager = CustomToolManager(mock_engine)
+        tool = MockToolModel(
+            tool_uuid="transfer-tool-uuid",
+            name="Transfer Call",
+            description="Transfer the caller",
+            category="transfer_call",
+            definition={
+                "schema_version": 1,
+                "type": "transfer_call",
+                "config": {
+                    "destination": "{{initial_context.transfer_destination}}",
+                    "timeout": 30,
+                },
+            },
+        )
+        handler, _timeout_secs = manager._create_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.TWILIO.value,
+            gathered_context={"call_id": "caller-call-sid"},
+        )
+        provider = Mock()
+        provider.supports_transfers.return_value = True
+        provider.validate_config.return_value = True
+        provider.transfer_call = AsyncMock(return_value={"call_sid": "dest-call-sid"})
+
+        transfer_event = Mock()
+        transfer_event.to_result_dict.return_value = {
+            "status": "failed",
+            "action": "transfer_failed",
+            "reason": "test_complete",
+        }
+        transfer_manager = Mock()
+        transfer_manager.store_transfer_context = AsyncMock()
+        transfer_manager.wait_for_transfer_completion = AsyncMock(
+            return_value=transfer_event
+        )
+
+        result_received = None
+
+        async def mock_result_callback(result, properties=None):
+            nonlocal result_received
+            result_received = result
+
+        mock_params = Mock()
+        mock_params.arguments = {}
+        mock_params.result_callback = mock_result_callback
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                new=AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_telephony_provider_for_run",
+                new=AsyncMock(return_value=provider),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_call_transfer_manager",
+                new=AsyncMock(return_value=transfer_manager),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.play_audio_loop",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            await handler(mock_params)
+
+        provider.transfer_call.assert_awaited_once()
+        assert provider.transfer_call.await_args.kwargs["destination"] == "+14155550123"
+        first_context = transfer_manager.store_transfer_context.await_args_list[0].args[
+            0
+        ]
+        assert first_context.target_number == "+14155550123"
+        assert result_received["status"] == "transfer_failed"
+
+    @pytest.mark.asyncio
+    async def test_transfer_call_propagates_provider_destination_error(self):
+        """Provider-specific destination failures are returned through the tool result."""
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        mock_engine = Mock()
+        mock_engine._workflow_run_id = 1
+        mock_engine._call_context_vars = {}
+        mock_engine._gathered_context = {}
+        mock_engine._fetch_recording_audio = None
+        mock_engine._audio_config = SimpleNamespace(transport_out_sample_rate=8000)
+        mock_engine._transport_output = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine._get_organization_id = AsyncMock(return_value=1)
+        mock_engine.set_mute_pipeline = Mock()
+        mock_engine.end_call_with_reason = AsyncMock()
+
+        manager = CustomToolManager(mock_engine)
+        tool = MockToolModel(
+            tool_uuid="transfer-tool-uuid",
+            name="Transfer Call",
+            description="Transfer the caller",
+            category="transfer_call",
+            definition={
+                "schema_version": 1,
+                "type": "transfer_call",
+                "config": {
+                    "destination": "provider-specific-destination",
+                    "timeout": 30,
+                },
+            },
+        )
+        handler, _timeout_secs = manager._create_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.TWILIO.value,
+            gathered_context={"call_id": "caller-call-sid"},
+        )
+        provider = Mock()
+        provider.supports_transfers.return_value = True
+        provider.validate_config.return_value = True
+        provider.transfer_call = AsyncMock(
+            side_effect=Exception("provider rejected destination")
+        )
+
+        transfer_manager = Mock()
+        transfer_manager.store_transfer_context = AsyncMock()
+        transfer_manager.remove_transfer_context = AsyncMock()
+
+        result_received = None
+
+        async def mock_result_callback(result, properties=None):
+            nonlocal result_received
+            result_received = result
+
+        mock_params = Mock()
+        mock_params.arguments = {}
+        mock_params.result_callback = mock_result_callback
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                new=AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_telephony_provider_for_run",
+                new=AsyncMock(return_value=provider),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_call_transfer_manager",
+                new=AsyncMock(return_value=transfer_manager),
+            ),
+        ):
+            await handler(mock_params)
+
+        provider.transfer_call.assert_awaited_once()
+        assert (
+            provider.transfer_call.await_args.kwargs["destination"]
+            == "provider-specific-destination"
+        )
+        transfer_manager.remove_transfer_context.assert_awaited_once()
+        assert result_received == {
+            "status": "transfer_failed",
+            "reason": "provider_error",
+            "message": "Transfer provider failed: provider rejected destination",
+        }
 
 
 def _update_llm_context(context, system_message, functions):

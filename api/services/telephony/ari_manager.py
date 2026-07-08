@@ -119,10 +119,19 @@ class ARIConnection:
         r = await self._get_redis()
         return await r.exists(f"{_EXT_CHANNEL_KEY_PREFIX}{channel_id}") > 0
 
-    async def _delete_ext_channel(self, channel_id: str):
+    async def _delete_ext_channel(self, channel_id: Optional[str]):
         """Remove the external media channel marker."""
+        if not channel_id:
+            return
         r = await self._get_redis()
         await r.delete(f"{_EXT_CHANNEL_KEY_PREFIX}{channel_id}")
+
+    async def _delete_transfer_channel_mapping(self, channel_id: Optional[str]):
+        """Remove transfer destination channel correlation marker."""
+        if not channel_id:
+            return
+        r = await self._get_redis()
+        await r.delete(f"ari:transfer_channel:{channel_id}")
 
     async def _set_pending_bridge(
         self,
@@ -766,6 +775,11 @@ class ARIConnection:
             ext_channel_id = ctx.get("ext_channel_id")
             bridge_id = ctx.get("bridge_id")
             transfer_state = ctx.get("transfer_state")
+            transfer_bridge_id = ctx.get("transfer_bridge_id") or bridge_id
+            transfer_caller_channel_id = (
+                ctx.get("transfer_caller_channel_id") or call_id
+            )
+            transfer_destination_channel_id = ctx.get("transfer_destination_channel_id")
 
             # Check if this is a call transfer scenario external channel. Skip full teardown if
             # transfer is in progress and this is the external media channel
@@ -796,6 +810,64 @@ class ARIConnection:
                 )
                 return
 
+            if (
+                transfer_state == "complete"
+                and transfer_bridge_id
+                and transfer_caller_channel_id
+                and transfer_destination_channel_id
+                and channel_id
+                in (
+                    transfer_caller_channel_id,
+                    transfer_destination_channel_id,
+                )
+            ):
+                peer_channel_id = (
+                    transfer_destination_channel_id
+                    if channel_id == transfer_caller_channel_id
+                    else transfer_caller_channel_id
+                )
+                logger.info(
+                    f"[ARI org={self.organization_id}] Completed transfer participant "
+                    f"{channel_id} left Stasis; tearing down peer {peer_channel_id} "
+                    f"and bridge {transfer_bridge_id}"
+                )
+
+                # Mark terminal state before issuing ARI deletes so duplicate
+                # StasisEnd events run through the idempotent normal cleanup path.
+                ctx["transfer_state"] = "terminated"
+                await db_client.update_workflow_run(
+                    run_id=int(workflow_run_id), gathered_context=ctx
+                )
+
+                await self._delete_bridge(transfer_bridge_id)
+                if peer_channel_id and peer_channel_id != channel_id:
+                    await self._delete_channel(peer_channel_id)
+
+                keys_to_delete = [
+                    cid
+                    for cid in (
+                        transfer_caller_channel_id,
+                        transfer_destination_channel_id,
+                        ext_channel_id,
+                        channel_id,
+                    )
+                    if cid
+                ]
+                if keys_to_delete:
+                    await self._delete_channel_run(*keys_to_delete)
+
+                await self._delete_ext_channel(ext_channel_id)
+                await self._delete_transfer_channel_mapping(
+                    transfer_destination_channel_id
+                )
+
+                logger.info(
+                    f"[ARI org={self.organization_id}] Completed transfer teardown "
+                    f"finished for channel={channel_id}, peer={peer_channel_id}, "
+                    f"bridge={transfer_bridge_id}"
+                )
+                return
+
             # Normal full teardown for non-transfer scenarios (transfer_state is None or not in-progress)
             # Delete the bridge first (removes channels from it)
             if bridge_id:
@@ -815,6 +887,7 @@ class ARIConnection:
 
             # Clean up the Redis marker for external channel
             await self._delete_ext_channel(ext_channel_id)
+            await self._delete_transfer_channel_mapping(transfer_destination_channel_id)
 
             logger.info(
                 f"[ARI org={self.organization_id}] StasisEnd full teardown for "

@@ -1,22 +1,50 @@
 from abc import ABC, abstractmethod
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, Dict, Optional, Protocol
+
+
+class AsyncReadable(Protocol):
+    """Anything exposing ``await .read() -> bytes`` (aiofiles handles, in-memory wrappers)."""
+
+    async def read(self) -> bytes: ...
+
+
+class _AsyncBytesReader:
+    """Async file-like wrapper over in-memory bytes for acreate_file()."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+
+    async def read(self) -> bytes:
+        return self._data
 
 
 class BaseFileSystem(ABC):
     """Abstract base class for filesystem operations."""
 
     @abstractmethod
-    async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
+    async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         """Create a new file with the given content.
 
         Args:
             file_path: Path where the file should be created
-            content: File content as a binary stream
+            content: File content readable via ``await content.read()``
 
         Returns:
             bool: True if file was created successfully, False otherwise
         """
         pass
+
+    async def acreate_file_from_bytes(self, file_path: str, data: bytes) -> bool:
+        """Create a file directly from in-memory bytes (no local file needed).
+
+        Args:
+            file_path: Path where the file should be created
+            data: File content as bytes
+
+        Returns:
+            bool: True if file was created successfully, False otherwise
+        """
+        return await self.acreate_file(file_path, _AsyncBytesReader(data))
 
     @abstractmethod
     async def aupload_file(self, local_path: str, destination_path: str) -> bool:

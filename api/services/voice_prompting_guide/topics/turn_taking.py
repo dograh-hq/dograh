@@ -84,5 +84,5 @@ Examples (prompt → expected runtime behavior):
             ),
         ),
     ),
-    cross_refs=("success_criteria", "response_style"),
+    cross_refs=("common_guidelines", "success_criteria"),
 )

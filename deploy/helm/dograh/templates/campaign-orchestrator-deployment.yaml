@@ -1,0 +1,64 @@
+{{- if .Values.campaignOrchestrator.enabled }}
+# SINGLETON — replicas hard-coded to 1, strategy: Recreate.
+# campaign_orchestrator uses in-memory deduplication locks
+# (`_processing_locks`); running >1 replica would silently break
+# scheduling. Same singleton rules as ari-manager: no replica knob,
+# Recreate strategy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dograh.campaignOrchestrator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: campaign-orchestrator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "dograh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: campaign-orchestrator
+  template:
+    metadata:
+      labels:
+        {{- include "dograh.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: campaign-orchestrator
+      {{- with .Values.campaignOrchestrator.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "dograh.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: campaign-orchestrator
+          image: {{ include "dograh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["./scripts/run_campaign_orchestrator.sh"]
+          envFrom:
+            {{- include "dograh.backendEnvFrom" . | nindent 12 }}
+          env:
+            {{- include "dograh.dbEnv" . | nindent 12 }}
+          # exec probe — no HTTP endpoint exists on campaign-orchestrator.
+          livenessProbe:
+            {{- toYaml .Values.campaignOrchestrator.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.campaignOrchestrator.resources | nindent 12 }}
+      {{- with .Values.campaignOrchestrator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.campaignOrchestrator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.campaignOrchestrator.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

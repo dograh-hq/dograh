@@ -19,7 +19,8 @@
 <p align="center">
   <a href="https://docs.dograh.com">📖 Docs</a> &nbsp;·&nbsp;
   <a href="LICENSE">📜 BSD 2-Clause</a> &nbsp;·&nbsp;
-  <a href="README.zh-CN.md">🌐 中文</a>
+  <a href="README.zh-CN.md">🌐 中文</a> &nbsp;·&nbsp;
+  <a href="README.ja-JP.md">🌐 日本語</a>
 </p>
 
 <p align="center">
@@ -97,7 +98,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 > **Note**
 > First startup may take 2-3 minutes to download all images. Once running, open http://localhost:3010 to create your first AI voice assistant!
-> For common issues and solutions, see 🔧 **[Troubleshooting](docs/troubleshooting.md)**.
+> For common issues and solutions, see 🔧 **[Troubleshooting](docs/getting-started/troubleshooting.mdx)**.
 
 ### 🎙️ Your First Voice Bot
 

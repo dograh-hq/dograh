@@ -438,10 +438,10 @@ class WorkflowRunClient(BaseDBClient):
             if not workflow_run:
                 return None, None
 
-            if not workflow_run.workflow or not workflow_run.workflow.user:
+            if not workflow_run.workflow:
                 return workflow_run, None
 
-            organization_id = workflow_run.workflow.user.selected_organization_id
+            organization_id = workflow_run.workflow.organization_id
             return workflow_run, organization_id
 
     async def ensure_public_access_token(self, workflow_run_id: int) -> Optional[str]:

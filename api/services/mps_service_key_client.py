@@ -241,19 +241,12 @@ class MPSServiceKeyClient:
                 )
                 return False
 
-    async def check_service_key_usage(
-        self,
-        service_key: str,
-        organization_id: Optional[int] = None,
-        created_by: Optional[str] = None,
-    ) -> dict:
+    async def check_service_key_usage(self, service_key: str) -> dict:
         """
         Check the usage and quota of a service key.
 
         Args:
             service_key: The service key to check usage for
-            organization_id: Organization ID (for authenticated mode)
-            created_by: User provider ID (for OSS mode)
 
         Returns:
             Dictionary containing:
@@ -317,39 +310,6 @@ class MPSServiceKeyClient:
                 )
                 raise httpx.HTTPStatusError(
                     f"Failed to get usage by created_by: {response.text}",
-                    request=response.request,
-                    response=response,
-                )
-
-    async def get_usage_by_organization(self, organization_id: int) -> dict:
-        """
-        Get aggregated usage for all service keys belonging to an organization (hosted mode).
-
-        Args:
-            organization_id: The organization's ID
-
-        Returns:
-            Dictionary containing total_credits_used and remaining_credits
-        """
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/api/v1/service-keys/usage/organization",
-                json={"organization_id": organization_id},
-                headers=self._get_headers(organization_id=organization_id),
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                return {
-                    "total_credits_used": data.get("total_credits_used", 0.0),
-                    "remaining_credits": data.get("remaining_credits", 0.0),
-                }
-            else:
-                logger.error(
-                    f"Failed to get usage by organization: {response.status_code} - {response.text}"
-                )
-                raise httpx.HTTPStatusError(
-                    f"Failed to get usage by organization: {response.text}",
                     request=response.request,
                     response=response,
                 )
@@ -418,34 +378,6 @@ class MPSServiceKeyClient:
             )
             raise httpx.HTTPStatusError(
                 f"Failed to get MPS credit ledger: {response.text}",
-                request=response.request,
-                response=response,
-            )
-
-    async def get_billing_account_status(
-        self,
-        organization_id: int,
-        created_by: Optional[str] = None,
-    ) -> Optional[dict]:
-        """Get an existing MPS v2 billing account without creating one."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/status",
-                headers=self._get_headers(
-                    organization_id=organization_id,
-                    created_by=created_by,
-                ),
-            )
-
-            if response.status_code == 200:
-                return response.json()
-
-            logger.error(
-                "Failed to get MPS billing account status: "
-                f"{response.status_code} - {response.text}"
-            )
-            raise httpx.HTTPStatusError(
-                f"Failed to get MPS billing account status: {response.text}",
                 request=response.request,
                 response=response,
             )

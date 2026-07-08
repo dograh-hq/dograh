@@ -1,0 +1,16 @@
+{{- if and .Values.ui.enabled .Values.ui.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "dograh.ui.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  minAvailable: {{ .Values.ui.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "dograh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ui
+{{- end }}

@@ -355,19 +355,38 @@ async def authorize_workflow_run_start(
                 error_message="Workflow not found",
             )
 
-        actor_org_id = getattr(actor_user, "selected_organization_id", None)
-        if actor_org_id is not None and actor_org_id != workflow.organization_id:
-            logger.warning(
-                "Workflow start authorization denied: actor org {} does not match workflow {} org {}",
-                actor_org_id,
-                workflow_id,
-                workflow.organization_id,
-            )
-            return QuotaCheckResult(
-                has_quota=False,
-                error_code="workflow_not_found",
-                error_message="Workflow not found",
-            )
+        actor_id = getattr(actor_user, "id", None)
+        if actor_id is not None and workflow.organization_id is not None:
+            try:
+                is_member = await db_client.is_user_member_of_organization(
+                    user_id=actor_id,
+                    organization_id=workflow.organization_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "Workflow start authorization denied: failed to validate actor {} membership for workflow {} org {}: {}",
+                    actor_id,
+                    workflow_id,
+                    workflow.organization_id,
+                    e,
+                )
+                return QuotaCheckResult(
+                    has_quota=False,
+                    error_code="workflow_not_found",
+                    error_message="Workflow not found",
+                )
+            if not is_member:
+                logger.warning(
+                    "Workflow start authorization denied: actor {} is not a member of workflow {} org {}",
+                    actor_id,
+                    workflow_id,
+                    workflow.organization_id,
+                )
+                return QuotaCheckResult(
+                    has_quota=False,
+                    error_code="workflow_not_found",
+                    error_message="Workflow not found",
+                )
 
         workflow_owner = await db_client.get_user_by_id(workflow.user_id)
         if not workflow_owner:

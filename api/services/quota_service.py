@@ -357,10 +357,24 @@ async def authorize_workflow_run_start(
 
         actor_id = getattr(actor_user, "id", None)
         if actor_id is not None and workflow.organization_id is not None:
-            is_member = await db_client.is_user_member_of_organization(
-                user_id=actor_id,
-                organization_id=workflow.organization_id,
-            )
+            try:
+                is_member = await db_client.is_user_member_of_organization(
+                    user_id=actor_id,
+                    organization_id=workflow.organization_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "Workflow start authorization denied: failed to validate actor {} membership for workflow {} org {}: {}",
+                    actor_id,
+                    workflow_id,
+                    workflow.organization_id,
+                    e,
+                )
+                return QuotaCheckResult(
+                    has_quota=False,
+                    error_code="workflow_not_found",
+                    error_message="Workflow not found",
+                )
             if not is_member:
                 logger.warning(
                     "Workflow start authorization denied: actor {} is not a member of workflow {} org {}",

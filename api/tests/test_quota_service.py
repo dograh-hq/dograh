@@ -419,6 +419,26 @@ async def test_authorize_workflow_run_rejects_actor_not_a_member(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_authorize_workflow_run_membership_lookup_error_fails_closed(monkeypatch):
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "is_user_member_of_organization",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        actor_user=SimpleNamespace(id=456, selected_organization_id=42),
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "workflow_not_found"
+    quota_service.db_client.get_user_by_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_authorize_workflow_run_allows_invited_member(monkeypatch):
     """User invited to an org can start workflows belonging to that org."""
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")

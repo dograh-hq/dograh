@@ -8,6 +8,7 @@ from api.db.base_client import BaseDBClient
 from api.db.models import (
     APIKeyModel,
     OrganizationModel,
+    UserModel,
     organization_users_association,
 )
 from api.utils.api_key import generate_api_key
@@ -23,6 +24,22 @@ class OrganizationClient(BaseDBClient):
                 select(OrganizationModel).where(OrganizationModel.id == organization_id)
             )
             return result.scalars().first()
+
+    async def get_organization_users(self, organization_id: int) -> list[UserModel]:
+        """Get all users linked to an organization (many-to-many)."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserModel)
+                .join(
+                    organization_users_association,
+                    organization_users_association.c.user_id == UserModel.id,
+                )
+                .where(
+                    organization_users_association.c.organization_id == organization_id
+                )
+                .order_by(UserModel.id)
+            )
+            return list(result.scalars().all())
 
     async def get_or_create_organization_by_provider_id(
         self, org_provider_id: str, user_id: int

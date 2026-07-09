@@ -8,11 +8,7 @@ from api.constants import DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.services.campaign.rate_limiter import rate_limiter
-from api.services.posthog_client import (
-    POSTHOG_ORGANIZATION_GROUP_TYPE,
-    POSTHOG_SERVER_EVENT_DISTINCT_ID,
-    capture_event,
-)
+from api.services.posthog_client import capture_event
 
 
 @dataclass(frozen=True)
@@ -134,6 +130,7 @@ class CallConcurrencyService:
                     f"{scope_note}, waited={wait_time:.1f}s"
                 )
                 properties = {
+                    "event_source": "dograh",
                     "organization_id": organization_id,
                     "source": source,
                     "max_concurrent": max_concurrent,
@@ -143,12 +140,7 @@ class CallConcurrencyService:
                 if scope_key:
                     properties["scope_key"] = scope_key
                     properties["scope_max_concurrent"] = scope_max_concurrent
-                capture_event(
-                    distinct_id=POSTHOG_SERVER_EVENT_DISTINCT_ID,
-                    event=PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED,
-                    properties=properties,
-                    groups={POSTHOG_ORGANIZATION_GROUP_TYPE: str(organization_id)},
-                )
+                await self._notify_limit_reached(organization_id, properties)
                 raise CallConcurrencyLimitError(
                     organization_id=organization_id,
                     source=source,
@@ -161,6 +153,38 @@ class CallConcurrencyService:
                 f"source={source}, waited {wait_time:.1f}s"
             )
             await asyncio.sleep(min(retry_interval, max(0, timeout - wait_time)))
+
+    async def _notify_limit_reached(
+        self, organization_id: int, properties: dict
+    ) -> None:
+        """Fan the usage event out to every org member's provider_id, matching
+        how MPS emits org-scoped billing events (billing_posthog_service.py)
+        into the shared PostHog project. Never raises.
+
+        NOTE: intentionally NOT attaching ``$groups`` (organization) to this
+        event. PostHog evaluates a $groups event at both person and group
+        scope, which double-triggers person-scoped workflows enrolled on the
+        event. The org is still available as the ``organization_id`` property.
+        """
+        try:
+            members = await db_client.get_organization_users(organization_id)
+            if not members:
+                logger.debug(
+                    f"No users found for org {organization_id}; skipping "
+                    "concurrent-call-limit PostHog event"
+                )
+                return
+            for member in members:
+                capture_event(
+                    distinct_id=str(member.provider_id),
+                    event=PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED,
+                    properties=properties,
+                )
+        except Exception:
+            logger.exception(
+                "Failed to send concurrent-call-limit PostHog event for org "
+                f"{organization_id}"
+            )
 
     async def bind_workflow_run(
         self, slot: CallConcurrencySlot, workflow_run_id: int

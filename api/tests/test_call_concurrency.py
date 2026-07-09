@@ -70,10 +70,18 @@ async def test_acquire_org_slot_logs_warning_when_limit_reached():
 
 
 @pytest.mark.asyncio
-async def test_acquire_org_slot_fires_usage_event_when_limit_reached():
+async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reached():
+    """Mirrors the MPS org-event convention: one event per org member with the
+    member's provider_id as distinct_id, event_source property, no $groups."""
+    from types import SimpleNamespace
+
     from api.enums import PostHogEvent
 
     service = CallConcurrencyService()
+    members = [
+        SimpleNamespace(provider_id="user-a"),
+        SimpleNamespace(provider_id="user-b"),
+    ]
 
     with (
         patch("api.services.call_concurrency.db_client") as mock_db,
@@ -81,6 +89,7 @@ async def test_acquire_org_slot_fires_usage_event_when_limit_reached():
         patch("api.services.call_concurrency.capture_event") as mock_capture,
     ):
         mock_db.get_configuration = AsyncMock(return_value=None)
+        mock_db.get_organization_users = AsyncMock(return_value=members)
         mock_rate_limiter.try_acquire_concurrent_slot_details = AsyncMock(
             return_value=None
         )
@@ -89,16 +98,20 @@ async def test_acquire_org_slot_fires_usage_event_when_limit_reached():
         with pytest.raises(CallConcurrencyLimitError):
             await service.acquire_org_slot(199, source="webrtc", timeout=0)
 
-    mock_capture.assert_called_once()
-    kwargs = mock_capture.call_args.kwargs
-    assert kwargs["event"] == PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED
-    assert kwargs["distinct_id"] == "server"
-    assert kwargs["groups"] == {"organization": "199"}
-    assert kwargs["properties"]["organization_id"] == 199
-    assert kwargs["properties"]["source"] == "webrtc"
-    assert kwargs["properties"]["active_calls"] == 10
-    assert kwargs["properties"]["max_concurrent"] == 10
-    assert "scope_key" not in kwargs["properties"]
+    mock_db.get_organization_users.assert_awaited_once_with(199)
+    assert mock_capture.call_count == 2
+    distinct_ids = [c.kwargs["distinct_id"] for c in mock_capture.call_args_list]
+    assert distinct_ids == ["user-a", "user-b"]
+    for call in mock_capture.call_args_list:
+        kwargs = call.kwargs
+        assert kwargs["event"] == PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED
+        assert "groups" not in kwargs
+        assert kwargs["properties"]["event_source"] == "dograh"
+        assert kwargs["properties"]["organization_id"] == 199
+        assert kwargs["properties"]["source"] == "webrtc"
+        assert kwargs["properties"]["active_calls"] == 10
+        assert kwargs["properties"]["max_concurrent"] == 10
+        assert "scope_key" not in kwargs["properties"]
 
 
 @pytest.mark.asyncio

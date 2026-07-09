@@ -10,6 +10,8 @@ from api.services.tool_marketplace import (
     install_marketplace_tool,
     complete_oauth_install,
 )
+from api.services.workflow.mcp_tool_session import discover_mcp_tools
+from api.utils.url_validation import validate_public_url
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 
@@ -88,3 +90,28 @@ async def oauth_callback(tool_id: int, oauth_req: OAuthCallbackRequest, user=Dep
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/test-mcp")
+async def test_mcp_connection(url: str = Query(...), user=Depends(get_user)):
+    """Test an MCP server connection and return discovered tools."""
+    try:
+        await validate_public_url(url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        tools = await discover_mcp_tools(
+            url=url,
+            credential=None,
+            timeout_secs=10,
+            sse_read_timeout_secs=10,
+        )
+        return {
+            "ok": True,
+            "url": url,
+            "tool_count": len(tools),
+            "tools": [{"name": t["name"], "description": t.get("description", "")} for t in tools],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MCP connection failed: {e}")

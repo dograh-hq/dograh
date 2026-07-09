@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Plug } from 'lucide-react';
 
 import { createToolApiV1ToolsPost } from '@/client/sdk.gen';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth';
+import { client } from '@/client/client.gen';
 import type { McpToolConfig } from '@/client/types.gen';
 
 export function DifyImportDialog() {
@@ -23,8 +25,35 @@ export function DifyImportDialog() {
     const [name, setName] = useState('');
     const [url, setUrl] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isTesting, setIsTesting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [testResult, setTestResult] = useState<string | null>(null);
     const { user } = useAuth();
+
+    const handleTest = async () => {
+        if (!url.trim()) return;
+        setIsTesting(true);
+        setTestResult(null);
+        setError(null);
+        try {
+            const response = await client.get('/api/v1/marketplace/test-mcp', {
+                params: { url: url.trim() },
+            });
+            const data = response.data as Record<string, unknown>;
+            if (data.ok) {
+                const count = data.tool_count as number;
+                const tools = data.tools as Array<{ name: string; description: string }>;
+                setTestResult(`✅ Connected! ${count} tool(s) found:` + tools.map(t => `\n  • ${t.name}`).join(''));
+            } else {
+                setTestResult('❌ Connection failed');
+            }
+        } catch (err: unknown) {
+            const msg = err && typeof err === 'object' && 'message' in err ? (err as Error).message : 'Test failed';
+            setTestResult(`❌ ${msg}`);
+        } finally {
+            setIsTesting(false);
+        }
+    };
 
     const handleImport = async () => {
         if (!user || !url.trim() || !name.trim()) return;
@@ -54,6 +83,7 @@ export function DifyImportDialog() {
                 setOpen(false);
                 setName('');
                 setUrl('');
+                setTestResult(null);
                 window.location.reload();
             }
         } catch (err) {
@@ -64,7 +94,7 @@ export function DifyImportDialog() {
     };
 
     return (
-        <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setName(''); setUrl(''); setError(null); } }}>
+        <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setName(''); setUrl(''); setError(null); setTestResult(null); } }}>
             <DialogTrigger asChild>
                 <Button variant="secondary">Import from Dify</Button>
             </DialogTrigger>
@@ -87,13 +117,28 @@ export function DifyImportDialog() {
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="dify-url">MCP Server URL</Label>
-                        <Input
-                            id="dify-url"
-                            placeholder="https://your-dify.app/mcp/..."
-                            value={url}
-                            onChange={(e) => setUrl(e.target.value)}
-                        />
+                        <div className="flex gap-2">
+                            <Input
+                                id="dify-url"
+                                placeholder="https://your-dify.app/mcp/..."
+                                value={url}
+                                onChange={(e) => { setUrl(e.target.value); setTestResult(null); }}
+                                className="flex-1"
+                            />
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={handleTest}
+                                disabled={isTesting || !url.trim()}
+                                title="Test connection"
+                            >
+                                <Plug className={`h-4 w-4 ${isTesting ? 'animate-spin' : ''}`} />
+                            </Button>
+                        </div>
                     </div>
+                    {testResult && (
+                        <pre className="text-xs bg-muted p-3 rounded-md whitespace-pre-wrap">{testResult}</pre>
+                    )}
                     {error && (
                         <p className="text-sm text-destructive">{error}</p>
                     )}

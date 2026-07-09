@@ -154,7 +154,8 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
             new=AsyncMock(return_value=("https://api.example.com", "wss://ignored")),
         ),
     ):
-        mock_concurrency.acquire_org_slot = AsyncMock(return_value=object())
+        slot = object()
+        mock_concurrency.acquire_org_slot = AsyncMock(return_value=slot)
         mock_concurrency.bind_workflow_run = AsyncMock()
         mock_concurrency.release_workflow_run_slot = AsyncMock()
         mock_concurrency.release_slot = AsyncMock()
@@ -180,6 +181,12 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
         11,
     )
     assert not mock_db.get_agent_trigger_by_path.called
+    mock_concurrency.acquire_org_slot.assert_awaited_once_with(
+        workflow.organization_id,
+        source="public_agent",
+        timeout=0,
+    )
+    mock_concurrency.bind_workflow_run.assert_awaited_once_with(slot, 601)
 
     create_kwargs = mock_db.create_workflow_run.await_args.kwargs
     assert create_kwargs["user_id"] == workflow.user_id

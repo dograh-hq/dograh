@@ -787,6 +787,14 @@ class ARIConnection:
         the bridge and both channels — like endConferenceOnExit.
         """
         try:
+            # Release the org concurrency slot. Normally the pipeline's own
+            # teardown does this when the ext media websocket closes, but if
+            # the pipeline never started (caller hung up before external
+            # media connected, ext media creation failed, ...) this is the
+            # only cleanup that runs before the Redis stale timeout. No-op
+            # when the slot was already released.
+            await call_concurrency.unregister_active_call(int(workflow_run_id))
+
             workflow_run = await db_client.get_workflow_run_by_id(int(workflow_run_id))
             if not workflow_run or not workflow_run.gathered_context:
                 logger.warning(

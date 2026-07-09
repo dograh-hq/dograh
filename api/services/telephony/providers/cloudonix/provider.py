@@ -2,6 +2,7 @@
 Cloudonix implementation of the TelephonyProvider interface.
 """
 
+import asyncio
 import json
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -24,6 +25,11 @@ if TYPE_CHECKING:
     from fastapi import WebSocket
 
 CLOUDONIX_API_BASE_URL = "https://api.cloudonix.io"
+
+# Cloudonix sends the connected/start handshake immediately after the media
+# stream opens. The agent-stream route holds an org concurrency slot while we
+# wait, so an idle socket must not be able to hold it indefinitely.
+AGENT_STREAM_HANDSHAKE_TIMEOUT_S = 10
 
 
 class CloudonixProvider(TelephonyProvider):
@@ -533,14 +539,31 @@ class CloudonixProvider(TelephonyProvider):
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
-            first_msg = await websocket.receive_text()
-            msg = json.loads(first_msg)
-            if msg.get("event") != "connected":
-                logger.error(f"Expected 'connected' event, got: {msg.get('event')}")
-                await websocket.close(code=4400, reason="Expected connected event")
+            try:
+                first_msg = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=AGENT_STREAM_HANDSHAKE_TIMEOUT_S,
+                )
+                msg = json.loads(first_msg)
+                if msg.get("event") != "connected":
+                    logger.error(f"Expected 'connected' event, got: {msg.get('event')}")
+                    await websocket.close(code=4400, reason="Expected connected event")
+                    return
+
+                start_msg = json.loads(
+                    await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=AGENT_STREAM_HANDSHAKE_TIMEOUT_S,
+                    )
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Cloudonix agent-stream handshake timed out for workflow_run "
+                    f"{workflow_run_id}"
+                )
+                await websocket.close(code=4408, reason="Handshake timeout")
                 return
 
-            start_msg = json.loads(await websocket.receive_text())
             if start_msg.get("event") != "start":
                 logger.error("Expected 'start' event second")
                 await websocket.close(code=4400, reason="Expected start event")

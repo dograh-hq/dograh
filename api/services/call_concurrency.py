@@ -16,6 +16,7 @@ class CallConcurrencySlot:
     slot_id: str
     max_concurrent: int
     source: str
+    scope_key: str | None = None
 
 
 class CallConcurrencyLimitError(Exception):
@@ -76,19 +77,28 @@ class CallConcurrencyService:
         *,
         source: str,
         timeout: float = 0,
-        max_concurrent_override: int | None = None,
+        scope_key: str | None = None,
+        scope_max_concurrent: int | None = None,
         retry_interval: float = 1,
     ) -> CallConcurrencySlot:
-        org_concurrent_limit = await self.get_org_concurrent_limit(organization_id)
-        if max_concurrent_override is None:
-            max_concurrent = org_concurrent_limit
-        else:
-            max_concurrent = min(int(max_concurrent_override), org_concurrent_limit)
+        """Acquire a slot in the org-wide concurrency counter.
+
+        ``scope_key``/``scope_max_concurrent`` additionally bound a secondary
+        counter (e.g. ``campaign:<id>``) so a source can cap its own
+        concurrency without measuring — or being starved by — unrelated calls
+        in the same org.
+        """
+        max_concurrent = await self.get_org_concurrent_limit(organization_id)
+        if scope_max_concurrent is not None:
+            scope_max_concurrent = int(scope_max_concurrent)
 
         wait_start = time.time()
         while True:
             acquisition = await rate_limiter.try_acquire_concurrent_slot_details(
-                organization_id, max_concurrent
+                organization_id,
+                max_concurrent,
+                scope_key=scope_key,
+                scope_max_concurrent=scope_max_concurrent,
             )
             if acquisition:
                 logger.info(
@@ -102,15 +112,21 @@ class CallConcurrencyService:
                     slot_id=acquisition.slot_id,
                     max_concurrent=max_concurrent,
                     source=source,
+                    scope_key=scope_key,
                 )
 
             wait_time = time.time() - wait_start
             if wait_time >= timeout:
                 current_count = await rate_limiter.get_concurrent_count(organization_id)
+                scope_note = (
+                    f", scope={scope_key} (limit={scope_max_concurrent})"
+                    if scope_key
+                    else ""
+                )
                 logger.warning(
                     f"Concurrent call limit reached for org {organization_id}: "
-                    f"source={source}, active_calls={current_count}/{max_concurrent}, "
-                    f"waited={wait_time:.1f}s"
+                    f"source={source}, active_calls={current_count}/{max_concurrent}"
+                    f"{scope_note}, waited={wait_time:.1f}s"
                 )
                 raise CallConcurrencyLimitError(
                     organization_id=organization_id,
@@ -132,6 +148,7 @@ class CallConcurrencyService:
             workflow_run_id,
             slot.organization_id,
             slot.slot_id,
+            scope_key=slot.scope_key,
         )
         if stored:
             return
@@ -146,36 +163,66 @@ class CallConcurrencyService:
         *,
         source: str,
         timeout: float = 0,
-        max_concurrent_override: int | None = None,
+        scope_key: str | None = None,
+        scope_max_concurrent: int | None = None,
         retry_interval: float = 1,
     ) -> CallConcurrencySlot:
         slot = await self.acquire_org_slot(
             organization_id,
             source=source,
             timeout=timeout,
-            max_concurrent_override=max_concurrent_override,
+            scope_key=scope_key,
+            scope_max_concurrent=scope_max_concurrent,
             retry_interval=retry_interval,
         )
         await self.bind_workflow_run(slot, workflow_run_id)
         return slot
 
     async def unregister_active_call(self, workflow_run_id: int) -> bool:
-        return await self.release_workflow_run_slot(workflow_run_id)
+        """Release the run's slot without ever raising.
+
+        Callers invoke this from ``finally`` blocks during pipeline/socket
+        teardown; a cleanup failure must not mask the original exception.
+        The slot mapping survives a failed release, so a later cleanup path
+        (status callback, StasisEnd) or the Redis stale timeout recovers it.
+        """
+        try:
+            return await self.release_workflow_run_slot(workflow_run_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(
+                f"Failed to release concurrent call slot for workflow run "
+                f"{workflow_run_id}: {e}"
+            )
+            return False
 
     async def release_slot(self, slot: CallConcurrencySlot | None) -> bool:
         if slot is None:
             return False
-        return await rate_limiter.release_concurrent_slot(
-            slot.organization_id, slot.slot_id
+        released = await rate_limiter.release_concurrent_slot(
+            slot.organization_id, slot.slot_id, scope_key=slot.scope_key
         )
+        return bool(released)
 
     async def release_workflow_run_slot(self, workflow_run_id: int) -> bool:
         mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run_id)
         if not mapping:
             return False
 
-        org_id, slot_id = mapping
-        released = await rate_limiter.release_concurrent_slot(org_id, slot_id)
+        org_id, slot_id, scope_key = mapping
+        released = await rate_limiter.release_concurrent_slot(
+            org_id, slot_id, scope_key=scope_key
+        )
+        if released is None:
+            # Redis error while releasing — keep the mapping so a later
+            # cleanup path can retry instead of orphaning a live slot until
+            # the stale timeout.
+            logger.warning(
+                f"Failed to release concurrent slot for workflow run "
+                f"{workflow_run_id}; keeping mapping for retry"
+            )
+            return False
         await rate_limiter.delete_workflow_slot_mapping(workflow_run_id)
         if released:
             logger.info(f"Released concurrent slot for workflow run {workflow_run_id}")

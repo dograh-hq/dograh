@@ -365,6 +365,10 @@ class TelephonyProvider(ABC):
         the caller carries a provider stream protocol. ``organization_id`` is
         passed so providers can scope any config lookups to the workflow's org.
         Default raises so providers that haven't opted in fail loudly.
+
+        The route holds an org concurrency slot while this runs, so
+        implementations must bound their pre-pipeline handshake reads with a
+        timeout — an idle socket must not hold the slot indefinitely.
         """
         raise NotImplementedError(
             f"Agent-stream not supported for provider {self.PROVIDER_NAME}"

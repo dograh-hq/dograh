@@ -266,8 +266,9 @@ def mock_call_concurrency():
         return CallConcurrencySlot(
             organization_id=organization_id,
             slot_id=f"slot-{uuid.uuid4().hex[:8]}",
-            max_concurrent=kwargs.get("max_concurrent_override") or 20,
+            max_concurrent=20,
             source=source,
+            scope_key=kwargs.get("scope_key"),
         )
 
     with patch(
@@ -814,3 +815,49 @@ class TestProcessBatchEdgeCases:
                     {"campaign_id": campaign_test_data.campaign_id},
                 )
                 await session.commit()
+
+
+class TestAcquireConcurrentSlotScoping:
+    """Campaign max_concurrency must scope to the campaign, not the org counter."""
+
+    def _campaign(self, orchestrator_metadata):
+        campaign = MagicMock()
+        campaign.id = 42
+        campaign.orchestrator_metadata = orchestrator_metadata
+        return campaign
+
+    @pytest.mark.asyncio
+    async def test_campaign_max_concurrency_uses_campaign_scope(
+        self, mock_call_concurrency
+    ):
+        dispatcher = CampaignCallDispatcher()
+        campaign = self._campaign({"max_concurrency": 3})
+
+        await dispatcher.acquire_concurrent_slot(7, campaign, timeout=5)
+
+        mock_call_concurrency.acquire_org_slot.assert_awaited_once_with(
+            7,
+            source="campaign:42",
+            timeout=5,
+            scope_key="campaign:42",
+            scope_max_concurrent=3,
+            retry_interval=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_campaign_max_concurrency_skips_scope(
+        self, mock_call_concurrency
+    ):
+        dispatcher = CampaignCallDispatcher()
+        campaign = self._campaign({})
+
+        await dispatcher.acquire_concurrent_slot(7, campaign, timeout=5)
+
+        mock_call_concurrency.acquire_org_slot.assert_awaited_once_with(
+            7,
+            source="campaign:42",
+            timeout=5,
+            scope_key=None,
+            scope_max_concurrent=None,
+            retry_interval=1,
+        )

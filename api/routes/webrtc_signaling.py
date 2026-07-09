@@ -721,6 +721,16 @@ async def signaling_websocket(
         logger.warning(f"workflow run {workflow_run_id} not found for user {user.id}")
         raise HTTPException(status_code=400, detail="Bad workflow_run_id")
 
+    # The URL's workflow_id drives org resolution, quota, and concurrency
+    # accounting downstream — reject a workflow_id that doesn't own this run
+    # so a caller can't charge their call to an unrelated workflow/org.
+    if workflow_run.workflow_id != workflow_id:
+        logger.warning(
+            f"workflow run {workflow_run_id} does not belong to workflow "
+            f"{workflow_id} (belongs to {workflow_run.workflow_id})"
+        )
+        raise HTTPException(status_code=400, detail="Bad workflow_run_id")
+
     await signaling_manager.handle_websocket(
         websocket,
         workflow_id,

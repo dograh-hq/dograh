@@ -244,3 +244,34 @@ def test_parse_cloudonix_cdr_preserves_zero_billsec():
     )
 
     assert req["duration"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_handshake_timeout_closes_socket(monkeypatch):
+    """An idle agent-stream socket holds an org concurrency slot, so the
+    handshake read must be bounded rather than waiting forever."""
+    import asyncio
+
+    from api.services.telephony.providers.cloudonix import provider as provider_module
+
+    monkeypatch.setattr(provider_module, "AGENT_STREAM_HANDSHAKE_TIMEOUT_S", 0.05)
+    provider = CloudonixProvider({})
+
+    async def never_returns():
+        await asyncio.Event().wait()
+
+    websocket = SimpleNamespace(receive_text=never_returns, close=AsyncMock())
+
+    await asyncio.wait_for(
+        provider.handle_external_websocket(
+            websocket,
+            organization_id=1,
+            workflow_id=2,
+            user_id=3,
+            workflow_run_id=4,
+            params={},
+        ),
+        timeout=5,
+    )
+
+    websocket.close.assert_awaited_once_with(code=4408, reason="Handshake timeout")

@@ -468,7 +468,11 @@ class CampaignCallDispatcher:
         Raises:
             ConcurrentSlotAcquisitionError: If slot cannot be acquired within timeout
         """
-        # Check for campaign-level max_concurrency in orchestrator_metadata
+        # Check for campaign-level max_concurrency in orchestrator_metadata.
+        # It caps this campaign's own concurrent calls via a campaign-scoped
+        # counter — the org-wide limit still applies on top, but calls from
+        # other sources (WebRTC, inbound, other campaigns) don't count
+        # against the campaign's cap.
         campaign_max_concurrency = None
         if campaign.orchestrator_metadata:
             campaign_max_concurrency = campaign.orchestrator_metadata.get(
@@ -480,7 +484,12 @@ class CampaignCallDispatcher:
                 organization_id,
                 source=f"campaign:{campaign.id}",
                 timeout=timeout,
-                max_concurrent_override=campaign_max_concurrency,
+                scope_key=(
+                    f"campaign:{campaign.id}"
+                    if campaign_max_concurrency is not None
+                    else None
+                ),
+                scope_max_concurrent=campaign_max_concurrency,
                 retry_interval=1,
             )
         except CallConcurrencyLimitError as e:

@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Save } from "lucide-react";
+import { Info, KeyRound, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { OrganizationAiModelConfigurationV2 } from "@/client/types.gen";
@@ -265,6 +265,23 @@ function optionalByokService(config: Record<string, unknown>, service: ServiceSe
     return serviceConfiguration;
 }
 
+function ThirdPartyProviderNotice() {
+    return (
+        <div className="mb-4 flex gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+                <p className="font-medium">Third-party provider data notice</p>
+                <p className="mt-1 leading-6">
+                    Dograh sends data required by the selected model service. This may include prompts,
+                    transcripts, audio, generated text, tool data, and request metadata depending on the
+                    provider and service type. Review the provider&apos;s data and retention policies before
+                    using sensitive data.
+                </p>
+            </div>
+        </div>
+    );
+}
+
 export function AIModelConfigurationV2Editor({
     defaults,
     configuration,
@@ -383,6 +400,7 @@ export function AIModelConfigurationV2Editor({
                     <p className="mb-4 text-sm text-muted-foreground">
                         A single speech-to-speech model handles the conversation in realtime (no separate transcriber or voice). An LLM is still required for variable extraction and QA.
                     </p>
+                    <ThirdPartyProviderNotice />
                     <ServiceConfigurationForm
                         key={`realtime-${JSON.stringify(realtimeInitialConfig)}`}
                         mode="global"
@@ -472,6 +490,7 @@ export function AIModelConfigurationV2Editor({
                 </TabsContent>
 
                 <TabsContent value="byok" className="mt-0">
+                    <ThirdPartyProviderNotice />
                     <ServiceConfigurationForm
                         key={`byok-${JSON.stringify(pipelineInitialConfig)}`}
                         mode="global"

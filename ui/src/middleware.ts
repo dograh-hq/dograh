@@ -8,11 +8,16 @@ const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 // Paths that don't require authentication in OSS mode
 const PUBLIC_PATHS = ['/auth/login', '/auth/signup'];
 
-let cachedAuthProvider: string | null = null;
+interface CachedServerConfig {
+  authProvider: string;
+  signupEnabled: boolean;
+}
 
-async function fetchAuthProvider(): Promise<string> {
-  if (cachedAuthProvider) {
-    return cachedAuthProvider;
+let cachedServerConfig: CachedServerConfig | null = null;
+
+async function fetchServerConfig(): Promise<CachedServerConfig> {
+  if (cachedServerConfig) {
+    return cachedServerConfig;
   }
 
   try {
@@ -26,8 +31,13 @@ async function fetchAuthProvider(): Promise<string> {
       // otherwise poison it to 'local' for the life of the worker — redirecting
       // every Stack user to the local /auth/login form even though the backend
       // reports `stack`.
-      cachedAuthProvider = (data.auth_provider as string) || 'local';
-      return cachedAuthProvider;
+      cachedServerConfig = {
+        authProvider: (data.auth_provider as string) || 'local',
+        // Default to signup-enabled when the field is absent (older backend
+        // versions or a startup race) — matches the backend's own default.
+        signupEnabled: data.signup_enabled !== false,
+      };
+      return cachedServerConfig;
     }
   } catch {
     // Backend not reachable — fall through without caching so we retry next request.
@@ -36,11 +46,21 @@ async function fetchAuthProvider(): Promise<string> {
   // Provider unknown (backend unreachable). Return a non-'local' sentinel so the
   // middleware does NOT guard/redirect: assuming 'local' here would bounce Stack
   // users to /auth/login. Deliberately not cached — the next request retries.
-  return 'unknown';
+  return { authProvider: 'unknown', signupEnabled: true };
 }
 
 export async function middleware(request: NextRequest) {
-  const authProvider = await fetchAuthProvider();
+  const { authProvider, signupEnabled } = await fetchServerConfig();
+
+  // When the operator has disabled signup (ENABLE_SIGNUP=false), bounce every
+  // /auth/signup hit to /auth/login *before* Next.js gets a chance to serve a
+  // prerendered signup page. Backend still enforces the 403 — this is UI polish.
+  if (
+    !signupEnabled &&
+    request.nextUrl.pathname.startsWith('/auth/signup')
+  ) {
+    return NextResponse.redirect(new URL('/auth/login', request.url));
+  }
 
   // Only handle OSS mode
   if (authProvider !== 'local') {

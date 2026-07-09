@@ -10,6 +10,7 @@ export interface StackConfig {
 interface ResolvedAuthConfig {
   authProvider: string;
   stackConfig: StackConfig | null;
+  signupEnabled: boolean;
 }
 
 let cachedConfig: ResolvedAuthConfig | null = null;
@@ -45,7 +46,10 @@ async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
                 data.stack_publishable_client_key as string,
             }
           : null;
-      cachedConfig = { authProvider, stackConfig };
+      // Default to signup-enabled when the backend omits the field (older api
+      // versions before the flag existed) — matches the backend's own default.
+      const signupEnabled = data.signup_enabled !== false;
+      cachedConfig = { authProvider, stackConfig, signupEnabled };
       return cachedConfig;
     }
   } catch {
@@ -56,7 +60,7 @@ async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
   // do NOT cache it: caching here would pin the entire UI to local auth until a
   // container restart if the first resolution loses the startup race with the api
   // service. Leaving it uncached means the next request retries and self-heals.
-  return { authProvider: "local", stackConfig: null };
+  return { authProvider: "local", stackConfig: null, signupEnabled: true };
 }
 
 /**
@@ -72,4 +76,15 @@ export async function getAuthProvider(): Promise<string> {
  */
 export async function getStackConfig(): Promise<StackConfig | null> {
   return (await resolveAuthConfig()).stackConfig;
+}
+
+/**
+ * Returns true when the backend is running with signup allowed (the default,
+ * `ENABLE_SIGNUP=true`). The UI uses this to render the signup link on
+ * /auth/login and to allow direct hits to /auth/signup. When false, the
+ * backend enforces a 403 on POST /auth/signup — this hook keeps the UI in
+ * step so operators don't see broken links.
+ */
+export async function getSignupEnabled(): Promise<boolean> {
+  return (await resolveAuthConfig()).signupEnabled;
 }

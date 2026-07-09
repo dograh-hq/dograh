@@ -2885,6 +2885,10 @@ export type HealthResponse = {
      */
     force_turn_relay: boolean;
     /**
+     * Signup Enabled
+     */
+    signup_enabled: boolean;
+    /**
      * Stack Project Id
      */
     stack_project_id?: string | null;

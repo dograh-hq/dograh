@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { loginApiV1AuthLoginPost } from "@/client/sdk.gen";
@@ -15,6 +15,25 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [signupEnabled, setSignupEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/config/auth")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        // Default to enabled — matches backend default when the field is missing.
+        if (!cancelled) setSignupEnabled(data?.signupEnabled !== false);
+      })
+      .catch(() => {
+        // Backend unreachable — mirror the backend default (enabled) so a
+        // startup race doesn't hide the signup link on a stock install.
+        if (!cancelled) setSignupEnabled(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,12 +102,14 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      <p className="text-center text-sm text-muted-foreground">
-        Don&apos;t have an account?{" "}
-        <Link href="/auth/signup" className="text-primary underline-offset-4 hover:underline">
-          Sign up
-        </Link>
-      </p>
+      {signupEnabled && (
+        <p className="text-center text-sm text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <Link href="/auth/signup" className="text-primary underline-offset-4 hover:underline">
+            Sign up
+          </Link>
+        </p>
+      )}
     </AuthShell>
   );
 }

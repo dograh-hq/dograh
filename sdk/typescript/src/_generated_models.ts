@@ -272,6 +272,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AmbientNoiseConfigurationDefaults */
+        AmbientNoiseConfigurationDefaults: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Volume
+             * @default 0.3
+             */
+            volume: number;
+        } & {
+            [key: string]: unknown;
+        };
         /**
          * CalculatorToolDefinition
          * @description Tool definition for Calculator tools.
@@ -1079,10 +1094,7 @@ export interface components {
             template_context_variables?: {
                 [key: string]: unknown;
             } | null;
-            /** Workflow Configurations */
-            workflow_configurations?: {
-                [key: string]: unknown;
-            } | null;
+            workflow_configurations?: components["schemas"]["WorkflowConfigurationDefaults"] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1096,6 +1108,59 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorkflowConfigurationDefaults */
+        WorkflowConfigurationDefaults: {
+            ambient_noise_configuration?: components["schemas"]["AmbientNoiseConfigurationDefaults"];
+            /**
+             * Max Call Duration
+             * @default 300
+             */
+            max_call_duration: number;
+            /**
+             * Max User Idle Timeout
+             * @default 10
+             */
+            max_user_idle_timeout: number;
+            /**
+             * Smart Turn Stop Secs
+             * @default 2
+             */
+            smart_turn_stop_secs: number;
+            /**
+             * Turn Start Strategy
+             * @default default
+             * @enum {string}
+             */
+            turn_start_strategy: "default" | "min_words" | "provisional_vad";
+            /**
+             * Turn Start Min Words
+             * @default 3
+             */
+            turn_start_min_words: number;
+            /**
+             * Provisional Vad Pause Secs
+             * @default 1.5
+             */
+            provisional_vad_pause_secs: number;
+            /**
+             * Turn Stop Strategy
+             * @default transcription
+             * @enum {string}
+             */
+            turn_stop_strategy: "transcription" | "turn_analyzer";
+            /**
+             * Dictionary
+             * @default
+             */
+            dictionary: string;
+            /**
+             * Context Compaction Enabled
+             * @default false
+             */
+            context_compaction_enabled: boolean;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * WorkflowListResponse
@@ -1164,6 +1229,7 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type AmbientNoiseConfigurationDefaults = components['schemas']['AmbientNoiseConfigurationDefaults'];
 export type CalculatorToolDefinition = components['schemas']['CalculatorToolDefinition'];
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
 export type CreateToolRequest = components['schemas']['CreateToolRequest'];
@@ -1201,6 +1267,7 @@ export type TransferCallConfig = components['schemas']['TransferCallConfig'];
 export type TransferCallToolDefinition = components['schemas']['TransferCallToolDefinition'];
 export type UpdateWorkflowRequest = components['schemas']['UpdateWorkflowRequest'];
 export type ValidationError = components['schemas']['ValidationError'];
+export type WorkflowConfigurationDefaults = components['schemas']['WorkflowConfigurationDefaults'];
 export type WorkflowListResponse = components['schemas']['WorkflowListResponse'];
 export type WorkflowResponse = components['schemas']['WorkflowResponse'];
 export type $defs = Record<string, never>;

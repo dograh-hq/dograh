@@ -18,6 +18,10 @@ from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
 from api.enums import CallType, WorkflowRunState
+from api.services.call_concurrency import (
+    CallConcurrencyLimitError,
+    call_concurrency,
+)
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony import registry as telephony_registry
 
@@ -51,6 +55,16 @@ async def agent_stream_websocket(
         await websocket.close(code=1008, reason="Workflow not found")
         return
 
+    try:
+        concurrency_slot = await call_concurrency.acquire_org_slot(
+            workflow.organization_id,
+            source=f"agent_stream:{provider_name}",
+            timeout=0,
+        )
+    except CallConcurrencyLimitError:
+        await websocket.close(code=1008, reason="Concurrent call limit reached")
+        return
+
     numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
     workflow_run_name = f"WR-AGS-{numeric_suffix:08d}"
     initial_context = {
@@ -58,14 +72,20 @@ async def agent_stream_websocket(
         "provider": provider_name,
         "direction": "inbound",
     }
-    workflow_run = await db_client.create_workflow_run(
-        workflow_run_name,
-        workflow.id,
-        provider_name,
-        user_id=workflow.user_id,
-        call_type=CallType.INBOUND,
-        initial_context=initial_context,
-    )
+    try:
+        workflow_run = await db_client.create_workflow_run(
+            workflow_run_name,
+            workflow.id,
+            provider_name,
+            user_id=workflow.user_id,
+            call_type=CallType.INBOUND,
+            initial_context=initial_context,
+            organization_id=workflow.organization_id,
+        )
+        await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
+    except Exception:
+        await call_concurrency.release_slot(concurrency_slot)
+        raise
 
     set_current_run_id(workflow_run.id)
     set_current_org_id(workflow.organization_id)
@@ -79,36 +99,40 @@ async def agent_stream_websocket(
             f"agent-stream quota exceeded for user {workflow.user_id}: "
             f"{quota_result.error_message}"
         )
+        await call_concurrency.release_workflow_run_slot(workflow_run.id)
         await websocket.close(
             code=1008, reason=quota_result.error_message or "Quota exceeded"
         )
         return
 
-    await db_client.update_workflow_run(
-        run_id=workflow_run.id, state=WorkflowRunState.RUNNING.value
-    )
-
-    provider_instance = spec.provider_cls({})
     try:
-        await provider_instance.handle_external_websocket(
-            websocket,
-            organization_id=workflow.organization_id,
-            workflow_id=workflow.id,
-            user_id=workflow.user_id,
-            workflow_run_id=workflow_run.id,
-            params=params,
+        await db_client.update_workflow_run(
+            run_id=workflow_run.id, state=WorkflowRunState.RUNNING.value
         )
-    except NotImplementedError as e:
-        logger.warning(f"agent-stream provider {provider_name} not supported: {e}")
+
+        provider_instance = spec.provider_cls({})
         try:
-            await websocket.close(code=1011, reason=str(e))
-        except RuntimeError:
-            pass
-    except WebSocketDisconnect as e:
-        logger.info(f"agent-stream disconnected: code={e.code} reason={e.reason}")
-    except Exception as e:
-        logger.error(f"agent-stream error for run {workflow_run.id}: {e}")
-        try:
-            await websocket.close(1011, "Internal server error")
-        except RuntimeError:
-            pass
+            await provider_instance.handle_external_websocket(
+                websocket,
+                organization_id=workflow.organization_id,
+                workflow_id=workflow.id,
+                user_id=workflow.user_id,
+                workflow_run_id=workflow_run.id,
+                params=params,
+            )
+        except NotImplementedError as e:
+            logger.warning(f"agent-stream provider {provider_name} not supported: {e}")
+            try:
+                await websocket.close(code=1011, reason=str(e))
+            except RuntimeError:
+                pass
+        except WebSocketDisconnect as e:
+            logger.info(f"agent-stream disconnected: code={e.code} reason={e.reason}")
+        except Exception as e:
+            logger.error(f"agent-stream error for run {workflow_run.id}: {e}")
+            try:
+                await websocket.close(1011, "Internal server error")
+            except RuntimeError:
+                pass
+    finally:
+        await call_concurrency.unregister_active_call(workflow_run.id)

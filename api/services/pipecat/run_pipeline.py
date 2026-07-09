@@ -14,14 +14,17 @@ from api.schemas.workflow_configurations import (
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_TURN_START_STRATEGY,
 )
+from api.services.call_concurrency import call_concurrency
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
 )
 from api.services.pipecat.active_calls import (
-    register_active_call,
-    unregister_active_call,
+    register_active_call as register_worker_active_call,
+)
+from api.services.pipecat.active_calls import (
+    unregister_active_call as unregister_worker_active_call,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
@@ -258,7 +261,7 @@ async def run_pipeline_telephony(
     """Run a pipeline for any telephony provider."""
     # Register before any async setup so deploy drains see calls that are still
     # resolving DB/config/transport state.
-    register_active_call(workflow_run_id)
+    register_worker_active_call(workflow_run_id)
     try:
         await _run_pipeline_telephony_impl(
             websocket,
@@ -270,7 +273,10 @@ async def run_pipeline_telephony(
             transport_kwargs=transport_kwargs,
         )
     finally:
-        unregister_active_call(workflow_run_id)
+        try:
+            await call_concurrency.unregister_active_call(workflow_run_id)
+        finally:
+            unregister_worker_active_call(workflow_run_id)
 
 
 async def _run_pipeline_telephony_impl(
@@ -383,7 +389,7 @@ async def run_pipeline_smallwebrtc(
     """Run pipeline for WebRTC connections."""
     # Register before any async setup so deploy drains see calls that are still
     # resolving DB/config/transport state.
-    register_active_call(workflow_run_id)
+    register_worker_active_call(workflow_run_id)
     try:
         await _run_pipeline_smallwebrtc_impl(
             webrtc_connection,
@@ -394,7 +400,10 @@ async def run_pipeline_smallwebrtc(
             user_provider_id=user_provider_id,
         )
     finally:
-        unregister_active_call(workflow_run_id)
+        try:
+            await call_concurrency.unregister_active_call(workflow_run_id)
+        finally:
+            unregister_worker_active_call(workflow_run_id)
 
 
 async def _run_pipeline_smallwebrtc_impl(
@@ -478,7 +487,7 @@ async def _run_pipeline(
     resolved_user_config=None,
 ) -> None:
     """Run the pipeline with active-call drain accounting."""
-    register_active_call(workflow_run_id)
+    register_worker_active_call(workflow_run_id)
     try:
         await _run_pipeline_impl(
             transport,
@@ -492,7 +501,10 @@ async def _run_pipeline(
             resolved_user_config=resolved_user_config,
         )
     finally:
-        unregister_active_call(workflow_run_id)
+        try:
+            await call_concurrency.unregister_active_call(workflow_run_id)
+        finally:
+            unregister_worker_active_call(workflow_run_id)
 
 
 async def _run_pipeline_impl(

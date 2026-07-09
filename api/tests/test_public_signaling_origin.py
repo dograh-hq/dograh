@@ -26,7 +26,12 @@ def _embed_session():
 
 
 def _embed_token(allowed_domains):
-    return SimpleNamespace(allowed_domains=allowed_domains, created_by=7, workflow_id=3)
+    return SimpleNamespace(
+        allowed_domains=allowed_domains,
+        created_by=7,
+        workflow_id=3,
+        organization_id=11,
+    )
 
 
 def _patch_deps():
@@ -35,6 +40,7 @@ def _patch_deps():
     mgr = patch("api.routes.webrtc_signaling.signaling_manager").start()
     db.get_embed_session_by_token = AsyncMock(return_value=_embed_session())
     db.get_embed_token_by_id = AsyncMock(return_value=_embed_token(["example.com"]))
+    db.get_workflow_run = AsyncMock(return_value=SimpleNamespace(workflow_id=3))
     db.get_user_by_id = AsyncMock(return_value=SimpleNamespace(id=7))
     mgr.handle_websocket = AsyncMock()
     return db, mgr

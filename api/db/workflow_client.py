@@ -606,11 +606,9 @@ class WorkflowClient(BaseDBClient):
         """Get workflows by IDs for a specific organization"""
         async with self.async_session() as session:
             result = await session.execute(
-                select(WorkflowModel)
-                .join(WorkflowModel.user)
-                .where(
+                select(WorkflowModel).where(
                     WorkflowModel.id.in_(workflow_ids),
-                    WorkflowModel.user.has(selected_organization_id=organization_id),
+                    WorkflowModel.organization_id == organization_id,
                 )
             )
             return result.scalars().all()

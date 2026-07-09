@@ -285,6 +285,7 @@ async def _execute_resolved_target(
     # the MPS correlation id before the provider starts the call.
     quota_result = await authorize_workflow_run_start(
         workflow_id=target.workflow.id,
+        organization_id=target.organization_id,
         workflow_run_id=workflow_run.id,
     )
     if not quota_result.has_quota:

@@ -458,7 +458,6 @@ async def execute_text_chat_pending_turn(
     )
 
     user_config = await get_effective_ai_model_configuration_for_workflow(
-        user_id=workflow_run.workflow.user.id,
         organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
     )

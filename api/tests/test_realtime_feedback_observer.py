@@ -1,5 +1,5 @@
-from types import SimpleNamespace
 import re
+from types import SimpleNamespace
 
 import pytest
 from pipecat.frames.frames import (

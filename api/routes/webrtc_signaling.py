@@ -326,6 +326,7 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        organization_id: int,
         enforce_call_concurrency: bool = False,
         call_concurrency_source: str = "webrtc",
     ):
@@ -344,6 +345,7 @@ class SignalingManager:
                     workflow_id,
                     workflow_run_id,
                     user,
+                    organization_id,
                     connection_key,
                     enforce_call_concurrency,
                     call_concurrency_source,
@@ -387,6 +389,7 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        organization_id: int,
         connection_key: str,
         enforce_call_concurrency: bool,
         call_concurrency_source: str = "webrtc",
@@ -402,6 +405,7 @@ class SignalingManager:
                 workflow_id,
                 workflow_run_id,
                 user,
+                organization_id,
                 connection_key,
                 enforce_call_concurrency,
                 call_concurrency_source,
@@ -418,6 +422,7 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        organization_id: int,
         connection_key: str,
         enforce_call_concurrency: bool,
         call_concurrency_source: str = "webrtc",
@@ -440,14 +445,13 @@ class SignalingManager:
         # Set run context for logging and tracing. org_id must be set before
         # pc.initialize() so that aiortc's internal tasks inherit it.
         set_current_run_id(workflow_run_id)
-        org_id = await db_client.get_workflow_organization_id(workflow_id)
-        if org_id:
-            set_current_org_id(org_id)
+        set_current_org_id(organization_id)
 
         # Check Dograh quota before initiating the call (apply per-workflow
         # model_overrides so we evaluate the keys this workflow will use).
         quota_result = await authorize_workflow_run_start(
             workflow_id=workflow_id,
+            organization_id=organization_id,
             workflow_run_id=workflow_run_id,
             actor_user=user,
         )
@@ -497,21 +501,9 @@ class SignalingManager:
             pipeline_started = False
             pc = None
             if enforce_call_concurrency:
-                if org_id is None:
-                    await ws.send_json(
-                        {
-                            "type": "error",
-                            "payload": {
-                                "error_type": "organization_not_found",
-                                "message": "Workflow organization not found",
-                            },
-                        }
-                    )
-                    return
-
                 try:
                     concurrency_slot = await call_concurrency.acquire_org_slot(
-                        org_id,
+                        organization_id,
                         source=call_concurrency_source,
                         timeout=0,
                     )
@@ -592,6 +584,7 @@ class SignalingManager:
                         user.id,
                         call_context_vars,
                         user_provider_id=str(user.provider_id),
+                        organization_id=organization_id,
                     )
                 )
                 pipeline_started = True
@@ -716,26 +709,31 @@ async def signaling_websocket(
     user: UserModel = Depends(get_user_ws),
 ):
     """WebSocket endpoint for WebRTC signaling with ICE trickling."""
-    workflow_run = await db_client.get_workflow_run(workflow_run_id, user.id)
-    if not workflow_run:
-        logger.warning(f"workflow run {workflow_run_id} not found for user {user.id}")
-        raise HTTPException(status_code=400, detail="Bad workflow_run_id")
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
 
-    # The URL's workflow_id drives org resolution, quota, and concurrency
-    # accounting downstream — reject a workflow_id that doesn't own this run
-    # so a caller can't charge their call to an unrelated workflow/org.
-    if workflow_run.workflow_id != workflow_id:
+    workflow_run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=user.selected_organization_id
+    )
+    if not workflow_run:
         logger.warning(
-            f"workflow run {workflow_run_id} does not belong to workflow "
-            f"{workflow_id} (belongs to {workflow_run.workflow_id})"
+            f"workflow run {workflow_run_id} not found for org "
+            f"{user.selected_organization_id}"
         )
         raise HTTPException(status_code=400, detail="Bad workflow_run_id")
+    if workflow_run.workflow_id != workflow_id:
+        logger.warning(
+            f"workflow run {workflow_run_id} belongs to workflow "
+            f"{workflow_run.workflow_id}, not {workflow_id}"
+        )
+        raise HTTPException(status_code=400, detail="workflow_run_workflow_mismatch")
 
     await signaling_manager.handle_websocket(
         websocket,
         workflow_id,
         workflow_run_id,
         user,
+        user.selected_organization_id,
         enforce_call_concurrency=True,
         call_concurrency_source="webrtc",
     )
@@ -771,6 +769,17 @@ async def public_signaling_websocket(
         await websocket.close(code=1008, reason="Invalid embed token")
         return
 
+    workflow_run = await db_client.get_workflow_run(
+        embed_session.workflow_run_id,
+        organization_id=embed_token.organization_id,
+    )
+    if not workflow_run:
+        await websocket.close(code=1008, reason="Invalid workflow run")
+        return
+    if workflow_run.workflow_id != embed_token.workflow_id:
+        await websocket.close(code=1008, reason="workflow_run_workflow_mismatch")
+        return
+
     # Enforce the embed token's allowed-domain policy on the public signaling
     # path, mirroring the HTTP embed endpoints (issue #330). Without this a
     # leaked or replayed session token could attach from an arbitrary origin.
@@ -798,6 +807,7 @@ async def public_signaling_websocket(
         embed_token.workflow_id,
         embed_session.workflow_run_id,
         user,
+        embed_token.organization_id,
         enforce_call_concurrency=True,
         call_concurrency_source="public_embed",
     )

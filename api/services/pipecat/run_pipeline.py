@@ -329,7 +329,7 @@ async def _run_pipeline_telephony_impl(
             "telephony_configuration_id"
         )
 
-    # Resolve effective user config here so the transport can tune its
+    # Resolve effective org config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
     from api.services.configuration.ai_model_configuration import (
@@ -340,7 +340,6 @@ async def _run_pipeline_telephony_impl(
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
     user_config = await get_effective_ai_model_configuration_for_workflow(
-        user_id=user_id,
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
     )
@@ -385,6 +384,7 @@ async def run_pipeline_smallwebrtc(
     user_id: int,
     call_context_vars: dict = {},
     user_provider_id: str | None = None,
+    organization_id: int | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections."""
     # Register before any async setup so deploy drains see calls that are still
@@ -398,6 +398,7 @@ async def run_pipeline_smallwebrtc(
             user_id,
             call_context_vars=call_context_vars,
             user_provider_id=user_provider_id,
+            organization_id=organization_id,
         )
     finally:
         try:
@@ -413,6 +414,7 @@ async def _run_pipeline_smallwebrtc_impl(
     user_id: int,
     call_context_vars: dict = {},
     user_provider_id: str | None = None,
+    organization_id: int | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections"""
     logger.debug(
@@ -420,8 +422,14 @@ async def _run_pipeline_smallwebrtc_impl(
     )
     set_current_run_id(workflow_run_id)
 
-    # Get workflow to extract all pipeline configurations
-    workflow = await db_client.get_workflow(workflow_id, user_id)
+    workflow_scope = (
+        {"organization_id": organization_id}
+        if organization_id is not None
+        else {"user_id": user_id}
+    )
+
+    # Get workflow to extract all pipeline configurations.
+    workflow = await db_client.get_workflow(workflow_id, **workflow_scope)
 
     # Set org context early so tasks created by the transport inherit it
     if workflow:
@@ -437,19 +445,26 @@ async def _run_pipeline_smallwebrtc_impl(
     # Create audio configuration for WebRTC
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
 
-    # Resolve workflow_run + effective user_config here so the transport can
+    # Resolve workflow_run + effective org config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
     from api.services.configuration.ai_model_configuration import (
         get_effective_ai_model_configuration_for_workflow,
     )
 
-    workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+    workflow_run = await db_client.get_workflow_run(workflow_run_id, **workflow_scope)
+    if not workflow_run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if workflow_run.workflow_id != workflow_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow_run_workflow_mismatch",
+        )
+
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
     user_config = await get_effective_ai_model_configuration_for_workflow(
-        user_id=user_id,
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
     )
@@ -472,6 +487,7 @@ async def _run_pipeline_smallwebrtc_impl(
         user_provider_id=user_provider_id,
         workflow_run=workflow_run,
         resolved_user_config=user_config,
+        organization_id=organization_id,
     )
 
 
@@ -485,6 +501,7 @@ async def _run_pipeline(
     user_provider_id: str | None = None,
     workflow_run=None,
     resolved_user_config=None,
+    organization_id: int | None = None,
 ) -> None:
     """Run the pipeline with active-call drain accounting."""
     register_worker_active_call(workflow_run_id)
@@ -499,6 +516,7 @@ async def _run_pipeline(
             user_provider_id=user_provider_id,
             workflow_run=workflow_run,
             resolved_user_config=resolved_user_config,
+            organization_id=organization_id,
         )
     finally:
         try:
@@ -517,6 +535,7 @@ async def _run_pipeline_impl(
     user_provider_id: str | None = None,
     workflow_run=None,
     resolved_user_config=None,
+    organization_id: int | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -527,11 +546,26 @@ async def _run_pipeline_impl(
         workflow_run_id: The ID of the workflow run
         user_id: The ID of the user
         workflow_run: Pre-fetched workflow run row. Fetched here if None.
-        resolved_user_config: User configuration with model_overrides already
-            applied. Fetched and resolved here if None.
+        resolved_user_config: Organization model configuration with workflow
+            model_overrides already applied. Fetched and resolved here if None.
     """
+    workflow_scope = (
+        {"organization_id": organization_id}
+        if organization_id is not None
+        else {"user_id": user_id}
+    )
+
     if workflow_run is None:
-        workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+        workflow_run = await db_client.get_workflow_run(
+            workflow_run_id, **workflow_scope
+        )
+    if not workflow_run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if workflow_run.workflow_id != workflow_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow_run_workflow_mismatch",
+        )
 
     # If the workflow run is already completed, we don't need to run it again
     if workflow_run.is_completed:
@@ -544,7 +578,7 @@ async def _run_pipeline_impl(
         merged_call_context_vars = {**merged_call_context_vars, **call_context_vars}
 
     # Get workflow for metadata (name, organization_id, call_disposition_codes)
-    workflow = await db_client.get_workflow(workflow_id, user_id)
+    workflow = await db_client.get_workflow(workflow_id, **workflow_scope)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -576,7 +610,7 @@ async def _run_pipeline_impl(
                     term.strip() for term in dictionary.split(",") if term.strip()
                 ]
 
-    # Resolve model overrides from the version onto global user config (skip
+    # Resolve model overrides from the version onto global org config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
         from api.services.configuration.ai_model_configuration import (
@@ -584,7 +618,6 @@ async def _run_pipeline_impl(
         )
 
         user_config = await get_effective_ai_model_configuration_for_workflow(
-            user_id=user_id,
             organization_id=workflow.organization_id,
             workflow_configurations=run_configs,
         )

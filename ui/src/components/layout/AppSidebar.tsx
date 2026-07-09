@@ -1,6 +1,5 @@
 "use client";
 
-import type { Team } from "@stackframe/stack";
 import {
   AlertTriangle,
   ArrowUpCircle,
@@ -25,9 +24,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React, { useRef } from "react";
+import React from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
+import { SidebarTeamSwitcher } from "@/components/layout/SidebarTeamSwitcher";
 import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import {
@@ -153,18 +153,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
   },
 ];
 
-// Lazy load SelectedTeamSwitcher - we'll pass selectedTeam from our context
-const StackTeamSwitcher = React.lazy(() =>
-  import("@stackframe/stack").then((mod) => ({
-    default: mod.SelectedTeamSwitcher,
-  }))
-);
-
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { state, isMobile, setOpenMobile } = useSidebar();
-  const { provider, getSelectedTeam, logout, user } = useAuth();
+  const { provider, logout, user } = useAuth();
   const { config } = useAppConfig();
   const { openHireExpert } = useLeadForms();
   const {
@@ -175,16 +168,6 @@ export function AppSidebar() {
     telnyxMissingWebhookPublicKeyCount > 0 ||
     vonageMissingSignatureSecretCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
-
-  // Get selected team for Stack auth (cast to Team type from Stack)
-  // Stabilize the reference so SelectedTeamSwitcher only sees a change when the team ID changes,
-  // preventing unnecessary PATCH calls to Stack Auth on every route navigation.
-  const selectedTeamRef = useRef<Team | null>(null);
-  const rawSelectedTeam = provider === "stack" && getSelectedTeam ? getSelectedTeam() as Team | null : null;
-  if (rawSelectedTeam?.id !== selectedTeamRef.current?.id) {
-    selectedTeamRef.current = rawSelectedTeam;
-  }
-  const selectedTeam = selectedTeamRef.current;
 
   // Version info from app config context
   const versionInfo = config ? { ui: config.uiVersion, api: config.apiVersion } : null;
@@ -397,18 +380,7 @@ export function AppSidebar() {
 
         {provider === "stack" && (
           <div className={cn("mt-3 notranslate", isCollapsed && "hidden")} translate="no">
-            <React.Suspense
-              fallback={
-                <div className="h-9 w-full animate-pulse rounded bg-muted" />
-              }
-            >
-              <StackTeamSwitcher
-                selectedTeam={selectedTeam || undefined}
-                onChange={() => {
-                  router.refresh();
-                }}
-              />
-            </React.Suspense>
+            <SidebarTeamSwitcher />
           </div>
         )}
       </SidebarHeader>

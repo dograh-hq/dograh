@@ -61,6 +61,7 @@ async def test_public_embed_offer_rejects_when_org_concurrency_limit_reached():
             workflow_id=33,
             workflow_run_id=501,
             user=user,
+            organization_id=11,
             connection_key="conn-1",
             enforce_call_concurrency=True,
             call_concurrency_source="public_embed",
@@ -107,6 +108,7 @@ async def test_public_embed_renegotiation_does_not_acquire_another_slot():
             workflow_id=33,
             workflow_run_id=501,
             user=user,
+            organization_id=11,
             connection_key=connection_key,
             enforce_call_concurrency=True,
             call_concurrency_source="public_embed",
@@ -126,7 +128,7 @@ async def test_signaling_websocket_rejects_run_not_owned_by_workflow():
     from api.routes.webrtc_signaling import signaling_websocket
 
     ws = _FakeWebSocket()
-    user = SimpleNamespace(id=7)
+    user = SimpleNamespace(id=7, selected_organization_id=11)
 
     with (
         patch("api.routes.webrtc_signaling.db_client") as mock_db,
@@ -151,7 +153,7 @@ async def test_signaling_websocket_accepts_matching_workflow_and_run():
     from api.routes.webrtc_signaling import signaling_websocket
 
     ws = _FakeWebSocket()
-    user = SimpleNamespace(id=7)
+    user = SimpleNamespace(id=7, selected_organization_id=11)
 
     with (
         patch("api.routes.webrtc_signaling.db_client") as mock_db,

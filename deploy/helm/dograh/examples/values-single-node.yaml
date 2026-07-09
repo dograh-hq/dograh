@@ -15,17 +15,17 @@ exposure:
 
 config:
   environment: production
-  logLevel: INFO
+  logLevel: DEBUG
 
 web:
-  replicaCount: 1
+  replicaCount: 2
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
+      memory: 1Gi
     limits:
       cpu: "1"
-      memory: 1Gi
+      memory: 1.5Gi
   pdb:
     enabled: false
 
@@ -33,7 +33,7 @@ workers:
   replicaCount: 1
   resources:
     requests:
-      cpu: 50m
+      cpu: 100m
       memory: 128Mi
     limits:
       cpu: 500m
@@ -46,7 +46,9 @@ ui:
 
 autoscaling:
   web:
-    enabled: false
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 12
 
 postgresql:
   persistence:

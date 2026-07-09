@@ -143,14 +143,13 @@ async def process_knowledge_base_document(
         embeddings_base_url = None
         embeddings_endpoint = None
         embeddings_api_version = None
-        if retrieval_mode == "chunked" and document.created_by:
+        if retrieval_mode == "chunked":
             from api.services.configuration.ai_model_configuration import (
                 apply_managed_embeddings_base_url,
                 get_resolved_ai_model_configuration,
             )
 
             resolved_config = await get_resolved_ai_model_configuration(
-                user_id=document.created_by,
                 organization_id=document.organization_id,
             )
             effective_config = resolved_config.effective

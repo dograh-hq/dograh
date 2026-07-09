@@ -1090,7 +1090,6 @@ async def update_workflow(
                 )
                 if existing_v2_override_config is None:
                     resolved_config = await get_resolved_ai_model_configuration(
-                        user_id=user.id,
                         organization_id=user.selected_organization_id,
                     )
                     v2_override = merge_ai_model_configuration_v2_secrets(
@@ -1133,7 +1132,6 @@ async def update_workflow(
                 existing_configs,
             )
             resolved_config = await get_resolved_ai_model_configuration(
-                user_id=user.id,
                 organization_id=user.selected_organization_id,
             )
             effective_config = resolved_config.effective

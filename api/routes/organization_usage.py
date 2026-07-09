@@ -512,7 +512,6 @@ async def get_daily_usage_breakdown(
             start_date,
             end_date,
             org.price_per_second_usd,
-            user_id=user.id,
         )
 
         return breakdown

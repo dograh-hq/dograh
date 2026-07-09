@@ -31,7 +31,6 @@ async def get_organization_context(user: UserModel) -> OrganizationContextRespon
     )
 
     resolved = await get_resolved_ai_model_configuration(
-        user_id=user.id,
         organization_id=organization_id,
     )
     managed_service_version = resolved.effective.managed_service_version

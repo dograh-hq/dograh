@@ -243,7 +243,6 @@ async def _model_configuration_v2_response(
     configuration: OrganizationAIModelConfigurationV2 | None = None,
 ) -> OrganizationAIModelConfigurationResponse:
     resolved = await get_resolved_ai_model_configuration(
-        user_id=user.id,
         organization_id=user.selected_organization_id,
     )
     raw_configuration = (

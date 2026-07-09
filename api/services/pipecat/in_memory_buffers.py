@@ -233,7 +233,9 @@ class InMemoryLogsBuffer:
             if self._user_speech_start_timestamp:
                 payload_with_timestamps["timestamp"] = self._user_speech_start_timestamp
             if self._user_speech_end_timestamp:
-                payload_with_timestamps["end_timestamp"] = self._user_speech_end_timestamp
+                payload_with_timestamps["end_timestamp"] = (
+                    self._user_speech_end_timestamp
+                )
         elif event_type == RealtimeFeedbackType.BOT_TEXT.value:
             bot_interval_is_active = self._bot_speech_end_timestamp is None
             if bot_interval_is_active and self._bot_speech_start_timestamp:

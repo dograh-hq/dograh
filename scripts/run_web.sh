@@ -11,4 +11,5 @@ fi
 PORT="${WEB_PORT:-8000}"
 
 cd "$BASE_DIR"
-exec uvicorn api.app:app --host 0.0.0.0 --port "$PORT" --workers 1
+exec uvicorn api.app:app --host 0.0.0.0 --port "$PORT" --workers 1 \
+  --proxy-headers --forwarded-allow-ips="*"

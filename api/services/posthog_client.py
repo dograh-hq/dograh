@@ -7,6 +7,7 @@ from api.constants import POSTHOG_API_KEY, POSTHOG_HOST
 
 _posthog_client: Posthog | None = None
 POSTHOG_SERVER_GROUP_IDENTIFY_DISTINCT_ID = "server-group-identify"
+POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
 
 
 def get_posthog() -> Posthog | None:

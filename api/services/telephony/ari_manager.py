@@ -26,6 +26,10 @@ from loguru import logger
 from api.constants import REDIS_URL
 from api.db import db_client
 from api.enums import CallType, WorkflowRunMode
+from api.services.call_concurrency import (
+    CallConcurrencyLimitError,
+    call_concurrency,
+)
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.transfer_event_protocol import (
@@ -527,6 +531,8 @@ class ARIConnection:
         channel = event.get("channel", {})
         caller_number = channel.get("caller", {}).get("number", "unknown")
         called_number = channel.get("dialplan", {}).get("exten", "unknown")
+        concurrency_slot = None
+        workflow_run = None
 
         try:
             # 1. Resolve the workflow from the called extension via the
@@ -573,6 +579,20 @@ class ARIConnection:
 
             user_id = workflow.user_id
 
+            try:
+                concurrency_slot = await call_concurrency.acquire_org_slot(
+                    self.organization_id,
+                    source="ari_inbound",
+                    timeout=0,
+                )
+            except CallConcurrencyLimitError:
+                logger.warning(
+                    f"[ARI org={self.organization_id}] Concurrent call limit "
+                    f"reached; hanging up inbound channel {channel_id}"
+                )
+                await self._delete_channel(channel_id)
+                return
+
             # 3. Create workflow run
             call_id = channel_id
             workflow_run = await db_client.create_workflow_run(
@@ -593,6 +613,7 @@ class ARIConnection:
                 },
                 organization_id=self.organization_id,
             )
+            await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
 
             logger.info(
                 f"[ARI org={self.organization_id}] Created inbound workflow run "
@@ -612,6 +633,7 @@ class ARIConnection:
                     f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "
                     f"— hanging up inbound call {channel_id}"
                 )
+                await call_concurrency.release_workflow_run_slot(workflow_run.id)
                 await self._delete_channel(channel_id)
                 return
 
@@ -627,6 +649,10 @@ class ARIConnection:
                 str(user_id),
             )
         except Exception as e:
+            if workflow_run:
+                await call_concurrency.release_workflow_run_slot(workflow_run.id)
+            elif concurrency_slot:
+                await call_concurrency.release_slot(concurrency_slot)
             logger.error(
                 f"[ARI org={self.organization_id}] Error handling inbound StasisStart "
                 f"for channel {channel_id}: {e}"
@@ -762,6 +788,14 @@ class ARIConnection:
         the bridge and both channels — like endConferenceOnExit.
         """
         try:
+            # Release the org concurrency slot. Normally the pipeline's own
+            # teardown does this when the ext media websocket closes, but if
+            # the pipeline never started (caller hung up before external
+            # media connected, ext media creation failed, ...) this is the
+            # only cleanup that runs before the Redis stale timeout. No-op
+            # when the slot was already released.
+            await call_concurrency.unregister_active_call(int(workflow_run_id))
+
             workflow_run = await db_client.get_workflow_run_by_id(int(workflow_run_id))
             if not workflow_run or not workflow_run.gathered_context:
                 logger.warning(

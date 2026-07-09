@@ -393,8 +393,10 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                                 // Stop the connection and surface the handled service error.
                                 cleanupConnection({ graceful: false, status: 'failed' });
                             } else {
-                                // Log other errors as actual errors
+                                const serverErrorMessage = message.payload?.message || 'Server error';
                                 logger.error('Server error:', message.payload);
+                                setPermissionError(serverErrorMessage);
+                                cleanupConnection({ graceful: false, status: 'failed' });
                             }
                             break;
 
@@ -606,7 +608,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 }
             };
         });
-    }, [getWebSocketUrl, cleanupConnection]);
+    }, [getWebSocketUrl, cleanupConnection, setPermissionError]);
 
     const negotiate = async () => {
         const pc = pcRef.current;
@@ -661,6 +663,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         setIsStarting(true);
         setConnectionActive(false);
         setIsCompleted(false);
+        setPermissionError(null);
         setConnectionStatus('connecting');
 
         try {

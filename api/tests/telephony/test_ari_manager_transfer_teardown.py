@@ -1,10 +1,18 @@
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from api.services.telephony import ari_manager
 from api.services.telephony.ari_manager import ARIConnection
+
+
+@pytest.fixture
+def fake_call_concurrency(monkeypatch):
+    fake = SimpleNamespace(unregister_active_call=AsyncMock(return_value=True))
+    monkeypatch.setattr(ari_manager, "call_concurrency", fake)
+    return fake
 
 
 class _FakeDbClient:
@@ -77,6 +85,7 @@ def _completed_transfer_context():
 @pytest.mark.asyncio
 async def test_completed_transfer_tears_down_destination_when_caller_leaves(
     monkeypatch,
+    fake_call_concurrency,
 ):
     fake_db = _FakeDbClient(_completed_transfer_context())
     monkeypatch.setattr(ari_manager, "db_client", fake_db)
@@ -90,11 +99,13 @@ async def test_completed_transfer_tears_down_destination_when_caller_leaves(
     assert "dest-chan" in conn.deleted_channel_runs
     assert conn.deleted_transfer_channel_mappings == ["dest-chan"]
     assert fake_db.workflow_run.gathered_context["transfer_state"] == "terminated"
+    fake_call_concurrency.unregister_active_call.assert_awaited_with(123)
 
 
 @pytest.mark.asyncio
 async def test_completed_transfer_tears_down_caller_when_destination_leaves(
     monkeypatch,
+    fake_call_concurrency,
 ):
     fake_db = _FakeDbClient(_completed_transfer_context())
     monkeypatch.setattr(ari_manager, "db_client", fake_db)
@@ -108,6 +119,31 @@ async def test_completed_transfer_tears_down_caller_when_destination_leaves(
     assert "dest-chan" in conn.deleted_channel_runs
     assert conn.deleted_transfer_channel_mappings == ["dest-chan"]
     assert fake_db.workflow_run.gathered_context["transfer_state"] == "terminated"
+    fake_call_concurrency.unregister_active_call.assert_awaited_with(123)
+
+
+@pytest.mark.asyncio
+async def test_stasis_end_releases_concurrency_slot_on_normal_teardown(
+    monkeypatch,
+    fake_call_concurrency,
+):
+    """StasisEnd must release the org slot even when the pipeline never ran
+    (e.g. the caller hung up before external media connected)."""
+    fake_db = _FakeDbClient(
+        {
+            "call_id": "caller-chan",
+            "ext_channel_id": "ext-chan",
+            "bridge_id": "bridge-1",
+        }
+    )
+    monkeypatch.setattr(ari_manager, "db_client", fake_db)
+    conn = _RecordingARIConnection()
+
+    await conn._handle_stasis_end("caller-chan", "123")
+
+    fake_call_concurrency.unregister_active_call.assert_awaited_once_with(123)
+    assert conn.deleted_bridges == ["bridge-1"]
+    assert conn.deleted_channels == ["ext-chan"]
 
 
 @pytest.mark.asyncio

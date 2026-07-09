@@ -40,6 +40,11 @@ from api.routes.turn_credentials import (
     generate_turn_credentials,
 )
 from api.services.auth.depends import get_user_ws
+from api.services.call_concurrency import (
+    CallConcurrencyLimitError,
+    WorkflowRunSlotAlreadyBoundError,
+    call_concurrency,
+)
 from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
 from api.services.pipecat.ws_sender_registry import (
     register_ws_sender,
@@ -322,6 +327,8 @@ class SignalingManager:
         workflow_run_id: int,
         user: UserModel,
         organization_id: int,
+        enforce_call_concurrency: bool = False,
+        call_concurrency_source: str = "webrtc",
     ):
         """Handle WebSocket connection for signaling."""
         await websocket.accept()
@@ -340,6 +347,8 @@ class SignalingManager:
                     user,
                     organization_id,
                     connection_key,
+                    enforce_call_concurrency,
+                    call_concurrency_source,
                 )
         except WebSocketDisconnect:
             logger.info(f"WebSocket disconnected for {connection_id}")
@@ -382,6 +391,8 @@ class SignalingManager:
         user: UserModel,
         organization_id: int,
         connection_key: str,
+        enforce_call_concurrency: bool,
+        call_concurrency_source: str = "webrtc",
     ):
         """Handle incoming WebSocket messages."""
         msg_type = message.get("type")
@@ -396,6 +407,8 @@ class SignalingManager:
                 user,
                 organization_id,
                 connection_key,
+                enforce_call_concurrency,
+                call_concurrency_source,
             )
         elif msg_type == "ice-candidate":
             await self._handle_ice_candidate(payload, connection_key)
@@ -411,6 +424,8 @@ class SignalingManager:
         user: UserModel,
         organization_id: int,
         connection_key: str,
+        enforce_call_concurrency: bool,
+        call_concurrency_source: str = "webrtc",
     ):
         """Handle offer message and create answer with ICE trickling."""
         pc_id = payload.get("pc_id")
@@ -481,70 +496,124 @@ class SignalingManager:
                 }
             )
         else:
+            concurrency_slot = None
+            concurrency_bound = False
+            pipeline_started = False
+            pc = None
+            if enforce_call_concurrency:
+                try:
+                    concurrency_slot = await call_concurrency.acquire_org_slot(
+                        organization_id,
+                        source=call_concurrency_source,
+                        timeout=0,
+                    )
+                    await call_concurrency.bind_workflow_run(
+                        concurrency_slot,
+                        workflow_run_id,
+                    )
+                    concurrency_bound = True
+                except CallConcurrencyLimitError:
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "payload": {
+                                "error_type": "concurrency_limit_exceeded",
+                                "message": "Concurrent call limit reached",
+                            },
+                        }
+                    )
+                    return
+                except WorkflowRunSlotAlreadyBoundError:
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "payload": {
+                                "error_type": "workflow_run_already_active",
+                                "message": "Workflow run already has an active call",
+                            },
+                        }
+                    )
+                    return
+
             # Create new connection using correct SmallWebRTC API
             # Generate ICE servers with time-limited TURN credentials for this user
-            user_ice_servers = get_ice_servers(user_id=str(user.id))
-            pc = SmallWebRTCConnection(
-                ice_servers=user_ice_servers, connection_timeout_secs=60
-            )
-            # Set the pc_id before initialization so it's available in get_answer()
-            pc._pc_id = pc_id
-
-            # Initialize connection with offer
-            await pc.initialize(sdp=sdp, type=type_)
-
-            # Store peer connection using client's pc_id
-            self._track_peer_connection(connection_key, pc_id, pc)
-
-            # Register WebSocket sender for real-time feedback
-            async def ws_sender(message: dict):
-                if ws.application_state == WebSocketState.CONNECTED:
-                    await ws.send_json(message)
-
-            register_ws_sender(workflow_run_id, ws_sender)
-
-            # Setup closed handler
-            @pc.event_handler("closed")
-            async def handle_disconnected(webrtc_connection: SmallWebRTCConnection):
-                logger.info(f"PeerConnection closed: {webrtc_connection.pc_id}")
-                owner_connection_id = self._forget_peer_connection(
-                    webrtc_connection.pc_id
+            try:
+                user_ice_servers = get_ice_servers(user_id=str(user.id))
+                pc = SmallWebRTCConnection(
+                    ice_servers=user_ice_servers, connection_timeout_secs=60
                 )
-                if owner_connection_id == connection_key:
-                    await self._notify_call_ended_and_close_websocket(
-                        ws,
-                        workflow_run_id,
-                        webrtc_connection.pc_id,
-                        reason="peer_connection_closed",
+                # Set the pc_id before initialization so it's available in get_answer()
+                pc._pc_id = pc_id
+
+                # Initialize connection with offer
+                await pc.initialize(sdp=sdp, type=type_)
+
+                # Store peer connection using client's pc_id
+                self._track_peer_connection(connection_key, pc_id, pc)
+
+                # Register WebSocket sender for real-time feedback
+                async def ws_sender(message: dict):
+                    if ws.application_state == WebSocketState.CONNECTED:
+                        await ws.send_json(message)
+
+                register_ws_sender(workflow_run_id, ws_sender)
+
+                # Setup closed handler
+                @pc.event_handler("closed")
+                async def handle_disconnected(
+                    webrtc_connection: SmallWebRTCConnection,
+                ):
+                    logger.info(f"PeerConnection closed: {webrtc_connection.pc_id}")
+                    owner_connection_id = self._forget_peer_connection(
+                        webrtc_connection.pc_id
                     )
+                    if owner_connection_id == connection_key:
+                        await self._notify_call_ended_and_close_websocket(
+                            ws,
+                            workflow_run_id,
+                            webrtc_connection.pc_id,
+                            reason="peer_connection_closed",
+                        )
 
-            # Start pipeline in background
-            asyncio.create_task(
-                run_pipeline_smallwebrtc(
-                    pc,
-                    workflow_id,
-                    workflow_run_id,
-                    user.id,
-                    call_context_vars,
-                    user_provider_id=str(user.provider_id),
-                    organization_id=organization_id,
+                # Start pipeline in background
+                asyncio.create_task(
+                    run_pipeline_smallwebrtc(
+                        pc,
+                        workflow_id,
+                        workflow_run_id,
+                        user.id,
+                        call_context_vars,
+                        user_provider_id=str(user.provider_id),
+                        organization_id=organization_id,
+                    )
                 )
-            )
+                pipeline_started = True
 
-            # Get answer after initialization
-            answer = pc.get_answer()
+                # Get answer after initialization
+                answer = pc.get_answer()
 
-            # Send answer immediately (ICE candidates will be sent separately via trickling)
-            await ws.send_json(
-                {
-                    "type": "answer",
-                    "payload": {
-                        "sdp": filter_outbound_sdp(answer["sdp"]),
-                        "type": answer["type"],
-                        "pc_id": answer["pc_id"],
-                    },
-                }
-            )
+                # Send answer immediately (ICE candidates will be sent separately via trickling)
+                await ws.send_json(
+                    {
+                        "type": "answer",
+                        "payload": {
+                            "sdp": filter_outbound_sdp(answer["sdp"]),
+                            "type": answer["type"],
+                            "pc_id": answer["pc_id"],
+                        },
+                    }
+                )
+            except Exception:
+                if pipeline_started and pc is not None:
+                    try:
+                        await pc.disconnect()
+                    except Exception as e:
+                        logger.debug(f"Failed to disconnect failed offer pc: {e}")
+                elif concurrency_bound:
+                    await call_concurrency.release_workflow_run_slot(workflow_run_id)
+                elif concurrency_slot is not None:
+                    await call_concurrency.release_slot(concurrency_slot)
+                raise
 
     async def _handle_ice_candidate(self, payload: dict, connection_key: str):
         """Handle incoming ICE candidate from client.
@@ -665,6 +734,8 @@ async def signaling_websocket(
         workflow_run_id,
         user,
         user.selected_organization_id,
+        enforce_call_concurrency=True,
+        call_concurrency_source="webrtc",
     )
 
 
@@ -737,4 +808,6 @@ async def public_signaling_websocket(
         embed_session.workflow_run_id,
         user,
         embed_token.organization_id,
+        enforce_call_concurrency=True,
+        call_concurrency_source="public_embed",
     )

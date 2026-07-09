@@ -14,6 +14,7 @@ from api.services.auth.stack_auth import stackauth
 from api.services.configuration.registry import ServiceProviders
 from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
 from api.services.posthog_client import (
+    POSTHOG_ORGANIZATION_GROUP_TYPE,
     capture_event,
     group_identify,
     set_person_properties,
@@ -33,7 +34,6 @@ async def require_local_auth() -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
-POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
 POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY = "uses_mps_billing_v2"
 
 

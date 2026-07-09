@@ -6,8 +6,13 @@ from loguru import logger
 
 from api.constants import DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
-from api.enums import OrganizationConfigurationKey
+from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.services.campaign.rate_limiter import rate_limiter
+from api.services.posthog_client import (
+    POSTHOG_ORGANIZATION_GROUP_TYPE,
+    POSTHOG_SERVER_EVENT_DISTINCT_ID,
+    capture_event,
+)
 
 
 @dataclass(frozen=True)
@@ -127,6 +132,22 @@ class CallConcurrencyService:
                     f"Concurrent call limit reached for org {organization_id}: "
                     f"source={source}, active_calls={current_count}/{max_concurrent}"
                     f"{scope_note}, waited={wait_time:.1f}s"
+                )
+                properties = {
+                    "organization_id": organization_id,
+                    "source": source,
+                    "max_concurrent": max_concurrent,
+                    "active_calls": current_count,
+                    "waited_seconds": round(wait_time, 1),
+                }
+                if scope_key:
+                    properties["scope_key"] = scope_key
+                    properties["scope_max_concurrent"] = scope_max_concurrent
+                capture_event(
+                    distinct_id=POSTHOG_SERVER_EVENT_DISTINCT_ID,
+                    event=PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED,
+                    properties=properties,
+                    groups={POSTHOG_ORGANIZATION_GROUP_TYPE: str(organization_id)},
                 )
                 raise CallConcurrencyLimitError(
                     organization_id=organization_id,

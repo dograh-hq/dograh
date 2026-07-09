@@ -70,6 +70,38 @@ async def test_acquire_org_slot_logs_warning_when_limit_reached():
 
 
 @pytest.mark.asyncio
+async def test_acquire_org_slot_fires_usage_event_when_limit_reached():
+    from api.enums import PostHogEvent
+
+    service = CallConcurrencyService()
+
+    with (
+        patch("api.services.call_concurrency.db_client") as mock_db,
+        patch("api.services.call_concurrency.rate_limiter") as mock_rate_limiter,
+        patch("api.services.call_concurrency.capture_event") as mock_capture,
+    ):
+        mock_db.get_configuration = AsyncMock(return_value=None)
+        mock_rate_limiter.try_acquire_concurrent_slot_details = AsyncMock(
+            return_value=None
+        )
+        mock_rate_limiter.get_concurrent_count = AsyncMock(return_value=10)
+
+        with pytest.raises(CallConcurrencyLimitError):
+            await service.acquire_org_slot(199, source="webrtc", timeout=0)
+
+    mock_capture.assert_called_once()
+    kwargs = mock_capture.call_args.kwargs
+    assert kwargs["event"] == PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED
+    assert kwargs["distinct_id"] == "server"
+    assert kwargs["groups"] == {"organization": "199"}
+    assert kwargs["properties"]["organization_id"] == 199
+    assert kwargs["properties"]["source"] == "webrtc"
+    assert kwargs["properties"]["active_calls"] == 10
+    assert kwargs["properties"]["max_concurrent"] == 10
+    assert "scope_key" not in kwargs["properties"]
+
+
+@pytest.mark.asyncio
 async def test_acquire_org_slot_passes_scope_to_rate_limiter():
     service = CallConcurrencyService()
 

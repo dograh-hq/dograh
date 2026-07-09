@@ -7,6 +7,12 @@ from api.constants import POSTHOG_API_KEY, POSTHOG_HOST
 
 _posthog_client: Posthog | None = None
 POSTHOG_SERVER_GROUP_IDENTIFY_DISTINCT_ID = "server-group-identify"
+POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
+# Stable distinct_id for server-originated events with no acting user.
+# Group-linked events must stay identified (setting $process_person_profile
+# to False would unlink them from the organization group), so a single shared
+# "server" person absorbs them instead of minting one person per org.
+POSTHOG_SERVER_EVENT_DISTINCT_ID = "server"
 
 
 def get_posthog() -> Posthog | None:

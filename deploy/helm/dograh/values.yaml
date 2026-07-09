@@ -452,12 +452,21 @@ migrate:
       memory: 512Mi
 
 # -----------------------------------------------------------------------------
-# Horizontal Pod Autoscaling — web tier only.
+# Horizontal Pod Autoscaling.
 #
-# WARNING: CPU/memory is a poor signal for WebRTC signaling workloads.
+# Requires metrics-server in the cluster. HPA reads Deployment `replicas` on
+# first sync and then owns it, so `web.replicaCount` etc. are ignored once the
+# corresponding autoscaling block is enabled — treat `minReplicas` as the new
+# floor.
+#
+# WARNING (web): CPU/memory is a poor signal for WebRTC signaling workloads.
 # WebSockets are long-lived, low-CPU, and steady-memory; CPU will look flat
 # while you saturate per-pod connection limits. Replace this with a custom
 # metric (active WS connections, active calls) once one is exposed.
+#
+# Workers (ARQ) and UI (Next.js SSR) correlate reasonably with CPU because
+# each job/request consumes CPU proportional to load, so resource-metric HPA
+# is a fine default for those.
 # -----------------------------------------------------------------------------
 autoscaling:
   web:
@@ -466,6 +475,23 @@ autoscaling:
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
+  workers:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    # NOTE: memory HPA disabled by default because idle Python at the chart's
+    # default 128Mi request already sits above 80% — HPA would scale to
+    # maxReplicas on cold start with no traffic. Bump requests + re-enable if
+    # you need a memory signal.
+    targetMemoryUtilizationPercentage: null
+  ui:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    # Same reason as workers — Next.js SSR idles close to the 256Mi request.
+    targetMemoryUtilizationPercentage: null
 
 # -----------------------------------------------------------------------------
 # Bundled stateful deps for the internal/all-in-one modes. These are plain

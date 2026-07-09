@@ -1,0 +1,116 @@
+# Dograh — production values for k3s
+# Hosted-AI only (no local models). All state on the node's local disk via
+# k3s local-path StorageClass. TLS terminated at Cloudflare edge; re-encrypted
+# to origin using the shared *.yourdomain.com Cloudflare Origin CA cert
+# (secret `cloudflare-origin-tls`, copied from a neighboring namespace).
+#
+# HPA is enabled for web / workers / ui with min=1, max=5. Requires
+# metrics-server in the cluster (k3s has it by default; verified on this box).
+
+image:
+  tag: latest              # pin to a released tag once stable
+
+# --- Bundled stateful deps (in-cluster, on local-path PVCs) -----------------
+database: { mode: internal }
+redis:    { mode: internal }
+storage:  { mode: internalMinio }
+
+# --- HTTP exposure ----------------------------------------------------------
+exposure:
+  mode: ingress
+  ingress:
+    className: traefik
+    host: aicalling.yourdomain.com
+    tls:
+      enabled: true
+      secretName: cloudflare-origin-tls
+
+# --- Runtime config (rendered into the ConfigMap) --------------------------
+config:
+  environment: production
+  logLevel: INFO
+  backendApiEndpoint: https://aicalling.yourdomain.com   # kills the CF-tunnel fallback
+  minioPublicEndpoint: https://aicalling.yourdomain.com  # browser fetches /voice-audio/ via Traefik
+  enableSignup: false                                     # invite-only; block POST /api/v1/auth/signup
+
+# --- Workloads not needed for hosted-AI web-only calls ---------------------
+ariManager:           { enabled: false }   # Asterisk SIP singleton
+campaignOrchestrator: { enabled: false }   # scheduled outbound singleton
+coturn:               { enabled: false }   # TURN relay
+
+# --- Web tier (FastAPI + WebSocket signaling) ------------------------------
+web:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits:   { cpu: "1",  memory: 1Gi }
+  pdb: { enabled: false }
+
+# --- ARQ background workers ------------------------------------------------
+workers:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+# --- Next.js UI ------------------------------------------------------------
+ui:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m,  memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  pdb: { enabled: false }
+
+# --- Alembic migration Job (post-install / pre-upgrade hook) ---------------
+# CPU request kept low so it schedules on a tight node; migrations are
+# short-lived and don't need much headroom.
+migrate:
+  resources:
+    requests: { cpu: 20m,  memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+# --- HPA: 1 → 5 on CPU 70% / memory 80% for web, workers, ui ---------------
+# NOTE: CPU/memory is a poor scale signal for the web tier (long-lived
+# WebSockets don't move CPU much). Fine starting point for workers and UI.
+# Requires the arq-worker-hpa.yaml / ui-hpa.yaml templates added to the chart
+# alongside the existing web-hpa.yaml.
+autoscaling:
+  web:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: null   # broken signal for idle Python; CPU HPA is enough
+  workers:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: null   # broken signal for idle Python; CPU HPA is enough
+  ui:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: null   # broken signal for idle Python; CPU HPA is enough
+
+# --- Internal Postgres (pgvector/pg17) -------------------------------------
+postgresql:
+  persistence: { size: 5Gi, storageClass: local-path }
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: "1",  memory: 1Gi }
+
+# --- Internal Redis --------------------------------------------------------
+redisinternal:
+  persistence: { size: 1Gi, storageClass: local-path }
+  resources:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 300m, memory: 256Mi }
+
+# --- Internal MinIO (audio + artifacts on node disk) -----------------------
+minio:
+  persistence: { size: 10Gi, storageClass: local-path }
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }

@@ -55,9 +55,9 @@ class WorkflowAIModelConfigurationMigrationResult:
 
 async def get_resolved_ai_model_configuration(
     *,
-    user_id: int | None,
     organization_id: int | None,
 ) -> ResolvedAIModelConfiguration:
+    """Resolve the effective model configuration for an organization."""
     organization_configuration = await get_organization_ai_model_configuration_v2(
         organization_id
     )
@@ -68,22 +68,14 @@ async def get_resolved_ai_model_configuration(
             organization_configuration=organization_configuration,
         )
 
-    if user_id is None:
-        return ResolvedAIModelConfiguration(
-            effective=EffectiveAIModelConfiguration(),
-            source="empty",
-        )
-
-    legacy = await db_client.get_user_configurations(user_id)
     return ResolvedAIModelConfiguration(
-        effective=legacy,
-        source="legacy_user_v1" if _has_model_services(legacy) else "empty",
+        effective=EffectiveAIModelConfiguration(),
+        source="empty",
     )
 
 
 async def get_effective_ai_model_configuration_for_workflow(
     *,
-    user_id: int | None,
     organization_id: int | None,
     workflow_configurations: dict | None,
 ) -> EffectiveAIModelConfiguration:
@@ -97,7 +89,6 @@ async def get_effective_ai_model_configuration_for_workflow(
         )
 
     resolved_config = await get_resolved_ai_model_configuration(
-        user_id=user_id,
         organization_id=organization_id,
     )
     return resolve_effective_config(
@@ -145,19 +136,12 @@ async def migrate_workflow_model_configurations_to_v2(
     fallback_user_config: EffectiveAIModelConfiguration,
 ) -> WorkflowAIModelConfigurationMigrationResult:
     workflows = await _list_workflows_for_model_configuration_migration(organization_id)
-    owner_configs: dict[int, EffectiveAIModelConfiguration] = {}
     workflow_updates: list[tuple[int, dict]] = []
     definition_updates: list[tuple[int, dict]] = []
     migrated_workflow_ids: set[int] = set()
 
     for workflow in workflows:
         base_config = fallback_user_config
-        if workflow.user_id is not None:
-            if workflow.user_id not in owner_configs:
-                owner_configs[
-                    workflow.user_id
-                ] = await db_client.get_user_configurations(workflow.user_id)
-            base_config = owner_configs[workflow.user_id]
 
         workflow_configs, workflow_changed = (
             migrate_workflow_configuration_model_override_to_v2(
@@ -418,19 +402,6 @@ def _mask_secret_value(value):
     if isinstance(value, list):
         return [mask_key(item) for item in value]
     return mask_key(value)
-
-
-def _has_model_services(configuration: EffectiveAIModelConfiguration) -> bool:
-    return any(
-        service is not None
-        for service in (
-            configuration.llm,
-            configuration.tts,
-            configuration.stt,
-            configuration.embeddings,
-            configuration.realtime,
-        )
-    )
 
 
 def _convert_any_dograh_legacy_configuration(

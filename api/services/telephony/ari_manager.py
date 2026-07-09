@@ -591,6 +591,7 @@ class ARIConnection:
                 gathered_context={
                     "call_id": call_id,
                 },
+                organization_id=self.organization_id,
             )
 
             logger.info(
@@ -603,6 +604,7 @@ class ARIConnection:
             # store the MPS correlation id before the pipeline starts.
             quota_result = await authorize_workflow_run_start(
                 workflow_id=inbound_workflow_id,
+                organization_id=self.organization_id,
                 workflow_run_id=workflow_run.id,
             )
             if not quota_result.has_quota:

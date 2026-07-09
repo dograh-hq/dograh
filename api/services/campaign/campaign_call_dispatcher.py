@@ -303,6 +303,7 @@ class CampaignCallDispatcher:
                 initial_context=initial_context,
                 campaign_id=campaign.id,
                 queued_run_id=queued_run.id,  # Link to queued run for retry tracking
+                organization_id=campaign.organization_id,
             )
 
             # Store slot_id mapping in Redis for cleanup later
@@ -342,6 +343,7 @@ class CampaignCallDispatcher:
 
         quota_result = await authorize_workflow_run_start(
             workflow_id=campaign.workflow_id,
+            organization_id=campaign.organization_id,
             workflow_run_id=workflow_run.id,
         )
         if not quota_result.has_quota:

@@ -40,14 +40,14 @@ class WorkflowRunClient(BaseDBClient):
             workflow_query = (
                 select(WorkflowModel)
                 .options(joinedload(WorkflowModel.user))
-                .where(
-                    WorkflowModel.id == workflow_id, WorkflowModel.user_id == user_id
-                )
+                .where(WorkflowModel.id == workflow_id)
             )
             if organization_id is not None:
                 workflow_query = workflow_query.where(
                     WorkflowModel.organization_id == organization_id
                 )
+            elif user_id is not None:
+                workflow_query = workflow_query.where(WorkflowModel.user_id == user_id)
 
             workflow = await session.execute(workflow_query)
             workflow = workflow.scalars().first()

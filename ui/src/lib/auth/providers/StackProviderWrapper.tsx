@@ -1,9 +1,8 @@
 'use client';
 
-import { StackClientApp, StackProvider, StackTheme, useUser as useStackUser } from '@stackframe/stack';
+import { type CurrentUser, StackClientApp, StackProvider, StackTheme } from '@stackframe/stack';
 import React, { useMemo, useRef } from 'react';
 
-import type { AuthUser } from '../types';
 import { AuthContext } from './AuthProvider';
 
 // Create a singleton StackClientApp instance to prevent multiple initializations
@@ -35,16 +34,45 @@ interface StackProviderWrapperProps {
   publishableClientKey: string;
 }
 
-// Simple context provider that uses Stack's useUser directly
-function StackAuthContextProvider({ children }: { children: React.ReactNode }) {
-  const stackUser = useStackUser();
+function StackAuthContextProvider({
+  children,
+  app,
+}: {
+  children: React.ReactNode;
+  app: StackClientApp<true, string>;
+}) {
+  const [stackUser, setStackUser] = React.useState<CurrentUser | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    setIsLoading(true);
+    app.getUser()
+      .then((user) => {
+        if (!cancelled) {
+          setStackUser(user);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStackUser(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [app]);
 
   // Store user in ref for callbacks to access latest value without creating new callbacks
   const userRef = useRef(stackUser);
   userRef.current = stackUser;
-
-  // Derive loading state: loading if we don't have a user yet
-  const isLoading = stackUser === null;
 
   // Stable callbacks that use ref to access current user
   const getAccessToken = React.useCallback(async () => {
@@ -95,12 +123,12 @@ function StackAuthContextProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // IMPORTANT: Use primitive values (userId, isLoading) in deps, NOT stackUser object
-  // Stack's useUser() returns a new object reference on every render, which would cause infinite re-renders
+  // Use primitive values in deps so user object reference churn does not
+  // invalidate the context value unless the effective auth state changes.
   const userId = stackUser?.id;
 
   const contextValue = useMemo(() => ({
-    user: userRef.current as AuthUser,
+    user: userRef.current,
     isAuthenticated: !!userId,
     loading: isLoading,
     getAccessToken,
@@ -130,7 +158,7 @@ export function StackProviderWrapper({ children, projectId, publishableClientKey
   return (
     <StackProvider app={stackClientApp} translationOverrides={translationOverrides}>
       <StackTheme>
-        <StackAuthContextProvider>
+        <StackAuthContextProvider app={stackClientApp}>
           {children}
         </StackAuthContextProvider>
       </StackTheme>

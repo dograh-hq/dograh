@@ -94,6 +94,7 @@ def test_trigger_route_executes_as_workflow_owner():
     assert response.status_code == 200
     quota_mock.assert_awaited_once_with(
         workflow_id=workflow.id,
+        organization_id=workflow.organization_id,
         workflow_run_id=501,
     )
     mock_db.get_workflow.assert_awaited_once_with(workflow.id, organization_id=11)

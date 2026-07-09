@@ -42,7 +42,9 @@ def test_create_xai_tts_service_uses_pipeline_compatible_audio_format(
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
+    with patch(
+        "api.services.pipecat.service_factory.XAIHttpTTSService"
+    ) as mock_service:
         create_tts_service(user_config, audio_config)
 
     assert mock_service.call_count == 1
@@ -69,7 +71,9 @@ def test_create_xai_tts_service_converts_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
+    with patch(
+        "api.services.pipecat.service_factory.XAIHttpTTSService"
+    ) as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
@@ -91,7 +95,9 @@ def test_create_xai_tts_service_falls_back_to_english_for_unknown_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
+    with patch(
+        "api.services.pipecat.service_factory.XAIHttpTTSService"
+    ) as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
@@ -113,7 +119,9 @@ def test_create_xai_tts_service_preserves_auto_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.XAIHttpTTSService") as mock_service:
+    with patch(
+        "api.services.pipecat.service_factory.XAIHttpTTSService"
+    ) as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
@@ -127,25 +135,20 @@ def test_xai_is_registered_for_key_validation():
 
 def test_xai_key_validation_accepts_valid_key():
     validator = UserConfigurationValidator()
-    with patch(
-        "api.services.configuration.check_validity.httpx.get"
-    ) as mock_get:
+    with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
         mock_get.return_value.status_code = 200
         assert validator._check_xai_api_key("xai", "xai-valid-key") is True
     # Validates against the TTS-scoped voices endpoint, not /v1/models.
     called_url = mock_get.call_args.args[0]
     assert called_url == "https://api.x.ai/v1/tts/voices"
     assert (
-        mock_get.call_args.kwargs["headers"]["Authorization"]
-        == "Bearer xai-valid-key"
+        mock_get.call_args.kwargs["headers"]["Authorization"] == "Bearer xai-valid-key"
     )
 
 
 def test_xai_key_validation_rejects_bad_key():
     validator = UserConfigurationValidator()
-    with patch(
-        "api.services.configuration.check_validity.httpx.get"
-    ) as mock_get:
+    with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
         mock_get.return_value.status_code = 401
         with pytest.raises(ValueError):
             validator._check_xai_api_key("xai", "bad-key")
@@ -153,8 +156,6 @@ def test_xai_key_validation_rejects_bad_key():
 
 def test_xai_key_validation_allows_scoped_key_without_voice_list_access():
     validator = UserConfigurationValidator()
-    with patch(
-        "api.services.configuration.check_validity.httpx.get"
-    ) as mock_get:
+    with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
         mock_get.return_value.status_code = 403
         assert validator._check_xai_api_key("xai", "tts-scoped-key") is True

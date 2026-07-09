@@ -65,6 +65,7 @@ async def agent_stream_websocket(
         user_id=workflow.user_id,
         call_type=CallType.INBOUND,
         initial_context=initial_context,
+        organization_id=workflow.organization_id,
     )
 
     set_current_run_id(workflow_run.id)
@@ -72,6 +73,7 @@ async def agent_stream_websocket(
 
     quota_result = await authorize_workflow_run_start(
         workflow_id=workflow.id,
+        organization_id=workflow.organization_id,
         workflow_run_id=workflow_run.id,
     )
     if not quota_result.has_quota:

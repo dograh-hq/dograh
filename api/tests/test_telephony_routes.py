@@ -92,6 +92,7 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
     assert response.status_code == 200
     quota_mock.assert_awaited_once_with(
         workflow_id=workflow.id,
+        organization_id=workflow.organization_id,
         workflow_run_id=501,
         actor_user=ANY,
     )
@@ -230,7 +231,7 @@ async def test_smallwebrtc_run_reaching_telephony_websocket_closes_without_runni
         initial_context={},
         gathered_context={},
     )
-    workflow = SimpleNamespace(id=33, organization_id=11)
+    workflow = SimpleNamespace(id=33, organization_id=11, user_id=99)
     provider_lookup = AsyncMock()
 
     with (

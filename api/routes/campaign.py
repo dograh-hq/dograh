@@ -351,9 +351,12 @@ async def create_campaign(
 ) -> CampaignResponse:
     """Create a new campaign"""
     # Verify workflow exists and belongs to organization
-    workflow_name = await db_client.get_workflow_name(request.workflow_id, user.id)
-    if not workflow_name:
+    workflow = await db_client.get_workflow(
+        request.workflow_id, organization_id=user.selected_organization_id
+    )
+    if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    workflow_name = workflow.name
 
     # Validate source data (phone_number column and format)
     sync_service = get_sync_service(request.source_type)
@@ -364,9 +367,6 @@ async def create_campaign(
         raise HTTPException(status_code=400, detail=validation_result.error.message)
 
     # Validate template variables against source data columns
-    workflow = await db_client.get_workflow(
-        request.workflow_id, organization_id=user.selected_organization_id
-    )
     if workflow:
         from api.services.workflow.dto import ReactFlowDTO
         from api.services.workflow.workflow_graph import WorkflowGraph
@@ -512,7 +512,9 @@ async def get_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -552,6 +554,7 @@ async def start_campaign(
     # model_overrides so we evaluate the keys this campaign will use).
     quota_result = await authorize_workflow_run_start(
         workflow_id=campaign.workflow_id,
+        organization_id=user.selected_organization_id,
         actor_user=user,
     )
     if not quota_result.has_quota:
@@ -565,7 +568,9 @@ async def start_campaign(
 
     # Get updated campaign
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -599,7 +604,9 @@ async def pause_campaign(
 
     # Get updated campaign
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -669,7 +676,9 @@ async def update_campaign(
 
     # Re-fetch to return updated data
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -838,7 +847,9 @@ async def redial_campaign(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    workflow_name = await db_client.get_workflow_name(child.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        child.workflow_id, organization_id=user.selected_organization_id
+    )
     executed, total = await _get_campaign_stats(child.id)
     cfg_name = await _get_telephony_configuration_name(
         child.telephony_configuration_id, user.selected_organization_id
@@ -877,6 +888,7 @@ async def resume_campaign(
     # model_overrides so we evaluate the keys this campaign will use).
     quota_result = await authorize_workflow_run_start(
         workflow_id=campaign.workflow_id,
+        organization_id=user.selected_organization_id,
         actor_user=user,
     )
     if not quota_result.has_quota:
@@ -890,7 +902,9 @@ async def resume_campaign(
 
     # Get updated campaign
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(

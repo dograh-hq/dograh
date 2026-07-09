@@ -101,7 +101,10 @@ class OrganizationClient(BaseDBClient):
                 select(
                     exists().where(
                         (organization_users_association.c.user_id == user_id)
-                        & (organization_users_association.c.organization_id == organization_id)
+                        & (
+                            organization_users_association.c.organization_id
+                            == organization_id
+                        )
                     )
                 )
             )

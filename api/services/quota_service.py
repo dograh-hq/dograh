@@ -337,6 +337,7 @@ async def _authorize_oss_managed_v2_correlation(
 async def authorize_workflow_run_start(
     *,
     workflow_id: int,
+    organization_id: int,
     workflow_run_id: int | None = None,
     actor_user: UserModel | None = None,
 ) -> QuotaCheckResult:
@@ -344,30 +345,75 @@ async def authorize_workflow_run_start(
 
     The workflow organization is the billing subject for hosted deployments.
     OSS deployments are billed per service key instead. The workflow owner is
-    used only to resolve the effective model configuration.
+    used only as billing metadata.
     """
+    if organization_id is None:
+        logger.warning(
+            "Workflow start authorization denied: missing organization scope for workflow {}",
+            workflow_id,
+        )
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="workflow_not_found",
+            error_message="Workflow not found",
+        )
+
     try:
-        workflow = await db_client.get_workflow_by_id(workflow_id)
-        if not workflow:
+        workflow = await db_client.get_workflow(
+            workflow_id,
+            organization_id=organization_id,
+        )
+    except Exception as e:
+        logger.error(
+            "Workflow start authorization denied: failed to load workflow {} for org {}: {}",
+            workflow_id,
+            organization_id,
+            e,
+        )
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="workflow_not_found",
+            error_message="Workflow not found",
+        )
+
+    if not workflow:
+        logger.warning(
+            "Workflow start authorization denied: workflow {} not found for org {}",
+            workflow_id,
+            organization_id,
+        )
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="workflow_not_found",
+            error_message="Workflow not found",
+        )
+
+    try:
+        actor_id = getattr(actor_user, "id", None) if actor_user is not None else None
+        if actor_user is not None and actor_id is None:
+            logger.warning(
+                "Workflow start authorization denied: actor is missing id for workflow {} org {}",
+                workflow_id,
+                organization_id,
+            )
             return QuotaCheckResult(
                 has_quota=False,
                 error_code="workflow_not_found",
                 error_message="Workflow not found",
             )
 
-        actor_id = getattr(actor_user, "id", None)
-        if actor_id is not None and workflow.organization_id is not None:
+        if actor_id is not None:
             try:
                 is_member = await db_client.is_user_member_of_organization(
                     user_id=actor_id,
-                    organization_id=workflow.organization_id,
+                    organization_id=organization_id,
                 )
             except Exception as e:
                 logger.error(
                     "Workflow start authorization denied: failed to validate actor {} membership for workflow {} org {}: {}",
                     actor_id,
                     workflow_id,
-                    workflow.organization_id,
+                    organization_id,
                     e,
                 )
                 return QuotaCheckResult(
@@ -380,7 +426,7 @@ async def authorize_workflow_run_start(
                     "Workflow start authorization denied: actor {} is not a member of workflow {} org {}",
                     actor_id,
                     workflow_id,
-                    workflow.organization_id,
+                    organization_id,
                 )
                 return QuotaCheckResult(
                     has_quota=False,
@@ -397,15 +443,14 @@ async def authorize_workflow_run_start(
             )
 
         user_config = await get_effective_ai_model_configuration_for_workflow(
-            user_id=workflow_owner.id,
-            organization_id=workflow.organization_id,
+            organization_id=organization_id,
             workflow_configurations=workflow.workflow_configurations,
         )
 
         if DEPLOYMENT_MODE != "oss":
             return await _authorize_hosted_workflow_run_start(
                 workflow_owner=workflow_owner,
-                organization_id=workflow.organization_id,
+                organization_id=organization_id,
                 workflow_id=workflow.id,
                 workflow_run_id=workflow_run_id,
                 user_config=user_config,

@@ -182,6 +182,7 @@ async def initiate_call(
     # the MPS correlation id before initiating the call.
     quota_result = await authorize_workflow_run_start(
         workflow_id=workflow.id,
+        organization_id=user.selected_organization_id,
         workflow_run_id=workflow_run_id,
         actor_user=user,
     )
@@ -421,6 +422,7 @@ async def _validate_inbound_request(
 async def _create_inbound_workflow_run(
     workflow_id: int,
     user_id: int,
+    organization_id: int,
     provider: str,
     normalized_data,
     telephony_configuration_id: int,
@@ -456,6 +458,7 @@ async def _create_inbound_workflow_run(
                 "raw_webhook_data": normalized_data.raw_data,
             },
         },
+        organization_id=organization_id,
     )
 
     logger.info(
@@ -561,6 +564,20 @@ async def _handle_telephony_websocket(
         if not workflow:
             logger.error(f"Workflow {workflow_id} not found")
             await websocket.close(code=4404, reason="Workflow not found")
+            return
+        if workflow_run.workflow_id != workflow.id:
+            logger.error(
+                f"Workflow run {workflow_run_id} belongs to workflow "
+                f"{workflow_run.workflow_id}, not {workflow.id}"
+            )
+            await websocket.close(code=4400, reason="workflow_run_workflow_mismatch")
+            return
+        if workflow.user_id != user_id:
+            logger.error(
+                f"Telephony websocket user mismatch for workflow {workflow.id}: "
+                f"got {user_id}, expected {workflow.user_id}"
+            )
+            await websocket.close(code=4400, reason="workflow_user_mismatch")
             return
 
         # Check workflow run state - only allow 'initialized' state
@@ -770,6 +787,7 @@ async def handle_inbound_run(request: Request):
         workflow_run_id = await _create_inbound_workflow_run(
             workflow_id,
             user_id,
+            config.organization_id,
             provider_class.PROVIDER_NAME,
             normalized_data,
             telephony_configuration_id=telephony_configuration_id,
@@ -777,6 +795,7 @@ async def handle_inbound_run(request: Request):
         )
         quota_result = await authorize_workflow_run_start(
             workflow_id=workflow_id,
+            organization_id=config.organization_id,
             workflow_run_id=workflow_run_id,
         )
         if not quota_result.has_quota:
@@ -905,6 +924,7 @@ async def handle_inbound_telephony(
         workflow_run_id = await _create_inbound_workflow_run(
             workflow_id,
             workflow_context["user_id"],
+            workflow_context["organization_id"],
             workflow_context["provider"],
             normalized_data,
             telephony_configuration_id=workflow_context["telephony_configuration_id"],
@@ -912,6 +932,7 @@ async def handle_inbound_telephony(
         )
         quota_result = await authorize_workflow_run_start(
             workflow_id=workflow_id,
+            organization_id=workflow_context["organization_id"],
             workflow_run_id=workflow_run_id,
         )
         if not quota_result.has_quota:

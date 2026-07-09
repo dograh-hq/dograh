@@ -12,6 +12,9 @@ from api.services.tool_marketplace import (
 )
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
 from api.utils.url_validation import validate_public_url
+from api.db.models import ExternalCredentialModel
+from api.db import db_client
+from sqlalchemy import select
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 
@@ -93,17 +96,34 @@ async def oauth_callback(tool_id: int, oauth_req: OAuthCallbackRequest, user=Dep
 
 
 @router.get("/test-mcp")
-async def test_mcp_connection(url: str = Query(...), user=Depends(get_user)):
+async def test_mcp_connection(
+    url: str = Query(...),
+    credential_uuid: str | None = Query(default=None),
+    user=Depends(get_user),
+):
     """Test an MCP server connection and return discovered tools."""
     try:
         await validate_public_url(url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Load credential if provided
+    credential = None
+    if credential_uuid:
+        async with db_client.async_session() as session:
+            result = await session.execute(
+                select(ExternalCredentialModel).where(
+                    ExternalCredentialModel.credential_uuid == credential_uuid
+                )
+            )
+            credential = result.scalar_one_or_none()
+            if credential is None:
+                raise HTTPException(status_code=404, detail="Credential not found")
+
     try:
         tools = await discover_mcp_tools(
             url=url,
-            credential=None,
+            credential=credential,
             timeout_secs=10,
             sse_read_timeout_secs=10,
         )

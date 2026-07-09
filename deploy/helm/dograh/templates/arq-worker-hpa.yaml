@@ -1,4 +1,4 @@
-{{- if .Values.autoscaling.workers.enabled }}
+{{- if and .Values.autoscaling.workers.enabled (or .Values.autoscaling.workers.targetCPUUtilizationPercentage .Values.autoscaling.workers.targetMemoryUtilizationPercentage) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

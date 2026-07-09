@@ -7,7 +7,9 @@ metadata:
     {{- include "dograh.labels" . | nindent 4 }}
     app.kubernetes.io/component: arq-worker
 spec:
+  {{- if not .Values.autoscaling.workers.enabled }}
   replicas: {{ .Values.workers.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "dograh.selectorLabels" . | nindent 6 }}

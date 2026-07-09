@@ -480,17 +480,17 @@ autoscaling:
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
-    # NOTE: memory HPA disabled by default because idle Python at the chart's
-    # default 128Mi request already sits above 80% — HPA would scale to
-    # maxReplicas on cold start with no traffic. Bump requests + re-enable if
-    # you need a memory signal.
+    # NOTE: memory HPA disabled by default. Idle Python (ARQ worker) at the
+    # chart's default 256Mi request sits near the 80% target on cold start,
+    # so HPA would scale to maxReplicas with no real load. Enable only after
+    # sizing your workload's steady-state memory well below the target.
     targetMemoryUtilizationPercentage: null
   ui:
     enabled: true
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
-    # Same reason as workers — Next.js SSR idles close to the 256Mi request.
+    # Same reason as workers — idle Next.js SSR sits close to the 256Mi request.
     targetMemoryUtilizationPercentage: null
 
 # -----------------------------------------------------------------------------

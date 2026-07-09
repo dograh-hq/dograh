@@ -31,7 +31,6 @@ config:
   logLevel: INFO
   backendApiEndpoint: https://aicalling.yourdomain.com   # kills the CF-tunnel fallback
   minioPublicEndpoint: https://aicalling.yourdomain.com  # browser fetches /voice-audio/ via Traefik
-  enableSignup: false                                     # invite-only; block POST /api/v1/auth/signup
 
 # --- Workloads not needed for hosted-AI web-only calls ---------------------
 ariManager:           { enabled: false }   # Asterisk SIP singleton
@@ -69,10 +68,10 @@ migrate:
     requests: { cpu: 20m,  memory: 256Mi }
     limits:   { cpu: 500m, memory: 512Mi }
 
-# --- HPA: 1 → 5 on CPU 70% / memory 80% for web, workers, ui ---------------
-# NOTE: CPU/memory is a poor scale signal for the web tier (long-lived
-# WebSockets don't move CPU much). Fine starting point for workers and UI.
-# Requires the arq-worker-hpa.yaml / ui-hpa.yaml templates added to the chart
+# --- HPA: 1 → 5 on CPU 70% only (memory HPA opt-in — see comments) ---------
+# NOTE: CPU is a poor scale signal for the web tier (long-lived WebSockets
+# don't move CPU much). Fine starting point for workers and UI. Requires
+# the arq-worker-hpa.yaml / ui-hpa.yaml templates added to the chart
 # alongside the existing web-hpa.yaml.
 autoscaling:
   web:
@@ -80,19 +79,19 @@ autoscaling:
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
-    targetMemoryUtilizationPercentage: null   # broken signal for idle Python; CPU HPA is enough
+    targetMemoryUtilizationPercentage: null   # idle FastAPI already close to request; CPU HPA is enough
   workers:
     enabled: true
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
-    targetMemoryUtilizationPercentage: null   # broken signal for idle Python; CPU HPA is enough
+    targetMemoryUtilizationPercentage: null   # idle Python (ARQ) sits near the memory request; CPU HPA is enough
   ui:
     enabled: true
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
-    targetMemoryUtilizationPercentage: null   # broken signal for idle Python; CPU HPA is enough
+    targetMemoryUtilizationPercentage: null   # idle Node.js (Next.js SSR) sits near the memory request; CPU HPA is enough
 
 # --- Internal Postgres (pgvector/pg17) -------------------------------------
 postgresql:

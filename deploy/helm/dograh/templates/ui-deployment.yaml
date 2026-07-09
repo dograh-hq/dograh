@@ -8,7 +8,9 @@ metadata:
     {{- include "dograh.labels" . | nindent 4 }}
     app.kubernetes.io/component: ui
 spec:
+  {{- if not .Values.autoscaling.ui.enabled }}
   replicas: {{ .Values.ui.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "dograh.selectorLabels" . | nindent 6 }}

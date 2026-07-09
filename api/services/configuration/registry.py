@@ -534,6 +534,7 @@ class HuggingFaceLLMConfiguration(BaseLLMConfiguration):
 MINIMAX_MODELS = [
     "MiniMax-M2.7",
     "MiniMax-M2.7-highspeed",
+    "MiniMax-M3",
 ]
 
 

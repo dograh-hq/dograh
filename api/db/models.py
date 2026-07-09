@@ -205,11 +205,8 @@ class OrganizationConfigurationModel(Base):
     key = Column(String, nullable=False)
     value = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_validated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     organization = relationship("OrganizationModel", back_populates="configurations")

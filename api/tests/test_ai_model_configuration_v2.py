@@ -19,6 +19,7 @@ from api.services.configuration.ai_model_configuration import (
     mask_ai_model_configuration_v2,
     merge_ai_model_configuration_v2_secrets,
     migrate_workflow_configuration_model_override_to_v2,
+    upsert_organization_ai_model_configuration_v2,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import mask_key
@@ -150,7 +151,7 @@ async def test_byok_realtime_validator_does_not_require_stt_or_tts():
 
 
 @pytest.mark.asyncio
-async def test_resolved_org_v2_uses_configuration_updated_at_as_validation_cache(
+async def test_resolved_org_v2_uses_last_validated_at_as_validation_cache(
     monkeypatch,
 ):
     from datetime import UTC, datetime
@@ -164,7 +165,7 @@ async def test_resolved_org_v2_uses_configuration_updated_at_as_validation_cache
     )
     row = SimpleNamespace(
         value=config.model_dump(mode="json", exclude_none=True),
-        updated_at=last_validated_at,
+        last_validated_at=last_validated_at,
     )
     monkeypatch.setattr(
         ai_model_configuration.db_client,
@@ -176,6 +177,54 @@ async def test_resolved_org_v2_uses_configuration_updated_at_as_validation_cache
 
     assert resolved.source == "organization_v2"
     assert resolved.effective.last_validated_at == last_validated_at
+
+
+@pytest.mark.asyncio
+async def test_upsert_org_v2_marks_configuration_validated(monkeypatch):
+    from api.services.configuration import ai_model_configuration
+
+    config = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key="mps-secret"),
+    )
+    upsert = AsyncMock()
+    monkeypatch.setattr(
+        ai_model_configuration.db_client,
+        "upsert_configuration",
+        upsert,
+    )
+
+    result = await upsert_organization_ai_model_configuration_v2(42, config)
+
+    assert result is config
+    upsert.assert_awaited_once()
+    args = upsert.await_args.args
+    kwargs = upsert.await_args.kwargs
+    assert args == (
+        42,
+        "MODEL_CONFIGURATION_V2",
+        config.model_dump(mode="json", exclude_none=True),
+    )
+    assert kwargs["last_validated_at"].tzinfo is not None
+
+
+def test_org_config_validation_timestamp_update_does_not_touch_updated_at():
+    from datetime import UTC, datetime
+
+    from sqlalchemy import update
+    from sqlalchemy.dialects import postgresql
+
+    from api.db.models import OrganizationConfigurationModel
+
+    stmt = (
+        update(OrganizationConfigurationModel)
+        .where(OrganizationConfigurationModel.id == 1)
+        .values(last_validated_at=datetime.now(UTC))
+    )
+
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "last_validated_at" in compiled
+    assert "updated_at" not in compiled
 
 
 @pytest.mark.asyncio

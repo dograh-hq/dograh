@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from loguru import logger
@@ -72,7 +73,9 @@ async def get_resolved_ai_model_configuration(
     if organization_configuration is not None:
         effective = compile_ai_model_configuration_v2(organization_configuration)
         if organization_configuration_row is not None:
-            effective.last_validated_at = organization_configuration_row.updated_at
+            effective.last_validated_at = (
+                organization_configuration_row.last_validated_at
+            )
         return ResolvedAIModelConfiguration(
             effective=effective,
             source="organization_v2",
@@ -118,7 +121,7 @@ async def get_organization_ai_model_configuration_v2(
 async def update_organization_ai_model_configuration_last_validated_at(
     organization_id: int,
 ) -> None:
-    await db_client.touch_configuration(
+    await db_client.mark_configuration_validated(
         organization_id,
         OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
     )
@@ -159,6 +162,7 @@ async def upsert_organization_ai_model_configuration_v2(
         organization_id,
         OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
         configuration.model_dump(mode="json", exclude_none=True),
+        last_validated_at=datetime.now(UTC),
     )
     return configuration
 

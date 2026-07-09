@@ -15,20 +15,21 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [signupEnabled, setSignupEnabled] = useState<boolean | null>(null);
+  // Initialise to `true` (the backend default). Without this, the first paint
+  // hides the "Sign up" link and it pops back in after the fetch resolves —
+  // a jarring CLS on every login-page load on stock installs. The fetch below
+  // still flips it to false when the operator has actually disabled signup.
+  const [signupEnabled, setSignupEnabled] = useState<boolean>(true);
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/config/auth")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        // Default to enabled — matches backend default when the field is missing.
         if (!cancelled) setSignupEnabled(data?.signupEnabled !== false);
       })
       .catch(() => {
-        // Backend unreachable — mirror the backend default (enabled) so a
-        // startup race doesn't hide the signup link on a stock install.
-        if (!cancelled) setSignupEnabled(true);
+        // Backend unreachable — leave the optimistic default in place.
       });
     return () => {
       cancelled = true;

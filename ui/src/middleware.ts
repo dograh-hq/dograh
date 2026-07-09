@@ -13,10 +13,17 @@ interface CachedServerConfig {
   signupEnabled: boolean;
 }
 
+// Cache the /health lookup for a short window so we don't hammer the api on
+// every request, but do refresh so an operator flipping ENABLE_SIGNUP (or
+// AUTH_PROVIDER) at runtime propagates without a full UI-pod restart. Five
+// minutes matches the same interval used by lib/auth/config.ts.
+const SERVER_CONFIG_TTL_MS = 5 * 60 * 1000;
+
 let cachedServerConfig: CachedServerConfig | null = null;
+let cachedServerConfigExpiresAt = 0;
 
 async function fetchServerConfig(): Promise<CachedServerConfig> {
-  if (cachedServerConfig) {
+  if (cachedServerConfig && Date.now() < cachedServerConfigExpiresAt) {
     return cachedServerConfig;
   }
 
@@ -26,17 +33,17 @@ async function fetchServerConfig(): Promise<CachedServerConfig> {
     if (res.ok) {
       const data = await res.json();
       // Only cache a DEFINITIVE answer from the backend. Never cache a failure:
-      // this is a module-scoped cache with no TTL, so a single early request
-      // during container startup (before the api service is reachable) would
-      // otherwise poison it to 'local' for the life of the worker — redirecting
-      // every Stack user to the local /auth/login form even though the backend
-      // reports `stack`.
+      // a single early request during container startup (before the api service
+      // is reachable) would otherwise poison the cache and redirect every Stack
+      // user to the local /auth/login form even though the backend reports
+      // `stack`.
       cachedServerConfig = {
         authProvider: (data.auth_provider as string) || 'local',
         // Default to signup-enabled when the field is absent (older backend
         // versions or a startup race) — matches the backend's own default.
         signupEnabled: data.signup_enabled !== false,
       };
+      cachedServerConfigExpiresAt = Date.now() + SERVER_CONFIG_TTL_MS;
       return cachedServerConfig;
     }
   } catch {

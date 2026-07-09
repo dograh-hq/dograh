@@ -13,7 +13,14 @@ interface ResolvedAuthConfig {
   signupEnabled: boolean;
 }
 
+// Refresh the /health lookup at least every 5 minutes so operators flipping
+// ENABLE_SIGNUP (or migrating AUTH_PROVIDER) at runtime propagate without a
+// full UI-pod restart. Matches the `next: { revalidate: 300 }` hint on the
+// underlying fetch — the module cache and the fetch cache stay in sync.
+const AUTH_CONFIG_TTL_MS = 5 * 60 * 1000;
+
 let cachedConfig: ResolvedAuthConfig | null = null;
+let cachedConfigExpiresAt = 0;
 
 /**
  * Fetches the auth configuration from the backend health endpoint and caches it.
@@ -24,7 +31,7 @@ let cachedConfig: ResolvedAuthConfig | null = null;
  * into the browser bundle at build time. Falls back to local auth on error.
  */
 async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
-  if (cachedConfig) {
+  if (cachedConfig && Date.now() < cachedConfigExpiresAt) {
     return cachedConfig;
   }
 
@@ -50,6 +57,7 @@ async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
       // versions before the flag existed) — matches the backend's own default.
       const signupEnabled = data.signup_enabled !== false;
       cachedConfig = { authProvider, stackConfig, signupEnabled };
+      cachedConfigExpiresAt = Date.now() + AUTH_CONFIG_TTL_MS;
       return cachedConfig;
     }
   } catch {

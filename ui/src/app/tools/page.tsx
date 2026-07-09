@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ExternalLink, Plug, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -73,6 +73,8 @@ export default function ToolsPage() {
     const [mcpUrl, setMcpUrl] = useState("");
     const [mcpCredentialUuid, setMcpCredentialUuid] = useState("");
     const [mcpToolsFilter, setMcpToolsFilter] = useState("");
+    const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
+    const [mcpTesting, setMcpTesting] = useState(false);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -112,6 +114,31 @@ export default function ToolsPage() {
     useEffect(() => {
         fetchTools();
     }, [fetchTools]);
+
+    const handleTestMcp = async () => {
+        if (!mcpUrl.trim()) return;
+        setMcpTesting(true);
+        setMcpTestResult(null);
+        try {
+            const params = new URLSearchParams({ url: mcpUrl.trim() });
+            if (mcpCredentialUuid) params.set('credential_uuid', mcpCredentialUuid);
+            const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+            const res = await fetch(`${baseUrl}/api/v1/marketplace/test-mcp?${params}`, {
+                headers: { Authorization: `Bearer ${await getAccessToken()}` },
+            });
+            const data = await res.json();
+            if (res.ok && data.ok) {
+                const names = (data.tools as Array<{name: string}>).map(t => `\n  • ${t.name}`).join('');
+                setMcpTestResult(`✅ ${data.tool_count} tool(s) found:${names}`);
+            } else {
+                setMcpTestResult(`❌ ${data.detail || 'Connection failed'}`);
+            }
+        } catch (err) {
+            setMcpTestResult(`❌ ${err instanceof Error ? err.message : 'Test failed'}`);
+        } finally {
+            setMcpTesting(false);
+        }
+    };
 
     const handleCreateTool = async () => {
         if (!newToolName.trim()) {
@@ -170,6 +197,7 @@ export default function ToolsPage() {
                 setMcpUrl("");
                 setMcpCredentialUuid("");
                 setMcpToolsFilter("");
+                setMcpTestResult(null);
                 // Navigate to the new tool's detail page
                 router.push(`/tools/${response.data.tool_uuid}`);
             }
@@ -500,6 +528,7 @@ export default function ToolsPage() {
                     setMcpUrl("");
                     setMcpCredentialUuid("");
                     setMcpToolsFilter("");
+                    setMcpTestResult(null);
                 }
             }}>
                 <DialogContent>
@@ -573,12 +602,28 @@ export default function ToolsPage() {
                             <>
                                 <div className="grid gap-2">
                                     <Label htmlFor="mcp-url">{t('mcpServerUrl')}</Label>
-                                    <Input
-                                        id="mcp-url"
-                                        value={mcpUrl}
-                                        onChange={(e) => setMcpUrl(e.target.value)}
-                                        placeholder={t('mcpUrlPlaceholder')}
-                                    />
+                                    <div className="flex gap-2">
+                                        <Input
+                                            id="mcp-url"
+                                            value={mcpUrl}
+                                            onChange={(e) => { setMcpUrl(e.target.value); setMcpTestResult(null); }}
+                                            placeholder={t('mcpUrlPlaceholder')}
+                                            className="flex-1"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            onClick={handleTestMcp}
+                                            disabled={mcpTesting || !mcpUrl.trim()}
+                                            title="Test connection"
+                                        >
+                                            <Plug className={`h-4 w-4 ${mcpTesting ? 'animate-spin' : ''}`} />
+                                        </Button>
+                                    </div>
+                                    {mcpTestResult && (
+                                        <pre className="text-xs bg-muted p-2 rounded-md whitespace-pre-wrap">{mcpTestResult}</pre>
+                                    )}
                                 </div>
                                 <div className="grid gap-2">
                                     <Label>Transport</Label>

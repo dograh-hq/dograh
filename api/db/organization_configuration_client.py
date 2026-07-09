@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.future import select
@@ -58,6 +59,30 @@ class OrganizationConfigurationClient(BaseDBClient):
                 )
                 session.add(config)
 
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(config)
+            return config
+
+    async def touch_configuration(
+        self, organization_id: int, key: str
+    ) -> Optional[OrganizationConfigurationModel]:
+        """Update the timestamp for an existing organization configuration."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(OrganizationConfigurationModel).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key == key,
+                )
+            )
+            config = result.scalars().first()
+            if not config:
+                return None
+
+            config.updated_at = datetime.now(UTC)
             try:
                 await session.commit()
             except Exception as e:

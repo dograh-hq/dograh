@@ -2,10 +2,12 @@
 
 import type { CurrentUser, Team } from "@stackframe/stack";
 import React, { useState } from "react";
+import { toast } from "sonner";
 
 import SpinLoader from "@/components/SpinLoader";
 import { useAuth } from "@/lib/auth";
 import { reloadApp } from "@/lib/browserReload";
+import logger from "@/lib/logger";
 
 // Lazy load Stack's SelectedTeamSwitcher, but own the selected-team write here.
 // The stock component re-applies the selectedTeam prop asynchronously, which
@@ -42,8 +44,9 @@ function SidebarTeamSwitcherContent({ user }: { user: CurrentUser }) {
       await user.setSelectedTeam(team);
       reloadApp();
     } catch (error) {
+      logger.error("Failed to switch Stack team", error);
+      toast.error("Could not switch teams. Please try again.");
       setIsSwitching(false);
-      throw error;
     }
   };
 

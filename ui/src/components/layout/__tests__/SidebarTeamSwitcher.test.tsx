@@ -33,9 +33,16 @@ import { TranslationContext } from "../../../../node_modules/@stackframe/stack/d
 import { SidebarTeamSwitcher } from "../SidebarTeamSwitcher";
 
 const reloadAppMock = vi.hoisted(() => vi.fn());
+const toastErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/browserReload", () => ({
   reloadApp: reloadAppMock,
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: toastErrorMock,
+  },
 }));
 
 // Controls what the faked Stack useUser() returns; tests flip this to null to
@@ -157,6 +164,7 @@ describe("SidebarTeamSwitcher", () => {
   beforeEach(() => {
     stackState.user = makeStackUser();
     reloadAppMock.mockClear();
+    toastErrorMock.mockClear();
     // React logs boundary-caught render errors; keep test output readable.
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -236,6 +244,30 @@ describe("SidebarTeamSwitcher", () => {
     await waitFor(() => {
       expect(reloadAppMock).toHaveBeenCalled();
     });
+  });
+
+  it("shows feedback and does not reload when Stack fails to persist the selected team", async () => {
+    stackState.user!.setSelectedTeam = vi.fn(async () => {
+      throw new Error("Stack write failed");
+    });
+
+    render(
+      withProviders(
+        <SidebarTeamSwitcher />,
+        makeAuthValue(stackState.user as unknown as AuthUser)
+      )
+    );
+
+    const switcher = await screen.findByRole("combobox");
+    fireEvent.click(switcher);
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Could not switch teams. Please try again."
+      );
+    });
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(reloadAppMock).not.toHaveBeenCalled();
   });
 
   it("unmounts the switcher instead of crashing when the session dies (user flips to null)", async () => {

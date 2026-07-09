@@ -11,7 +11,11 @@ from sqlalchemy.orm import selectinload
 
 from api.constants import MPS_API_URL
 from api.db import db_client
-from api.db.models import WorkflowDefinitionModel, WorkflowModel
+from api.db.models import (
+    OrganizationConfigurationModel,
+    WorkflowDefinitionModel,
+    WorkflowModel,
+)
 from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
@@ -58,12 +62,19 @@ async def get_resolved_ai_model_configuration(
     organization_id: int | None,
 ) -> ResolvedAIModelConfiguration:
     """Resolve the effective model configuration for an organization."""
-    organization_configuration = await get_organization_ai_model_configuration_v2(
-        organization_id
+    organization_configuration_row = (
+        await _get_organization_ai_model_configuration_v2_row(organization_id)
+    )
+    organization_configuration = _parse_organization_ai_model_configuration_v2(
+        organization_configuration_row,
+        organization_id,
     )
     if organization_configuration is not None:
+        effective = compile_ai_model_configuration_v2(organization_configuration)
+        if organization_configuration_row is not None:
+            effective.last_validated_at = organization_configuration_row.updated_at
         return ResolvedAIModelConfiguration(
-            effective=compile_ai_model_configuration_v2(organization_configuration),
+            effective=effective,
             source="organization_v2",
             organization_configuration=organization_configuration,
         )
@@ -100,12 +111,34 @@ async def get_effective_ai_model_configuration_for_workflow(
 async def get_organization_ai_model_configuration_v2(
     organization_id: int | None,
 ) -> OrganizationAIModelConfigurationV2 | None:
-    if organization_id is None:
-        return None
-    row = await db_client.get_configuration(
+    row = await _get_organization_ai_model_configuration_v2_row(organization_id)
+    return _parse_organization_ai_model_configuration_v2(row, organization_id)
+
+
+async def update_organization_ai_model_configuration_last_validated_at(
+    organization_id: int,
+) -> None:
+    await db_client.touch_configuration(
         organization_id,
         OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
     )
+
+
+async def _get_organization_ai_model_configuration_v2_row(
+    organization_id: int | None,
+) -> OrganizationConfigurationModel | None:
+    if organization_id is None:
+        return None
+    return await db_client.get_configuration(
+        organization_id,
+        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+    )
+
+
+def _parse_organization_ai_model_configuration_v2(
+    row: OrganizationConfigurationModel | None,
+    organization_id: int | None,
+) -> OrganizationAIModelConfigurationV2 | None:
     if row is None or not row.value:
         return None
     try:

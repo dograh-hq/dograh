@@ -15,6 +15,7 @@ from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
     check_for_masked_keys_in_ai_model_configuration_v2,
     convert_legacy_ai_model_configuration_to_v2,
+    get_resolved_ai_model_configuration,
     mask_ai_model_configuration_v2,
     merge_ai_model_configuration_v2_secrets,
     migrate_workflow_configuration_model_override_to_v2,
@@ -146,6 +147,35 @@ async def test_byok_realtime_validator_does_not_require_stt_or_tts():
     assert await UserConfigurationValidator().validate(effective) == {
         "status": [{"model": "all", "message": "ok"}]
     }
+
+
+@pytest.mark.asyncio
+async def test_resolved_org_v2_uses_configuration_updated_at_as_validation_cache(
+    monkeypatch,
+):
+    from datetime import UTC, datetime
+
+    from api.services.configuration import ai_model_configuration
+
+    last_validated_at = datetime.now(UTC)
+    config = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key="mps-secret"),
+    )
+    row = SimpleNamespace(
+        value=config.model_dump(mode="json", exclude_none=True),
+        updated_at=last_validated_at,
+    )
+    monkeypatch.setattr(
+        ai_model_configuration.db_client,
+        "get_configuration",
+        AsyncMock(return_value=row),
+    )
+
+    resolved = await get_resolved_ai_model_configuration(organization_id=42)
+
+    assert resolved.source == "organization_v2"
+    assert resolved.effective.last_validated_at == last_validated_at
 
 
 @pytest.mark.asyncio

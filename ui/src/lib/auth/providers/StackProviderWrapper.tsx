@@ -1,6 +1,6 @@
 'use client';
 
-import { type CurrentUser, StackClientApp, StackProvider, StackTheme } from '@stackframe/stack';
+import { StackClientApp, StackProvider, StackTheme } from '@stackframe/stack';
 import React, { useMemo, useRef } from 'react';
 
 import { AuthContext } from './AuthProvider';
@@ -41,34 +41,7 @@ function StackAuthContextProvider({
   children: React.ReactNode;
   app: StackClientApp<true, string>;
 }) {
-  const [stackUser, setStackUser] = React.useState<CurrentUser | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    setIsLoading(true);
-    app.getUser()
-      .then((user) => {
-        if (!cancelled) {
-          setStackUser(user);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStackUser(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [app]);
+  const stackUser = app.useUser();
 
   // Store user in ref for callbacks to access latest value without creating new callbacks
   const userRef = useRef(stackUser);
@@ -123,21 +96,17 @@ function StackAuthContextProvider({
     }
   }, []);
 
-  // Use primitive values in deps so user object reference churn does not
-  // invalidate the context value unless the effective auth state changes.
-  const userId = stackUser?.id;
-
   const contextValue = useMemo(() => ({
-    user: userRef.current,
-    isAuthenticated: !!userId,
-    loading: isLoading,
+    user: stackUser,
+    isAuthenticated: !!stackUser,
+    loading: false,
     getAccessToken,
     redirectToLogin,
     logout,
     provider: 'stack' as const,
     getSelectedTeam,
     listPermissions,
-  }), [userId, isLoading, getAccessToken, redirectToLogin, logout, getSelectedTeam, listPermissions]);
+  }), [stackUser, getAccessToken, redirectToLogin, logout, getSelectedTeam, listPermissions]);
 
   return (
     <AuthContext.Provider value={contextValue}>

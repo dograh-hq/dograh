@@ -1,8 +1,12 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DEFAULT_MAX_CALL_DURATION_SECONDS = 300
+# Hard ceiling on configurable call duration. Must stay <= the concurrency
+# rate limiter's stale_call_timeout (20 min): a call running past that has
+# its slot purged as stale and the org concurrency limit under-counts.
+MAX_CALL_DURATION_SECONDS = 1200
 DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS = 10.0
 DEFAULT_SMART_TURN_STOP_SECS = 2.0
 DEFAULT_TURN_START_STRATEGY = "default"
@@ -22,10 +26,24 @@ class AmbientNoiseConfigurationDefaults(BaseModel):
 class WorkflowConfigurationDefaults(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _treat_null_as_unset(cls, data):
+        # Stored configs (and older clients) carry explicit JSON nulls for
+        # keys the user never configured; dropping them lets the field
+        # defaults apply instead of failing validation.
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if v is not None}
+        return data
+
     ambient_noise_configuration: AmbientNoiseConfigurationDefaults = Field(
         default_factory=AmbientNoiseConfigurationDefaults
     )
-    max_call_duration: int = DEFAULT_MAX_CALL_DURATION_SECONDS
+    max_call_duration: int = Field(
+        default=DEFAULT_MAX_CALL_DURATION_SECONDS,
+        gt=0,
+        le=MAX_CALL_DURATION_SECONDS,
+    )
     max_user_idle_timeout: float = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     smart_turn_stop_secs: float = DEFAULT_SMART_TURN_STOP_SECS
     turn_start_strategy: Literal["default", "min_words", "provisional_vad"] = (

@@ -845,9 +845,7 @@ class TestAcquireConcurrentSlotScoping:
         )
 
     @pytest.mark.asyncio
-    async def test_no_campaign_max_concurrency_skips_scope(
-        self, mock_call_concurrency
-    ):
+    async def test_no_campaign_max_concurrency_skips_scope(self, mock_call_concurrency):
         dispatcher = CampaignCallDispatcher()
         campaign = self._campaign({})
 

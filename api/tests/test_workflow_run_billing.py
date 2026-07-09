@@ -40,15 +40,9 @@ async def test_report_workflow_run_platform_usage_reports_hosted_completion(
     monkeypatch,
 ):
     workflow_run = _make_workflow_run()
-    get_status = AsyncMock(return_value={"billing_mode": "v2"})
     report_usage = AsyncMock(return_value={"metered": True})
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
-    monkeypatch.setattr(
-        workflow_run_billing_mod.mps_service_key_client,
-        "get_billing_account_status",
-        get_status,
-    )
     monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "report_platform_usage",
@@ -76,15 +70,9 @@ async def test_report_workflow_run_platform_usage_reports_duration_without_corre
 ):
     workflow_run = _make_workflow_run()
     workflow_run.initial_context = {}
-    get_status = AsyncMock(return_value={"billing_mode": "v2"})
     report_usage = AsyncMock(return_value={"metered": True})
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
-    monkeypatch.setattr(
-        workflow_run_billing_mod.mps_service_key_client,
-        "get_billing_account_status",
-        get_status,
-    )
     monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "report_platform_usage",
@@ -107,45 +95,15 @@ async def test_report_workflow_run_platform_usage_reports_duration_without_corre
 
 
 @pytest.mark.asyncio
-async def test_report_workflow_run_platform_usage_skips_non_v2_account(monkeypatch):
-    workflow_run = _make_workflow_run()
-    get_status = AsyncMock(return_value={"billing_mode": "v1"})
-    report_usage = AsyncMock()
-
-    monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
-    monkeypatch.setattr(
-        workflow_run_billing_mod.mps_service_key_client,
-        "get_billing_account_status",
-        get_status,
-    )
-    monkeypatch.setattr(
-        workflow_run_billing_mod.mps_service_key_client,
-        "report_platform_usage",
-        report_usage,
-    )
-
-    await report_workflow_run_platform_usage(workflow_run)
-
-    get_status.assert_awaited_once_with(organization_id=42)
-    report_usage.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_report_workflow_run_platform_usage_skips_missing_duration_without_correlation(
     monkeypatch,
 ):
     workflow_run = _make_workflow_run()
     workflow_run.initial_context = {}
     workflow_run.usage_info = {}
-    get_status = AsyncMock(return_value={"billing_mode": "v2"})
     report_usage = AsyncMock()
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
-    monkeypatch.setattr(
-        workflow_run_billing_mod.mps_service_key_client,
-        "get_billing_account_status",
-        get_status,
-    )
     monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "report_platform_usage",
@@ -154,7 +112,6 @@ async def test_report_workflow_run_platform_usage_skips_missing_duration_without
 
     await report_workflow_run_platform_usage(workflow_run)
 
-    get_status.assert_not_awaited()
     report_usage.assert_not_awaited()
 
 
@@ -197,7 +154,6 @@ async def test_report_workflow_run_platform_usage_skips_incomplete(monkeypatch):
 async def test_report_completed_workflow_run_platform_usage_loads_run(monkeypatch):
     workflow_run = _make_workflow_run()
     get_run = AsyncMock(return_value=workflow_run)
-    get_status = AsyncMock(return_value={"billing_mode": "v2"})
     report_usage = AsyncMock(return_value={"metered": True})
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
@@ -205,11 +161,6 @@ async def test_report_completed_workflow_run_platform_usage_loads_run(monkeypatc
         workflow_run_billing_mod.db_client,
         "get_workflow_run_by_id",
         get_run,
-    )
-    monkeypatch.setattr(
-        workflow_run_billing_mod.mps_service_key_client,
-        "get_billing_account_status",
-        get_status,
     )
     monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,

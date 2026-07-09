@@ -78,6 +78,7 @@ export const ConfigurationsDialog = ({
                 turn_start_min_words: turnStartMinWords,
                 provisional_vad_pause_secs: provisionalVadPauseSecs,
                 turn_stop_strategy: turnStopStrategy,
+                transcript_configuration: resolvedWorkflowConfigurations.transcript_configuration,
                 context_compaction_enabled: contextCompactionEnabled,
             }, name);
             onOpenChange(false);

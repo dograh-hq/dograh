@@ -3,7 +3,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { client } from '@/client/client.gen';
-import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getUserConfigurationsApiV1UserConfigurationsUserGet, updateUserConfigurationsApiV1UserConfigurationsUserPut } from '@/client/sdk.gen';
+import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getUserConfigurationsApiV1UserConfigurationsUserGet } from '@/client/sdk.gen';
 import type { OrganizationContextResponse, UserConfigurationRequestResponseSchema } from '@/client/types.gen';
 import { setupAuthInterceptor } from '@/lib/apiClient';
 import type { AuthUser } from '@/lib/auth';
@@ -22,7 +22,6 @@ interface OrganizationPricing {
 interface OrgConfigContextType {
     orgContext: OrganizationContextResponse | null;
     userConfig: UserConfigurationRequestResponseSchema | null;
-    saveUserConfig: (userConfig: UserConfigurationRequestResponseSchema) => Promise<void>;
     loading: boolean;
     error: Error | null;
     refreshConfig: () => Promise<void>;
@@ -133,33 +132,6 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
         fetchConfig();
     }, [auth.loading, auth.isAuthenticated, fetchConfig]);
 
-    const saveUserConfig = useCallback(async (userConfigRequest: UserConfigurationRequestResponseSchema) => {
-        if (!authRef.current.isAuthenticated) throw new Error('No authentication available');
-        const response = await updateUserConfigurationsApiV1UserConfigurationsUserPut({
-            body: {
-                ...userConfig,
-                ...userConfigRequest,
-            } as UserConfigurationRequestResponseSchema,
-        });
-        if (response.error) {
-            let msg = 'Failed to save user configuration';
-            const detail = (response.error as unknown as { detail?: string | { errors: { model: string; message: string }[] } }).detail;
-            if (typeof detail === 'string') {
-                msg = detail;
-            } else if (Array.isArray(detail)) {
-                msg = detail
-                    .map((e: { model: string; message: string }) => `${e.model}: ${e.message}`)
-                    .join('\n');
-            }
-            throw new Error(msg);
-        }
-
-        if (response.data) {
-            setUserConfig(response.data);
-            setOrganizationPricing(pricingFromUserConfig(response.data));
-        }
-    }, [userConfig]);
-
     const refreshConfig = useCallback(async () => {
         await fetchConfig();
     }, [fetchConfig]);
@@ -169,7 +141,6 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
             value={{
                 orgContext,
                 userConfig,
-                saveUserConfig,
                 loading,
                 error,
                 refreshConfig,

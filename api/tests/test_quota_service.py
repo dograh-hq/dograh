@@ -7,6 +7,7 @@ import pytest
 from api.services import quota_service
 from api.services.configuration.registry import ServiceProviders
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
+from api.services.quota_service import QuotaCheckResult
 
 
 def _dograh_config(
@@ -166,33 +167,21 @@ async def test_authorize_workflow_run_v2_insufficient_credits_prompts_billing(
 
 
 @pytest.mark.asyncio
-async def test_authorize_workflow_run_v1_uses_legacy_key_usage(
+async def test_authorize_workflow_run_oss_exhausted_key_blocks_run(
     monkeypatch,
 ):
     api_key = "mps_sk_12345678"
     get_config = AsyncMock(return_value=_dograh_config(api_key))
-    authorize = AsyncMock(
-        return_value={
-            "allowed": True,
-            "billing_mode": "v1",
-            "remaining_credits": "0.0000",
-        }
-    )
     check_usage = AsyncMock(
         return_value={"total_credits_used": 500.0, "remaining_credits": 0.0}
     )
 
-    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
     _patch_workflow_context(monkeypatch)
     monkeypatch.setattr(
         quota_service,
         "get_effective_ai_model_configuration_for_workflow",
         get_config,
-    )
-    monkeypatch.setattr(
-        quota_service.mps_service_key_client,
-        "authorize_workflow_run_start",
-        authorize,
     )
     monkeypatch.setattr(
         quota_service.mps_service_key_client,
@@ -206,12 +195,7 @@ async def test_authorize_workflow_run_v1_uses_legacy_key_usage(
     assert result.error_code == "quota_exceeded"
     assert "founders@dograh.com" in result.error_message
     assert "/billing" not in result.error_message
-    authorize.assert_awaited_once()
-    check_usage.assert_awaited_once_with(
-        api_key,
-        organization_id=42,
-        created_by="provider-123",
-    )
+    check_usage.assert_awaited_once_with(api_key)
 
 
 @pytest.mark.asyncio
@@ -404,11 +388,7 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
 
     assert result.has_quota is True
     hosted_authorize.assert_not_awaited()
-    check_usage.assert_awaited_once_with(
-        api_key,
-        organization_id=None,
-        created_by="provider-123",
-    )
+    check_usage.assert_awaited_once_with(api_key)
     create_correlation.assert_awaited_once_with(
         service_key=api_key,
         workflow_run_id=88,
@@ -420,14 +400,108 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
 
 
 @pytest.mark.asyncio
-async def test_authorize_workflow_run_rejects_actor_from_another_org(monkeypatch):
+async def test_authorize_workflow_run_rejects_actor_not_a_member(monkeypatch):
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
     _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "is_user_member_of_organization",
+        AsyncMock(return_value=False),
+    )
 
     result = await quota_service.authorize_workflow_run_start(
         workflow_id=7,
-        actor_user=SimpleNamespace(selected_organization_id=999),
+        actor_user=SimpleNamespace(id=456, selected_organization_id=999),
     )
 
     assert result.has_quota is False
     assert result.error_code == "workflow_not_found"
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_membership_lookup_error_fails_closed(monkeypatch):
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "is_user_member_of_organization",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        actor_user=SimpleNamespace(id=456, selected_organization_id=42),
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "workflow_not_found"
+    quota_service.db_client.get_user_by_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_allows_invited_member(monkeypatch):
+    """User invited to an org can start workflows belonging to that org."""
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "is_user_member_of_organization",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_byok_config()),
+    )
+    hosted_authorize = AsyncMock(return_value=QuotaCheckResult(has_quota=True))
+    monkeypatch.setattr(
+        quota_service,
+        "_authorize_hosted_workflow_run_start",
+        hosted_authorize,
+    )
+
+    # actor_user.selected_organization_id=999 differs from workflow.organization_id=42,
+    # but is_user_member_of_organization returns True so the run should be allowed.
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        actor_user=SimpleNamespace(id=456, selected_organization_id=999),
+    )
+
+    assert result.has_quota is True
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_allows_personal_workflow_with_actor(monkeypatch):
+    """Personal/legacy workflows (organization_id=None) bypass membership check."""
+    personal_workflow = SimpleNamespace(
+        id=7,
+        user_id=123,
+        organization_id=None,
+        workflow_configurations={"model_overrides": {}},
+    )
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch, workflow=personal_workflow)
+    is_member_mock = AsyncMock()
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "is_user_member_of_organization",
+        is_member_mock,
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_byok_config()),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "_authorize_hosted_workflow_run_start",
+        AsyncMock(return_value=QuotaCheckResult(has_quota=True)),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        actor_user=SimpleNamespace(id=456),
+    )
+
+    assert result.has_quota is True
+    is_member_mock.assert_not_awaited()

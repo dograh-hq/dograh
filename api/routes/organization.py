@@ -42,7 +42,6 @@ from api.schemas.telephony_phone_number import (
     ProviderSyncStatus,
 )
 from api.services.auth.depends import (
-    _sync_posthog_organization_mps_billing_v2_status,
     get_user,
     get_user_with_selected_organization,
 )
@@ -391,22 +390,21 @@ async def migrate_model_configuration_v2(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=exc.args[0])
 
-    billing_account_status = None
     if DEPLOYMENT_MODE != "oss":
         try:
-            billing_account_status = await ensure_hosted_mps_billing_account_v2(
+            await ensure_hosted_mps_billing_account_v2(
                 organization_id,
                 created_by=str(user.provider_id),
             )
         except Exception as exc:
             logger.error(
-                "Failed to initialize MPS billing v2 account for organization {}: {}",
+                "Failed to initialize MPS billing account for organization {}: {}",
                 organization_id,
                 exc,
             )
             raise HTTPException(
                 status_code=502,
-                detail="Failed to initialize MPS billing v2 account",
+                detail="Failed to initialize MPS billing account",
             )
 
     await upsert_organization_ai_model_configuration_v2(
@@ -417,14 +415,6 @@ async def migrate_model_configuration_v2(
         organization_id=organization_id,
         fallback_user_config=legacy,
     )
-    if DEPLOYMENT_MODE != "oss":
-        _sync_posthog_organization_mps_billing_v2_status(
-            organization_id,
-            uses_mps_billing_v2=bool(
-                billing_account_status
-                and billing_account_status.get("billing_mode") == "v2"
-            ),
-        )
     return await _model_configuration_v2_response(
         user=user,
         configuration=configuration,

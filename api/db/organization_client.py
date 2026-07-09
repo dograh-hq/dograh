@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import exists
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
 
@@ -107,6 +108,21 @@ class OrganizationClient(BaseDBClient):
                 await session.refresh(organization)
                 return organization, was_created
             return organization, False
+
+    async def is_user_member_of_organization(
+        self, user_id: int, organization_id: int
+    ) -> bool:
+        """Return True if the user belongs to the given organization."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(
+                    exists().where(
+                        (organization_users_association.c.user_id == user_id)
+                        & (organization_users_association.c.organization_id == organization_id)
+                    )
+                )
+            )
+            return bool(result.scalar())
 
     async def add_user_to_organization(
         self, user_id: int, organization_id: int

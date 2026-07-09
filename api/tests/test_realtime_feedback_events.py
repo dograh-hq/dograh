@@ -1,10 +1,12 @@
 from api.services.pipecat.realtime_feedback_events import (
     build_bot_text_event,
     build_function_call_end_event,
+    build_user_transcription_event,
     build_node_transition_event,
     realtime_feedback_event_sort_key,
     stamp_realtime_feedback_event,
 )
+from api.utils.transcript import generate_transcript_text
 
 
 def test_build_function_call_end_event_serializes_results():
@@ -51,3 +53,38 @@ def test_stamp_and_sort_realtime_feedback_events():
     assert events == [bot_text, node_transition]
     assert node_transition["node_id"] == "node-1"
     assert node_transition["node_name"] == "Greeting"
+
+
+def test_transcript_can_include_end_timestamps_without_changing_default_format():
+    events = [
+        stamp_realtime_feedback_event(
+            build_bot_text_event(
+                text="Can you confirm your date of birth?",
+                timestamp="2026-01-01T00:00:01+00:00",
+                end_timestamp="2026-01-01T00:00:04+00:00",
+            ),
+            timestamp="2026-01-01T00:00:05+00:00",
+            turn=0,
+        ),
+        stamp_realtime_feedback_event(
+            build_user_transcription_event(
+                text="January fifth",
+                final=True,
+                timestamp="2026-01-01T00:00:06+00:00",
+                end_timestamp="2026-01-01T00:00:08+00:00",
+            ),
+            timestamp="2026-01-01T00:00:09+00:00",
+            turn=1,
+        ),
+    ]
+
+    assert generate_transcript_text(events) == (
+        "[2026-01-01T00:00:01+00:00] assistant: Can you confirm your date of birth?\n"
+        "[2026-01-01T00:00:06+00:00] user: January fifth\n"
+    )
+    assert generate_transcript_text(events, include_end_timestamps=True) == (
+        "[2026-01-01T00:00:01+00:00 -> 2026-01-01T00:00:04+00:00] "
+        "assistant: Can you confirm your date of birth?\n"
+        "[2026-01-01T00:00:06+00:00 -> 2026-01-01T00:00:08+00:00] "
+        "user: January fifth\n"
+    )

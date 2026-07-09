@@ -25,7 +25,6 @@ import {
 } from "@/components/AIModelConfigurationV2Editor";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { LLMConfigSelector } from "@/components/LLMConfigSelector";
-import { ServiceConfigurationForm } from "@/components/ServiceConfigurationForm";
 import SpinLoader from "@/components/SpinLoader";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -48,6 +47,7 @@ import {
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
+    resolveWorkflowConfigurations,
     TURN_START_STRATEGY_OPTIONS,
     type TurnStartStrategy,
     type TurnStopStrategy,
@@ -293,6 +293,9 @@ function GeneralSection({
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
         workflowConfigurations.context_compaction_enabled,
     );
+    const [includeTranscriptEndTimestamps, setIncludeTranscriptEndTimestamps] = useState(
+        workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false,
+    );
     const [isSaving, setIsSaving] = useState(false);
     const [isUploadingAudio, setIsUploadingAudio] = useState(false);
     const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
@@ -314,9 +317,11 @@ function GeneralSection({
             turnStartMinWords !== workflowConfigurations.turn_start_min_words ||
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
-            contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled
+            contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
+            includeTranscriptEndTimestamps !==
+            (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -393,6 +398,10 @@ function GeneralSection({
                     provisional_vad_pause_secs: provisionalVadPauseSecs,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
+                    transcript_configuration: {
+                        ...(workflowConfigurations.transcript_configuration ?? {}),
+                        include_end_timestamps: includeTranscriptEndTimestamps,
+                    },
                 },
                 name,
             );
@@ -682,6 +691,34 @@ function GeneralSection({
                             </p>
                         </div>
                     )}
+                </div>
+
+                <Separator />
+
+                {/* Transcript */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Transcript</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Include start and stop timestamps for each speaker in the uploaded transcript.
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="transcript-end-timestamps-enabled" className="text-sm">
+                            Enhanced Timestamped Transcript
+                        </Label>
+                        <Switch
+                            id="transcript-end-timestamps-enabled"
+                            checked={includeTranscriptEndTimestamps}
+                            onCheckedChange={setIncludeTranscriptEndTimestamps}
+                        />
+                    </div>
+                    <div className="rounded-md border bg-muted/20 p-3">
+                        <pre className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                            {`[2026-07-06T10:00:00.000Z -> 2026-07-06T10:00:04.800Z] assistant: Can you confirm your date of birth?
+[2026-07-06T10:00:06.200Z -> 2026-07-06T10:00:08.700Z] user: January fifth, nineteen ninety.`}
+                        </pre>
+                    </div>
                 </div>
 
                 <Separator />
@@ -1185,17 +1222,7 @@ function WorkflowModelOverridesSection({
         setOverrideEnabled(Boolean(workflowConfigurations.model_configuration_v2_override));
     }, [workflowConfigurations.model_configuration_v2_override]);
 
-    const source = organizationModelConfiguration?.source || "empty";
-    const isV2 = source === "organization_v2";
-
-    const saveLegacyOverrides = async (config: Record<string, unknown>) => {
-        const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
-        const modelOverrides = config.model_overrides as WorkflowConfigurations["model_overrides"] | undefined;
-        if (modelOverrides) {
-            nextConfigurations.model_overrides = modelOverrides;
-        }
-        await onSave(nextConfigurations, workflowName);
-    };
+    const hasOrgConfiguration = organizationModelConfiguration?.source === "organization_v2";
 
     const saveV2Override = async (configuration: OrganizationAiModelConfigurationV2) => {
         const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
@@ -1223,9 +1250,7 @@ function WorkflowModelOverridesSection({
                     Model Overrides
                 </CardTitle>
                 <CardDescription>
-                    {isV2
-                        ? "Override the full organization model configuration for this workflow."
-                        : "Override global model settings for this workflow. Toggle individual services to customize."}{" "}
+                    Override the full organization model configuration for this workflow.{" "}
                     <a href={SETTINGS_DOCUMENTATION_URLS.modelOverrides} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">Learn more <ExternalLink className="h-3 w-3" /></a>
                 </CardDescription>
             </CardHeader>
@@ -1243,28 +1268,18 @@ function WorkflowModelOverridesSection({
                     </div>
                 )}
 
-                {!modelConfigurationLoading && !modelConfigurationError && !isV2 && (
-                    <>
-                        {source === "legacy_user_v1" && (
-                            <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-sm text-muted-foreground">
-                                    This workflow is using legacy model overrides. Migrate organization model configuration to use v2 overrides.
-                                </p>
-                                <Button type="button" variant="outline" size="sm" asChild>
-                                    <Link href="/model-configurations?action=migrate_to_v2">Migrate to v2</Link>
-                                </Button>
-                            </div>
-                        )}
-                        <ServiceConfigurationForm
-                            mode="override"
-                            currentOverrides={workflowConfigurations.model_overrides}
-                            submitLabel="Save Model Overrides"
-                            onSave={saveLegacyOverrides}
-                        />
-                    </>
+                {!modelConfigurationLoading && !modelConfigurationError && !hasOrgConfiguration && (
+                    <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm text-muted-foreground">
+                            Set up your organization model configuration before overriding it per workflow.
+                        </p>
+                        <Button type="button" variant="outline" size="sm" asChild>
+                            <Link href="/model-configurations">Configure Models</Link>
+                        </Button>
+                    </div>
                 )}
 
-                {!modelConfigurationLoading && !modelConfigurationError && isV2 && modelConfigurationDefaults && organizationModelConfiguration && (
+                {!modelConfigurationLoading && !modelConfigurationError && hasOrgConfiguration && modelConfigurationDefaults && organizationModelConfiguration && (
                     <>
                         <div className="flex items-center justify-between rounded-md border p-4">
                             <div className="space-y-0.5">
@@ -1458,6 +1473,9 @@ function WorkflowSettingsInner({
         initialWorkflowConfigurations,
         user,
     });
+    const resolvedWorkflowConfigurationsForRender = workflowConfigurations
+        ? resolveWorkflowConfigurations(workflowConfigurations)
+        : null;
 
     useEffect(() => {
         if (hasFetchedModelConfiguration.current) return;
@@ -1532,18 +1550,18 @@ function WorkflowSettingsInner({
             <div className="mx-auto flex max-w-5xl gap-8 px-6 py-8">
                 {/* Sections */}
                 <div className="min-w-0 flex-1 space-y-8">
-                    {workflowConfigurations && (
+                    {resolvedWorkflowConfigurationsForRender && (
                         <>
                             {/* General */}
                             <GeneralSection
-                                workflowConfigurations={workflowConfigurations}
+                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName || workflow.name}
                                 workflowId={workflowId}
                                 onSave={saveWorkflowConfigurations}
                             />
 
                             <WorkflowModelOverridesSection
-                                workflowConfigurations={workflowConfigurations}
+                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName}
                                 onSave={saveWorkflowConfigurations}
                                 modelConfigurationDefaults={modelConfigurationDefaults}
@@ -1563,7 +1581,7 @@ function WorkflowSettingsInner({
 
                             {/* Voicemail Detection */}
                             <VoicemailSection
-                                workflowConfigurations={workflowConfigurations}
+                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName}
                                 onSave={saveWorkflowConfigurations}
                             />

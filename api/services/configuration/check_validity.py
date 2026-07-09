@@ -64,6 +64,7 @@ class UserConfigurationValidator:
             ServiceProviders.RIME.value: self._check_rime_api_key,
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
+            ServiceProviders.XAI.value: self._check_xai_api_key,
         }
 
     async def validate(
@@ -374,6 +375,32 @@ class UserConfigurationValidator:
             ) from exc
 
     def _check_grok_realtime_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
+    def _check_xai_api_key(self, model: str, api_key: str) -> bool:
+        # Use the TTS voices endpoint as a best-effort smoke test. Some xAI keys
+        # can be scoped in ways that block listing voices even though the key is
+        # still intended for TTS usage, so only a clear auth failure rejects save.
+        try:
+            response = httpx.get(
+                "https://api.x.ai/v1/tts/voices",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
+        except httpx.RequestError:
+            raise ValueError(
+                "Could not connect to the xAI API. Please check your network "
+                "connection and try again."
+            )
+        if response.status_code == 200:
+            return True
+        if response.status_code == 401:
+            raise ValueError(
+                "Invalid xAI API key. The key was rejected by the xAI API. "
+                "Please check that your API key is correct and active. "
+                "You can verify your keys at "
+                "https://console.x.ai."
+            )
         return True
 
     def _check_ultravox_realtime_api_key(self, model: str, api_key: str) -> bool:

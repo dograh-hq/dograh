@@ -38,6 +38,11 @@ from pipecat.services.dograh.flux.stt import DograhFluxSTTService
 from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
 from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
+from pipecat.services.elevenlabs.stt import (
+    CommitStrategy,
+    ElevenLabsRealtimeSTTService,
+    ElevenLabsRealtimeSTTSettings,
+)
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
@@ -413,6 +418,30 @@ def create_stt_service(
                 model=user_config.stt.model,
                 language=pipecat_language,
             ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.ELEVENLABS.value:
+        language_code = getattr(user_config.stt, "language", None)
+        pipecat_language = None
+        if language_code and language_code != "auto":
+            try:
+                pipecat_language = Language(language_code)
+            except ValueError:
+                pipecat_language = Language.EN
+
+        _validate_runtime_service_url(user_config.stt.base_url, "base_url")
+        parsed = urlparse(user_config.stt.base_url)
+        elevenlabs_host = parsed.hostname or user_config.stt.base_url
+
+        return ElevenLabsRealtimeSTTService(
+            api_key=user_config.stt.api_key,
+            base_url=elevenlabs_host,
+            commit_strategy=CommitStrategy.MANUAL,
+            settings=ElevenLabsRealtimeSTTSettings(
+                model=user_config.stt.model,
+                language=pipecat_language,
+            ),
+            should_interrupt=False,
             sample_rate=audio_config.transport_in_sample_rate,
         )
     else:

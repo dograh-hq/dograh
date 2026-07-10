@@ -22,6 +22,8 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
+    ELEVENLABS_STT_LANGUAGES,
+    ELEVENLABS_STT_MODELS,
     GLADIA_STT_LANGUAGES,
     GLADIA_STT_MODELS,
     GOOGLE_MODELS,
@@ -1673,6 +1675,36 @@ SMALLEST_STT_LANGUAGES = [
 
 
 @register_stt
+class ElevenlabsSTTConfiguration(BaseSTTConfiguration):
+    model_config = ELEVENLABS_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.ELEVENLABS] = ServiceProviders.ELEVENLABS
+    model: str = Field(
+        default="scribe_v2_realtime",
+        description="ElevenLabs realtime STT model.",
+        json_schema_extra={"examples": ELEVENLABS_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        description=(
+            "ISO 639-1 language code for transcription. "
+            "Use 'auto' to let ElevenLabs detect the language."
+        ),
+        json_schema_extra={
+            "examples": ELEVENLABS_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://api.elevenlabs.io",
+        description=(
+            "ElevenLabs API base URL. Override to use a Data Residency endpoint "
+            "(e.g. https://api.eu.residency.elevenlabs.io) for GDPR / HIPAA / "
+            "regional compliance."
+        ),
+    )
+
+
+@register_stt
 class SmallestAISTTConfiguration(BaseSTTConfiguration):
     model_config = SMALLEST_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
@@ -1706,6 +1738,7 @@ STTConfig = Annotated[
         GladiaSTTConfiguration,
         AzureSpeechSTTConfiguration,
         SmallestAISTTConfiguration,
+        ElevenlabsSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

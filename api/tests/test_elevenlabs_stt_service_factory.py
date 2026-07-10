@@ -68,7 +68,7 @@ def test_elevenlabs_stt_uses_realtime_service_with_language_mapping():
     kwargs = stt_service.call_args.kwargs
     assert kwargs["api_key"] == "test-key"
     assert kwargs["base_url"] == "api.elevenlabs.io"
-    assert kwargs["commit_strategy"] == CommitStrategy.MANUAL
+    assert kwargs["commit_strategy"] == CommitStrategy.VAD
     assert kwargs["sample_rate"] == 16000
     assert kwargs["should_interrupt"] is False
     assert kwargs["settings"].model == "scribe_v2_realtime"
@@ -99,3 +99,27 @@ def test_elevenlabs_stt_extracts_hostname_from_residency_base_url():
 
     kwargs = stt_service.call_args.kwargs
     assert kwargs["base_url"] == "api.eu.residency.elevenlabs.io"
+
+
+def test_elevenlabs_stt_custom_language_passes_through():
+    user_config = _elevenlabs_config(language="custom-lang")
+
+    with patch(
+        "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
+    ) as stt_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = stt_service.call_args.kwargs
+    assert kwargs["settings"].language == "custom-lang"
+
+
+def test_elevenlabs_stt_bare_hostname_base_url_is_preserved():
+    user_config = _elevenlabs_config(base_url="api.elevenlabs.io")
+
+    with patch(
+        "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
+    ) as stt_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = stt_service.call_args.kwargs
+    assert kwargs["base_url"] == "api.elevenlabs.io"

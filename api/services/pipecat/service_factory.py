@@ -113,6 +113,25 @@ def dograh_stt_uses_flux_language(language: str | None) -> bool:
     return language in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS
 
 
+def _resolve_elevenlabs_stt_language(language_code: str | None) -> Language | str | None:
+    if not language_code or language_code == "auto":
+        return None
+    try:
+        return Language(language_code)
+    except ValueError:
+        return language_code
+
+
+def _elevenlabs_realtime_stt_host(base_url: str) -> str:
+    """Return the hostname Pipecat's ElevenLabs realtime STT expects.
+
+    Unlike ElevenLabs TTS (which takes a full wss:// URL), the realtime STT
+    service builds ``wss://{host}/v1/speech-to-text/realtime`` internally.
+    """
+    parsed = urlparse(base_url)
+    return parsed.hostname or base_url.strip().rstrip("/")
+
+
 def stt_uses_external_turns(user_config) -> bool:
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         return user_config.stt.model in DEEPGRAM_FLUX_MODELS
@@ -422,21 +441,15 @@ def create_stt_service(
         )
     elif user_config.stt.provider == ServiceProviders.ELEVENLABS.value:
         language_code = getattr(user_config.stt, "language", None)
-        pipecat_language = None
-        if language_code and language_code != "auto":
-            try:
-                pipecat_language = Language(language_code)
-            except ValueError:
-                pipecat_language = Language.EN
+        pipecat_language = _resolve_elevenlabs_stt_language(language_code)
 
         _validate_runtime_service_url(user_config.stt.base_url, "base_url")
-        parsed = urlparse(user_config.stt.base_url)
-        elevenlabs_host = parsed.hostname or user_config.stt.base_url
+        elevenlabs_host = _elevenlabs_realtime_stt_host(user_config.stt.base_url)
 
         return ElevenLabsRealtimeSTTService(
             api_key=user_config.stt.api_key,
             base_url=elevenlabs_host,
-            commit_strategy=CommitStrategy.MANUAL,
+            commit_strategy=CommitStrategy.VAD,
             settings=ElevenLabsRealtimeSTTSettings(
                 model=user_config.stt.model,
                 language=pipecat_language,

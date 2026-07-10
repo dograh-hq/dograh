@@ -49,6 +49,25 @@ class MockToolModel:
     definition: Dict[str, Any]
 
 
+def test_empty_resolver_credential_uuid_is_ignored():
+    from api.services.tool_management import _credential_uuids_from_definition
+
+    definition = {
+        "schema_version": 1,
+        "type": "transfer_call",
+        "config": {
+            "destination_source": "dynamic",
+            "resolver": {
+                "type": "http",
+                "url": "https://crm.example.com/resolve-transfer",
+                "credential_uuid": "",
+            },
+        },
+    }
+
+    assert _credential_uuids_from_definition(definition) == []
+
+
 class TestToolToFunctionSchema:
     """Tests for tool_to_function_schema function."""
 
@@ -336,6 +355,32 @@ class TestToolToFunctionSchema:
         assert params["properties"]["reason"]["type"] == "string"
         assert params["required"] == ["state"]
 
+    def test_transfer_tool_schema_handles_null_resolver_parameters(self):
+        """Dynamic transfer tools should remain available with no parameters."""
+        tool = MockToolModel(
+            tool_uuid="transfer-uuid",
+            name="Transfer To Partner",
+            description="Transfer to the correct referral partner",
+            category="transfer_call",
+            definition={
+                "schema_version": 1,
+                "type": "transfer_call",
+                "config": {
+                    "destination_source": "dynamic",
+                    "resolver": {
+                        "type": "http",
+                        "url": "https://crm.example.com/resolve-transfer",
+                        "parameters": None,
+                    },
+                },
+            },
+        )
+
+        schema = tool_to_function_schema(tool)
+
+        assert schema["function"]["parameters"]["properties"] == {}
+        assert schema["function"]["parameters"]["required"] == []
+
 
 class TestExecuteHttpTool:
     """Tests for execute_http_tool function."""
@@ -571,6 +616,43 @@ class TestExecuteHttpTool:
             assert call_kwargs["json"] is None
             assert call_kwargs["params"] == arguments
 
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_get_request_without_arguments_preserves_url_query_params(self):
+        """Empty runtime args should not override query params already in the URL."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid",
+            name="Search Users",
+            description="Search for users",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.example.com/users/search?tenant=abc",
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"users": []}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, {})
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["method"] == "GET"
+            assert call_kwargs["url"].endswith("?tenant=abc")
+            assert call_kwargs["params"] is None
             assert result["status"] == "success"
 
     @pytest.mark.asyncio
@@ -822,6 +904,34 @@ class TestCoerceParameterValue:
 
 class TestTransferResolver:
     """Tests for dynamic transfer resolution behavior."""
+
+    def test_dynamic_transfer_handler_timeout_includes_resolver_budget(self):
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        manager = CustomToolManager(Mock())
+        tool = MockToolModel(
+            tool_uuid="transfer-tool-uuid",
+            name="Transfer Call",
+            description="Transfer the caller",
+            category="transfer_call",
+            definition={
+                "schema_version": 1,
+                "type": "transfer_call",
+                "config": {
+                    "destination_source": "dynamic",
+                    "timeout": 120,
+                    "resolver": {
+                        "type": "http",
+                        "url": "https://crm.example.com/resolve-transfer",
+                        "timeout_ms": 5000,
+                    },
+                },
+            },
+        )
+
+        _handler, timeout_secs = manager._create_handler(tool, "transfer_call")
+
+        assert timeout_secs == 140.0
 
     @pytest.mark.asyncio
     async def test_http_resolver_resolves_transfer_context_destination(self):
@@ -1562,6 +1672,89 @@ class TestCustomToolManagerUnit:
         ]
         assert "One moment while I find the right team." in spoken_texts
         assert "I will connect you with our Texas partner now." in spoken_texts
+
+    @pytest.mark.asyncio
+    async def test_transfer_call_resolver_failure_resets_queued_speech_mute(self):
+        """Resolver failure after a wait message should not leave user input muted."""
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        mock_engine = Mock()
+        mock_engine._workflow_run_id = 1
+        mock_engine._call_context_vars = {}
+        mock_engine._gathered_context = {"state": "TX"}
+        mock_engine._fetch_recording_audio = None
+        mock_engine._get_organization_id = AsyncMock(return_value=1)
+        mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine.set_mute_pipeline = Mock()
+        mock_engine.end_call_with_reason = AsyncMock()
+        mock_engine._queued_speech_mute_state = "idle"
+
+        manager = CustomToolManager(mock_engine)
+        tool = MockToolModel(
+            tool_uuid="transfer-tool-uuid",
+            name="Transfer Call",
+            description="Transfer the caller",
+            category="transfer_call",
+            definition={
+                "schema_version": 1,
+                "type": "transfer_call",
+                "config": {
+                    "destination_source": "dynamic",
+                    "timeout": 30,
+                    "resolver": {
+                        "type": "http",
+                        "url": "https://crm.example.com/resolve-transfer",
+                        "timeout_ms": 3000,
+                        "wait_message": "One moment while I find the right team.",
+                    },
+                },
+            },
+        )
+        handler, _timeout_secs = manager._create_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.TWILIO.value,
+            gathered_context={"call_id": "caller-call-sid"},
+        )
+        result_received = None
+
+        async def mock_result_callback(result, properties=None):
+            nonlocal result_received
+            result_received = result
+
+        mock_params = Mock()
+        mock_params.arguments = {"state": "TX"}
+        mock_params.result_callback = mock_result_callback
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"transfer_context": {}}
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                new=AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.tools.transfer_resolver.validate_user_configured_service_url"
+            ),
+            patch(
+                "api.services.workflow.tools.transfer_resolver.httpx.AsyncClient"
+            ) as mock_client_class,
+        ):
+            mock_client = AsyncMock()
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await handler(mock_params)
+
+        assert result_received["status"] == "transfer_failed"
+        assert result_received["reason"] == "no_destination"
+        assert mock_engine._queued_speech_mute_state == "idle"
+        assert [call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list] == [
+            True,
+            False,
+        ]
 
     @pytest.mark.asyncio
     async def test_transfer_call_propagates_provider_destination_error(self):

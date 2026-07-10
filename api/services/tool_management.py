@@ -82,7 +82,7 @@ def _credential_uuids_from_definition(definition: dict[str, Any]) -> list[str]:
         resolver = config.get("resolver")
         if isinstance(resolver, dict):
             resolver_credential_uuid = resolver.get("credential_uuid")
-            if isinstance(resolver_credential_uuid, str):
+            if isinstance(resolver_credential_uuid, str) and resolver_credential_uuid:
                 credential_uuids.append(resolver_credential_uuid)
 
     return list(dict.fromkeys(credential_uuids))

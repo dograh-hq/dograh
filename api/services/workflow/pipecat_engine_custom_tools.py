@@ -317,7 +317,7 @@ class CustomToolManager:
         if tool.category == ToolCategory.END_CALL.value:
             handler = self._create_end_call_handler(tool, function_name)
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
-            timeout_secs = 120.0
+            timeout_secs = self._transfer_handler_timeout_secs(tool)
             handler = self._create_transfer_call_handler(tool, function_name)
         else:
             timeout_ms = ((tool.definition or {}).get("config", {}) or {}).get(
@@ -327,6 +327,28 @@ class CustomToolManager:
             handler = self._create_http_tool_handler(tool, function_name)
 
         return handler, timeout_secs
+
+    def _transfer_handler_timeout_secs(self, tool: Any) -> float:
+        config = ((tool.definition or {}).get("config", {}) or {})
+        try:
+            transfer_timeout = int(config.get("timeout", 30))
+        except (TypeError, ValueError):
+            transfer_timeout = 30
+        transfer_timeout = min(max(transfer_timeout, 5), 120)
+
+        resolver_timeout = 0.0
+        resolver = config.get("resolver")
+        if (
+            config.get("destination_source", "static") == "dynamic"
+            and isinstance(resolver, dict)
+        ):
+            try:
+                resolver_timeout = float(resolver.get("timeout_ms", 3000)) / 1000.0
+            except (TypeError, ValueError):
+                resolver_timeout = 3.0
+            resolver_timeout = min(max(resolver_timeout, 0.5), 5.0)
+
+        return float(transfer_timeout) + resolver_timeout + 15.0
 
     def _register_calculator_handler(self) -> None:
         """Register the built-in calculator function with the LLM."""
@@ -586,6 +608,13 @@ class CustomToolManager:
                 )
                 resolver_phase_muted = False
 
+                def clear_transfer_setup_mute_state() -> None:
+                    nonlocal resolver_phase_muted
+                    if resolver_phase_muted:
+                        self._engine.set_mute_pipeline(False)
+                        resolver_phase_muted = False
+                    self._engine._queued_speech_mute_state = "idle"
+
                 if is_dynamic_transfer:
                     self._engine.set_mute_pipeline(True)
                     resolver_phase_muted = True
@@ -613,9 +642,7 @@ class CustomToolManager:
                     destination = resolved_transfer.destination
                     timeout_seconds = resolved_transfer.timeout_seconds
                 except TransferResolutionError as e:
-                    if resolver_phase_muted:
-                        self._engine.set_mute_pipeline(False)
-                        resolver_phase_muted = False
+                    clear_transfer_setup_mute_state()
                     validation_error_result = {
                         "status": "failed",
                         "message": "I'm sorry, but I couldn't find a valid destination for this transfer.",
@@ -635,9 +662,7 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "no_destination",
                     }
-                    if resolver_phase_muted:
-                        self._engine.set_mute_pipeline(False)
-                        resolver_phase_muted = False
+                    clear_transfer_setup_mute_state()
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
@@ -667,9 +692,7 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "provider_does_not_support_transfer",
                     }
-                    if resolver_phase_muted:
-                        self._engine.set_mute_pipeline(False)
-                        resolver_phase_muted = False
+                    clear_transfer_setup_mute_state()
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
@@ -720,6 +743,7 @@ class CustomToolManager:
                 except Exception as e:
                     logger.error(f"Transfer provider failed: {e}")
                     self._engine.set_mute_pipeline(False)
+                    self._engine._queued_speech_mute_state = "idle"
                     await call_transfer_manager.remove_transfer_context(transfer_id)
                     provider_error_result = {
                         "status": "failed",
@@ -819,6 +843,7 @@ class CustomToolManager:
                     f"Transfer call tool '{function_name}' execution failed: {e}"
                 )
                 self._engine.set_mute_pipeline(False)
+                self._engine._queued_speech_mute_state = "idle"
 
                 # Handle generic exception with user-friendly message
                 exception_result = {

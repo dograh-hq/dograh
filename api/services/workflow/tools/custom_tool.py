@@ -43,9 +43,10 @@ def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
         and config.get("destination_source", "static") == "dynamic"
     ):
         resolver = config.get("resolver")
-        parameters = (
-            resolver.get("parameters", []) if isinstance(resolver, dict) else []
-        )
+        if isinstance(resolver, dict):
+            parameters = resolver.get("parameters", []) or []
+        else:
+            parameters = []
 
     # Build properties and required list from parameters
     properties = {}
@@ -284,7 +285,7 @@ async def execute_http_tool(
     params = None
     if method in ("POST", "PUT", "PATCH"):
         body = resolved_arguments
-    elif method in ("GET", "DELETE"):
+    elif method in ("GET", "DELETE") and resolved_arguments:
         params = resolved_arguments
 
     logger.info(

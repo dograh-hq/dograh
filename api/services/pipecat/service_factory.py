@@ -123,13 +123,14 @@ def _resolve_elevenlabs_stt_language(language_code: str | None) -> Language | st
 
 
 def _elevenlabs_realtime_stt_host(base_url: str) -> str:
-    """Return the hostname Pipecat's ElevenLabs realtime STT expects.
+    """Return the host Pipecat's ElevenLabs realtime STT expects.
 
     Unlike ElevenLabs TTS (which takes a full wss:// URL), the realtime STT
     service builds ``wss://{host}/v1/speech-to-text/realtime`` internally.
+    Use netloc so optional ports on BYOK/proxy endpoints are preserved.
     """
     parsed = urlparse(base_url)
-    return parsed.hostname or base_url.strip().rstrip("/")
+    return parsed.netloc or base_url.strip().rstrip("/")
 
 
 def stt_uses_external_turns(user_config) -> bool:

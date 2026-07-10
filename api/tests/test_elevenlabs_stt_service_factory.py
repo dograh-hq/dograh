@@ -123,3 +123,51 @@ def test_elevenlabs_stt_bare_hostname_base_url_is_preserved():
 
     kwargs = stt_service.call_args.kwargs
     assert kwargs["base_url"] == "api.elevenlabs.io"
+
+
+def test_elevenlabs_stt_preserves_non_default_port_in_base_url():
+    user_config = _elevenlabs_config(base_url="https://localhost:8443")
+
+    with patch(
+        "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
+    ) as stt_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = stt_service.call_args.kwargs
+    assert kwargs["base_url"] == "localhost:8443"
+
+
+def test_elevenlabs_stt_listed_custom_language_maps_to_pipecat_enum():
+    user_config = _elevenlabs_config(language="yue")
+
+    with patch(
+        "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
+    ) as stt_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = stt_service.call_args.kwargs
+    assert kwargs["settings"].language == Language.YUE
+
+
+def test_elevenlabs_stt_preserves_non_default_port_in_base_url():
+    user_config = _elevenlabs_config(base_url="https://localhost:8443")
+
+    with patch(
+        "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
+    ) as stt_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = stt_service.call_args.kwargs
+    assert kwargs["base_url"] == "localhost:8443"
+
+
+def test_elevenlabs_stt_listed_custom_language_maps_to_pipecat_enum():
+    user_config = _elevenlabs_config(language="yue")
+
+    with patch(
+        "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
+    ) as stt_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = stt_service.call_args.kwargs
+    assert kwargs["settings"].language == Language.YUE

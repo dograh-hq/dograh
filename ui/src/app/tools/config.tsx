@@ -9,13 +9,32 @@ import type {
     EndCallToolDefinition,
     HttpApiToolDefinition,
     McpToolDefinition,
+    PresetToolParameter,
     TransferCallConfig,
     TransferCallToolDefinition,
+    ToolParameter,
 } from "@/client/types.gen";
 
 export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";
 
 export type EndCallMessageType = "none" | "custom" | "audio";
+export type TransferDestinationSource = "static" | "dynamic";
+
+export interface TransferResolverConfig {
+    type: "http";
+    url: string;
+    headers?: Record<string, string> | null;
+    credential_uuid?: string | null;
+    timeout_ms: number;
+    wait_message?: string | null;
+    parameters?: ToolParameter[] | null;
+    preset_parameters?: PresetToolParameter[] | null;
+}
+
+export interface ExtendedTransferCallConfig extends TransferCallConfig {
+    destination_source?: TransferDestinationSource;
+    resolver?: TransferResolverConfig | null;
+}
 
 export interface ToolCategoryConfig {
     value: ToolCategory;

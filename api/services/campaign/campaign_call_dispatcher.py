@@ -354,7 +354,6 @@ class CampaignCallDispatcher:
             webhook_url = (
                 f"{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
                 f"?workflow_id={campaign.workflow_id}"
-                f"&user_id={campaign.created_by}"
                 f"&workflow_run_id={workflow_run.id}"
                 f"&organization_id={campaign.organization_id}"
             )
@@ -365,7 +364,7 @@ class CampaignCallDispatcher:
                 workflow_run_id=workflow_run.id,
                 from_number=from_number,
                 workflow_id=campaign.workflow_id,
-                user_id=campaign.created_by,
+                organization_id=campaign.organization_id,
             )
 
             # Store provider type and metadata in gathered_context

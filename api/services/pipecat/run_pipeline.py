@@ -254,7 +254,7 @@ async def run_pipeline_telephony(
     provider_name: str,
     workflow_id: int,
     workflow_run_id: int,
-    user_id: int,
+    organization_id: int,
     call_id: str,
     transport_kwargs: dict,
 ) -> None:
@@ -268,7 +268,7 @@ async def run_pipeline_telephony(
             provider_name=provider_name,
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
-            user_id=user_id,
+            organization_id=organization_id,
             call_id=call_id,
             transport_kwargs=transport_kwargs,
         )
@@ -285,7 +285,7 @@ async def _run_pipeline_telephony_impl(
     provider_name: str,
     workflow_id: int,
     workflow_run_id: int,
-    user_id: int,
+    organization_id: int,
     call_id: str,
     transport_kwargs: dict,
 ) -> None:
@@ -300,7 +300,9 @@ async def _run_pipeline_telephony_impl(
         provider_name: Stable identifier of the provider (registry key).
         workflow_id: Workflow being executed.
         workflow_run_id: Workflow run row.
-        user_id: Owner of the workflow.
+        organization_id: Tenant owning the workflow and the run. Every lookup
+            below is scoped by it; the workflow owner is read off the workflow
+            row and used only for attribution.
         call_id: Provider call identifier.
         transport_kwargs: Provider-specific kwargs forwarded to the transport
             factory (e.g. stream_sid + call_sid for Twilio).
@@ -308,12 +310,15 @@ async def _run_pipeline_telephony_impl(
     logger.debug(f"Running {provider_name} pipeline for workflow_run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
 
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-    if workflow:
-        set_current_org_id(workflow.organization_id)
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=organization_id
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    set_current_org_id(workflow.organization_id)
 
     ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
+    if workflow.workflow_configurations:
         ambient_noise_config = workflow.workflow_configurations.get(
             "ambient_noise_configuration"
         )
@@ -322,9 +327,16 @@ async def _run_pipeline_telephony_impl(
     # (test call, campaign dispatch, inbound). Transports use it to load creds
     # from the right config row. Falls back to None for legacy runs (transports
     # then resolve the org's default config).
-    workflow_run = await db_client.get_workflow_run(workflow_run_id)
+    workflow_run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=organization_id
+    )
+    if not workflow_run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if workflow_run.workflow_id != workflow_id:
+        raise HTTPException(status_code=400, detail="workflow_run_workflow_mismatch")
+
     telephony_configuration_id = None
-    if workflow_run and workflow_run.initial_context:
+    if workflow_run.initial_context:
         telephony_configuration_id = workflow_run.initial_context.get(
             "telephony_configuration_id"
         )
@@ -336,11 +348,9 @@ async def _run_pipeline_telephony_impl(
         get_effective_ai_model_configuration_for_workflow,
     )
 
-    run_configs = (
-        (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
-    )
+    run_configs = workflow_run.definition.workflow_configurations or {}
     user_config = await get_effective_ai_model_configuration_for_workflow(
-        organization_id=workflow.organization_id if workflow else None,
+        organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
@@ -364,10 +374,12 @@ async def _run_pipeline_telephony_impl(
             transport,
             workflow_id,
             workflow_run_id,
-            user_id,
+            # Attribution only — scoping is driven by organization_id below.
+            workflow.user_id,
             audio_config=audio_config,
             workflow_run=workflow_run,
             resolved_user_config=user_config,
+            organization_id=organization_id,
         )
     except Exception as e:
         logger.error(

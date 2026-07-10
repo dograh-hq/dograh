@@ -240,12 +240,14 @@ async def initiate_call(
         webhook_url = (
             f"{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
             f"?workflow_id={workflow.id}"
-            f"&user_id={execution_user_id}"
             f"&workflow_run_id={workflow_run_id}"
             f"&organization_id={user.selected_organization_id}"
         )
 
-        keywords = {"workflow_id": workflow.id, "user_id": execution_user_id}
+        keywords = {
+            "workflow_id": workflow.id,
+            "organization_id": user.selected_organization_id,
+        }
 
         # Initiate call via provider
         result = await provider.initiate_call(
@@ -543,13 +545,13 @@ async def websocket_ari_endpoint(websocket: WebSocket):
     query params (appended by the v() dial string option in externalMedia).
     """
     workflow_id = websocket.query_params.get("workflow_id")
-    user_id = websocket.query_params.get("user_id")
+    organization_id = websocket.query_params.get("organization_id")
     workflow_run_id = websocket.query_params.get("workflow_run_id")
 
-    if not workflow_id or not user_id or not workflow_run_id:
+    if not workflow_id or not organization_id or not workflow_run_id:
         logger.error(
-            f"ARI WebSocket missing query params: "
-            f"workflow_id={workflow_id}, user_id={user_id}, workflow_run_id={workflow_run_id}"
+            f"ARI WebSocket missing query params: workflow_id={workflow_id}, "
+            f"organization_id={organization_id}, workflow_run_id={workflow_run_id}"
         )
         await websocket.close(code=4400, reason="Missing required query params")
         return
@@ -559,39 +561,55 @@ async def websocket_ari_endpoint(websocket: WebSocket):
     await websocket.accept(subprotocol="media")
 
     await _handle_telephony_websocket(
-        websocket, int(workflow_id), int(user_id), int(workflow_run_id)
+        websocket, int(workflow_id), int(organization_id), int(workflow_run_id)
     )
 
 
-@router.websocket("/ws/{workflow_id}/{user_id}/{workflow_run_id}")
+@router.websocket("/ws/{workflow_id}/{organization_id}/{workflow_run_id}")
 async def websocket_endpoint(
-    websocket: WebSocket, workflow_id: int, user_id: int, workflow_run_id: int
+    websocket: WebSocket, workflow_id: int, organization_id: int, workflow_run_id: int
 ):
     """WebSocket endpoint for real-time call handling - routes to provider-specific handlers."""
     await websocket.accept()
-    await _handle_telephony_websocket(websocket, workflow_id, user_id, workflow_run_id)
+    await _handle_telephony_websocket(
+        websocket, workflow_id, organization_id, workflow_run_id
+    )
 
 
 async def _handle_telephony_websocket(
-    websocket: WebSocket, workflow_id: int, user_id: int, workflow_run_id: int
+    websocket: WebSocket, workflow_id: int, organization_id: int, workflow_run_id: int
 ):
-    """Shared WebSocket handler logic (connection already accepted)."""
+    """Shared WebSocket handler logic (connection already accepted).
+
+    TODO(security): ``organization_id`` arrives in the URL the provider dials
+    back, so it is caller-supplied and unauthenticated — this socket has no
+    signature check, and the id triple is a guessable bearer capability.
+    Scoping the lookups below by it prevents an accidental cross-org mismatch,
+    not a deliberate one. The real fix is a one-shot capability token minted at
+    run creation and redeemed here through an atomic
+    ``initialized -> running`` compare-and-swap, which would also close the
+    read-then-write race on the state check further down.
+    """
     try:
         # Set the run context
         set_current_run_id(workflow_run_id)
 
         # Get workflow run to determine provider type
-        workflow_run = await db_client.get_workflow_run(workflow_run_id)
+        workflow_run = await db_client.get_workflow_run(
+            workflow_run_id, organization_id=organization_id
+        )
         if not workflow_run:
-            logger.error(f"Workflow run {workflow_run_id} not found")
+            logger.error(
+                f"Workflow run {workflow_run_id} not found for org {organization_id}"
+            )
             await websocket.close(code=4404, reason="Workflow run not found")
             return
 
-        # Get workflow for organization info. System lookup keyed only on the
-        # workflow_id (org is derived below) — use the explicit unscoped variant.
-        workflow = await db_client.get_workflow_by_id(workflow_id)
+        workflow = await db_client.get_workflow(
+            workflow_id, organization_id=organization_id
+        )
         if not workflow:
-            logger.error(f"Workflow {workflow_id} not found")
+            logger.error(f"Workflow {workflow_id} not found for org {organization_id}")
             await websocket.close(code=4404, reason="Workflow not found")
             return
         if workflow_run.workflow_id != workflow.id:
@@ -600,13 +618,6 @@ async def _handle_telephony_websocket(
                 f"{workflow_run.workflow_id}, not {workflow.id}"
             )
             await websocket.close(code=4400, reason="workflow_run_workflow_mismatch")
-            return
-        if workflow.user_id != user_id:
-            logger.error(
-                f"Telephony websocket user mismatch for workflow {workflow.id}: "
-                f"got {user_id}, expected {workflow.user_id}"
-            )
-            await websocket.close(code=4400, reason="workflow_user_mismatch")
             return
 
         # Check workflow run state - only allow 'initialized' state
@@ -689,7 +700,7 @@ async def _handle_telephony_websocket(
 
         # Delegate to provider-specific handler
         await provider.handle_websocket(
-            websocket, workflow_id, user_id, workflow_run_id
+            websocket, workflow_id, organization_id, workflow_run_id
         )
 
     except WebSocketDisconnect as e:
@@ -854,7 +865,7 @@ async def handle_inbound_run(request: Request):
             backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
             websocket_url = (
                 f"{wss_backend_endpoint}/api/v1/telephony/ws/"
-                f"{workflow_id}/{user_id}/{workflow_run_id}"
+                f"{workflow_id}/{config.organization_id}/{workflow_run_id}"
             )
 
             return await provider_instance.start_inbound_stream(
@@ -1022,7 +1033,7 @@ async def handle_inbound_telephony(
             backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
             websocket_url = (
                 f"{wss_backend_endpoint}/api/v1/telephony/ws/"
-                f"{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
+                f"{workflow_id}/{organization_id}/{workflow_run_id}"
             )
 
             response = await provider_instance.start_inbound_stream(

@@ -6121,12 +6121,7 @@ export type UpdateWorkflowRequest = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Workflow Configurations
-     */
-    workflow_configurations?: {
-        [key: string]: unknown;
-    } | null;
+    workflow_configurations?: WorkflowConfigurationDefaults | null;
 };
 
 /**

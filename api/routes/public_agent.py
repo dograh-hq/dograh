@@ -303,13 +303,12 @@ async def _execute_resolved_target(
     webhook_url = (
         f"{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
         f"?workflow_id={target.workflow.id}"
-        f"&user_id={execution_user_id}"
         f"&workflow_run_id={workflow_run.id}"
         f"&organization_id={target.organization_id}"
     )
 
-    # 10. Initiate call via telephony provider. workflow_id and user_id are
-    # required by providers that build the media WebSocket URL at dial time
+    # 10. Initiate call via telephony provider. workflow_id and organization_id
+    # are required by providers that build the media WebSocket URL at dial time
     # (e.g. Telnyx, Cloudonix); without them the URL contains "None/None" and
     # the stream connection fails.
     try:
@@ -318,7 +317,7 @@ async def _execute_resolved_target(
             webhook_url=webhook_url,
             workflow_run_id=workflow_run.id,
             workflow_id=target.workflow.id,
-            user_id=execution_user_id,
+            organization_id=target.organization_id,
         )
     except Exception as e:
         logger.warning(

@@ -183,7 +183,7 @@ async def test_telephony_entrypoint_counts_call_during_setup(monkeypatch):
             provider_name="twilio",
             workflow_id=1,
             workflow_run_id=44,
-            user_id=7,
+            organization_id=7,
             call_id="call-1",
             transport_kwargs={},
         )

@@ -94,7 +94,6 @@ async def test_agent_stream_reads_call_metadata_from_start_message():
             websocket,
             organization_id=44,
             workflow_id=101,
-            user_id=202,
             workflow_run_id=303,
             params={},
         )
@@ -267,7 +266,6 @@ async def test_agent_stream_handshake_timeout_closes_socket(monkeypatch):
             websocket,
             organization_id=1,
             workflow_id=2,
-            user_id=3,
             workflow_run_id=4,
             params={},
         ),

@@ -137,8 +137,8 @@ def test_elevenlabs_stt_preserves_non_default_port_in_base_url():
     assert kwargs["base_url"] == "localhost:8443"
 
 
-def test_elevenlabs_stt_listed_custom_language_maps_to_pipecat_enum():
-    user_config = _elevenlabs_config(language="yue")
+def test_elevenlabs_stt_preserves_proxy_path_prefix_in_base_url():
+    user_config = _elevenlabs_config(base_url="https://proxy.example.com/elevenlabs")
 
     with patch(
         "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
@@ -146,19 +146,7 @@ def test_elevenlabs_stt_listed_custom_language_maps_to_pipecat_enum():
         create_stt_service(user_config, _audio_config())
 
     kwargs = stt_service.call_args.kwargs
-    assert kwargs["settings"].language == Language.YUE
-
-
-def test_elevenlabs_stt_preserves_non_default_port_in_base_url():
-    user_config = _elevenlabs_config(base_url="https://localhost:8443")
-
-    with patch(
-        "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"
-    ) as stt_service:
-        create_stt_service(user_config, _audio_config())
-
-    kwargs = stt_service.call_args.kwargs
-    assert kwargs["base_url"] == "localhost:8443"
+    assert kwargs["base_url"] == "proxy.example.com/elevenlabs"
 
 
 def test_elevenlabs_stt_listed_custom_language_maps_to_pipecat_enum():

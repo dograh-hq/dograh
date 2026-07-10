@@ -524,7 +524,10 @@ class CustomToolManager:
             function_call_params: FunctionCallParams,
         ) -> None:
             logger.info(f"Transfer Call Tool EXECUTED: {function_name}")
-            logger.info(f"Arguments: {function_call_params.arguments}")
+            logger.info(
+                "Transfer call arguments received "
+                f"argument_keys={list((function_call_params.arguments or {}).keys())}"
+            )
 
             try:
                 # Get the transfer call configuration
@@ -577,7 +580,17 @@ class CustomToolManager:
                     return
 
                 resolver = config.get("resolver") if isinstance(config, dict) else None
-                if isinstance(resolver, dict) and resolver.get("wait_message"):
+                is_dynamic_transfer = (
+                    config.get("destination_source", "static") == "dynamic"
+                    and isinstance(resolver, dict)
+                )
+                resolver_phase_muted = False
+
+                if is_dynamic_transfer:
+                    self._engine.set_mute_pipeline(True)
+                    resolver_phase_muted = True
+
+                if is_dynamic_transfer and resolver.get("wait_message"):
                     await self._engine.task.queue_frame(
                         TTSSpeakFrame(
                             str(resolver["wait_message"]),
@@ -600,6 +613,9 @@ class CustomToolManager:
                     destination = resolved_transfer.destination
                     timeout_seconds = resolved_transfer.timeout_seconds
                 except TransferResolutionError as e:
+                    if resolver_phase_muted:
+                        self._engine.set_mute_pipeline(False)
+                        resolver_phase_muted = False
                     validation_error_result = {
                         "status": "failed",
                         "message": "I'm sorry, but I couldn't find a valid destination for this transfer.",
@@ -619,6 +635,9 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "no_destination",
                     }
+                    if resolver_phase_muted:
+                        self._engine.set_mute_pipeline(False)
+                        resolver_phase_muted = False
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
@@ -648,6 +667,9 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "provider_does_not_support_transfer",
                     }
+                    if resolver_phase_muted:
+                        self._engine.set_mute_pipeline(False)
+                        resolver_phase_muted = False
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
@@ -687,7 +709,6 @@ class CustomToolManager:
                         "Transfer provider call starting "
                         f"source={resolved_transfer.source} "
                         f"resolution_id={resolved_transfer.resolution_id or ''} "
-                        f"route={resolved_transfer.route or ''} "
                         f"destination={masked_destination} timeout={timeout_seconds}"
                     )
                     transfer_result = await provider.transfer_call(
@@ -720,7 +741,9 @@ class CustomToolManager:
 
                 # Wait for status callback completion using Redis pub/sub
                 logger.info(
-                    f"Transfer call initiated for {destination} (transfer_id={transfer_id}), waiting for completion..."
+                    "Transfer call initiated "
+                    f"destination={masked_destination} transfer_id={transfer_id}, "
+                    "waiting for completion..."
                 )
 
                 # Start hold music during transfer waiting period

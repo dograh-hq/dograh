@@ -51,8 +51,7 @@ import {
     getToolTypeLabel,
     MCP_URL_PATTERN,
     renderToolIcon,
-    type TransferApprovedRouteRow,
-    type TransferResolverPolicy,
+    type TransferDestinationSource,
     type ToolCategory,
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
@@ -69,16 +68,9 @@ function normalizeParameterType(value: string | null | undefined): ParameterType
     }
 }
 
-function approvedRoutesToRows(
-    routes: ExtendedTransferCallConfig["approved_routes"] | undefined | null,
-): TransferApprovedRouteRow[] {
-    if (!routes) return [];
-    return Object.entries(routes).map(([key, route]) => ({
-        key,
-        destination: route.destination || "",
-        message: route.message || "",
-        timeout_seconds: route.timeout_seconds ?? 30,
-    }));
+function headersToRows(headers: Record<string, string> | undefined | null): KeyValueItem[] {
+    if (!headers) return [];
+    return Object.entries(headers).map(([key, value]) => ({ key, value }));
 }
 
 export default function ToolDetailPage() {
@@ -123,20 +115,19 @@ export default function ToolDetailPage() {
     };
 
     // Transfer Call form state
+    const [transferDestinationSource, setTransferDestinationSource] =
+        useState<TransferDestinationSource>("static");
     const [transferDestination, setTransferDestination] = useState("");
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
     const [transferTimeout, setTransferTimeout] = useState(30);
     const [transferAudioRecordingId, setTransferAudioRecordingId] = useState("");
-    const [transferResolverEnabled, setTransferResolverEnabled] = useState(false);
     const [transferResolverUrl, setTransferResolverUrl] = useState("");
     const [transferResolverCredentialUuid, setTransferResolverCredentialUuid] = useState("");
+    const [transferResolverHeaders, setTransferResolverHeaders] = useState<KeyValueItem[]>([]);
     const [transferResolverTimeoutMs, setTransferResolverTimeoutMs] = useState(3000);
     const [transferResolverWaitMessage, setTransferResolverWaitMessage] = useState("");
-    const [transferResolverPolicy, setTransferResolverPolicy] =
-        useState<TransferResolverPolicy>("approved_routes_only");
-    const [transferApprovedRoutes, setTransferApprovedRoutes] = useState<TransferApprovedRouteRow[]>([]);
-    const [transferFallbackRoute, setTransferFallbackRoute] = useState("");
     const [transferParameters, setTransferParameters] = useState<ToolParameter[]>([]);
+    const [transferPresetParameters, setTransferPresetParameters] = useState<PresetToolParameter[]>([]);
 
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
@@ -208,42 +199,48 @@ export default function ToolDetailPage() {
             // Populate transfer call specific fields
             const config = tool.definition?.config as ExtendedTransferCallConfig | undefined;
             if (config) {
+                const resolver = config.resolver || undefined;
+                setTransferDestinationSource(config.destination_source || (resolver ? "dynamic" : "static"));
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
                 setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
-                setTransferResolverEnabled(Boolean(config.resolver));
-                setTransferResolverUrl(config.resolver?.url || "");
-                setTransferResolverCredentialUuid(config.resolver?.credential_uuid || "");
-                setTransferResolverTimeoutMs(config.resolver?.timeout_ms ?? 3000);
-                setTransferResolverWaitMessage(config.resolver?.wait_message || "");
-                setTransferResolverPolicy(config.resolver?.policy || "approved_routes_only");
-                setTransferApprovedRoutes(approvedRoutesToRows(config.approved_routes));
-                setTransferFallbackRoute(config.fallback_route || "");
+                setTransferResolverUrl(resolver?.url || "");
+                setTransferResolverCredentialUuid(resolver?.credential_uuid || "");
+                setTransferResolverHeaders(headersToRows(resolver?.headers));
+                setTransferResolverTimeoutMs(resolver?.timeout_ms ?? 3000);
+                setTransferResolverWaitMessage(resolver?.wait_message || "");
                 setTransferParameters(
-                    (config.parameters || []).map((p) => ({
+                    (resolver?.parameters || config.parameters || []).map((p) => ({
                         name: p.name || "",
                         type: normalizeParameterType(p.type),
                         description: p.description || "",
                         required: p.required ?? true,
                     })),
                 );
+                setTransferPresetParameters(
+                    (resolver?.preset_parameters || []).map((p) => ({
+                        name: p.name || "",
+                        type: normalizeParameterType(p.type),
+                        valueTemplate: p.value_template || "",
+                        required: p.required ?? true,
+                    })),
+                );
             } else {
+                setTransferDestinationSource("static");
                 setTransferDestination("");
                 setTransferMessageType("none");
                 setCustomMessage("");
                 setTransferAudioRecordingId("");
                 setTransferTimeout(30);
-                setTransferResolverEnabled(false);
                 setTransferResolverUrl("");
                 setTransferResolverCredentialUuid("");
+                setTransferResolverHeaders([]);
                 setTransferResolverTimeoutMs(3000);
                 setTransferResolverWaitMessage("");
-                setTransferResolverPolicy("approved_routes_only");
-                setTransferApprovedRoutes([]);
-                setTransferFallbackRoute("");
                 setTransferParameters([]);
+                setTransferPresetParameters([]);
             }
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
@@ -345,45 +342,17 @@ export default function ToolDetailPage() {
         if (tool.category === "calculator") {
             // No validation needed for built-in tools
         } else if (tool.category === "transfer_call") {
-            if (!transferResolverEnabled && !normalizedTransferDestination) {
+            if (transferDestinationSource === "static" && !normalizedTransferDestination) {
                 setError("Please enter a transfer destination");
                 return;
             }
-            if (transferResolverEnabled) {
+            if (transferDestinationSource === "dynamic") {
                 const resolverUrlValidation = validateUrl(transferResolverUrl);
                 if (!resolverUrlValidation.valid) {
                     setError(resolverUrlValidation.error || "Invalid resolver URL");
                     return;
                 }
-                if (
-                    transferResolverPolicy === "approved_routes_or_static_fallback" &&
-                    !normalizedTransferDestination
-                ) {
-                    setError("Please enter a transfer destination for static fallback");
-                    return;
-                }
 
-                const routeKeys = transferApprovedRoutes
-                    .map((route) => route.key.trim())
-                    .filter(Boolean);
-                const invalidRoutes = transferApprovedRoutes.filter(
-                    (route) => !route.key.trim() || !route.destination.trim()
-                );
-                if (invalidRoutes.length > 0) {
-                    setError("All approved routes must have a route key and destination");
-                    return;
-                }
-                if (new Set(routeKeys).size !== routeKeys.length) {
-                    setError("Approved route keys must be unique");
-                    return;
-                }
-                if (
-                    transferFallbackRoute.trim() &&
-                    !routeKeys.includes(transferFallbackRoute.trim())
-                ) {
-                    setError("Fallback route must match an approved route key");
-                    return;
-                }
                 const invalidTransferParams = transferParameters.filter(
                     (p) => !p.name.trim() || !p.description.trim()
                 );
@@ -396,6 +365,20 @@ export default function ToolDetailPage() {
                     .filter(Boolean);
                 if (new Set(transferParamNames).size !== transferParamNames.length) {
                     setError("Resolver argument names must be unique");
+                    return;
+                }
+                const invalidPresetTransferParams = transferPresetParameters.filter(
+                    (p) => !p.name.trim() || !p.valueTemplate.trim()
+                );
+                if (invalidPresetTransferParams.length > 0) {
+                    setError("All resolver preset parameters must have a name and a value");
+                    return;
+                }
+                const transferPresetParamNames = transferPresetParameters
+                    .map((p) => p.name.trim())
+                    .filter(Boolean);
+                if (new Set(transferPresetParamNames).size !== transferPresetParamNames.length) {
+                    setError("Resolver preset parameter names must be unique");
                     return;
                 }
             }
@@ -469,56 +452,54 @@ export default function ToolDetailPage() {
                     },
                 };
             } else if (tool.category === "transfer_call") {
-                const approvedRoutesObject = transferApprovedRoutes.reduce(
-                    (acc, route) => {
-                        const key = route.key.trim();
-                        if (!key) return acc;
-                        acc[key] = {
-                            destination: route.destination.trim(),
-                            message: route.message?.trim() || undefined,
-                            timeout_seconds: route.timeout_seconds || undefined,
-                        };
-                        return acc;
-                    },
-                    {} as Record<string, {
-                        destination: string;
-                        message?: string;
-                        timeout_seconds?: number;
-                    }>,
+                const resolverHeadersObject: Record<string, string> = {};
+                transferResolverHeaders.filter((h) => h.key && h.value).forEach((h) => {
+                    resolverHeadersObject[h.key] = h.value;
+                });
+
+                const validTransferParameters = transferParameters.filter((p) => p.name.trim());
+                const validTransferPresetParameters = transferPresetParameters.filter(
+                    (p) => p.name.trim() && p.valueTemplate.trim()
                 );
+
                 const transferConfig: ExtendedTransferCallConfig = {
-                    destination: normalizedTransferDestination,
+                    destination_source: transferDestinationSource,
+                    destination: transferDestinationSource === "static" ? normalizedTransferDestination : "",
                     messageType: transferMessageType,
                     customMessage: transferMessageType === "custom" ? customMessage : undefined,
                     audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
                     timeout: transferTimeout,
-                    resolver: transferResolverEnabled
+                    resolver: transferDestinationSource === "dynamic"
                         ? {
                             type: "http",
                             url: transferResolverUrl.trim(),
                             credential_uuid: transferResolverCredentialUuid || undefined,
+                            headers:
+                                Object.keys(resolverHeadersObject).length > 0
+                                    ? resolverHeadersObject
+                                    : undefined,
                             timeout_ms: transferResolverTimeoutMs,
                             wait_message: transferResolverWaitMessage.trim() || undefined,
-                            policy: transferResolverPolicy,
+                            parameters:
+                                validTransferParameters.length > 0
+                                    ? validTransferParameters.map((p) => ({
+                                        name: p.name.trim(),
+                                        type: p.type,
+                                        description: p.description.trim(),
+                                        required: p.required,
+                                    }))
+                                    : undefined,
+                            preset_parameters:
+                                validTransferPresetParameters.length > 0
+                                    ? validTransferPresetParameters.map((p) => ({
+                                        name: p.name.trim(),
+                                        type: p.type,
+                                        value_template: p.valueTemplate.trim(),
+                                        required: p.required,
+                                    }))
+                                    : undefined,
                         }
                         : undefined,
-                    approved_routes:
-                        transferResolverEnabled && Object.keys(approvedRoutesObject).length > 0
-                            ? approvedRoutesObject
-                            : undefined,
-                    fallback_route:
-                        transferResolverEnabled && transferFallbackRoute.trim()
-                            ? transferFallbackRoute.trim()
-                            : undefined,
-                    parameters:
-                        transferResolverEnabled && transferParameters.length > 0
-                            ? transferParameters.map((p) => ({
-                                name: p.name.trim(),
-                                type: p.type,
-                                description: p.description.trim(),
-                                required: p.required,
-                            }))
-                            : undefined,
                 };
                 // Build transfer call request body
                 requestBody = {
@@ -791,6 +772,8 @@ const data = await response.json();`;
                             onNameChange={setName}
                             description={description}
                             onDescriptionChange={setDescription}
+                            destinationSource={transferDestinationSource}
+                            onDestinationSourceChange={setTransferDestinationSource}
                             destination={transferDestination}
                             onDestinationChange={setTransferDestination}
                             messageType={transferMessageType}
@@ -802,24 +785,20 @@ const data = await response.json();`;
                             recordings={recordings}
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
-                            resolverEnabled={transferResolverEnabled}
-                            onResolverEnabledChange={setTransferResolverEnabled}
                             resolverUrl={transferResolverUrl}
                             onResolverUrlChange={setTransferResolverUrl}
                             resolverCredentialUuid={transferResolverCredentialUuid}
                             onResolverCredentialUuidChange={setTransferResolverCredentialUuid}
+                            resolverHeaders={transferResolverHeaders}
+                            onResolverHeadersChange={setTransferResolverHeaders}
                             resolverTimeoutMs={transferResolverTimeoutMs}
                             onResolverTimeoutMsChange={setTransferResolverTimeoutMs}
                             resolverWaitMessage={transferResolverWaitMessage}
                             onResolverWaitMessageChange={setTransferResolverWaitMessage}
-                            resolverPolicy={transferResolverPolicy}
-                            onResolverPolicyChange={setTransferResolverPolicy}
-                            approvedRoutes={transferApprovedRoutes}
-                            onApprovedRoutesChange={setTransferApprovedRoutes}
-                            fallbackRoute={transferFallbackRoute}
-                            onFallbackRouteChange={setTransferFallbackRoute}
                             parameters={transferParameters}
                             onParametersChange={setTransferParameters}
+                            presetParameters={transferPresetParameters}
+                            onPresetParametersChange={setTransferPresetParameters}
                         />
                     ) : isMcpTool ? (
                         <Card>

@@ -33,6 +33,19 @@ def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
     definition = tool.definition or {}
     config = definition.get("config", {})
     parameters = config.get("parameters", []) or []
+    if (
+        definition.get("type") == "transfer_call"
+        and config.get("destination_source", "static") != "dynamic"
+    ):
+        parameters = []
+    elif (
+        definition.get("type") == "transfer_call"
+        and config.get("destination_source", "static") == "dynamic"
+    ):
+        resolver = config.get("resolver")
+        parameters = (
+            resolver.get("parameters", []) if isinstance(resolver, dict) else []
+        )
 
     # Build properties and required list from parameters
     properties = {}
@@ -271,7 +284,7 @@ async def execute_http_tool(
     params = None
     if method in ("POST", "PUT", "PATCH"):
         body = resolved_arguments
-    elif method in ("GET", "DELETE") and resolved_arguments:
+    elif method in ("GET", "DELETE"):
         params = resolved_arguments
 
     logger.info(

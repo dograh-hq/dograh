@@ -1,4 +1,4 @@
-"""Resolve transfer-call destinations from static config or dynamic resolvers."""
+"""Resolve transfer-call destinations from static config or HTTP resolvers."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.services.workflow.tools.custom_tool import _resolve_preset_parameters
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 from api.utils.url_security import validate_user_configured_service_url
@@ -21,7 +22,6 @@ class ResolvedTransferConfig:
     destination: str
     timeout_seconds: int
     message: Optional[str] = None
-    route: Optional[str] = None
     source: str = "static"
     resolution_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -53,8 +53,17 @@ def _render_value(
     return str(rendered).strip()
 
 
+def _base_timeout(config: dict[str, Any]) -> int:
+    timeout = config.get("timeout", 30)
+    try:
+        timeout_int = int(timeout)
+    except (TypeError, ValueError):
+        timeout_int = 30
+    return min(max(timeout_int, 5), 120)
+
+
 def _mask_destination(destination: Any) -> str:
-    value = _normalize_destination_value(destination)
+    value = "" if destination is None else str(destination).strip()
     if not value:
         return ""
     if len(value) <= 4:
@@ -62,7 +71,24 @@ def _mask_destination(destination: Any) -> str:
     return f"***{value[-4:]}"
 
 
-def _safe_log_value(value: Any) -> Any:
+_SENSITIVE_LOG_KEY_PARTS = (
+    "authorization",
+    "auth",
+    "card",
+    "destination",
+    "email",
+    "password",
+    "phone",
+    "secret",
+    "ssn",
+    "token",
+)
+
+
+def _safe_log_value(key: str, value: Any) -> Any:
+    key_lower = key.lower()
+    if any(part in key_lower for part in _SENSITIVE_LOG_KEY_PARTS):
+        return "<redacted>"
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
@@ -78,104 +104,56 @@ def _safe_log_value(value: Any) -> Any:
 
 
 def _safe_log_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    return {str(key): _safe_log_value(value) for key, value in (data or {}).items()}
-
-
-def _base_timeout(config: dict[str, Any]) -> int:
-    timeout = config.get("timeout", 30)
-    try:
-        timeout_int = int(timeout)
-    except (TypeError, ValueError):
-        timeout_int = 30
-    return min(max(timeout_int, 5), 120)
-
-
-def _normalize_destination_value(value: Any) -> str:
-    if isinstance(value, dict):
-        value = value.get("value")
-    if value is None:
-        return ""
-    return str(value).strip()
+    return {
+        str(key): _safe_log_value(str(key), value)
+        for key, value in (data or {}).items()
+    }
 
 
 def _resolve_static_transfer(
     config: dict[str, Any],
     call_context_vars: Optional[Dict[str, Any]],
     gathered_context_vars: Optional[Dict[str, Any]],
-    *,
-    resolution_id: Optional[str] = None,
-    source: str = "static",
 ) -> ResolvedTransferConfig:
     return ResolvedTransferConfig(
         destination=_render_value(
             config.get("destination", ""), call_context_vars, gathered_context_vars
         ),
         timeout_seconds=_base_timeout(config),
-        source=source,
-        resolution_id=resolution_id,
     )
 
 
-def _expand_approved_route(
+def _resolver_arguments(
     *,
-    route_key: str,
-    config: dict[str, Any],
+    resolver: dict[str, Any],
+    arguments: dict[str, Any],
     call_context_vars: Optional[Dict[str, Any]],
     gathered_context_vars: Optional[Dict[str, Any]],
-    resolution_id: Optional[str] = None,
-    source: str = "approved_route",
-) -> ResolvedTransferConfig:
-    approved_routes = config.get("approved_routes") or {}
-    if not isinstance(approved_routes, dict) or route_key not in approved_routes:
-        raise TransferResolutionError(
-            "unknown_route", f"Resolver returned unknown transfer route '{route_key}'"
-        )
-
-    route = approved_routes[route_key] or {}
-    if not isinstance(route, dict):
-        raise TransferResolutionError(
-            "invalid_route", f"Transfer route '{route_key}' is not configured correctly"
-        )
-
-    destination = _render_value(
-        route.get("destination", ""), call_context_vars, gathered_context_vars
-    )
-    timeout = route.get("timeout_seconds")
-    if timeout is None:
-        timeout = _base_timeout(config)
+) -> dict[str, Any]:
     try:
-        timeout_int = int(timeout)
-    except (TypeError, ValueError) as exc:
-        raise TransferResolutionError(
-            "invalid_timeout", f"Transfer route '{route_key}' has invalid timeout"
-        ) from exc
-
-    return ResolvedTransferConfig(
-        destination=destination,
-        timeout_seconds=min(max(timeout_int, 5), 120),
-        message=route.get("message"),
-        route=route_key,
-        source=source,
-        resolution_id=resolution_id,
-        metadata=dict(route.get("metadata") or {}),
-    )
+        preset_arguments = _resolve_preset_parameters(
+            resolver, call_context_vars, gathered_context_vars
+        )
+    except ValueError as exc:
+        raise TransferResolutionError("preset_parameter_error", str(exc)) from exc
+    return {**(arguments or {}), **preset_arguments}
 
 
 async def _execute_http_resolver(
     *,
     resolver: dict[str, Any],
-    tool: Any,
-    arguments: dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]],
-    gathered_context_vars: Optional[Dict[str, Any]],
+    resolved_arguments: dict[str, Any],
     organization_id: Optional[int],
-    workflow_run_id: Optional[int],
     resolution_id: str,
 ) -> dict[str, Any]:
     url = resolver.get("url", "")
     validate_user_configured_service_url(url, field_name="config.resolver.url")
 
-    headers = {"Content-Type": "application/json"}
+    method = "POST"
+    headers = dict(resolver.get("headers", {}) or {})
+    if method in ("POST", "PUT", "PATCH"):
+        headers.setdefault("Content-Type", "application/json")
+
     credential_uuid = resolver.get("credential_uuid")
     if credential_uuid and organization_id:
         credential = await db_client.get_credential_by_uuid(
@@ -189,31 +167,25 @@ async def _execute_http_resolver(
                 "Transfer resolver credential was not found for this organization",
             )
 
-    payload = {
-        "event": "transfer_resolution_requested",
-        "workflow_run_id": workflow_run_id,
-        "tool": {
-            "tool_uuid": getattr(tool, "tool_uuid", None),
-            "name": getattr(tool, "name", None),
-        },
-        "arguments": arguments or {},
-        "initial_context": dict(call_context_vars or {}),
-        "gathered_context": dict(gathered_context_vars or {}),
-    }
+    body = resolved_arguments
+
     timeout_seconds = float(resolver.get("timeout_ms", 3000)) / 1000.0
     logger.debug(
         "Transfer resolver request prepared "
-        f"resolution_id={resolution_id} "
-        f"argument_keys={list((arguments or {}).keys())} "
-        f"arguments={_safe_log_dict(arguments)} "
-        f"initial_context_keys={list((call_context_vars or {}).keys())} "
-        f"gathered_context_keys={list((gathered_context_vars or {}).keys())}"
+        f"resolution_id={resolution_id} method={method} "
+        f"argument_keys={list(resolved_arguments.keys())} "
+        f"arguments={_safe_log_dict(resolved_arguments)}"
     )
 
     try:
         started_at = time.monotonic()
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.post(url, headers=headers, json=payload)
+            response = await client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=body,
+            )
         duration_ms = int((time.monotonic() - started_at) * 1000)
     except httpx.TimeoutException as exc:
         raise TransferResolutionError(
@@ -256,96 +228,39 @@ async def _execute_http_resolver(
     return data
 
 
-def _fallback_resolution(
-    *,
-    config: dict[str, Any],
-    resolver: dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]],
-    gathered_context_vars: Optional[Dict[str, Any]],
-    resolution_id: Optional[str] = None,
-) -> Optional[ResolvedTransferConfig]:
-    fallback_route = config.get("fallback_route")
-    if fallback_route:
-        return _expand_approved_route(
-            route_key=str(fallback_route),
-            config=config,
-            call_context_vars=call_context_vars,
-            gathered_context_vars=gathered_context_vars,
-            resolution_id=resolution_id,
-            source="fallback_route",
-        )
-
-    if resolver.get("policy") == "approved_routes_or_static_fallback":
-        return _resolve_static_transfer(
-            config,
-            call_context_vars,
-            gathered_context_vars,
-            resolution_id=resolution_id,
-            source="static_fallback",
-        )
-
-    return None
-
-
 def _resolve_from_response(
     *,
     response_data: dict[str, Any],
     config: dict[str, Any],
-    resolver: dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]],
-    gathered_context_vars: Optional[Dict[str, Any]],
     resolution_id: str,
 ) -> ResolvedTransferConfig:
-    route_key = response_data.get("route")
-    if route_key:
-        resolved = _expand_approved_route(
-            route_key=str(route_key),
-            config=config,
-            call_context_vars=call_context_vars,
-            gathered_context_vars=gathered_context_vars,
-            resolution_id=resolution_id,
-            source="http_resolver_route",
-        )
-        resolved.metadata.update(dict(response_data.get("metadata") or {}))
-        if response_data.get("message"):
-            resolved.message = str(response_data["message"])
-        if response_data.get("timeout_seconds") is not None:
-            try:
-                resolved.timeout_seconds = min(
-                    max(int(response_data["timeout_seconds"]), 5), 120
-                )
-            except (TypeError, ValueError) as exc:
-                raise TransferResolutionError(
-                    "invalid_timeout", "Transfer resolver returned invalid timeout"
-                ) from exc
-        return resolved
-
-    policy = resolver.get("policy", "approved_routes_only")
-    if policy != "allow_raw_destination":
-        logger.warning(
-            "Transfer resolver rejected response "
-            f"resolution_id={resolution_id} reason=route_required "
-            f"policy={policy} response_keys={list(response_data.keys())}"
-        )
+    transfer_context = response_data.get("transfer_context")
+    if not isinstance(transfer_context, dict):
         raise TransferResolutionError(
-            "route_required",
-            "Transfer resolver must return an approved route for this policy",
+            "invalid_resolver_response",
+            "Transfer resolver response must contain transfer_context object",
         )
 
-    destination = _normalize_destination_value(response_data.get("destination"))
-    try:
-        timeout = int(response_data.get("timeout_seconds", _base_timeout(config)))
-    except (TypeError, ValueError) as exc:
+    destination = transfer_context.get("destination")
+    if not isinstance(destination, str) or not destination.strip():
         raise TransferResolutionError(
-            "invalid_timeout", "Transfer resolver returned invalid timeout"
-        ) from exc
+            "no_destination",
+            "Transfer resolver response must contain transfer_context.destination",
+        )
+
+    custom_message = transfer_context.get("custom_message")
+    if custom_message is not None and not isinstance(custom_message, str):
+        raise TransferResolutionError(
+            "invalid_custom_message",
+            "transfer_context.custom_message must be a string when provided",
+        )
+
     return ResolvedTransferConfig(
-        destination=destination,
-        timeout_seconds=min(max(timeout, 5), 120),
-        message=response_data.get("message"),
-        source="http_resolver_raw_destination",
+        destination=destination.strip(),
+        timeout_seconds=_base_timeout(config),
+        message=custom_message.strip() if custom_message else None,
+        source="http_resolver",
         resolution_id=resolution_id,
-        metadata=dict(response_data.get("metadata") or {}),
     )
 
 
@@ -362,7 +277,9 @@ async def resolve_transfer_config(
     """Resolve transfer destination and options for a transfer tool call."""
 
     resolver = config.get("resolver")
-    if not isinstance(resolver, dict) or resolver.get("type") != "http":
+    if config.get("destination_source", "static") != "dynamic" or not isinstance(
+        resolver, dict
+    ):
         resolved = _resolve_static_transfer(
             config, call_context_vars, gathered_context_vars
         )
@@ -374,67 +291,36 @@ async def resolve_transfer_config(
         return resolved
 
     resolution_id = str(uuid.uuid4())
-    approved_routes = config.get("approved_routes") or {}
     logger.info(
         "Transfer resolver started "
         f"resolution_id={resolution_id} tool_uuid={getattr(tool, 'tool_uuid', None)} "
         f"workflow_run_id={workflow_run_id} type={resolver.get('type')} "
-        f"policy={resolver.get('policy', 'approved_routes_only')} "
-        f"timeout_ms={resolver.get('timeout_ms', 3000)} "
-        f"route_count={len(approved_routes) if isinstance(approved_routes, dict) else 0} "
-        f"fallback_route={config.get('fallback_route') or ''} "
-        f"static_fallback_available={bool(config.get('destination'))}"
+        "method=POST "
+        f"timeout_ms={resolver.get('timeout_ms', 3000)}"
     )
 
-    try:
-        response_data = await _execute_http_resolver(
-            resolver=resolver,
-            tool=tool,
-            arguments=arguments,
-            call_context_vars=call_context_vars,
-            gathered_context_vars=gathered_context_vars,
-            organization_id=organization_id,
-            workflow_run_id=workflow_run_id,
-            resolution_id=resolution_id,
-        )
-        resolved = _resolve_from_response(
-            response_data=response_data,
-            config=config,
-            resolver=resolver,
-            call_context_vars=call_context_vars,
-            gathered_context_vars=gathered_context_vars,
-            resolution_id=resolution_id,
-        )
-    except TransferResolutionError as exc:
-        fallback = _fallback_resolution(
-            config=config,
-            resolver=resolver,
-            call_context_vars=call_context_vars,
-            gathered_context_vars=gathered_context_vars,
-            resolution_id=resolution_id,
-        )
-        if fallback:
-            logger.warning(
-                "Transfer resolver failed; using configured fallback "
-                f"resolution_id={resolution_id} reason={exc.reason} "
-                f"fallback_source={fallback.source} route={fallback.route or ''} "
-                f"destination={_mask_destination(fallback.destination)}"
-            )
-            return fallback
-        logger.warning(
-            "Transfer resolver failed without fallback "
-            f"resolution_id={resolution_id} reason={exc.reason}"
-        )
-        raise
-
-    if not resolved.destination:
-        raise TransferResolutionError(
-            "no_destination", "Transfer resolver did not provide a destination"
-        )
+    resolved_arguments = _resolver_arguments(
+        resolver=resolver,
+        arguments=arguments,
+        call_context_vars=call_context_vars,
+        gathered_context_vars=gathered_context_vars,
+    )
+    response_data = await _execute_http_resolver(
+        resolver=resolver,
+        resolved_arguments=resolved_arguments,
+        organization_id=organization_id,
+        resolution_id=resolution_id,
+    )
+    resolved = _resolve_from_response(
+        response_data=response_data,
+        config=config,
+        resolution_id=resolution_id,
+    )
     logger.info(
         "Transfer destination resolved "
         f"resolution_id={resolution_id} source={resolved.source} "
-        f"route={resolved.route or ''} destination={_mask_destination(resolved.destination)} "
-        f"timeout={resolved.timeout_seconds}"
+        f"destination={_mask_destination(resolved.destination)} "
+        f"timeout={resolved.timeout_seconds} "
+        f"custom_message_present={bool(resolved.message)}"
     )
     return resolved

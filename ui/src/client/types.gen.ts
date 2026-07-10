@@ -3007,6 +3007,14 @@ export type HttpTransferResolverConfig = {
      */
     url: string;
     /**
+     * Headers
+     *
+     * Static headers to include with every resolver request.
+     */
+    headers?: {
+        [key: string]: string;
+    } | null;
+    /**
      * Credential Uuid
      *
      * Reference to an external credential for resolver authentication.
@@ -3025,11 +3033,17 @@ export type HttpTransferResolverConfig = {
      */
     wait_message?: string | null;
     /**
-     * Policy
+     * Parameters
      *
-     * Controls what resolver responses are allowed to select.
+     * Parameters the model may provide when calling this transfer tool.
      */
-    policy?: 'approved_routes_only' | 'approved_routes_or_static_fallback' | 'allow_raw_destination';
+    parameters?: Array<ToolParameter> | null;
+    /**
+     * Preset Parameters
+     *
+     * Parameters injected by Dograh from fixed values or workflow context templates.
+     */
+    preset_parameters?: Array<PresetToolParameter> | null;
 };
 
 /**
@@ -5836,51 +5850,23 @@ export type ToolResponse = {
 };
 
 /**
- * TransferApprovedRoute
- *
- * A pre-approved destination the transfer resolver may select.
- */
-export type TransferApprovedRoute = {
-    /**
-     * Destination
-     *
-     * Phone number, SIP endpoint, or template for this route.
-     */
-    destination: string;
-    /**
-     * Message
-     *
-     * Optional message to play before transferring to this route.
-     */
-    message?: string | null;
-    /**
-     * Timeout Seconds
-     *
-     * Optional route-specific transfer answer timeout.
-     */
-    timeout_seconds?: number | null;
-    /**
-     * Metadata
-     *
-     * Optional non-secret route metadata for logs and resolver context.
-     */
-    metadata?: {
-        [key: string]: unknown;
-    } | null;
-};
-
-/**
  * TransferCallConfig
  *
  * Configuration for Transfer Call tools.
  */
 export type TransferCallConfig = {
     /**
+     * Destination Source
+     *
+     * Whether transfer destination is static/template or resolved by HTTP.
+     */
+    destination_source?: 'static' | 'dynamic';
+    /**
      * Destination
      *
      * Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
      */
-    destination: string;
+    destination?: string;
     /**
      * Messagetype
      *
@@ -5915,20 +5901,6 @@ export type TransferCallConfig = {
      * Optional resolver that determines transfer routing at call time.
      */
     resolver?: HttpTransferResolverConfig | null;
-    /**
-     * Approved Routes
-     *
-     * Approved route keys that a resolver may select.
-     */
-    approved_routes?: {
-        [key: string]: TransferApprovedRoute;
-    } | null;
-    /**
-     * Fallback Route
-     *
-     * Approved route key to use when resolver resolution fails.
-     */
-    fallback_route?: string | null;
 };
 
 /**

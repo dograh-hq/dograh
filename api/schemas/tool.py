@@ -20,11 +20,6 @@ DEFAULT_MCP_SSE_READ_TIMEOUT_SECS = 300
 
 ToolParameterType = Literal["string", "number", "boolean", "object", "array"]
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
-TransferResolverPolicy = Literal[
-    "approved_routes_only",
-    "approved_routes_or_static_fallback",
-    "allow_raw_destination",
-]
 ToolCategoryValue = Literal[
     "http_api",
     "end_call",
@@ -185,33 +180,15 @@ class EndCallConfig(BaseModel):
     )
 
 
-class TransferApprovedRoute(BaseModel):
-    """A pre-approved destination the transfer resolver may select."""
-
-    destination: str = Field(
-        description="Phone number, SIP endpoint, or template for this route."
-    )
-    message: Optional[str] = Field(
-        default=None,
-        description="Optional message to play before transferring to this route.",
-    )
-    timeout_seconds: Optional[int] = Field(
-        default=None,
-        ge=5,
-        le=120,
-        description="Optional route-specific transfer answer timeout.",
-    )
-    metadata: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Optional non-secret route metadata for logs and resolver context.",
-    )
-
-
 class HttpTransferResolverConfig(BaseModel):
     """HTTP endpoint used to resolve transfer destination at call time."""
 
     type: Literal["http"] = Field(default="http", description="Resolver type.")
     url: str = Field(description="HTTP or HTTPS endpoint for transfer resolution.")
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Static headers to include with every resolver request.",
+    )
     credential_uuid: Optional[str] = Field(
         default=None,
         description="Reference to an external credential for resolver authentication.",
@@ -226,9 +203,16 @@ class HttpTransferResolverConfig(BaseModel):
         default=None,
         description="Optional short message played while Dograh resolves routing.",
     )
-    policy: TransferResolverPolicy = Field(
-        default="approved_routes_only",
-        description="Controls what resolver responses are allowed to select.",
+    parameters: Optional[List[ToolParameter]] = Field(
+        default=None,
+        description="Parameters the model may provide when calling this transfer tool.",
+    )
+    preset_parameters: Optional[List[PresetToolParameter]] = Field(
+        default=None,
+        description=(
+            "Parameters injected by Dograh from fixed values or workflow context "
+            "templates."
+        ),
     )
 
     @field_validator("url")
@@ -242,7 +226,12 @@ class HttpTransferResolverConfig(BaseModel):
 class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
+    destination_source: Literal["static", "dynamic"] = Field(
+        default="static",
+        description="Whether transfer destination is static/template or resolved by HTTP.",
+    )
     destination: str = Field(
+        default="",
         description=(
             "Phone number, SIP endpoint, or template to transfer the call to, e.g. "
             "+1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}."
@@ -273,14 +262,6 @@ class TransferCallConfig(BaseModel):
     resolver: Optional[HttpTransferResolverConfig] = Field(
         default=None,
         description="Optional resolver that determines transfer routing at call time.",
-    )
-    approved_routes: Optional[Dict[str, TransferApprovedRoute]] = Field(
-        default=None,
-        description="Approved route keys that a resolver may select.",
-    )
-    fallback_route: Optional[str] = Field(
-        default=None,
-        description="Approved route key to use when resolver resolution fails.",
     )
 
 

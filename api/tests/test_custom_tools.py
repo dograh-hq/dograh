@@ -305,21 +305,26 @@ class TestToolToFunctionSchema:
                 "schema_version": 1,
                 "type": "transfer_call",
                 "config": {
+                    "destination_source": "dynamic",
                     "destination": "",
-                    "parameters": [
-                        {
-                            "name": "state",
-                            "type": "string",
-                            "description": "The caller's US state.",
-                            "required": True,
-                        },
-                        {
-                            "name": "reason",
-                            "type": "string",
-                            "description": "Why transfer is needed.",
-                            "required": False,
-                        },
-                    ],
+                    "resolver": {
+                        "type": "http",
+                        "url": "https://crm.example.com/resolve-transfer",
+                        "parameters": [
+                            {
+                                "name": "state",
+                                "type": "string",
+                                "description": "The caller's US state.",
+                                "required": True,
+                            },
+                            {
+                                "name": "reason",
+                                "type": "string",
+                                "description": "Why transfer is needed.",
+                                "required": False,
+                            },
+                        ],
+                    },
                 },
             },
         )
@@ -816,10 +821,10 @@ class TestCoerceParameterValue:
 
 
 class TestTransferResolver:
-    """Tests for dynamic transfer resolution policy behavior."""
+    """Tests for dynamic transfer resolution behavior."""
 
     @pytest.mark.asyncio
-    async def test_http_resolver_uses_static_fallback_when_policy_allows(self):
+    async def test_http_resolver_resolves_transfer_context_destination(self):
         from api.services.workflow.tools.transfer_resolver import resolve_transfer_config
 
         tool = MockToolModel(
@@ -830,20 +835,33 @@ class TestTransferResolver:
             definition={},
         )
         config = {
-            "destination": "{{initial_context.default_destination}}",
+            "destination_source": "dynamic",
+            "destination": "",
             "timeout": 30,
             "resolver": {
                 "type": "http",
                 "url": "https://crm.example.com/resolve-transfer",
-                "policy": "approved_routes_or_static_fallback",
+                "headers": {"X-Tenant": "ovation"},
                 "timeout_ms": 3000,
+                "preset_parameters": [
+                    {
+                        "name": "lead_id",
+                        "type": "string",
+                        "value_template": "{{initial_context.lead_id}}",
+                        "required": True,
+                    }
+                ],
             },
-            "approved_routes": {},
         }
 
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"route": "missing_route"}
+        mock_response.json.return_value = {
+            "transfer_context": {
+                "destination": "+14155550123",
+                "custom_message": "I will connect you with our Texas partner now.",
+            }
+        }
 
         with (
             patch(
@@ -854,24 +872,31 @@ class TestTransferResolver:
             ) as mock_client_class,
         ):
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
             resolved = await resolve_transfer_config(
                 tool=tool,
                 config=config,
                 arguments={"state": "TX"},
-                call_context_vars={"default_destination": "+14155550999"},
+                call_context_vars={"lead_id": "lead-123"},
                 gathered_context_vars={},
                 organization_id=1,
                 workflow_run_id=1,
             )
 
-        assert resolved.destination == "+14155550999"
+        assert resolved.destination == "+14155550123"
+        assert resolved.message == "I will connect you with our Texas partner now."
         assert resolved.timeout_seconds == 30
+        assert resolved.source == "http_resolver"
+        mock_client.request.assert_awaited_once()
+        request_kwargs = mock_client.request.await_args.kwargs
+        assert request_kwargs["method"] == "POST"
+        assert request_kwargs["json"] == {"state": "TX", "lead_id": "lead-123"}
+        assert request_kwargs["headers"]["X-Tenant"] == "ovation"
 
     @pytest.mark.asyncio
-    async def test_http_resolver_rejects_raw_destination_for_route_only_policy(self):
+    async def test_http_resolver_requires_transfer_context_destination(self):
         from api.services.workflow.tools.transfer_resolver import (
             TransferResolutionError,
             resolve_transfer_config,
@@ -885,22 +910,19 @@ class TestTransferResolver:
             definition={},
         )
         config = {
+            "destination_source": "dynamic",
             "destination": "",
             "timeout": 30,
             "resolver": {
                 "type": "http",
                 "url": "https://crm.example.com/resolve-transfer",
-                "policy": "approved_routes_only",
                 "timeout_ms": 3000,
             },
-            "approved_routes": {},
         }
 
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "destination": {"type": "phone_number", "value": "+14155550123"}
-        }
+        mock_response.json.return_value = {"transfer_context": {}}
 
         with (
             patch(
@@ -911,7 +933,7 @@ class TestTransferResolver:
             ) as mock_client_class,
         ):
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
             with pytest.raises(TransferResolutionError) as exc_info:
@@ -925,7 +947,7 @@ class TestTransferResolver:
                     workflow_run_id=1,
                 )
 
-        assert exc_info.value.reason == "route_required"
+        assert exc_info.value.reason == "no_destination"
 
 
 class TestAuthHeaders:
@@ -1404,8 +1426,8 @@ class TestCustomToolManagerUnit:
         assert result_received["status"] == "transfer_failed"
 
     @pytest.mark.asyncio
-    async def test_transfer_call_http_resolver_uses_approved_route(self):
-        """HTTP resolver route responses expand to approved transfer destinations."""
+    async def test_transfer_call_http_resolver_uses_transfer_context_destination(self):
+        """HTTP resolver transfer_context.destination is passed to the provider."""
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
@@ -1430,21 +1452,22 @@ class TestCustomToolManagerUnit:
                 "schema_version": 1,
                 "type": "transfer_call",
                 "config": {
-                    "destination": "+15550000000",
+                    "destination_source": "dynamic",
+                    "destination": "",
                     "timeout": 30,
                     "resolver": {
                         "type": "http",
                         "url": "https://crm.example.com/resolve-transfer",
                         "timeout_ms": 3000,
                         "wait_message": "One moment while I find the right team.",
-                        "policy": "approved_routes_only",
-                    },
-                    "approved_routes": {
-                        "referral_tx": {
-                            "destination": "+14155550123",
-                            "message": "I will connect you with our Texas partner now.",
-                            "timeout_seconds": 45,
-                        }
+                        "parameters": [
+                            {
+                                "name": "state",
+                                "type": "string",
+                                "description": "State to resolve referral partner",
+                                "required": True,
+                            }
+                        ],
                     },
                 },
             },
@@ -1485,8 +1508,10 @@ class TestCustomToolManagerUnit:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "route": "referral_tx",
-            "metadata": {"partner_name": "Texas Injury Partners"},
+            "transfer_context": {
+                "destination": "+14155550123",
+                "custom_message": "I will connect you with our Texas partner now.",
+            }
         }
 
         with (
@@ -1514,16 +1539,23 @@ class TestCustomToolManagerUnit:
             ) as mock_client_class,
         ):
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
             await handler(mock_params)
 
+        mock_client.request.assert_awaited_once()
+        assert mock_client.request.await_args.kwargs["json"] == {"state": "TX"}
         provider.transfer_call.assert_awaited_once()
         transfer_kwargs = provider.transfer_call.await_args.kwargs
         assert transfer_kwargs["destination"] == "+14155550123"
-        assert transfer_kwargs["timeout"] == 45
+        assert transfer_kwargs["timeout"] == 30
         assert result_received["status"] == "transfer_failed"
+        assert [call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list] == [
+            True,
+            True,
+            False,
+        ]
 
         spoken_texts = [
             call.args[0].text for call in mock_engine.task.queue_frame.await_args_list

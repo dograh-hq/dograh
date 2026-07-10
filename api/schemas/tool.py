@@ -20,6 +20,11 @@ DEFAULT_MCP_SSE_READ_TIMEOUT_SECS = 300
 
 ToolParameterType = Literal["string", "number", "boolean", "object", "array"]
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+TransferResolverPolicy = Literal[
+    "approved_routes_only",
+    "approved_routes_or_static_fallback",
+    "allow_raw_destination",
+]
 ToolCategoryValue = Literal[
     "http_api",
     "end_call",
@@ -180,6 +185,60 @@ class EndCallConfig(BaseModel):
     )
 
 
+class TransferApprovedRoute(BaseModel):
+    """A pre-approved destination the transfer resolver may select."""
+
+    destination: str = Field(
+        description="Phone number, SIP endpoint, or template for this route."
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description="Optional message to play before transferring to this route.",
+    )
+    timeout_seconds: Optional[int] = Field(
+        default=None,
+        ge=5,
+        le=120,
+        description="Optional route-specific transfer answer timeout.",
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional non-secret route metadata for logs and resolver context.",
+    )
+
+
+class HttpTransferResolverConfig(BaseModel):
+    """HTTP endpoint used to resolve transfer destination at call time."""
+
+    type: Literal["http"] = Field(default="http", description="Resolver type.")
+    url: str = Field(description="HTTP or HTTPS endpoint for transfer resolution.")
+    credential_uuid: Optional[str] = Field(
+        default=None,
+        description="Reference to an external credential for resolver authentication.",
+    )
+    timeout_ms: int = Field(
+        default=3000,
+        ge=500,
+        le=5000,
+        description="Resolver request timeout in milliseconds.",
+    )
+    wait_message: Optional[str] = Field(
+        default=None,
+        description="Optional short message played while Dograh resolves routing.",
+    )
+    policy: TransferResolverPolicy = Field(
+        default="approved_routes_only",
+        description="Controls what resolver responses are allowed to select.",
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not isinstance(v, str) or not v.startswith(("http://", "https://")):
+            raise ValueError("config.resolver.url must be an http(s) URL")
+        return v
+
+
 class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
@@ -203,6 +262,25 @@ class TransferCallConfig(BaseModel):
         ge=5,
         le=120,
         description="Maximum seconds to wait for the destination to answer.",
+    )
+    parameters: Optional[List[ToolParameter]] = Field(
+        default=None,
+        description=(
+            "Parameters the model may provide when calling this transfer tool, "
+            "for example state, department, or transfer reason."
+        ),
+    )
+    resolver: Optional[HttpTransferResolverConfig] = Field(
+        default=None,
+        description="Optional resolver that determines transfer routing at call time.",
+    )
+    approved_routes: Optional[Dict[str, TransferApprovedRoute]] = Field(
+        default=None,
+        description="Approved route keys that a resolver may select.",
+    )
+    fallback_route: Optional[str] = Field(
+        default=None,
+        description="Approved route key to use when resolver resolution fails.",
     )
 
 

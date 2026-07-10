@@ -2989,6 +2989,50 @@ export type HttpApiToolDefinition = {
 };
 
 /**
+ * HttpTransferResolverConfig
+ *
+ * HTTP endpoint used to resolve transfer destination at call time.
+ */
+export type HttpTransferResolverConfig = {
+    /**
+     * Type
+     *
+     * Resolver type.
+     */
+    type?: 'http';
+    /**
+     * Url
+     *
+     * HTTP or HTTPS endpoint for transfer resolution.
+     */
+    url: string;
+    /**
+     * Credential Uuid
+     *
+     * Reference to an external credential for resolver authentication.
+     */
+    credential_uuid?: string | null;
+    /**
+     * Timeout Ms
+     *
+     * Resolver request timeout in milliseconds.
+     */
+    timeout_ms?: number;
+    /**
+     * Wait Message
+     *
+     * Optional short message played while Dograh resolves routing.
+     */
+    wait_message?: string | null;
+    /**
+     * Policy
+     *
+     * Controls what resolver responses are allowed to select.
+     */
+    policy?: 'approved_routes_only' | 'approved_routes_or_static_fallback' | 'allow_raw_destination';
+};
+
+/**
  * Hugging Face
  *
  * Hosted Hugging Face Inference Providers API for usage-based inference.
@@ -5792,6 +5836,40 @@ export type ToolResponse = {
 };
 
 /**
+ * TransferApprovedRoute
+ *
+ * A pre-approved destination the transfer resolver may select.
+ */
+export type TransferApprovedRoute = {
+    /**
+     * Destination
+     *
+     * Phone number, SIP endpoint, or template for this route.
+     */
+    destination: string;
+    /**
+     * Message
+     *
+     * Optional message to play before transferring to this route.
+     */
+    message?: string | null;
+    /**
+     * Timeout Seconds
+     *
+     * Optional route-specific transfer answer timeout.
+     */
+    timeout_seconds?: number | null;
+    /**
+     * Metadata
+     *
+     * Optional non-secret route metadata for logs and resolver context.
+     */
+    metadata?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
  * TransferCallConfig
  *
  * Configuration for Transfer Call tools.
@@ -5827,6 +5905,30 @@ export type TransferCallConfig = {
      * Maximum seconds to wait for the destination to answer.
      */
     timeout?: number;
+    /**
+     * Parameters
+     *
+     * Parameters the model may provide when calling this transfer tool, for example state, department, or transfer reason.
+     */
+    parameters?: Array<ToolParameter> | null;
+    /**
+     * Optional resolver that determines transfer routing at call time.
+     */
+    resolver?: HttpTransferResolverConfig | null;
+    /**
+     * Approved Routes
+     *
+     * Approved route keys that a resolver may select.
+     */
+    approved_routes?: {
+        [key: string]: TransferApprovedRoute;
+    } | null;
+    /**
+     * Fallback Route
+     *
+     * Approved route key to use when resolver resolution fails.
+     */
+    fallback_route?: string | null;
 };
 
 /**

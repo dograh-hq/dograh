@@ -31,6 +31,10 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from api.services.workflow.tools.transfer_resolver import (
+    TransferResolutionError,
+    resolve_transfer_config,
+)
 from api.utils.template_renderer import render_template
 
 if TYPE_CHECKING:
@@ -526,9 +530,7 @@ class CustomToolManager:
                 # Get the transfer call configuration
                 config = tool.definition.get("config", {})
                 destination = config.get("destination", "")
-                timeout_seconds = config.get(
-                    "timeout", 30
-                )  # Default 30 seconds if not configured
+                timeout_seconds = config.get("timeout", 30)
 
                 # Check if this is a WebRTC call - transfers are not supported
                 workflow_run = await db_client.get_workflow_run_by_id(
@@ -560,11 +562,54 @@ class CustomToolManager:
                     )
                     return
 
-                destination = _render_transfer_destination(
-                    destination,
-                    self._engine._call_context_vars,
-                    self._engine._gathered_context,
-                )
+                # Get organization ID for resolver/provider configuration
+                organization_id = await self.get_organization_id()
+                if not organization_id:
+                    validation_error_result = {
+                        "status": "failed",
+                        "message": "I'm sorry, there's an issue with this call transfer. Please contact support.",
+                        "action": "transfer_failed",
+                        "reason": "no_organization_id",
+                    }
+                    await self._handle_transfer_result(
+                        validation_error_result, function_call_params, properties
+                    )
+                    return
+
+                resolver = config.get("resolver") if isinstance(config, dict) else None
+                if isinstance(resolver, dict) and resolver.get("wait_message"):
+                    await self._engine.task.queue_frame(
+                        TTSSpeakFrame(
+                            str(resolver["wait_message"]),
+                            append_to_context=False,
+                            persist_to_logs=True,
+                        )
+                    )
+                    self._engine._queued_speech_mute_state = "waiting"
+
+                try:
+                    resolved_transfer = await resolve_transfer_config(
+                        tool=tool,
+                        config=config,
+                        arguments=function_call_params.arguments or {},
+                        call_context_vars=self._engine._call_context_vars,
+                        gathered_context_vars=self._engine._gathered_context,
+                        organization_id=organization_id,
+                        workflow_run_id=self._engine._workflow_run_id,
+                    )
+                    destination = resolved_transfer.destination
+                    timeout_seconds = resolved_transfer.timeout_seconds
+                except TransferResolutionError as e:
+                    validation_error_result = {
+                        "status": "failed",
+                        "message": "I'm sorry, but I couldn't find a valid destination for this transfer.",
+                        "action": "transfer_failed",
+                        "reason": e.reason,
+                    }
+                    await self._handle_transfer_result(
+                        validation_error_result, function_call_params, properties
+                    )
+                    return
 
                 # Validate destination phone number
                 if not destination or not destination.strip():
@@ -579,23 +624,19 @@ class CustomToolManager:
                     )
                     return
 
-                played = await self._play_config_message(config)
-                if played:
-                    self._engine._queued_speech_mute_state = "waiting"
-
-                # Get organization ID for provider configuration
-                organization_id = await self.get_organization_id()
-                if not organization_id:
-                    validation_error_result = {
-                        "status": "failed",
-                        "message": "I'm sorry, there's an issue with this call transfer. Please contact support.",
-                        "action": "transfer_failed",
-                        "reason": "no_organization_id",
-                    }
-                    await self._handle_transfer_result(
-                        validation_error_result, function_call_params, properties
+                if resolved_transfer.message:
+                    await self._engine.task.queue_frame(
+                        TTSSpeakFrame(
+                            resolved_transfer.message,
+                            append_to_context=False,
+                            persist_to_logs=True,
+                        )
                     )
-                    return
+                    self._engine._queued_speech_mute_state = "waiting"
+                else:
+                    played = await self._play_config_message(config)
+                    if played:
+                        self._engine._queued_speech_mute_state = "waiting"
 
                 provider = await get_telephony_provider_for_run(
                     workflow_run, organization_id
@@ -639,6 +680,16 @@ class CustomToolManager:
 
                 # Initiate transfer via provider with inline TwiML
                 try:
+                    masked_destination = (
+                        f"***{destination[-4:]}" if len(destination) > 4 else "***"
+                    )
+                    logger.info(
+                        "Transfer provider call starting "
+                        f"source={resolved_transfer.source} "
+                        f"resolution_id={resolved_transfer.resolution_id or ''} "
+                        f"route={resolved_transfer.route or ''} "
+                        f"destination={masked_destination} timeout={timeout_seconds}"
+                    )
                     transfer_result = await provider.transfer_call(
                         destination=destination,
                         transfer_id=transfer_id,

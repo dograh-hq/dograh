@@ -71,6 +71,23 @@ def _credential_uuid_from_definition(definition: dict[str, Any]) -> Optional[str
     return credential_uuid if isinstance(credential_uuid, str) else None
 
 
+def _credential_uuids_from_definition(definition: dict[str, Any]) -> list[str]:
+    credential_uuids: list[str] = []
+    top_level = _credential_uuid_from_definition(definition)
+    if top_level:
+        credential_uuids.append(top_level)
+
+    config = definition.get("config")
+    if isinstance(config, dict):
+        resolver = config.get("resolver")
+        if isinstance(resolver, dict):
+            resolver_credential_uuid = resolver.get("credential_uuid")
+            if isinstance(resolver_credential_uuid, str):
+                credential_uuids.append(resolver_credential_uuid)
+
+    return list(dict.fromkeys(credential_uuids))
+
+
 async def fetch_credential(credential_uuid: Optional[str], organization_id: int):
     """Best-effort credential lookup for MCP auth/discovery."""
     if not credential_uuid:
@@ -86,22 +103,20 @@ async def validate_tool_credential_references(
     definition: dict[str, Any], *, organization_id: int
 ) -> None:
     """Ensure credential UUID references belong to the caller's organization."""
-    credential_uuid = _credential_uuid_from_definition(definition)
-    if not credential_uuid:
-        return
-
-    credential = await db_client.get_credential_by_uuid(
-        credential_uuid, organization_id
-    )
-    if not credential:
-        raise ToolManagementError(
-            "credential_not_found",
-            (
-                f"Credential '{credential_uuid}' was not found in this organization. "
-                "Create it in the UI first, then retry with its credential_uuid."
-            ),
-            status_code=404,
+    for credential_uuid in _credential_uuids_from_definition(definition):
+        credential = await db_client.get_credential_by_uuid(
+            credential_uuid, organization_id
         )
+        if not credential:
+            raise ToolManagementError(
+                "credential_not_found",
+                (
+                    f"Credential '{credential_uuid}' was not found in this "
+                    "organization. Create it in the UI first, then retry with its "
+                    "credential_uuid."
+                ),
+                status_code=404,
+            )
 
 
 async def populate_discovered_tools(

@@ -14,7 +14,6 @@ import type {
     HttpApiToolDefinition,
     RecordingResponseSchema,
     ToolResponse,
-    TransferCallConfig as APITransferCallConfig,
     UpdateToolRequest,
 } from "@/client/types.gen";
 import {
@@ -46,11 +45,14 @@ import { useAuth } from "@/lib/auth";
 import {
     createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
+    type ExtendedTransferCallConfig,
     type EndCallMessageType,
     getCategoryConfig,
     getToolTypeLabel,
     MCP_URL_PATTERN,
     renderToolIcon,
+    type TransferApprovedRouteRow,
+    type TransferResolverPolicy,
     type ToolCategory,
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
@@ -65,6 +67,18 @@ function normalizeParameterType(value: string | null | undefined): ParameterType
         default:
             return "string";
     }
+}
+
+function approvedRoutesToRows(
+    routes: ExtendedTransferCallConfig["approved_routes"] | undefined | null,
+): TransferApprovedRouteRow[] {
+    if (!routes) return [];
+    return Object.entries(routes).map(([key, route]) => ({
+        key,
+        destination: route.destination || "",
+        message: route.message || "",
+        timeout_seconds: route.timeout_seconds ?? 30,
+    }));
 }
 
 export default function ToolDetailPage() {
@@ -113,6 +127,16 @@ export default function ToolDetailPage() {
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
     const [transferTimeout, setTransferTimeout] = useState(30);
     const [transferAudioRecordingId, setTransferAudioRecordingId] = useState("");
+    const [transferResolverEnabled, setTransferResolverEnabled] = useState(false);
+    const [transferResolverUrl, setTransferResolverUrl] = useState("");
+    const [transferResolverCredentialUuid, setTransferResolverCredentialUuid] = useState("");
+    const [transferResolverTimeoutMs, setTransferResolverTimeoutMs] = useState(3000);
+    const [transferResolverWaitMessage, setTransferResolverWaitMessage] = useState("");
+    const [transferResolverPolicy, setTransferResolverPolicy] =
+        useState<TransferResolverPolicy>("approved_routes_only");
+    const [transferApprovedRoutes, setTransferApprovedRoutes] = useState<TransferApprovedRouteRow[]>([]);
+    const [transferFallbackRoute, setTransferFallbackRoute] = useState("");
+    const [transferParameters, setTransferParameters] = useState<ToolParameter[]>([]);
 
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
@@ -182,19 +206,44 @@ export default function ToolDetailPage() {
             }
         } else if (tool.category === "transfer_call") {
             // Populate transfer call specific fields
-            const config = tool.definition?.config as APITransferCallConfig | undefined;
+            const config = tool.definition?.config as ExtendedTransferCallConfig | undefined;
             if (config) {
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
                 setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
+                setTransferResolverEnabled(Boolean(config.resolver));
+                setTransferResolverUrl(config.resolver?.url || "");
+                setTransferResolverCredentialUuid(config.resolver?.credential_uuid || "");
+                setTransferResolverTimeoutMs(config.resolver?.timeout_ms ?? 3000);
+                setTransferResolverWaitMessage(config.resolver?.wait_message || "");
+                setTransferResolverPolicy(config.resolver?.policy || "approved_routes_only");
+                setTransferApprovedRoutes(approvedRoutesToRows(config.approved_routes));
+                setTransferFallbackRoute(config.fallback_route || "");
+                setTransferParameters(
+                    (config.parameters || []).map((p) => ({
+                        name: p.name || "",
+                        type: normalizeParameterType(p.type),
+                        description: p.description || "",
+                        required: p.required ?? true,
+                    })),
+                );
             } else {
                 setTransferDestination("");
                 setTransferMessageType("none");
                 setCustomMessage("");
                 setTransferAudioRecordingId("");
                 setTransferTimeout(30);
+                setTransferResolverEnabled(false);
+                setTransferResolverUrl("");
+                setTransferResolverCredentialUuid("");
+                setTransferResolverTimeoutMs(3000);
+                setTransferResolverWaitMessage("");
+                setTransferResolverPolicy("approved_routes_only");
+                setTransferApprovedRoutes([]);
+                setTransferFallbackRoute("");
+                setTransferParameters([]);
             }
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
@@ -296,9 +345,59 @@ export default function ToolDetailPage() {
         if (tool.category === "calculator") {
             // No validation needed for built-in tools
         } else if (tool.category === "transfer_call") {
-            if (!normalizedTransferDestination) {
+            if (!transferResolverEnabled && !normalizedTransferDestination) {
                 setError("Please enter a transfer destination");
                 return;
+            }
+            if (transferResolverEnabled) {
+                const resolverUrlValidation = validateUrl(transferResolverUrl);
+                if (!resolverUrlValidation.valid) {
+                    setError(resolverUrlValidation.error || "Invalid resolver URL");
+                    return;
+                }
+                if (
+                    transferResolverPolicy === "approved_routes_or_static_fallback" &&
+                    !normalizedTransferDestination
+                ) {
+                    setError("Please enter a transfer destination for static fallback");
+                    return;
+                }
+
+                const routeKeys = transferApprovedRoutes
+                    .map((route) => route.key.trim())
+                    .filter(Boolean);
+                const invalidRoutes = transferApprovedRoutes.filter(
+                    (route) => !route.key.trim() || !route.destination.trim()
+                );
+                if (invalidRoutes.length > 0) {
+                    setError("All approved routes must have a route key and destination");
+                    return;
+                }
+                if (new Set(routeKeys).size !== routeKeys.length) {
+                    setError("Approved route keys must be unique");
+                    return;
+                }
+                if (
+                    transferFallbackRoute.trim() &&
+                    !routeKeys.includes(transferFallbackRoute.trim())
+                ) {
+                    setError("Fallback route must match an approved route key");
+                    return;
+                }
+                const invalidTransferParams = transferParameters.filter(
+                    (p) => !p.name.trim() || !p.description.trim()
+                );
+                if (invalidTransferParams.length > 0) {
+                    setError("All resolver arguments must have a name and description");
+                    return;
+                }
+                const transferParamNames = transferParameters
+                    .map((p) => p.name.trim())
+                    .filter(Boolean);
+                if (new Set(transferParamNames).size !== transferParamNames.length) {
+                    setError("Resolver argument names must be unique");
+                    return;
+                }
             }
         } else if (tool.category === "mcp") {
             // Validate MCP server URL (must be http(s))
@@ -370,6 +469,57 @@ export default function ToolDetailPage() {
                     },
                 };
             } else if (tool.category === "transfer_call") {
+                const approvedRoutesObject = transferApprovedRoutes.reduce(
+                    (acc, route) => {
+                        const key = route.key.trim();
+                        if (!key) return acc;
+                        acc[key] = {
+                            destination: route.destination.trim(),
+                            message: route.message?.trim() || undefined,
+                            timeout_seconds: route.timeout_seconds || undefined,
+                        };
+                        return acc;
+                    },
+                    {} as Record<string, {
+                        destination: string;
+                        message?: string;
+                        timeout_seconds?: number;
+                    }>,
+                );
+                const transferConfig: ExtendedTransferCallConfig = {
+                    destination: normalizedTransferDestination,
+                    messageType: transferMessageType,
+                    customMessage: transferMessageType === "custom" ? customMessage : undefined,
+                    audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
+                    timeout: transferTimeout,
+                    resolver: transferResolverEnabled
+                        ? {
+                            type: "http",
+                            url: transferResolverUrl.trim(),
+                            credential_uuid: transferResolverCredentialUuid || undefined,
+                            timeout_ms: transferResolverTimeoutMs,
+                            wait_message: transferResolverWaitMessage.trim() || undefined,
+                            policy: transferResolverPolicy,
+                        }
+                        : undefined,
+                    approved_routes:
+                        transferResolverEnabled && Object.keys(approvedRoutesObject).length > 0
+                            ? approvedRoutesObject
+                            : undefined,
+                    fallback_route:
+                        transferResolverEnabled && transferFallbackRoute.trim()
+                            ? transferFallbackRoute.trim()
+                            : undefined,
+                    parameters:
+                        transferResolverEnabled && transferParameters.length > 0
+                            ? transferParameters.map((p) => ({
+                                name: p.name.trim(),
+                                type: p.type,
+                                description: p.description.trim(),
+                                required: p.required,
+                            }))
+                            : undefined,
+                };
                 // Build transfer call request body
                 requestBody = {
                     name,
@@ -377,14 +527,8 @@ export default function ToolDetailPage() {
                     definition: {
                         schema_version: 1,
                         type: "transfer_call",
-                        config: {
-                            destination: normalizedTransferDestination,
-                            messageType: transferMessageType,
-                            customMessage: transferMessageType === "custom" ? customMessage : undefined,
-                            audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
-                            timeout: transferTimeout,
-                        },
-                    },
+                        config: transferConfig,
+                    } as UpdateToolRequest["definition"],
                 };
             } else if (tool.category === "mcp") {
                 requestBody = {
@@ -658,6 +802,24 @@ const data = await response.json();`;
                             recordings={recordings}
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
+                            resolverEnabled={transferResolverEnabled}
+                            onResolverEnabledChange={setTransferResolverEnabled}
+                            resolverUrl={transferResolverUrl}
+                            onResolverUrlChange={setTransferResolverUrl}
+                            resolverCredentialUuid={transferResolverCredentialUuid}
+                            onResolverCredentialUuidChange={setTransferResolverCredentialUuid}
+                            resolverTimeoutMs={transferResolverTimeoutMs}
+                            onResolverTimeoutMsChange={setTransferResolverTimeoutMs}
+                            resolverWaitMessage={transferResolverWaitMessage}
+                            onResolverWaitMessageChange={setTransferResolverWaitMessage}
+                            resolverPolicy={transferResolverPolicy}
+                            onResolverPolicyChange={setTransferResolverPolicy}
+                            approvedRoutes={transferApprovedRoutes}
+                            onApprovedRoutesChange={setTransferApprovedRoutes}
+                            fallbackRoute={transferFallbackRoute}
+                            onFallbackRouteChange={setTransferFallbackRoute}
+                            parameters={transferParameters}
+                            onParametersChange={setTransferParameters}
                         />
                     ) : isMcpTool ? (
                         <Card>

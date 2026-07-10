@@ -16,6 +16,35 @@ import type {
 export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";
 
 export type EndCallMessageType = "none" | "custom" | "audio";
+export type TransferResolverPolicy =
+    | "approved_routes_only"
+    | "approved_routes_or_static_fallback"
+    | "allow_raw_destination";
+
+export interface TransferResolverConfig {
+    type: "http";
+    url: string;
+    credential_uuid?: string | null;
+    timeout_ms: number;
+    wait_message?: string | null;
+    policy: TransferResolverPolicy;
+}
+
+export interface TransferApprovedRoute {
+    destination: string;
+    message?: string | null;
+    timeout_seconds?: number | null;
+}
+
+export interface TransferApprovedRouteRow extends TransferApprovedRoute {
+    key: string;
+}
+
+export interface ExtendedTransferCallConfig extends TransferCallConfig {
+    resolver?: TransferResolverConfig | null;
+    approved_routes?: Record<string, TransferApprovedRoute> | null;
+    fallback_route?: string | null;
+}
 
 export interface ToolCategoryConfig {
     value: ToolCategory;

@@ -1,14 +1,23 @@
 "use client";
 
 import type { RecordingResponseSchema } from "@/client/types.gen";
+import { CredentialSelector, ParameterEditor, type ToolParameter } from "@/components/http";
 import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Plus, Trash2 } from "lucide-react";
 
-import { type EndCallMessageType } from "../../config";
+import {
+    type EndCallMessageType,
+    type TransferApprovedRouteRow,
+    type TransferResolverPolicy,
+} from "../../config";
 
 export interface TransferCallToolConfigProps {
     name: string;
@@ -26,6 +35,24 @@ export interface TransferCallToolConfigProps {
     recordings?: RecordingResponseSchema[];
     timeout?: number;  // Make optional to match API type
     onTimeoutChange: (timeout: number) => void;
+    resolverEnabled: boolean;
+    onResolverEnabledChange: (enabled: boolean) => void;
+    resolverUrl: string;
+    onResolverUrlChange: (url: string) => void;
+    resolverCredentialUuid: string;
+    onResolverCredentialUuidChange: (uuid: string) => void;
+    resolverTimeoutMs: number;
+    onResolverTimeoutMsChange: (timeoutMs: number) => void;
+    resolverWaitMessage: string;
+    onResolverWaitMessageChange: (message: string) => void;
+    resolverPolicy: TransferResolverPolicy;
+    onResolverPolicyChange: (policy: TransferResolverPolicy) => void;
+    approvedRoutes: TransferApprovedRouteRow[];
+    onApprovedRoutesChange: (routes: TransferApprovedRouteRow[]) => void;
+    fallbackRoute: string;
+    onFallbackRouteChange: (route: string) => void;
+    parameters: ToolParameter[];
+    onParametersChange: (parameters: ToolParameter[]) => void;
 }
 
 export function TransferCallToolConfig({
@@ -44,7 +71,52 @@ export function TransferCallToolConfig({
     recordings = [],
     timeout,
     onTimeoutChange,
+    resolverEnabled,
+    onResolverEnabledChange,
+    resolverUrl,
+    onResolverUrlChange,
+    resolverCredentialUuid,
+    onResolverCredentialUuidChange,
+    resolverTimeoutMs,
+    onResolverTimeoutMsChange,
+    resolverWaitMessage,
+    onResolverWaitMessageChange,
+    resolverPolicy,
+    onResolverPolicyChange,
+    approvedRoutes,
+    onApprovedRoutesChange,
+    fallbackRoute,
+    onFallbackRouteChange,
+    parameters,
+    onParametersChange,
 }: TransferCallToolConfigProps) {
+    const updateRoute = (
+        index: number,
+        patch: Partial<TransferApprovedRouteRow>,
+    ) => {
+        onApprovedRoutesChange(
+            approvedRoutes.map((route, i) =>
+                i === index ? { ...route, ...patch } : route,
+            ),
+        );
+    };
+
+    const removeRoute = (index: number) => {
+        onApprovedRoutesChange(approvedRoutes.filter((_, i) => i !== index));
+    };
+
+    const addRoute = () => {
+        onApprovedRoutesChange([
+            ...approvedRoutes,
+            {
+                key: "",
+                destination: "",
+                message: "",
+                timeout_seconds: 30,
+            },
+        ]);
+    };
+
     return (
         <Card>
             <CardHeader>
@@ -185,6 +257,203 @@ export function TransferCallToolConfig({
                     <Label className="text-xs text-muted-foreground">
                         Default: 30 seconds
                     </Label>
+                </div>
+
+                <div className="grid gap-4 pt-4 border-t">
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-1">
+                            <Label>Dynamic Transfer Resolver</Label>
+                            <p className="text-xs text-muted-foreground">
+                                Resolve the destination from an HTTP endpoint when the transfer tool is called.
+                            </p>
+                        </div>
+                        <Switch
+                            checked={resolverEnabled}
+                            onCheckedChange={onResolverEnabledChange}
+                        />
+                    </div>
+
+                    {resolverEnabled && (
+                        <div className="space-y-5">
+                            <div className="grid gap-2">
+                                <Label>Resolver URL</Label>
+                                <Input
+                                    value={resolverUrl}
+                                    onChange={(e) => onResolverUrlChange(e.target.value)}
+                                    placeholder="https://crm.example.com/resolve-transfer"
+                                />
+                            </div>
+
+                            <CredentialSelector
+                                value={resolverCredentialUuid}
+                                onChange={onResolverCredentialUuidChange}
+                                label="Resolver Credential (Optional)"
+                                description="Select a credential for the resolver endpoint, or leave empty for no auth."
+                            />
+
+                            <div className="grid gap-2">
+                                <Label>Resolver Timeout</Label>
+                                <Input
+                                    type="number"
+                                    value={resolverTimeoutMs}
+                                    onChange={(e) => {
+                                        const value = parseInt(e.target.value) || 3000;
+                                        onResolverTimeoutMsChange(Math.min(Math.max(value, 500), 5000));
+                                    }}
+                                    min="500"
+                                    max="5000"
+                                    className="w-36"
+                                />
+                                <Label className="text-xs text-muted-foreground">
+                                    Default: 3000 ms. Maximum: 5000 ms.
+                                </Label>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label>Resolver Wait Message</Label>
+                                <Textarea
+                                    value={resolverWaitMessage}
+                                    onChange={(e) => onResolverWaitMessageChange(e.target.value)}
+                                    placeholder="One moment while I find the right team."
+                                    rows={2}
+                                />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label>Resolver Policy</Label>
+                                <Select
+                                    value={resolverPolicy}
+                                    onValueChange={(value) =>
+                                        onResolverPolicyChange(value as TransferResolverPolicy)
+                                    }
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select policy" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="approved_routes_only">
+                                            Approved routes only
+                                        </SelectItem>
+                                        <SelectItem value="approved_routes_or_static_fallback">
+                                            Approved routes or static fallback
+                                        </SelectItem>
+                                        <SelectItem value="allow_raw_destination">
+                                            Allow raw destination
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="grid gap-3">
+                                <div>
+                                    <Label>Resolver Arguments</Label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Values the agent should pass when calling this transfer tool, such as state, department, or reason.
+                                    </p>
+                                </div>
+                                <ParameterEditor
+                                    parameters={parameters}
+                                    onChange={onParametersChange}
+                                />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label>Fallback Route</Label>
+                                <Input
+                                    value={fallbackRoute}
+                                    onChange={(e) => onFallbackRouteChange(e.target.value)}
+                                    placeholder="referral_default"
+                                />
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <Label>Approved Routes</Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Route keys the resolver can return, mapped to known transfer destinations.
+                                        </p>
+                                    </div>
+                                    <Button type="button" variant="outline" size="sm" onClick={addRoute}>
+                                        <Plus className="h-4 w-4 mr-2" />
+                                        Add Route
+                                    </Button>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {approvedRoutes.map((route, index) => (
+                                        <div key={index} className="grid gap-3 rounded-md border p-3">
+                                            <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                                                <div className="grid gap-2">
+                                                    <Label>Route Key</Label>
+                                                    <Input
+                                                        value={route.key}
+                                                        onChange={(e) =>
+                                                            updateRoute(index, { key: e.target.value })
+                                                        }
+                                                        placeholder="referral_tx"
+                                                    />
+                                                </div>
+                                                <div className="grid gap-2">
+                                                    <Label>Destination</Label>
+                                                    <Input
+                                                        value={route.destination}
+                                                        onChange={(e) =>
+                                                            updateRoute(index, { destination: e.target.value })
+                                                        }
+                                                        placeholder="+1234567890"
+                                                    />
+                                                </div>
+                                                <div className="flex items-end">
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => removeRoute(index)}
+                                                        aria-label="Remove route"
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-3 md:grid-cols-[1fr_160px]">
+                                                <div className="grid gap-2">
+                                                    <Label>Message</Label>
+                                                    <Input
+                                                        value={route.message || ""}
+                                                        onChange={(e) =>
+                                                            updateRoute(index, { message: e.target.value })
+                                                        }
+                                                        placeholder="I’ll transfer you now."
+                                                    />
+                                                </div>
+                                                <div className="grid gap-2">
+                                                    <Label>Timeout</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={route.timeout_seconds ?? 30}
+                                                        min="5"
+                                                        max="120"
+                                                        onChange={(e) => {
+                                                            const value = parseInt(e.target.value) || 30;
+                                                            updateRoute(index, {
+                                                                timeout_seconds: Math.min(Math.max(value, 5), 120),
+                                                            });
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {approvedRoutes.length === 0 && (
+                                        <p className="text-xs text-muted-foreground">
+                                            No approved routes configured.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </CardContent>
         </Card>

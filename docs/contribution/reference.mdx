@@ -1,0 +1,185 @@
+---
+title: Setup Reference
+description: Host-managed setup, devcontainer internals, the Dev Container CLI, and fork maintenance.
+---
+
+Everything on this page is optional reading — [Setup](/contribution/setup) covers the normal path.
+
+## Host-managed setup
+
+Run everything directly on your host instead of inside the devcontainer. You need Git, Node.js 24, Python 3.13, and Docker (for Postgres, Redis, and MinIO).
+
+1. Run the contributor bootstrap. It configures `origin` as your fork and `upstream` as `dograh-hq/dograh`, initializes the pipecat submodule, creates the Python venv, and copies the `.env` templates:
+
+<CodeGroup>
+```bash macOS/Linux
+bash scripts/setup_fork.sh
+```
+```powershell Windows
+.\scripts\setup_fork.ps1
+```
+</CodeGroup>
+
+2. Activate the virtual environment:
+
+<CodeGroup>
+```bash macOS/Linux
+source venv/bin/activate
+```
+```powershell Windows
+.\venv\Scripts\Activate.ps1
+```
+</CodeGroup>
+
+3. Install Python requirements:
+
+<CodeGroup>
+```bash macOS/Linux
+bash scripts/setup_requirements.sh --dev
+```
+```powershell Windows
+.\scripts\setup_requirements.ps1 -Dev
+```
+</CodeGroup>
+
+4. Install UI dependencies (make sure `node --version` reports 24, e.g. via `nvm use 24`):
+
+```bash
+cd ui && npm install && cd ..
+```
+
+5. Start Postgres, Redis, and MinIO:
+
+```bash
+docker compose -f docker-compose-local.yaml up -d
+```
+
+6. Start the backend:
+
+<CodeGroup>
+```bash macOS/Linux
+bash scripts/start_services_dev.sh
+```
+```powershell Windows
+.\scripts\start_services_dev.ps1
+```
+</CodeGroup>
+
+7. Start the UI, then open `http://localhost:3000`:
+
+```bash
+cd ui && npm run dev
+```
+
+## Devcontainer internals
+
+The checked-in `.devcontainer/` follows the Dev Containers specification, so it should also work in Cursor, JetBrains IDEs, and other compatible editors. Only the VS Code path is actively tested — if something breaks elsewhere, please open a [GitHub issue](https://github.com/dograh-hq/dograh/issues).
+
+### What the bootstrap does
+
+While the container starts, the devcontainer will:
+
+- Initialize the `pipecat` git submodule on the host through `initializeCommand`
+- Bring up `postgres`, `redis`, and `minio` through Docker Compose and wait for them to be healthy
+- Seed the `venv` named volume from the image-baked Python 3.13 venv
+- Reinstall `pipecat` as editable from the bind-mounted submodule so source edits take effect
+- Create `api/.env`, `api/.env.test`, and `ui/.env` from their `*.example` templates if they do not already exist
+- Run `npm ci` for `ui/` and `api/mcp_server/ts_validator/`
+
+In the API env files, `localhost` for Postgres, Redis, and MinIO is rewritten to the docker network aliases `postgres`, `redis`, and `minio`. `MINIO_PUBLIC_ENDPOINT` deliberately stays on `localhost` because the browser on your host loads from it.
+
+<Note>
+If you already had an `api/.env` or `api/.env.test` from host-managed development with `localhost` hosts for Postgres, Redis, or MinIO, the bootstrap leaves it untouched. Edit those URLs to the docker network aliases before starting the backend inside the devcontainer, or delete the file and let the bootstrap recreate it on the next rebuild.
+</Note>
+
+### When to rebuild the container
+
+The workspace bind mount and the `venv` / `node_modules` named volumes persist across container restarts, so you rarely need to rebuild. Rebuild only when one of these changes:
+
+- `.devcontainer/Dockerfile` or `.devcontainer/devcontainer.json`
+- `api/requirements.txt` or `api/requirements.dev.txt`
+- The `pipecat/` submodule
+
+Plain source edits, `ui/package.json`, and the `.env.example` templates do **not** require a rebuild. After a `git pull`, a quick check:
+
+```bash
+git diff HEAD@{1} HEAD -- .devcontainer api/requirements.txt api/requirements.dev.txt pipecat
+```
+
+If the diff is empty, you can keep your current container.
+
+### Personal install hook
+
+Anything you install inside the container outside the named volumes, notably under `/home/vscode`, is wiped on rebuild. This includes `npm i -g` packages and tools like the Claude or Codex CLIs.
+
+To reinstall personal tooling automatically on every rebuild, drop an executable script at `.devcontainer/install.local.sh`. It is gitignored and runs at the tail of the post-create bootstrap. Example:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | bash
+command -v codex  >/dev/null 2>&1 || npm i -g @openai/codex
+```
+
+Keep entries idempotent with `command -v` or a marker file so re-runs are cheap and safe.
+
+## Dev Container CLI
+
+To use the devcontainer without VS Code, install the CLI once on your host (requires Node.js):
+
+```bash
+npm install -g @devcontainers/cli
+```
+
+Start or rebuild the container from the repository root:
+
+```bash
+devcontainer up --workspace-folder .
+```
+
+Open a shell in the running workspace container:
+
+```bash
+devcontainer exec --workspace-folder . bash
+```
+
+Run a one-off command from the host, e.g. starting the backend or the UI:
+
+```bash
+devcontainer exec --workspace-folder . bash scripts/start_services_dev.sh
+devcontainer exec --workspace-folder . bash -lc 'cd ui && npm run dev -- --hostname 0.0.0.0'
+```
+
+## Fork and upstream remotes
+
+The contributor bootstrap (`scripts/setup_fork.sh`) configures two remotes:
+
+- `origin`: your fork, where you push
+- `upstream`: `dograh-hq/dograh`, where new commits land
+
+If you cloned `dograh-hq/dograh` directly instead of your fork, run it once (inside the devcontainer is fine):
+
+```bash
+bash scripts/setup_fork.sh
+```
+
+To pull in upstream changes:
+
+```bash
+git fetch upstream
+git checkout main
+git merge upstream/main
+git push origin main
+```
+
+Check your remotes any time with `git remote -v`. You should see:
+
+```bash
+origin    https://github.com/<YOUR_HANDLE>/dograh.git (fetch/push)
+upstream  https://github.com/dograh-hq/dograh.git    (fetch/push)
+```
+
+<Note>
+Always push feature branches to **`origin`** (your fork), then open a pull request against `dograh-hq/dograh:main`. Never push directly to `upstream`.
+</Note>

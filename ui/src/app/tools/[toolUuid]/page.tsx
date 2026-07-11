@@ -45,14 +45,14 @@ import { useAuth } from "@/lib/auth";
 import {
     createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
-    type ExtendedTransferCallConfig,
     type EndCallMessageType,
+    type ExtendedTransferCallConfig,
     getCategoryConfig,
     getToolTypeLabel,
     MCP_URL_PATTERN,
     renderToolIcon,
-    type TransferDestinationSource,
     type ToolCategory,
+    type TransferDestinationSource,
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 

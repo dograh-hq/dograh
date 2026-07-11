@@ -935,7 +935,9 @@ class TestTransferResolver:
 
     @pytest.mark.asyncio
     async def test_http_resolver_resolves_transfer_context_destination(self):
-        from api.services.workflow.tools.transfer_resolver import resolve_transfer_config
+        from api.services.workflow.tools.transfer_resolver import (
+            resolve_transfer_config,
+        )
 
         tool = MockToolModel(
             tool_uuid="transfer-tool-uuid",
@@ -1661,7 +1663,9 @@ class TestCustomToolManagerUnit:
         assert transfer_kwargs["destination"] == "+14155550123"
         assert transfer_kwargs["timeout"] == 30
         assert result_received["status"] == "transfer_failed"
-        assert [call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list] == [
+        assert [
+            call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list
+        ] == [
             True,
             True,
             False,
@@ -1751,7 +1755,9 @@ class TestCustomToolManagerUnit:
         assert result_received["status"] == "transfer_failed"
         assert result_received["reason"] == "no_destination"
         assert mock_engine._queued_speech_mute_state == "idle"
-        assert [call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list] == [
+        assert [
+            call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list
+        ] == [
             True,
             False,
         ]

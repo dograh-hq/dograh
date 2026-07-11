@@ -5,7 +5,6 @@ provider registry — see ProviderSpec.router.
 """
 
 import json
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
@@ -20,9 +19,8 @@ router = APIRouter()
 @router.get("/ncco", include_in_schema=False)
 async def handle_ncco_webhook(
     workflow_id: int,
-    user_id: int,
     workflow_run_id: int,
-    organization_id: Optional[int] = None,
+    organization_id: int,
 ):
     """Handle NCCO (Nexmo Call Control Objects) webhook for Vonage.
 
@@ -30,12 +28,10 @@ async def handle_ncco_webhook(
     """
 
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    provider = await get_telephony_provider_for_run(
-        workflow_run, organization_id or user_id
-    )
+    provider = await get_telephony_provider_for_run(workflow_run, organization_id)
 
     response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
+        workflow_id, organization_id, workflow_run_id
     )
 
     return json.loads(response_content)

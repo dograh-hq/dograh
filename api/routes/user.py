@@ -16,7 +16,10 @@ from api.schemas.workflow_configurations import (
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
+    convert_legacy_ai_model_configuration_to_v2,
     get_resolved_ai_model_configuration,
+    update_organization_ai_model_configuration_last_validated_at,
+    upsert_organization_ai_model_configuration_v2,
 )
 from api.services.configuration.check_validity import (
     APIKeyStatusResponse,
@@ -105,12 +108,29 @@ class UserConfigurationRequestResponseSchema(BaseModel):
     organization_pricing: dict[str, Union[float, str, bool]] | None = None
 
 
+def _is_validation_cache_stale(
+    last_validated_at: datetime | None,
+    validity_ttl_seconds: int,
+) -> bool:
+    if last_validated_at is None:
+        return True
+
+    has_timezone = (
+        last_validated_at.tzinfo is not None
+        and last_validated_at.utcoffset() is not None
+    )
+    if has_timezone:
+        now = datetime.now(last_validated_at.tzinfo)
+    else:
+        now = datetime.now()
+    return last_validated_at < now - timedelta(seconds=validity_ttl_seconds)
+
+
 @router.get("/configurations/user")
 async def get_user_configurations(
     user: UserModel = Depends(get_user),
 ) -> UserConfigurationRequestResponseSchema:
     resolved_config = await get_resolved_ai_model_configuration(
-        user_id=user.id,
         organization_id=user.selected_organization_id,
     )
     masked_config = mask_user_config(resolved_config.effective)
@@ -139,7 +159,11 @@ async def update_user_configurations(
     request: UserConfigurationRequestResponseSchema,
     user: UserModel = Depends(get_user),
 ) -> UserConfigurationRequestResponseSchema:
-    existing_config = await db_client.get_user_configurations(user.id)
+    existing_config = (
+        await get_resolved_ai_model_configuration(
+            organization_id=user.selected_organization_id,
+        )
+    ).effective
 
     incoming_dict = request.model_dump(exclude_none=True)
 
@@ -152,6 +176,9 @@ async def update_user_configurations(
     }
 
     if incoming_dict:
+        if not user.selected_organization_id:
+            raise HTTPException(status_code=400, detail="No organization selected")
+
         # Merge via helper
         try:
             user_configurations = merge_user_configurations(
@@ -175,8 +202,16 @@ async def update_user_configurations(
         except ValueError as e:
             raise HTTPException(status_code=422, detail=e.args[0])
 
-        user_configurations = await db_client.update_user_configuration(
-            user.id, user_configurations
+        try:
+            organization_configuration = convert_legacy_ai_model_configuration_to_v2(
+                user_configurations
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        await upsert_organization_ai_model_configuration_v2(
+            user.selected_organization_id,
+            organization_configuration,
         )
     else:
         user_configurations = existing_config
@@ -235,15 +270,13 @@ async def validate_user_configurations(
     user: UserModel = Depends(get_user),
 ) -> APIKeyStatusResponse:
     resolved_config = await get_resolved_ai_model_configuration(
-        user_id=user.id,
         organization_id=user.selected_organization_id,
     )
     configurations = resolved_config.effective
 
-    if (
-        configurations.last_validated_at
-        and configurations.last_validated_at
-        < datetime.now() - timedelta(seconds=validity_ttl_seconds)
+    if _is_validation_cache_stale(
+        configurations.last_validated_at,
+        validity_ttl_seconds,
     ):
         validator = UserConfigurationValidator()
         try:
@@ -252,7 +285,13 @@ async def validate_user_configurations(
                 organization_id=user.selected_organization_id,
                 created_by=user.provider_id,
             )
-            await db_client.update_user_configuration_last_validated_at(user.id)
+            if (
+                resolved_config.source == "organization_v2"
+                and user.selected_organization_id is not None
+            ):
+                await update_organization_ai_model_configuration_last_validated_at(
+                    user.selected_organization_id
+                )
             return status
         except ValueError as e:
             raise HTTPException(status_code=422, detail=e.args[0])

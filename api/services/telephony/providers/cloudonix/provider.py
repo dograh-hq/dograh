@@ -2,6 +2,7 @@
 Cloudonix implementation of the TelephonyProvider interface.
 """
 
+import asyncio
 import json
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -24,6 +25,11 @@ if TYPE_CHECKING:
     from fastapi import WebSocket
 
 CLOUDONIX_API_BASE_URL = "https://api.cloudonix.io"
+
+# Cloudonix sends the connected/start handshake immediately after the media
+# stream opens. The agent-stream route holds an org concurrency slot while we
+# wait, so an idle socket must not be able to hold it indefinitely.
+AGENT_STREAM_HANDSHAKE_TIMEOUT_S = 10
 
 
 class CloudonixProvider(TelephonyProvider):
@@ -114,7 +120,10 @@ class CloudonixProvider(TelephonyProvider):
         logger.info(
             f"Selected phone number {from_number} for outbound call to {to_number}"
         )
-        workflow_id, user_id = kwargs["workflow_id"], kwargs["user_id"]
+        workflow_id, organization_id = (
+            kwargs["workflow_id"],
+            kwargs["organization_id"],
+        )
 
         # Prepare call data using Cloudonix callObject schema
         # Note: 'caller-id' is REQUIRED by Cloudonix API
@@ -124,7 +133,7 @@ class CloudonixProvider(TelephonyProvider):
             "cxml": f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
+        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}"></Stream>
     </Connect>
     <Pause length="40"/>
 </Response>""",
@@ -402,7 +411,7 @@ class CloudonixProvider(TelephonyProvider):
         }
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """
         Dummy implementation - Cloudonix doesn't use webhook responses.
@@ -424,7 +433,7 @@ class CloudonixProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -496,7 +505,7 @@ class CloudonixProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_id,
                 transport_kwargs={"call_id": call_id, "stream_sid": stream_sid},
             )
@@ -511,7 +520,6 @@ class CloudonixProvider(TelephonyProvider):
         *,
         organization_id: int,
         workflow_id: int,
-        user_id: int,
         workflow_run_id: int,
         params: Dict[str, str],
     ) -> None:
@@ -533,14 +541,31 @@ class CloudonixProvider(TelephonyProvider):
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
-            first_msg = await websocket.receive_text()
-            msg = json.loads(first_msg)
-            if msg.get("event") != "connected":
-                logger.error(f"Expected 'connected' event, got: {msg.get('event')}")
-                await websocket.close(code=4400, reason="Expected connected event")
+            try:
+                first_msg = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=AGENT_STREAM_HANDSHAKE_TIMEOUT_S,
+                )
+                msg = json.loads(first_msg)
+                if msg.get("event") != "connected":
+                    logger.error(f"Expected 'connected' event, got: {msg.get('event')}")
+                    await websocket.close(code=4400, reason="Expected connected event")
+                    return
+
+                start_msg = json.loads(
+                    await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=AGENT_STREAM_HANDSHAKE_TIMEOUT_S,
+                    )
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Cloudonix agent-stream handshake timed out for workflow_run "
+                    f"{workflow_run_id}"
+                )
+                await websocket.close(code=4408, reason="Handshake timeout")
                 return
 
-            start_msg = json.loads(await websocket.receive_text())
             if start_msg.get("event") != "start":
                 logger.error("Expected 'start' event second")
                 await websocket.close(code=4400, reason="Expected start event")
@@ -648,7 +673,7 @@ class CloudonixProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_session,
                 transport_kwargs={
                     "call_id": call_session,

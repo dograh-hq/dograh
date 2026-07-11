@@ -375,9 +375,8 @@ async def search_chunks(
         )
         from api.services.gen_ai import build_embedding_service
 
-        # Try to get user's embeddings configuration
+        # Try to get the organization's embeddings configuration
         resolved_config = await get_resolved_ai_model_configuration(
-            user_id=user.id,
             organization_id=user.selected_organization_id,
         )
         effective_config = resolved_config.effective

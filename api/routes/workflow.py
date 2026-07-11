@@ -18,6 +18,7 @@ from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import CallType, PostHogEvent, StorageBackend, WorkflowStatus
 from api.schemas.ai_model_configuration import OrganizationAIModelConfigurationV2
 from api.schemas.workflow import WorkflowRunResponseSchema
+from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
@@ -284,7 +285,10 @@ class UpdateWorkflowRequest(BaseModel):
     name: str | None = None
     workflow_definition: dict | None = None
     template_context_variables: dict | None = None
-    workflow_configurations: dict | None = None
+    # Typed so field constraints (e.g. the max_call_duration cap) are
+    # enforced by FastAPI; extra="allow" keeps passthrough keys like
+    # model_configuration_v2_override intact.
+    workflow_configurations: WorkflowConfigurationDefaults | None = None
 
 
 class WorkflowVersionResponse(BaseModel):
@@ -1039,7 +1043,13 @@ async def update_workflow(
 
         # Validate model overrides. v2 uses a complete workflow-level model
         # configuration; legacy v1 uses partial service overlays.
-        workflow_configurations = request.workflow_configurations
+        # exclude_unset keeps stored configs sparse: keys the request didn't
+        # send stay absent so runtime defaults keep applying to them.
+        workflow_configurations = (
+            request.workflow_configurations.model_dump(exclude_unset=True)
+            if request.workflow_configurations is not None
+            else None
+        )
         if workflow_configurations and workflow_configurations.get(
             WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
         ):
@@ -1080,7 +1090,6 @@ async def update_workflow(
                 )
                 if existing_v2_override_config is None:
                     resolved_config = await get_resolved_ai_model_configuration(
-                        user_id=user.id,
                         organization_id=user.selected_organization_id,
                     )
                     v2_override = merge_ai_model_configuration_v2_secrets(
@@ -1123,7 +1132,6 @@ async def update_workflow(
                 existing_configs,
             )
             resolved_config = await get_resolved_ai_model_configuration(
-                user_id=user.id,
                 organization_id=user.selected_organization_id,
             )
             effective_config = resolved_config.effective

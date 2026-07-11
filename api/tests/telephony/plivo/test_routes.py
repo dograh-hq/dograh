@@ -89,7 +89,6 @@ async def test_plivo_xml_route_accepts_valid_signature_with_extra_query_param():
     provider = _provider()
     query = {
         "workflow_id": 7,
-        "user_id": 8,
         "workflow_run_id": 123,
         "campaign_id": 42,
         "organization_id": 11,
@@ -138,14 +137,13 @@ async def test_plivo_xml_route_accepts_valid_signature_with_extra_query_param():
 
         response = await handle_plivo_xml_webhook(
             workflow_id=7,
-            user_id=8,
             workflow_run_id=123,
             organization_id=11,
             request=request,
         )
 
     assert response.body == b"<Response/>"
-    get_webhook_response.assert_awaited_once_with(7, 8, 123)
+    get_webhook_response.assert_awaited_once_with(7, 11, 123)
     db_client.update_workflow_run.assert_awaited_once()
 
 

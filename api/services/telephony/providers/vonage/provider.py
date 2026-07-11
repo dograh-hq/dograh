@@ -207,7 +207,7 @@ class VonageProvider(TelephonyProvider):
             return False
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """
         Generate NCCO response for starting a call session.
@@ -222,7 +222,7 @@ class VonageProvider(TelephonyProvider):
                 "endpoint": [
                     {
                         "type": "websocket",
-                        "uri": f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}",
+                        "uri": f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}",
                         "content-type": "audio/l16;rate=16000",  # 16kHz Linear PCM
                         "headers": {},
                     }
@@ -323,7 +323,7 @@ class VonageProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -338,14 +338,17 @@ class VonageProvider(TelephonyProvider):
 
         try:
             # Get workflow run to extract call UUID
-            workflow_run = await db_client.get_workflow_run(workflow_run_id)
+            workflow_run = await db_client.get_workflow_run(
+                workflow_run_id, organization_id=organization_id
+            )
             if not workflow_run:
                 logger.error(f"Workflow run {workflow_run_id} not found")
                 await websocket.close(code=4404, reason="Workflow run not found")
                 return
 
-            # Get workflow for organization info
-            workflow = await db_client.get_workflow(workflow_id, user_id)
+            workflow = await db_client.get_workflow(
+                workflow_id, organization_id=organization_id
+            )
             if not workflow:
                 logger.error(f"Workflow {workflow_id} not found")
                 await websocket.close(code=4404, reason="Workflow not found")
@@ -392,7 +395,7 @@ class VonageProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_uuid,
                 transport_kwargs={"call_uuid": call_uuid},
             )

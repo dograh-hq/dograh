@@ -99,7 +99,6 @@ class ARIProvider(TelephonyProvider):
                     [
                         f"workflow_run_id={workflow_run_id}",
                         f"workflow_id={kwargs.get('workflow_id', '')}",
-                        f"user_id={kwargs.get('user_id', '')}",
                     ],
                 )
             ),
@@ -179,7 +178,7 @@ class ARIProvider(TelephonyProvider):
         return True
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """ARI does not use webhook responses - call control is via REST API."""
         logger.warning(
@@ -241,7 +240,7 @@ class ARIProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -253,7 +252,9 @@ class ARIProvider(TelephonyProvider):
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         # Get channel_id from workflow run context
-        workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+        workflow_run = await db_client.get_workflow_run(
+            workflow_run_id, organization_id=organization_id
+        )
         channel_id = ""
         if workflow_run and workflow_run.gathered_context:
             channel_id = workflow_run.gathered_context.get("call_id", "")
@@ -267,7 +268,7 @@ class ARIProvider(TelephonyProvider):
             provider_name=self.PROVIDER_NAME,
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
-            user_id=user_id,
+            organization_id=organization_id,
             call_id=channel_id,
             transport_kwargs={"channel_id": channel_id},
         )

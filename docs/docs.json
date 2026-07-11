@@ -129,11 +129,8 @@
           {
             "group": "Contribution",
             "pages": [
-              "contribution/introduction",
               "contribution/setup",
-              "contribution/devcontainer",
-              "contribution/host-managed-setup",
-              "contribution/fork-workflow"
+              "contribution/reference"
             ]
           },
           {
@@ -318,5 +315,23 @@
   },
   "api": {
     "openapi": "api-reference/openapi.json"
-  }
+  },
+  "redirects": [
+    {
+      "source": "/contribution/introduction",
+      "destination": "/contribution/setup"
+    },
+    {
+      "source": "/contribution/devcontainer",
+      "destination": "/contribution/reference"
+    },
+    {
+      "source": "/contribution/host-managed-setup",
+      "destination": "/contribution/reference"
+    },
+    {
+      "source": "/contribution/fork-workflow",
+      "destination": "/contribution/reference"
+    }
+  ]
 }

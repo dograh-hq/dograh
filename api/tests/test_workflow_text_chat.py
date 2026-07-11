@@ -5,8 +5,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
 
-from api.db.models import OrganizationModel, UserModel
+from api.db.models import OrganizationModel, UserModel, organization_users_association
+from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.services.configuration.ai_model_configuration import (
+    convert_legacy_ai_model_configuration_to_v2,
+)
 from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
     _serialize_text_chat_checkpoint_messages,
@@ -84,10 +88,23 @@ async def _create_user_and_workflow(
     )
     async_session.add(user)
     await async_session.flush()
+    await async_session.execute(
+        organization_users_association.insert().values(
+            user_id=user.id,
+            organization_id=org.id,
+        )
+    )
 
-    await db_session.update_user_configuration(
-        user_id=user.id,
-        configuration=EffectiveAIModelConfiguration.model_validate(USER_CONFIGURATION),
+    user_configuration = EffectiveAIModelConfiguration.model_validate(
+        USER_CONFIGURATION
+    )
+    await db_session.upsert_configuration(
+        org.id,
+        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
+            mode="json",
+            exclude_none=True,
+        ),
     )
 
     workflow = await db_session.create_workflow(
@@ -1079,10 +1096,23 @@ async def test_text_chat_session_creation_requires_selected_org_scope(
     )
     async_session.add(user)
     await async_session.flush()
+    await async_session.execute(
+        organization_users_association.insert().values(
+            user_id=user.id,
+            organization_id=org_a.id,
+        )
+    )
 
-    await db_session.update_user_configuration(
-        user_id=user.id,
-        configuration=EffectiveAIModelConfiguration.model_validate(USER_CONFIGURATION),
+    user_configuration = EffectiveAIModelConfiguration.model_validate(
+        USER_CONFIGURATION
+    )
+    await db_session.upsert_configuration(
+        org_a.id,
+        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
+            mode="json",
+            exclude_none=True,
+        ),
     )
 
     workflow = await db_session.create_workflow(

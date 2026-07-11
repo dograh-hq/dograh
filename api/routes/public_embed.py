@@ -309,6 +309,7 @@ async def initialize_embed_session(
             workflow_id=embed_token.workflow_id,
             mode=WorkflowRunMode.SMALLWEBRTC.value,
             user_id=embed_token.created_by,  # Use token creator as run owner
+            organization_id=embed_token.organization_id,
             initial_context={
                 **(init_request.context_variables or {}),
                 "provider": WorkflowRunMode.SMALLWEBRTC.value,

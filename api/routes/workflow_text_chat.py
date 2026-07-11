@@ -103,6 +103,7 @@ async def _ensure_text_chat_quota(
 ) -> None:
     quota_result = await authorize_workflow_run_start(
         workflow_id=workflow_id,
+        organization_id=user.selected_organization_id,
         workflow_run_id=workflow_run_id,
         actor_user=user,
     )

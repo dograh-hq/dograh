@@ -64,6 +64,12 @@ For details on creating and using Service Keys, see [API Keys and Service Keys](
 
 Use **BYOK** when you want to bring your own provider accounts and API keys. This gives you separate control over each model category.
 
+<Warning>
+When you use BYOK or external model providers, Dograh sends only the data required for the selected service to operate. Depending on the provider and service type, this may include prompts, conversation history, transcripts, audio, generated text, tool/function definitions, tool inputs or results, and request metadata.
+
+Provider data handling varies. Review each provider's data processing, retention, model training, and regional hosting policies before using sensitive data.
+</Warning>
+
 ![BYOK model configuration](../images/model-configuration-byok.png)
 
 The BYOK section has nested tabs:

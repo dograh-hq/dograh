@@ -54,7 +54,7 @@ serviceAccount:
     eks.amazonaws.com/role-arn: ""  # set via --set
 
 web:
-  replicaCount: 3
+  replicaCount: 2
 
 autoscaling:
   web:

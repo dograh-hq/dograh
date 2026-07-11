@@ -180,10 +180,58 @@ class EndCallConfig(BaseModel):
     )
 
 
+class HttpTransferResolverConfig(BaseModel):
+    """HTTP endpoint used to resolve transfer destination at call time."""
+
+    type: Literal["http"] = Field(default="http", description="Resolver type.")
+    url: str = Field(description="HTTP or HTTPS endpoint for transfer resolution.")
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Static headers to include with every resolver request.",
+    )
+    credential_uuid: Optional[str] = Field(
+        default=None,
+        description="Reference to an external credential for resolver authentication.",
+    )
+    timeout_ms: int = Field(
+        default=3000,
+        ge=500,
+        le=5000,
+        description="Resolver request timeout in milliseconds.",
+    )
+    wait_message: Optional[str] = Field(
+        default=None,
+        description="Optional short message played while Dograh resolves routing.",
+    )
+    parameters: Optional[List[ToolParameter]] = Field(
+        default=None,
+        description="Parameters the model may provide when calling this transfer tool.",
+    )
+    preset_parameters: Optional[List[PresetToolParameter]] = Field(
+        default=None,
+        description=(
+            "Parameters injected by Dograh from fixed values or workflow context "
+            "templates."
+        ),
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not isinstance(v, str) or not v.startswith(("http://", "https://")):
+            raise ValueError("config.resolver.url must be an http(s) URL")
+        return v
+
+
 class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
+    destination_source: Literal["static", "dynamic"] = Field(
+        default="static",
+        description="Whether transfer destination is static/template or resolved by HTTP.",
+    )
     destination: str = Field(
+        default="",
         description=(
             "Phone number, SIP endpoint, or template to transfer the call to, e.g. "
             "+1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}."
@@ -204,6 +252,29 @@ class TransferCallConfig(BaseModel):
         le=120,
         description="Maximum seconds to wait for the destination to answer.",
     )
+    parameters: Optional[List[ToolParameter]] = Field(
+        default=None,
+        description=(
+            "Parameters the model may provide when calling this transfer tool, "
+            "for example state, department, or transfer reason."
+        ),
+    )
+    resolver: Optional[HttpTransferResolverConfig] = Field(
+        default=None,
+        description="Optional resolver that determines transfer routing at call time.",
+    )
+
+    @model_validator(mode="after")
+    def validate_destination_source_config(self):
+        if self.destination_source == "static" and not self.destination.strip():
+            raise ValueError(
+                "config.destination is required when destination_source is static"
+            )
+        if self.destination_source == "dynamic" and self.resolver is None:
+            raise ValueError(
+                "config.resolver is required when destination_source is dynamic"
+            )
+        return self
 
 
 class McpToolConfig(BaseModel):

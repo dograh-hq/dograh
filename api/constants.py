@@ -151,7 +151,11 @@ COUNTRY_CODES = {
     "IE": "353",  # Ireland
 }
 
-DEFAULT_ORG_CONCURRENCY_LIMIT = os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", 2)
+# Floor at 1 so a misconfigured env var (0 or negative) can't silently block
+# every call in the deployment.
+DEFAULT_ORG_CONCURRENCY_LIMIT = max(
+    1, int(os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", "10"))
+)
 DEFAULT_CAMPAIGN_RETRY_CONFIG = {
     "enabled": True,
     "max_retries": 1,

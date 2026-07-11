@@ -47,7 +47,6 @@ async def _persist_amd_result_if_present(
 @router.post("/twiml", include_in_schema=False)
 async def handle_twiml_webhook(
     workflow_id: int,
-    user_id: int,
     workflow_run_id: int,
     organization_id: int,
     request: Request,
@@ -79,7 +78,7 @@ async def handle_twiml_webhook(
     )
 
     response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
+        workflow_id, organization_id, workflow_run_id
     )
 
     return HTMLResponse(content=response_content, media_type="application/xml")

@@ -13,13 +13,10 @@ from api.db.models import (
     OrganizationConfigurationModel,
     OrganizationModel,
     OrganizationUsageCycleModel,
-    UserConfigurationModel,
-    UserModel,
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import OrganizationConfigurationKey, UserConfigurationKey
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.enums import OrganizationConfigurationKey
 from api.utils.recording_artifacts import get_recording_storage_key
 
 
@@ -139,9 +136,8 @@ class OrganizationUsageClient(BaseDBClient):
             query = (
                 select(WorkflowRunModel)
                 .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
-                .join(UserModel, WorkflowModel.user_id == UserModel.id)
                 .where(
-                    UserModel.selected_organization_id == organization_id,
+                    WorkflowModel.organization_id == organization_id,
                     WorkflowRunModel.usage_info.isnot(None),
                 )
                 .order_by(WorkflowRunModel.created_at.desc())
@@ -277,9 +273,8 @@ class OrganizationUsageClient(BaseDBClient):
                     WorkflowRunModel.public_access_token,
                 )
                 .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
-                .join(UserModel, WorkflowModel.user_id == UserModel.id)
                 .where(
-                    UserModel.selected_organization_id == organization_id,
+                    WorkflowModel.organization_id == organization_id,
                     WorkflowRunModel.usage_info.isnot(None),
                 )
                 .order_by(WorkflowRunModel.created_at.desc())
@@ -316,7 +311,6 @@ class OrganizationUsageClient(BaseDBClient):
         start_date: datetime,
         end_date: datetime,
         price_per_second_usd: float,
-        user_id: Optional[int] = None,
     ) -> dict:
         """Get daily usage breakdown for an organization with pricing."""
 
@@ -344,22 +338,6 @@ class OrganizationUsageClient(BaseDBClient):
             if pref_obj and pref_obj.value:
                 user_timezone = pref_obj.value.get("timezone") or user_timezone
 
-            if user_id:
-                config_result = await session.execute(
-                    select(UserConfigurationModel).where(
-                        UserConfigurationModel.user_id == user_id,
-                        UserConfigurationModel.key
-                        == UserConfigurationKey.MODEL_CONFIGURATION.value,
-                    )
-                )
-                config_obj = config_result.scalar_one_or_none()
-                if config_obj and config_obj.configuration:
-                    effective_config = EffectiveAIModelConfiguration.model_validate(
-                        config_obj.configuration
-                    )
-                    if effective_config.timezone and user_timezone == "UTC":
-                        user_timezone = effective_config.timezone
-
             # Validate timezone string
             try:
                 # Test if timezone is valid
@@ -382,9 +360,8 @@ class OrganizationUsageClient(BaseDBClient):
                     func.count(WorkflowRunModel.id).label("call_count"),
                 )
                 .join(WorkflowModel, WorkflowModel.id == WorkflowRunModel.workflow_id)
-                .join(UserModel, UserModel.id == WorkflowModel.user_id)
                 .where(
-                    UserModel.selected_organization_id == organization_id,
+                    WorkflowModel.organization_id == organization_id,
                     WorkflowRunModel.created_at >= start_date,
                     WorkflowRunModel.created_at <= end_date,
                     WorkflowRunModel.is_completed == True,

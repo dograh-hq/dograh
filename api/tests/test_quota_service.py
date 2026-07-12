@@ -753,7 +753,7 @@ async def test_authorize_workflow_run_fails_closed_on_config_resolution_error(
 
 @pytest.mark.asyncio
 async def test_authorize_workflow_run_fails_closed_on_user_lookup_error(monkeypatch):
-    """A DB read failure on the owner lookup surfaces as user_not_found, not open."""
+    """A DB read failure on the owner lookup is a 'cannot verify' → denied."""
     get_config = AsyncMock()
 
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
@@ -776,13 +776,13 @@ async def test_authorize_workflow_run_fails_closed_on_user_lookup_error(monkeypa
     )
 
     assert result.has_quota is False
-    assert result.error_code == "user_not_found"
+    assert result.error_code == "quota_check_failed"
     get_config.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_authorize_workflow_run_fails_closed_on_run_lookup_error(monkeypatch):
-    """A DB read failure on the run lookup surfaces as workflow_run_not_found."""
+    """A DB read failure on the run lookup is a 'cannot verify' → denied."""
     get_config = AsyncMock()
 
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
@@ -806,8 +806,32 @@ async def test_authorize_workflow_run_fails_closed_on_run_lookup_error(monkeypat
     )
 
     assert result.has_quota is False
-    assert result.error_code == "workflow_run_not_found"
+    assert result.error_code == "quota_check_failed"
     get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fail_mode_open_allows_db_read_error(monkeypatch):
+    """QUOTA_FAIL_MODE=open must also cover DB read failures, not just config.
+
+    Regression for the escape hatch being bypassed when a DB read (owner
+    lookup here) threw before the policy gate ran.
+    """
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(quota_service, "QUOTA_FAIL_MODE", "open")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_user_by_id",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is True
 
 
 @pytest.mark.asyncio

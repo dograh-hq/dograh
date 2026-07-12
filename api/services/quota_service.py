@@ -434,21 +434,11 @@ async def authorize_workflow_run_start(
                     error_message="Workflow not found",
                 )
 
-        try:
-            workflow_owner = await db_client.get_user_by_id(workflow.user_id)
-        except Exception as e:
-            logger.error(
-                "Workflow start authorization denied: failed to load owner {} for workflow {} org {}: {}",
-                workflow.user_id,
-                workflow_id,
-                organization_id,
-                e,
-            )
-            return QuotaCheckResult(
-                has_quota=False,
-                error_code="user_not_found",
-                error_message="User not found",
-            )
+        # A DB read failure here is a "cannot verify" condition, not a
+        # definitive "not found": let it fall through to the outer handler so
+        # QUOTA_FAIL_MODE governs it uniformly. The None case below is a genuine
+        # missing row and keeps its specific code.
+        workflow_owner = await db_client.get_user_by_id(workflow.user_id)
         if not workflow_owner:
             return QuotaCheckResult(
                 has_quota=False,
@@ -463,23 +453,12 @@ async def authorize_workflow_run_start(
         # the definition the run will actually use.
         workflow_configurations = workflow.workflow_configurations
         if workflow_run_id is not None:
-            try:
-                workflow_run = await db_client.get_workflow_run(
-                    workflow_run_id, organization_id=organization_id
-                )
-            except Exception as e:
-                logger.error(
-                    "Workflow start authorization denied: failed to load workflow run {} for workflow {} org {}: {}",
-                    workflow_run_id,
-                    workflow_id,
-                    organization_id,
-                    e,
-                )
-                return QuotaCheckResult(
-                    has_quota=False,
-                    error_code="workflow_run_not_found",
-                    error_message="Workflow run not found",
-                )
+            # As with the owner lookup, a DB read failure falls through to the
+            # outer QUOTA_FAIL_MODE handler; only a genuinely missing/mismatched
+            # run returns the specific code below.
+            workflow_run = await db_client.get_workflow_run(
+                workflow_run_id, organization_id=organization_id
+            )
             if workflow_run is None or workflow_run.workflow_id != workflow.id:
                 logger.warning(
                     "Workflow start authorization denied: workflow run {} not found for workflow {} org {}",
@@ -527,11 +506,12 @@ async def authorize_workflow_run_start(
 
     except Exception as e:
         logger.error(f"Error during quota check: {str(e)}")
-        # Quota verification could not be completed (e.g. config resolution or
-        # a config-shape bug threw). Billing and abuse protection are
-        # control-plane functions, so fail closed by default rather than let a
-        # billable run start unverified. Self-hosters who prefer availability
-        # can opt into the legacy fail-open behavior with QUOTA_FAIL_MODE=open.
+        # Quota verification could not be completed (a degraded DB read, config
+        # resolution, or a config-shape bug threw). Billing and abuse protection
+        # are control-plane functions, so fail closed by default rather than let
+        # a billable run start unverified. This is the single policy gate for
+        # all "cannot verify" errors, so QUOTA_FAIL_MODE governs them uniformly;
+        # self-hosters who prefer availability can set QUOTA_FAIL_MODE=open.
         if QUOTA_FAIL_MODE == "open":
             logger.warning(
                 "QUOTA_FAIL_MODE=open: allowing workflow {} org {} to proceed "

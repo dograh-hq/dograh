@@ -726,3 +726,113 @@ async def test_authorize_workflow_run_denies_run_bound_to_other_workflow(monkeyp
     assert result.has_quota is False
     assert result.error_code == "workflow_run_not_found"
     get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_config_resolution_error(
+    monkeypatch,
+):
+    """A config-resolution bug must deny the run, not fail open (issue #331)."""
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(quota_service, "QUOTA_FAIL_MODE", "closed")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(side_effect=RuntimeError("configuration resolution bug")),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_user_lookup_error(monkeypatch):
+    """A DB read failure on the owner lookup surfaces as user_not_found, not open."""
+    get_config = AsyncMock()
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(quota_service, "QUOTA_FAIL_MODE", "closed")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_user_by_id",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "user_not_found"
+    get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_run_lookup_error(monkeypatch):
+    """A DB read failure on the run lookup surfaces as workflow_run_not_found."""
+    get_config = AsyncMock()
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(quota_service, "QUOTA_FAIL_MODE", "closed")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "workflow_run_not_found"
+    get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fail_mode_open_allows_and_logs(monkeypatch):
+    """QUOTA_FAIL_MODE=open restores the legacy fail-open and logs loudly."""
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(quota_service, "QUOTA_FAIL_MODE", "open")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(side_effect=RuntimeError("configuration resolution bug")),
+    )
+
+    warnings: list[str] = []
+    sink_id = quota_service.logger.add(
+        lambda message: warnings.append(str(message)), level="WARNING"
+    )
+    try:
+        result = await quota_service.authorize_workflow_run_start(
+            workflow_id=7,
+            organization_id=42,
+        )
+    finally:
+        quota_service.logger.remove(sink_id)
+
+    assert result.has_quota is True
+    assert any("QUOTA_FAIL_MODE=open" in message for message in warnings)

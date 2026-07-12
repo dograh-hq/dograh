@@ -42,6 +42,15 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]
 
 DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")
+
+# Policy for quota enforcement when credit verification cannot be completed
+# (e.g. a degraded database or a config-resolution bug throws before quota
+# state is known). "closed" (the default) denies the run so billing/abuse
+# protection stays enforced under exactly the degraded conditions that matter.
+# Self-hosters who prefer availability over enforcement can set "open" to allow
+# such runs to proceed; the service logs loudly whenever it does.
+QUOTA_FAIL_MODE = os.getenv("QUOTA_FAIL_MODE", "closed").strip().lower()
+
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]

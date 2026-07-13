@@ -39,6 +39,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 import {
@@ -154,8 +155,7 @@ export default function ToolsPage() {
             });
 
             if (response.error) {
-                const errorDetail = (response.error as { detail?: string })?.detail;
-                setCreateError(errorDetail || "Failed to create tool");
+                setCreateError(detailFromError(response.error, "Failed to create tool"));
                 return;
             }
 

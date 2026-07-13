@@ -120,7 +120,10 @@ class CloudonixProvider(TelephonyProvider):
         logger.info(
             f"Selected phone number {from_number} for outbound call to {to_number}"
         )
-        workflow_id, user_id = kwargs["workflow_id"], kwargs["user_id"]
+        workflow_id, organization_id = (
+            kwargs["workflow_id"],
+            kwargs["organization_id"],
+        )
 
         # Prepare call data using Cloudonix callObject schema
         # Note: 'caller-id' is REQUIRED by Cloudonix API
@@ -130,7 +133,7 @@ class CloudonixProvider(TelephonyProvider):
             "cxml": f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
+        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}"></Stream>
     </Connect>
     <Pause length="40"/>
 </Response>""",
@@ -408,7 +411,7 @@ class CloudonixProvider(TelephonyProvider):
         }
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """
         Dummy implementation - Cloudonix doesn't use webhook responses.
@@ -430,7 +433,7 @@ class CloudonixProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -502,7 +505,7 @@ class CloudonixProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_id,
                 transport_kwargs={"call_id": call_id, "stream_sid": stream_sid},
             )
@@ -517,7 +520,6 @@ class CloudonixProvider(TelephonyProvider):
         *,
         organization_id: int,
         workflow_id: int,
-        user_id: int,
         workflow_run_id: int,
         params: Dict[str, str],
     ) -> None:
@@ -671,7 +673,7 @@ class CloudonixProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_session,
                 transport_kwargs={
                     "call_id": call_session,

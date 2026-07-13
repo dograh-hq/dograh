@@ -5,17 +5,28 @@ description: "How Dograh AI handles telephony webhooks and audio streaming"
 
 ## Overview
 
-Dograh AI uses webhooks to communicate with telephony providers for call events and audio streaming. Webhooks are automatically configured when you initiate calls.
+Dograh AI uses webhooks to communicate with telephony providers for call events and audio streaming. For outbound calls, Dograh builds these URLs and hands them to the provider when it dials — you never configure them by hand. For inbound calls, you point your provider at a single dispatcher URL; see [Inbound Calls](/integrations/telephony/inbound).
+
+Every webhook path lives under `/api/v1/telephony`.
 
 ## Webhook Types
 
-### 1. Initial Call Webhook
+### 1. Answer Webhook
 
-When a call is initiated, the telephony provider requests instructions.
+When an outbound call connects, the provider requests instructions. The path is provider-specific, and Dograh appends the routing parameters as a query string:
 
-**Endpoint**: `/api/v1/telephony/webhook/{workflow_id}/{user_id}/{workflow_run_id}`
+```
+?workflow_id={workflow_id}&workflow_run_id={workflow_run_id}&organization_id={organization_id}
+```
 
-**Purpose**: Returns provider-specific instructions
+| Provider | Method | Path |
+| --- | --- | --- |
+| Twilio, Cloudonix | `POST` | `/twiml` |
+| Plivo | `POST` | `/plivo-xml` |
+| Vobiz | `POST` | `/vobiz-xml` |
+| Vonage | `GET` | `/ncco` |
+
+Telnyx and Asterisk ARI have no answer webhook. Telnyx is call-control style — Dograh POSTs the stream and event URLs to Telnyx's API instead of returning markup. ARI streams over a WebSocket only.
 
 <Tabs>
   <Tab title="Twilio (TwiML)">
@@ -23,7 +34,7 @@ When a call is initiated, the telephony provider requests instructions.
     <?xml version="1.0" encoding="UTF-8"?>
     <Response>
         <Connect>
-            <Stream url="wss://your-domain/api/v1/telephony/ws/123/456/789" />
+            <Stream url="wss://your-domain/api/v1/telephony/ws/123/11/789" />
         </Connect>
     </Response>
     ```
@@ -35,7 +46,7 @@ When a call is initiated, the telephony provider requests instructions.
         "action": "connect",
         "endpoint": [{
           "type": "websocket",
-          "uri": "wss://your-domain/api/v1/telephony/ws/123/456/789",
+          "uri": "wss://your-domain/api/v1/telephony/ws/123/11/789",
           "content-type": "audio/l16;rate=16000"
         }]
       }
@@ -44,30 +55,50 @@ When a call is initiated, the telephony provider requests instructions.
   </Tab>
 </Tabs>
 
-### 2. Status Callback
+Here `123` is the workflow, `11` the organization, and `789` the workflow run.
 
-Receives call lifecycle events.
+### 2. Status Callbacks
 
-**Endpoint**: `/api/v1/telephony/status-callback/{workflow_run_id}`
+Receive call lifecycle events. Each is keyed on the workflow run:
 
-**Events Tracked**:
+| Provider | Path |
+| --- | --- |
+| Twilio | `/twilio/status-callback/{workflow_run_id}` |
+| Plivo | `/plivo/hangup-callback/{workflow_run_id}`, `/plivo/ring-callback/{workflow_run_id}` |
+| Vobiz | `/vobiz/hangup-callback/{workflow_run_id}`, `/vobiz/ring-callback/{workflow_run_id}` |
+| Vonage | `/vonage/events/{workflow_run_id}` |
+| Telnyx | `/telnyx/events/{workflow_run_id}` |
+| Cloudonix | `/cloudonix/status-callback/{workflow_run_id}`, `/cloudonix/cdr` |
+
+Providers report their own vocabulary; Dograh normalizes it into a common set of states:
+
 - `initiated` - Call request received
 - `ringing` - Call is ringing
+- `in-progress` - Call is connected and streaming
 - `answered` - Call was answered
 - `completed` - Call ended normally
 - `busy` - Line was busy
 - `no-answer` - Call not answered
+- `canceled` - Call was canceled before connecting
 - `failed` - Call failed
+- `error` - Provider reported an error
+
+A status Dograh does not recognize is passed through unchanged rather than dropped.
 
 ### 3. WebSocket Audio Stream
 
 Real-time audio streaming for voice interaction.
 
-**Endpoint**: `/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}`
+**Endpoint**: `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}`
+
+Asterisk ARI instead connects to `/api/v1/telephony/ws/ari` and passes the same three values as query parameters — see [Asterisk ARI](/integrations/telephony/asterisk-ari).
+
+The `organization_id` segment is the tenant that owns the workflow. Dograh scopes every workflow and workflow-run lookup by it, so a run belonging to one organization can never be served under another's id.
 
 **Audio Formats**:
-- **Twilio**: 8kHz μ-law (MULAW), Base64-encoded in JSON messages
+- **Twilio / Plivo / Vobiz**: 8kHz μ-law (MULAW), Base64-encoded in JSON messages
 - **Vonage**: 16kHz Linear PCM, Binary frames
+- **Asterisk ARI**: 8kHz Linear PCM via externalMedia
 
 ## How It Works
 
@@ -76,10 +107,13 @@ Dograh AI automatically:
 2. Passes them to the telephony provider when initiating calls
 3. Verifies webhook signatures for security:
    - **Twilio**: HMAC-SHA1 signature validation
+   - **Plivo / Vobiz**: HMAC-SHA256 signature validation
    - **Vonage**: JWT token verification
 4. Processes status updates to track call lifecycle
 5. Manages WebSocket connections for audio streaming
 6. Handles provider-specific audio formats and protocols
+
+Signature verification is implemented per provider in `verify_inbound_signature`. If you are adding a provider, see [Custom Telephony Provider](/integrations/telephony/custom).
 
 ## Local Development
 
@@ -102,13 +136,18 @@ The tunnel URL is automatically detected and used for webhooks.
     - Check firewall rules allow incoming HTTPS traffic
     - Test with `curl` from external network
   </Accordion>
-  
+
+  <Accordion title="Signature verification failures">
+    - Providers sign the full URL, query string included — a proxy that rewrites or reorders query parameters will invalidate the signature
+    - Confirm the backend's public URL matches what the provider was given, including scheme and port
+  </Accordion>
+
   <Accordion title="WebSocket connection dropping">
     - Check WebSocket upgrade headers are preserved
     - Verify no timeout on load balancer/proxy
     - Monitor for memory/CPU constraints
   </Accordion>
-  
+
   <Accordion title="Status callbacks not received">
     - Verify workflow_run_id is included in URL
     - Check provider console for webhook errors

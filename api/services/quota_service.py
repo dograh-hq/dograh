@@ -442,9 +442,36 @@ async def authorize_workflow_run_start(
                 error_message="User not found",
             )
 
+        # The run executes its pinned definition's configuration, so the MPS
+        # correlation must be minted for the service key in that snapshot.
+        # workflow.workflow_configurations is a legacy column synced to the
+        # draft on every save, which can carry a different service key than
+        # the definition the run will actually use.
+        workflow_configurations = workflow.workflow_configurations
+        if workflow_run_id is not None:
+            workflow_run = await db_client.get_workflow_run(
+                workflow_run_id, organization_id=organization_id
+            )
+            if workflow_run is None or workflow_run.workflow_id != workflow.id:
+                logger.warning(
+                    "Workflow start authorization denied: workflow run {} not found for workflow {} org {}",
+                    workflow_run_id,
+                    workflow_id,
+                    organization_id,
+                )
+                return QuotaCheckResult(
+                    has_quota=False,
+                    error_code="workflow_run_not_found",
+                    error_message="Workflow run not found",
+                )
+            if workflow_run.definition is not None:
+                workflow_configurations = (
+                    workflow_run.definition.workflow_configurations
+                )
+
         user_config = await get_effective_ai_model_configuration_for_workflow(
             organization_id=organization_id,
-            workflow_configurations=workflow.workflow_configurations,
+            workflow_configurations=workflow_configurations,
         )
 
         if DEPLOYMENT_MODE != "oss":

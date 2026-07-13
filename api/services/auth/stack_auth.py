@@ -1,6 +1,15 @@
 import os
+from typing import Any
 
 import aiohttp
+
+
+class StackAuthUserSearchError(Exception):
+    """Raised when Stack Auth user search fails unexpectedly."""
+
+
+class StackAuthSessionError(Exception):
+    """Raised when Stack Auth cannot create an impersonation session."""
 
 
 class StackAuth:
@@ -56,10 +65,56 @@ class StackAuth:
             "is_impersonation": True,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=data) as response:
-                response = await response.json()
-                return response
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=data) as response:
+                    if response.status >= 400:
+                        raise StackAuthSessionError(
+                            "Stack Auth session creation failed"
+                        )
+
+                    return await response.json()
+        except (aiohttp.ClientError, ValueError) as exc:
+            raise StackAuthSessionError("Stack Auth session creation failed") from exc
+
+    async def find_users_by_email(self, email: str) -> list[dict[str, Any]]:
+        """Return Stack Auth users whose primary email exactly matches."""
+        normalized_email = email.strip().lower()
+        url = os.environ.get("STACK_AUTH_API_URL") + "/api/v1/users"
+        headers = {
+            "x-stack-access-type": "server",
+            "x-stack-project-id": self.project_id,
+            "x-stack-secret-server-key": self.secret_server_key,
+        }
+        params = {
+            "query": normalized_email,
+            "limit": "10",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, params=params) as response:
+                    if response.status >= 400:
+                        raise StackAuthUserSearchError("Stack Auth user search failed")
+
+                    payload = await response.json()
+        except (aiohttp.ClientError, ValueError) as exc:
+            raise StackAuthUserSearchError("Stack Auth user search failed") from exc
+
+        users = payload.get("items", []) if isinstance(payload, dict) else []
+        if not isinstance(users, list):
+            return []
+
+        return [
+            user
+            for user in users
+            if isinstance(user, dict)
+            and self._stack_user_has_email(user, normalized_email)
+        ]
+
+    def _stack_user_has_email(self, user: dict[str, Any], email: str) -> bool:
+        primary_email = user.get("primary_email")
+        return isinstance(primary_email, str) and primary_email.lower() == email
 
     # ------------------------------------------------------------------
     # Team & user management helpers

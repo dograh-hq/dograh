@@ -166,7 +166,7 @@ class TwilioProvider(TelephonyProvider):
         return validator.validate(url, params, signature)
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """
         Generate TwiML response for starting a call session.
@@ -176,7 +176,7 @@ class TwilioProvider(TelephonyProvider):
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
+        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}"></Stream>
     </Connect>
     <Pause length="40"/>
 </Response>"""
@@ -274,7 +274,7 @@ class TwilioProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -325,7 +325,7 @@ class TwilioProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_sid,
                 transport_kwargs={"stream_sid": stream_sid, "call_sid": call_sid},
             )

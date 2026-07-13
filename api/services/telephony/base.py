@@ -150,14 +150,15 @@ class TelephonyProvider(ABC):
 
     @abstractmethod
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """
         Generate the initial webhook response for starting a call session.
 
         Args:
             workflow_id: The workflow ID
-            user_id: The user ID
+            organization_id: The organization owning the workflow; providers
+                embed it in the media websocket URL they hand back
             workflow_run_id: The workflow run ID
 
         Returns:
@@ -223,7 +224,7 @@ class TelephonyProvider(ABC):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -232,10 +233,14 @@ class TelephonyProvider(ABC):
         This method encapsulates all provider-specific WebSocket handshake and
         message routing logic, keeping the main websocket endpoint clean.
 
+        ``organization_id`` is the tenant that every workflow/run lookup must be
+        scoped by. The workflow owner is deliberately not passed in — derive it
+        from the workflow row where it's needed for attribution.
+
         Args:
             websocket: The WebSocket connection
             workflow_id: The workflow ID
-            user_id: The user ID
+            organization_id: The organization owning the workflow and run
             workflow_run_id: The workflow run ID
         """
         pass
@@ -355,7 +360,6 @@ class TelephonyProvider(ABC):
         *,
         organization_id: int,
         workflow_id: int,
-        user_id: int,
         workflow_run_id: int,
         params: Dict[str, str],
     ) -> None:

@@ -33,6 +33,20 @@ def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
     definition = tool.definition or {}
     config = definition.get("config", {})
     parameters = config.get("parameters", []) or []
+    if (
+        definition.get("type") == "transfer_call"
+        and config.get("destination_source", "static") != "dynamic"
+    ):
+        parameters = []
+    elif (
+        definition.get("type") == "transfer_call"
+        and config.get("destination_source", "static") == "dynamic"
+    ):
+        resolver = config.get("resolver")
+        if isinstance(resolver, dict):
+            parameters = resolver.get("parameters", []) or []
+        else:
+            parameters = []
 
     # Build properties and required list from parameters
     properties = {}

@@ -353,19 +353,18 @@ class ARIConnection:
 
                 workflow_run_id = args_dict.get("workflow_run_id")
                 workflow_id = args_dict.get("workflow_id")
-                user_id = args_dict.get("user_id")
 
-                if not workflow_run_id or not workflow_id or not user_id:
+                if not workflow_run_id or not workflow_id:
                     logger.warning(
                         f"[ARI org={self.organization_id}] StasisStart missing required args: "
-                        f"workflow_run_id={workflow_run_id}, workflow_id={workflow_id}, user_id={user_id}"
+                        f"workflow_run_id={workflow_run_id}, workflow_id={workflow_id}"
                     )
                     return
 
                 # Start pipeline connection in background task
                 asyncio.create_task(
                     self._handle_stasis_start(
-                        channel_id, channel_state, workflow_run_id, workflow_id, user_id
+                        channel_id, channel_state, workflow_run_id, workflow_id
                     )
                 )
 
@@ -448,7 +447,6 @@ class ARIConnection:
     async def _create_external_media(
         self,
         workflow_id: str,
-        user_id: str,
         workflow_run_id: str,
         channel_id: Optional[str] = None,
     ) -> str:
@@ -464,10 +462,10 @@ class ARIConnection:
         the POST and avoid racing against the StasisStart event.
         """
         # v() appends URI query params to the websocket_client.conf URL
-        # e.g. wss://api.dograh.com/ws/ari?workflow_id=1&user_id=2&workflow_run_id=3
+        # e.g. wss://api.dograh.com/ws/ari?workflow_id=1&organization_id=2&workflow_run_id=3
         transport_data = (
             f"v(workflow_id={workflow_id},"
-            f"user_id={user_id},"
+            f"organization_id={self.organization_id},"
             f"workflow_run_id={workflow_run_id})"
         )
 
@@ -646,7 +644,6 @@ class ARIConnection:
                 channel_state,
                 str(workflow_run.id),
                 str(inbound_workflow_id),
-                str(user_id),
             )
         except Exception as e:
             if workflow_run:
@@ -668,7 +665,6 @@ class ARIConnection:
         channel_state: str,
         workflow_run_id: str,
         workflow_id: str,
-        user_id: str,
     ):
         """Set up external media for a caller channel that has entered Stasis.
 
@@ -712,7 +708,6 @@ class ARIConnection:
             # 3. Create the ext media channel with the id we just registered.
             created_id = await self._create_external_media(
                 workflow_id,
-                user_id,
                 workflow_run_id,
                 channel_id=ext_channel_id,
             )

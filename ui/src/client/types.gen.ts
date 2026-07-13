@@ -3023,6 +3023,64 @@ export type HttpApiToolDefinition = {
 };
 
 /**
+ * HttpTransferResolverConfig
+ *
+ * HTTP endpoint used to resolve transfer destination at call time.
+ */
+export type HttpTransferResolverConfig = {
+    /**
+     * Type
+     *
+     * Resolver type.
+     */
+    type?: 'http';
+    /**
+     * Url
+     *
+     * HTTP or HTTPS endpoint for transfer resolution.
+     */
+    url: string;
+    /**
+     * Headers
+     *
+     * Static headers to include with every resolver request.
+     */
+    headers?: {
+        [key: string]: string;
+    } | null;
+    /**
+     * Credential Uuid
+     *
+     * Reference to an external credential for resolver authentication.
+     */
+    credential_uuid?: string | null;
+    /**
+     * Timeout Ms
+     *
+     * Resolver request timeout in milliseconds.
+     */
+    timeout_ms?: number;
+    /**
+     * Wait Message
+     *
+     * Optional short message played while Dograh resolves routing.
+     */
+    wait_message?: string | null;
+    /**
+     * Parameters
+     *
+     * Parameters the model may provide when calling this transfer tool.
+     */
+    parameters?: Array<ToolParameter> | null;
+    /**
+     * Preset Parameters
+     *
+     * Parameters injected by Dograh from fixed values or workflow context templates.
+     */
+    preset_parameters?: Array<PresetToolParameter> | null;
+};
+
+/**
  * Hugging Face
  *
  * Hosted Hugging Face Inference Providers API for usage-based inference.
@@ -3101,8 +3159,9 @@ export type HuggingFaceSttConfiguration = {
  *
  * Request payload for superadmin impersonation.
  *
- * Either ``provider_user_id`` **or** ``user_id`` must be supplied. If both are
- * provided, ``provider_user_id`` takes precedence.
+ * ``provider_user_id``, ``user_id``, or ``email`` may be supplied. If more
+ * than one is provided, ``provider_user_id`` takes precedence, followed by
+ * ``user_id`` and then ``email``.
  */
 export type ImpersonateRequest = {
     /**
@@ -3113,6 +3172,10 @@ export type ImpersonateRequest = {
      * User Id
      */
     user_id?: number | null;
+    /**
+     * Email
+     */
+    email?: string | null;
 };
 
 /**
@@ -5832,11 +5895,17 @@ export type ToolResponse = {
  */
 export type TransferCallConfig = {
     /**
+     * Destination Source
+     *
+     * Whether transfer destination is static/template or resolved by HTTP.
+     */
+    destination_source?: 'static' | 'dynamic';
+    /**
      * Destination
      *
      * Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
      */
-    destination: string;
+    destination?: string;
     /**
      * Messagetype
      *
@@ -5861,6 +5930,16 @@ export type TransferCallConfig = {
      * Maximum seconds to wait for the destination to answer.
      */
     timeout?: number;
+    /**
+     * Parameters
+     *
+     * Parameters the model may provide when calling this transfer tool, for example state, department, or transfer reason.
+     */
+    parameters?: Array<ToolParameter> | null;
+    /**
+     * Optional resolver that determines transfer routing at call time.
+     */
+    resolver?: HttpTransferResolverConfig | null;
 };
 
 /**
@@ -6155,12 +6234,7 @@ export type UpdateWorkflowRequest = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Workflow Configurations
-     */
-    workflow_configurations?: {
-        [key: string]: unknown;
-    } | null;
+    workflow_configurations?: WorkflowConfigurationDefaults | null;
 };
 
 /**

@@ -123,8 +123,12 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
 
     initiate_kwargs = provider.initiate_call.await_args.kwargs
     assert initiate_kwargs["workflow_id"] == workflow.id
-    assert initiate_kwargs["user_id"] == workflow.user_id
-    assert "user_id=99" in initiate_kwargs["webhook_url"]
+    # The media websocket URL is keyed on the org, not the workflow owner.
+    assert initiate_kwargs["organization_id"] == workflow.organization_id
+    webhook_url = initiate_kwargs["webhook_url"]
+    assert f"organization_id={workflow.organization_id}" in webhook_url
+    # The answer URL carries no workflow owner: nothing downstream scopes on it.
+    assert "user_id=" not in webhook_url
     mock_db.get_user_configurations.assert_not_called()
 
 
@@ -380,11 +384,13 @@ async def test_smallwebrtc_run_reaching_telephony_websocket_closes_without_runni
     ):
         mock_concurrency.unregister_active_call = AsyncMock()
         mock_db.get_workflow_run = AsyncMock(return_value=workflow_run)
-        mock_db.get_workflow_by_id = AsyncMock(return_value=workflow)
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
         mock_db.update_workflow_run = AsyncMock()
 
-        await _handle_telephony_websocket(websocket, 33, 99, 501)
+        await _handle_telephony_websocket(websocket, 33, 11, 501)
 
+    mock_db.get_workflow_run.assert_awaited_once_with(501, organization_id=11)
+    mock_db.get_workflow.assert_awaited_once_with(33, organization_id=11)
     websocket.close.assert_awaited_once_with(
         code=4400,
         reason=(

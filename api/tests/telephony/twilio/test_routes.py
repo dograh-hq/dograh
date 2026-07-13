@@ -109,7 +109,6 @@ async def test_twiml_route_accepts_valid_signature_with_extra_query_param():
     provider = _provider()
     query = {
         "workflow_id": 7,
-        "user_id": 8,
         "workflow_run_id": 123,
         "campaign_id": 42,
         "organization_id": 11,
@@ -149,14 +148,13 @@ async def test_twiml_route_accepts_valid_signature_with_extra_query_param():
 
         response = await handle_twiml_webhook(
             workflow_id=7,
-            user_id=8,
             workflow_run_id=123,
             organization_id=11,
             request=request,
         )
 
     assert response.body == b"<Response/>"
-    get_webhook_response.assert_awaited_once_with(7, 8, 123)
+    get_webhook_response.assert_awaited_once_with(7, 11, 123)
 
 
 @pytest.mark.asyncio
@@ -166,7 +164,6 @@ async def test_twiml_route_rejects_missing_signature():
         path="/api/v1/telephony/twiml",
         query={
             "workflow_id": 7,
-            "user_id": 8,
             "workflow_run_id": 123,
             "organization_id": 11,
         },
@@ -188,7 +185,6 @@ async def test_twiml_route_rejects_missing_signature():
         with pytest.raises(HTTPException) as exc_info:
             await handle_twiml_webhook(
                 workflow_id=7,
-                user_id=8,
                 workflow_run_id=123,
                 organization_id=11,
                 request=request,

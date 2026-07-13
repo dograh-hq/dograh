@@ -52,6 +52,23 @@ def _workflow_owner():
     )
 
 
+def _pinned_run(
+    *,
+    workflow_id: int = 7,
+    workflow_configurations: dict | None = None,
+):
+    return SimpleNamespace(
+        workflow_id=workflow_id,
+        definition=SimpleNamespace(
+            workflow_configurations=(
+                workflow_configurations
+                if workflow_configurations is not None
+                else {"model_overrides": {}}
+            ),
+        ),
+    )
+
+
 def _actor():
     return SimpleNamespace(
         id=456,
@@ -238,6 +255,11 @@ async def test_authorize_workflow_run_managed_v2_stores_hosted_correlation(
     _patch_workflow_context(monkeypatch)
     monkeypatch.setattr(
         quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run()),
+    )
+    monkeypatch.setattr(
+        quota_service.db_client,
         "get_workflow_run_by_id",
         AsyncMock(return_value=workflow_run),
     )
@@ -269,6 +291,9 @@ async def test_authorize_workflow_run_managed_v2_stores_hosted_correlation(
     )
 
     assert result.has_quota is True
+    quota_service.db_client.get_workflow_run.assert_awaited_once_with(
+        88, organization_id=42
+    )
     authorize.assert_awaited_once_with(
         organization_id=42,
         workflow_run_id=88,
@@ -314,6 +339,11 @@ async def test_authorize_workflow_run_service_token_from_wrong_org_prompts_new_t
 
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
     _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run()),
+    )
     monkeypatch.setattr(
         quota_service,
         "get_effective_ai_model_configuration_for_workflow",
@@ -369,6 +399,11 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
 
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
     _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run()),
+    )
     monkeypatch.setattr(
         quota_service.db_client,
         "get_workflow_run_by_id",
@@ -548,3 +583,146 @@ async def test_authorize_workflow_run_rejects_workflow_outside_org(monkeypatch):
     quota_service.db_client.get_workflow.assert_awaited_once_with(7, organization_id=99)
     is_member_mock.assert_not_awaited()
     quota_service.db_client.get_user_by_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_resolves_config_from_pinned_definition(
+    monkeypatch,
+):
+    """The correlation must be minted for the config the run will execute.
+
+    workflow.workflow_configurations is synced to the draft on save, while the
+    run executes its pinned definition — if the draft carries a different
+    Dograh service key, minting from the workflow column binds the correlation
+    to a key the run never uses and MPS rejects every model service call.
+    """
+    draft_configs = {"model_configuration_v2_override": {"key": "draft"}}
+    pinned_configs = {"model_configuration_v2_override": {"key": "published"}}
+    workflow = _workflow()
+    workflow.workflow_configurations = draft_configs
+
+    get_config = AsyncMock(return_value=_byok_config())
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch, workflow=workflow)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run(workflow_configurations=pinned_configs)),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "_authorize_hosted_workflow_run_start",
+        AsyncMock(return_value=QuotaCheckResult(has_quota=True)),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is True
+    get_config.assert_awaited_once_with(
+        organization_id=42,
+        workflow_configurations=pinned_configs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_falls_back_to_workflow_configs_without_definition(
+    monkeypatch,
+):
+    """Legacy runs without a pinned definition keep using the workflow column."""
+    get_config = AsyncMock(return_value=_byok_config())
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=SimpleNamespace(workflow_id=7, definition=None)),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "_authorize_hosted_workflow_run_start",
+        AsyncMock(return_value=QuotaCheckResult(has_quota=True)),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is True
+    get_config.assert_awaited_once_with(
+        organization_id=42,
+        workflow_configurations={"model_overrides": {}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_denies_when_run_missing(monkeypatch):
+    get_config = AsyncMock()
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "workflow_run_not_found"
+    get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_denies_run_bound_to_other_workflow(monkeypatch):
+    get_config = AsyncMock()
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run(workflow_id=999)),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "workflow_run_not_found"
+    get_config.assert_not_awaited()

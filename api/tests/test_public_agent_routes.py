@@ -126,7 +126,8 @@ def test_trigger_route_executes_as_workflow_owner():
 
     initiate_kwargs = provider.initiate_call.await_args.kwargs
     assert initiate_kwargs["workflow_id"] == workflow.id
-    assert initiate_kwargs["user_id"] == workflow.user_id
+    # The media websocket URL is keyed on the org, not the workflow owner.
+    assert initiate_kwargs["organization_id"] == workflow.organization_id
 
 
 def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():

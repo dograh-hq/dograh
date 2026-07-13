@@ -455,19 +455,28 @@ migrate:
 # -----------------------------------------------------------------------------
 # Horizontal Pod Autoscaling.
 #
-# Requires metrics-server in the cluster. HPA reads Deployment `replicas` on
-# first sync and then owns it, so `web.replicaCount` etc. are ignored once the
+# All tiers default to `enabled: false`; opt in per tier. Requires
+# metrics-server in the cluster. HPA reads Deployment `replicas` on first sync
+# and then owns it, so `web.replicaCount` etc. are ignored once the
 # corresponding autoscaling block is enabled — treat `minReplicas` as the new
-# floor.
+# floor. Enabling a tier's HPA also removes `replicas` from its Deployment, so
+# on the first upgrade after enabling, the tier briefly resets to 1 pod until
+# the HPA reconciles — enable during a quiet window.
 #
 # WARNING (web): CPU/memory is a poor signal for WebRTC signaling workloads.
 # WebSockets are long-lived, low-CPU, and steady-memory; CPU will look flat
 # while you saturate per-pod connection limits. Replace this with a custom
 # metric (active WS connections, active calls) once one is exposed.
 #
-# Workers (ARQ) and UI (Next.js SSR) correlate reasonably with CPU because
-# each job/request consumes CPU proportional to load, so resource-metric HPA
-# is a fine default for those.
+# Workers (ARQ): jobs are mostly IO-bound (webhook delivery, embeddings, LLM
+# calls), so CPU can stay flat while the queue backs up. CPU HPA is a coarse
+# stopgap; the long-term plan is queue-depth / active-call driven scaling via
+# KEDA or a custom metric (see README TODOs). If an external scaler (e.g. a
+# KEDA ScaledObject) owns the worker Deployment, keep this block disabled so
+# the chart does not render a competing HPA.
+#
+# UI (Next.js SSR) correlates reasonably with CPU; resource-metric HPA is a
+# fine choice there.
 # -----------------------------------------------------------------------------
 autoscaling:
   web:
@@ -477,7 +486,7 @@ autoscaling:
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
   workers:
-    enabled: true
+    enabled: false
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
@@ -487,8 +496,11 @@ autoscaling:
     # sizing your workload's steady-state memory well below the target.
     targetMemoryUtilizationPercentage: null
   ui:
-    enabled: true
-    minReplicas: 1
+    enabled: false
+    # Floor of 2 matches ui.replicaCount and keeps ui.pdb (minAvailable: 1)
+    # satisfiable during node drains. Single-node installs that drop this to 1
+    # should also disable ui.pdb (see examples/values-k3s-prod.yaml).
+    minReplicas: 2
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
     # Same reason as workers — idle Next.js SSR sits close to the 256Mi request.

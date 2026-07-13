@@ -3,7 +3,11 @@
 import { Info, KeyRound, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import type { OrganizationAiModelConfigurationV2 } from "@/client/types.gen";
+import type {
+    ModelConfigurationMetricPrice,
+    ModelConfigurationPricingResponse,
+    OrganizationAiModelConfigurationV2,
+} from "@/client/types.gen";
 import {
     type ProviderSchema,
     type ServiceConfigurationDefaults,
@@ -67,6 +71,7 @@ interface AIModelConfigurationV2EditorProps {
     defaults: ModelConfigurationDefaultsV2;
     configuration?: OrganizationAiModelConfigurationV2 | Record<string, unknown> | null;
     effectiveConfiguration?: Record<string, unknown> | null;
+    pricing?: ModelConfigurationPricingResponse | null;
     onSave: (configuration: OrganizationAiModelConfigurationV2) => Promise<void>;
     submitLabel?: string;
 }
@@ -267,7 +272,7 @@ function optionalByokService(config: Record<string, unknown>, service: ServiceSe
 
 function ThirdPartyProviderNotice() {
     return (
-        <div className="mb-4 flex gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+        <div className="mt-4 flex gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
                 <p className="font-medium">Third-party provider data notice</p>
@@ -282,10 +287,58 @@ function ThirdPartyProviderNotice() {
     );
 }
 
+function formatPricePerMinute(price: ModelConfigurationMetricPrice): string {
+    return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: price.currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 4,
+    }).format(price.price_per_minute);
+}
+
+function PricingSummary({
+    pricing,
+    includeDograhModel,
+    thirdPartyModels,
+}: {
+    pricing?: ModelConfigurationPricingResponse | null;
+    includeDograhModel: boolean;
+    thirdPartyModels?: boolean;
+}) {
+    const platformPrice = pricing?.platform_usage;
+    const dograhModelPrice = includeDograhModel ? pricing?.dograh_model : null;
+    if (!platformPrice && !dograhModelPrice) return null;
+
+    return (
+        <Card className="mb-4 border-primary/20 bg-primary/[0.03]">
+            <CardContent className="space-y-2 pt-5 text-sm">
+                <p className="font-medium">Usage pricing</p>
+                {platformPrice && (
+                    <p className="text-muted-foreground">
+                        Platform usage: <span className="font-medium text-foreground">{formatPricePerMinute(platformPrice)}/{platformPrice.unit}</span>
+                    </p>
+                )}
+                {dograhModelPrice && (
+                    <p className="text-muted-foreground">
+                        Dograh model usage: <span className="font-medium text-foreground">{formatPricePerMinute(dograhModelPrice)}/{dograhModelPrice.unit}</span>
+                    </p>
+                )}
+                {thirdPartyModels && (
+                    <p className="text-muted-foreground">
+                        Your selected model provider may charge separately for its usage.
+                    </p>
+                )}
+                <p className="text-xs text-muted-foreground">Usage is rounded up to whole minutes per call.</p>
+            </CardContent>
+        </Card>
+    );
+}
+
 export function AIModelConfigurationV2Editor({
     defaults,
     configuration,
     effectiveConfiguration,
+    pricing,
     onSave,
     submitLabel = "Save Configuration",
 }: AIModelConfigurationV2EditorProps) {
@@ -400,7 +453,7 @@ export function AIModelConfigurationV2Editor({
                     <p className="mb-4 text-sm text-muted-foreground">
                         A single speech-to-speech model handles the conversation in realtime (no separate transcriber or voice). An LLM is still required for variable extraction and QA.
                     </p>
-                    <ThirdPartyProviderNotice />
+                    <PricingSummary pricing={pricing} includeDograhModel={false} thirdPartyModels />
                     <ServiceConfigurationForm
                         key={`realtime-${JSON.stringify(realtimeInitialConfig)}`}
                         mode="global"
@@ -410,9 +463,24 @@ export function AIModelConfigurationV2Editor({
                         submitLabel={submitLabel}
                         onSave={saveByokConfiguration}
                     />
+                    <ThirdPartyProviderNotice />
                 </TabsContent>
 
                 <TabsContent value="dograh" className="mt-0">
+                    <p className="mb-4 text-sm text-muted-foreground">
+                        Dograh provides a managed transcriber, LLM, and voice pipeline. Select a voice and language while Dograh manages the underlying model providers.{" "}
+                        We offer custom pricing and a 15-second pulse with a monthly commitment.{" "}
+                        <a
+                            href="https://www.dograh.com/contact"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline"
+                        >
+                            Contact us
+                        </a>
+                        .
+                    </p>
+                    <PricingSummary pricing={pricing} includeDograhModel />
                     <Card>
                         <CardContent className="pt-6">
                             <div className="grid gap-4 sm:grid-cols-2">
@@ -490,7 +558,10 @@ export function AIModelConfigurationV2Editor({
                 </TabsContent>
 
                 <TabsContent value="byok" className="mt-0">
-                    <ThirdPartyProviderNotice />
+                    <p className="mb-4 text-sm text-muted-foreground">
+                        Configure separate transcriber, LLM, and voice providers using your own API keys. An embeddings model can also be configured for knowledge retrieval.
+                    </p>
+                    <PricingSummary pricing={pricing} includeDograhModel={false} thirdPartyModels />
                     <ServiceConfigurationForm
                         key={`byok-${JSON.stringify(pipelineInitialConfig)}`}
                         mode="global"
@@ -500,6 +571,7 @@ export function AIModelConfigurationV2Editor({
                         submitLabel={submitLabel}
                         onSave={saveByokConfiguration}
                     />
+                    <ThirdPartyProviderNotice />
                 </TabsContent>
             </Tabs>
         </div>

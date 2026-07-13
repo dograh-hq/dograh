@@ -5,7 +5,7 @@
 # (secret `cloudflare-origin-tls`, copied from a neighboring namespace).
 #
 # HPA is enabled for web / workers / ui with min=1, max=5. Requires
-# metrics-server in the cluster (k3s has it by default; verified on this box).
+# metrics-server in the cluster (k3s ships it by default).
 
 image:
   tag: latest              # pin to a released tag once stable
@@ -31,6 +31,7 @@ config:
   logLevel: INFO
   backendApiEndpoint: https://aicalling.yourdomain.com   # kills the CF-tunnel fallback
   minioPublicEndpoint: https://aicalling.yourdomain.com  # browser fetches /voice-audio/ via Traefik
+  enableSignup: false   # invite-only: 403 the public signup endpoint
 
 # --- Workloads not needed for hosted-AI web-only calls ---------------------
 ariManager:           { enabled: false }   # Asterisk SIP singleton
@@ -69,10 +70,11 @@ migrate:
     limits:   { cpu: 500m, memory: 512Mi }
 
 # --- HPA: 1 → 5 on CPU 70% only (memory HPA opt-in — see comments) ---------
-# NOTE: CPU is a poor scale signal for the web tier (long-lived WebSockets
-# don't move CPU much). Fine starting point for workers and UI. Requires
-# the arq-worker-hpa.yaml / ui-hpa.yaml templates added to the chart
-# alongside the existing web-hpa.yaml.
+# The chart ships all autoscaling blocks disabled; this file opts in for all
+# three tiers. NOTE: CPU is a poor scale signal for the web tier (long-lived
+# WebSockets don't move CPU much) and a coarse one for the IO-bound ARQ
+# workers — see the autoscaling notes in values.yaml. Fine starting point for
+# a single node; minReplicas=1 is why the web/ui PDBs are disabled above.
 autoscaling:
   web:
     enabled: true

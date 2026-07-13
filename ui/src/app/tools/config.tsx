@@ -10,9 +10,9 @@ import type {
     HttpApiToolDefinition,
     McpToolDefinition,
     PresetToolParameter,
+    ToolParameter,
     TransferCallConfig,
     TransferCallToolDefinition,
-    ToolParameter,
 } from "@/client/types.gen";
 
 export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";

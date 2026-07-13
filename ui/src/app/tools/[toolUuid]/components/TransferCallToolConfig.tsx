@@ -1,6 +1,7 @@
 "use client";
 
 import type { RecordingResponseSchema } from "@/client/types.gen";
+import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
 import {
     CredentialSelector,
     KeyValueEditor,
@@ -11,7 +12,6 @@ import {
     type ToolParameter,
     UrlInput,
 } from "@/components/http";
-import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

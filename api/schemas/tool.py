@@ -235,7 +235,7 @@ class TransferCallConfig(BaseModel):
         description=(
             "Phone number, SIP endpoint, or template to transfer the call to, e.g. "
             "+1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}."
-        )
+        ),
     )
     messageType: Literal["none", "custom", "audio"] = Field(
         default="none", description="Type of message to play before transfer."

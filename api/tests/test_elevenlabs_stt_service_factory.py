@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from pipecat.services.elevenlabs.stt import CommitStrategy
 from pipecat.transcriptions.language import Language
 
@@ -15,6 +16,7 @@ from api.services.configuration.registry import (
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.service_factory import (
     create_stt_service,
+    create_tts_service,
     stt_uses_external_turns,
 )
 
@@ -36,6 +38,19 @@ def _elevenlabs_config(
             api_key="test-key",
             model="scribe_v2_realtime",
             language=language,
+            base_url=base_url,
+        )
+    )
+
+
+def _elevenlabs_tts_config(base_url: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        tts=SimpleNamespace(
+            provider=ServiceProviders.ELEVENLABS.value,
+            api_key="test-key",
+            model="eleven_flash_v2_5",
+            voice="test-voice",
+            speed=1.0,
             base_url=base_url,
         )
     )
@@ -148,6 +163,27 @@ def test_elevenlabs_stt_preserves_proxy_path_prefix_in_base_url():
 
     kwargs = stt_service.call_args.kwargs
     assert kwargs["base_url"] == "proxy.example.com/elevenlabs"
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected_url"),
+    [
+        (
+            "https://api.eu.residency.elevenlabs.io/elevenlabs/",
+            "wss://api.eu.residency.elevenlabs.io/elevenlabs",
+        ),
+        ("http://localhost:8000/", "ws://localhost:8000"),
+    ],
+)
+def test_elevenlabs_tts_uses_normalized_websocket_url(base_url, expected_url):
+    user_config = _elevenlabs_tts_config(base_url)
+
+    with patch(
+        "api.services.pipecat.service_factory.ElevenLabsTTSService"
+    ) as tts_service:
+        create_tts_service(user_config, _audio_config())
+
+    assert tts_service.call_args.kwargs["url"] == expected_url
 
 
 def test_elevenlabs_stt_listed_custom_language_maps_to_pipecat_enum():

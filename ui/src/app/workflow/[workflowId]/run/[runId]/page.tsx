@@ -31,7 +31,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConversationRailFrame, RealtimeFeedback, WorkflowRunLogs } from '@/components/workflow/conversation';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
-import { useOnboarding } from '@/context/OnboardingContext';
 import { useAuth } from '@/lib/auth';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 import { cn } from '@/lib/utils';
@@ -602,7 +601,6 @@ export default function WorkflowRunPage() {
     const auth = useAuth();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
     const [workflowName, setWorkflowName] = useState<string | null>(null);
-    const { hasSeenTooltip, markTooltipSeen } = useOnboarding();
     const customizeButtonRef = useRef<HTMLButtonElement>(null);
 
     // Redirect if not authenticated
@@ -747,11 +745,6 @@ export default function WorkflowRunPage() {
                                     <Button
                                         ref={customizeButtonRef}
                                         className="gap-2"
-                                        onClick={() => {
-                                            if (!hasSeenTooltip('customize_workflow')) {
-                                                markTooltipSeen('customize_workflow');
-                                            }
-                                        }}
                                     >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -898,12 +891,11 @@ export default function WorkflowRunPage() {
             {/* Onboarding Tooltip for Customize Workflow */}
             {showRunDetailsView && (
                 <OnboardingTooltip
+                    tooltipKey="customize_workflow"
                     title='Customize Your Workflow'
                     targetRef={customizeButtonRef}
                     message="Edit your workflow to adjust the voice agent's behavior, add new steps, or modify the conversation flow."
-                    onDismiss={() => markTooltipSeen('customize_workflow')}
                     showNext={false}
-                    isVisible={!hasSeenTooltip('customize_workflow')}
                 />
             )}
         </WorkflowLayout>

@@ -22,6 +22,7 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    LLMServiceMetadataFrame,
     UserTurnInferenceCompletedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -1214,6 +1215,7 @@ class TestCustomToolManagerIntegration:
             pipeline,
             frames_to_send=frames_to_send,
             expected_down_frames=[
+                LLMServiceMetadataFrame,
                 LLMFullResponseStartFrame,
                 FunctionCallsFromLLMInfoFrame,
                 UserTurnInferenceCompletedFrame,

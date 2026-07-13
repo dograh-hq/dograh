@@ -563,6 +563,10 @@ class WorkflowRunModel(Base):
     queued_run_id = Column(Integer, ForeignKey("queued_runs.id"), nullable=True)
     queued_run = relationship("QueuedRunModel", foreign_keys=[queued_run_id])
     public_access_token = Column(String(36), nullable=True)
+    # When the public_access_token stops being valid. NULL means the token is
+    # treated as expired (legacy tokens minted before expiry existed), so a
+    # missing/NULL expiry never grants access.
+    public_access_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     text_session = relationship(
         "WorkflowRunTextSessionModel",
         back_populates="workflow_run",

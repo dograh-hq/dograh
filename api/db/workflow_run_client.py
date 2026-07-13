@@ -1,10 +1,12 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
+from api.constants import PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
 from api.db.models import (
@@ -445,7 +447,13 @@ class WorkflowRunClient(BaseDBClient):
             return workflow_run, organization_id
 
     async def ensure_public_access_token(self, workflow_run_id: int) -> Optional[str]:
-        """Generate a public access token if not exists, return existing if present (idempotent).
+        """Return a valid public access token for the run, rotating as needed.
+
+        A token is reused only while it is unexpired; a missing, NULL-expiry
+        (legacy) or expired token is rotated to a fresh token with a new expiry
+        ``PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS`` in the future. This keeps live
+        surfaces (run details, reports) working while giving every issued token
+        a finite lifetime.
 
         Args:
             workflow_run_id: The ID of the workflow run
@@ -461,13 +469,17 @@ class WorkflowRunClient(BaseDBClient):
             if not run:
                 return None
 
-            # Return existing token if present
-            if run.public_access_token:
+            # Reuse the existing token only while it is still valid.
+            now = datetime.now(UTC)
+            expires_at = run.public_access_token_expires_at
+            if run.public_access_token and expires_at is not None and expires_at > now:
                 return run.public_access_token
 
-            # Generate and persist new token
-            token = str(uuid.uuid4())
-            run.public_access_token = token
+            # Generate and persist a new token with a fresh expiry (rotation).
+            run.public_access_token = str(uuid.uuid4())
+            run.public_access_token_expires_at = now + timedelta(
+                days=PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS
+            )
 
             try:
                 await session.commit()
@@ -481,21 +493,63 @@ class WorkflowRunClient(BaseDBClient):
     async def get_workflow_run_by_public_token(
         self, token: str
     ) -> Optional[WorkflowRunModel]:
-        """Lookup workflow run by public access token.
+        """Lookup workflow run by a *valid* public access token.
+
+        Freshness is enforced here, at the single lookup chokepoint, so every
+        consumer of a public token rejects expired/legacy (NULL-expiry) tokens
+        consistently rather than treating token existence as authorization.
 
         Args:
             token: The public access token
 
         Returns:
-            The WorkflowRunModel if found, None otherwise
+            The WorkflowRunModel if the token exists and is unexpired, else None
         """
         async with self.async_session() as session:
             result = await session.execute(
                 select(WorkflowRunModel).where(
-                    WorkflowRunModel.public_access_token == token
+                    WorkflowRunModel.public_access_token == token,
+                    WorkflowRunModel.public_access_token_expires_at.isnot(None),
+                    WorkflowRunModel.public_access_token_expires_at > datetime.now(UTC),
                 )
             )
             return result.scalars().first()
+
+    async def revoke_public_access_token(
+        self, workflow_run_id: int, organization_id: int
+    ) -> bool:
+        """Revoke a run's public access token within the caller's organization.
+
+        Clears both the token and its expiry so any previously issued link stops
+        resolving immediately. Scoped by ``organization_id`` for tenant isolation
+        so one org cannot revoke another org's token.
+
+        Returns:
+            True if a matching run was found and updated, False otherwise.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowRunModel.workflow)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+            )
+            run = result.scalars().first()
+            if not run:
+                return False
+
+            run.public_access_token = None
+            run.public_access_token_expires_at = None
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+
+            return True
 
     async def get_workflow_run_by_call_id(
         self, call_id: str

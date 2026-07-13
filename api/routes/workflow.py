@@ -1342,7 +1342,9 @@ async def get_workflow_run(
         or run.recording_url
         or has_user_recording
         or has_bot_recording
-    ) and not public_access_token:
+    ):
+        # ensure_* reuses a still-valid token and rotates a missing/expired one,
+        # so the returned links stay live even after a token has lapsed.
         public_access_token = await db_client.ensure_public_access_token(run.id)
 
     return {
@@ -1378,6 +1380,24 @@ async def get_workflow_run(
         "logs": run.logs,
         "annotations": run.annotations,
     }
+
+
+@router.delete("/{workflow_id}/runs/{run_id}/public-token")
+async def revoke_workflow_run_public_token(
+    workflow_id: int, run_id: int, user: UserModel = Depends(get_user)
+) -> dict:
+    """Revoke the public download token for a run, invalidating shared links.
+
+    Any previously distributed public link (webhook, email, report) stops
+    resolving immediately. A fresh token is minted the next time run details are
+    fetched. Scoped to the caller's organization for tenant isolation.
+    """
+    revoked = await db_client.revoke_public_access_token(
+        run_id, organization_id=user.selected_organization_id
+    )
+    if not revoked:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    return {"revoked": True}
 
 
 class WorkflowRunsResponse(BaseModel):

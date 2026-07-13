@@ -204,3 +204,9 @@ OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")
 OSS_JWT_EXPIRY_HOURS = int(os.getenv("OSS_JWT_EXPIRY_HOURS", "720"))  # 30 days
 
 TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")
+
+# Public artifact download tokens (recordings/transcripts) are bearer secrets
+# embedded in webhook payloads, emails and reports. They expire this many days
+# after they are minted; expired tokens are rejected at lookup and rotated on
+# the next authenticated regeneration.
+PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS = int(os.getenv("PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS", "30"))

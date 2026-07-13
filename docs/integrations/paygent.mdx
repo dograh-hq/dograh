@@ -1,0 +1,74 @@
+---
+title: "Paygent Integration"
+description: "Connect Dograh to Paygent — real-time cost tracking, multimodal usage monitoring, and billing for voice agents"
+---
+
+## Overview
+
+The Paygent integration node enables passive, post-call usage tracking and customer billing for your Dograh voice agents. It automatically aggregates token metrics across LLM, TTS, STT, and Speech-to-Speech (STS) realtime models and securely exports them to Paygent after each call finishes — requiring no custom code or webhook handlers.
+
+## Features
+
+- **Multimodal STS Tracking**: Full token breakdown for OpenAI Realtime and Google GenAI Live models (text, audio, image, video, thinking, and cache reads).
+- **Standard Pipeline Metrics**: Tracks STT audio seconds, LLM tokens (prompt, completion, cached), and TTS character counts.
+- **Zero-Latency Overhead**: Passive background collector executes without blocking or adding latency to live audio streams.
+- **Robust Failover**: Multi-level fallback mechanism ensures accurate billing even during pipeline metric dropouts.
+
+## Prerequisites
+
+- A [Paygent account](https://withpaygent.com)
+- An active Agent ID and Customer ID in your Paygent account
+- A Dograh voice agent workflow
+
+## Setup
+
+### 1. Gather your Paygent credentials
+
+You'll need the following credentials from your Paygent account:
+
+| Credential | Description |
+|---|---|
+| **Paygent API Key** | Secret API key used to authenticate requests to Paygent (`pg_live_...`) |
+| **Agent ID** | The unique agent identifier registered in Paygent |
+| **Customer ID** | Your organisation or customer ID in Paygent |
+| **Indicator** | The billing event indicator name (default: `per-minute-call`) |
+
+### 2. Add the Paygent node to your workflow
+
+1. In your Dograh workflow editor, click **Add node**.
+2. Scroll to the **Integrations** category.
+3. Select **Paygent**.
+
+> **Note:** Paygent is an integration node and does not connect to conversation graph nodes. It operates passively at the workflow level.
+
+### 3. Configure the node
+
+Click on the Paygent node and fill in the configuration fields:
+
+- **Enabled**: Toggle on to activate post-call cost export.
+- **Paygent API Key**: Your `pg_live_...` secret key.
+- **Agent ID**: Your registered Paygent Agent ID.
+- **Customer ID**: Your Paygent Customer / Organisation ID.
+- **Indicator**: Event indicator name sent to Paygent (e.g. `per-minute-call`).
+
+Click **Save**, then **Publish** your workflow.
+
+### 4. Verify post-call export
+
+Make a test call through your agent. Once the call ends, log into your Paygent dashboard to confirm the billing event and multimodal usage breakdown appear under your configured Agent ID.
+
+## Disabling the integration
+
+To temporarily pause exporting usage data to Paygent, open the Paygent node in your workflow editor and toggle **Enabled** off. Save and publish your workflow. Your credentials remain preserved for when you re-enable tracking.
+
+## Troubleshooting
+
+| Issue | Cause & Solution |
+|---|---|
+| **Validation error on node save** | Ensure API Key, Agent ID, Customer ID, and Indicator are all non-empty strings without leading/trailing whitespace. |
+| **Usage data not appearing in Paygent** | Verify your API key has permission to create call events in Paygent and that the workflow has been **Published**. |
+| **Missing realtime STS tokens** | For OpenAI Realtime or Google Live models, verify the pipeline is running in realtime mode (`is_realtime=True`). |
+
+## Learn more
+
+- [Paygent](https://withpaygent.com) — Usage-based billing platform for AI agents

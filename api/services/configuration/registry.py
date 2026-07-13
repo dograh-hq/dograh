@@ -864,7 +864,10 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
     model: str = Field(
         default="eleven_flash_v2_5",
         description="ElevenLabs TTS model.",
-        json_schema_extra={"examples": ELEVENLABS_TTS_MODELS},
+        json_schema_extra={
+            "examples": ELEVENLABS_TTS_MODELS,
+            "allow_custom_input": True,
+        },
     )
     base_url: str = Field(
         default="https://api.elevenlabs.io",
@@ -1681,7 +1684,10 @@ class ElevenlabsSTTConfiguration(BaseSTTConfiguration):
     model: str = Field(
         default="scribe_v2_realtime",
         description="ElevenLabs realtime STT model.",
-        json_schema_extra={"examples": ELEVENLABS_STT_MODELS},
+        json_schema_extra={
+            "examples": ELEVENLABS_STT_MODELS,
+            "allow_custom_input": True,
+        },
     )
     language: str = Field(
         default="en",

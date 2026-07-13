@@ -113,7 +113,9 @@ def dograh_stt_uses_flux_language(language: str | None) -> bool:
     return language in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS
 
 
-def _resolve_elevenlabs_stt_language(language_code: str | None) -> Language | str | None:
+def _resolve_elevenlabs_stt_language(
+    language_code: str | None,
+) -> Language | str | None:
     if not language_code or language_code == "auto":
         return None
     try:

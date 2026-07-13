@@ -4,7 +4,10 @@ from unittest.mock import patch
 from pipecat.services.elevenlabs.stt import CommitStrategy
 from pipecat.transcriptions.language import Language
 
-from api.services.configuration.options import ELEVENLABS_STT_LANGUAGES, ELEVENLABS_STT_MODELS
+from api.services.configuration.options import (
+    ELEVENLABS_STT_LANGUAGES,
+    ELEVENLABS_STT_MODELS,
+)
 from api.services.configuration.registry import (
     ElevenlabsSTTConfiguration,
     ServiceProviders,
@@ -88,9 +91,7 @@ def test_elevenlabs_stt_auto_language_passes_none():
 
 
 def test_elevenlabs_stt_extracts_hostname_from_residency_base_url():
-    user_config = _elevenlabs_config(
-        base_url="https://api.eu.residency.elevenlabs.io"
-    )
+    user_config = _elevenlabs_config(base_url="https://api.eu.residency.elevenlabs.io")
 
     with patch(
         "api.services.pipecat.service_factory.ElevenLabsRealtimeSTTService"

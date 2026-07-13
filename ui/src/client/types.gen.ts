@@ -2229,6 +2229,38 @@ export type DuplicateTemplateRequest = {
 /**
  * ElevenLabs
  */
+export type ElevenlabsSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'elevenlabs';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * ElevenLabs realtime STT model.
+     */
+    model?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code for transcription. Use 'auto' to let ElevenLabs detect the language.
+     */
+    language?: string;
+    /**
+     * Base Url
+     *
+     * ElevenLabs API base URL. Override to use a Data Residency endpoint (e.g. https://api.eu.residency.elevenlabs.io) for GDPR / HIPAA / regional compliance.
+     */
+    base_url?: string;
+};
+
+/**
+ * ElevenLabs
+ */
 export type ElevenlabsTtsConfiguration = {
     /**
      * Provider
@@ -2256,38 +2288,6 @@ export type ElevenlabsTtsConfiguration = {
      * ElevenLabs TTS model.
      */
     model?: string;
-    /**
-     * Base Url
-     *
-     * ElevenLabs API base URL. Override to use a Data Residency endpoint (e.g. https://api.eu.residency.elevenlabs.io) for GDPR / HIPAA / regional compliance.
-     */
-    base_url?: string;
-};
-
-/**
- * ElevenLabs
- */
-export type ElevenlabsSttConfiguration = {
-    /**
-     * Provider
-     */
-    provider?: 'elevenlabs';
-    /**
-     * Api Key
-     */
-    api_key: string | Array<string>;
-    /**
-     * Model
-     *
-     * ElevenLabs realtime STT model.
-     */
-    model?: string;
-    /**
-     * Language
-     *
-     * ISO 639-1 language code for transcription. Use 'auto' to let ElevenLabs detect the language.
-     */
-    language?: string;
     /**
      * Base Url
      *

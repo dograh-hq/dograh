@@ -15,7 +15,6 @@ from .cartesia import (
     CARTESIA_STT_LANGUAGES,
     CARTESIA_STT_MODELS,
 )
-from .elevenlabs import ELEVENLABS_STT_LANGUAGES, ELEVENLABS_STT_MODELS
 from .deepgram import (
     DEEPGRAM_FLUX_MODELS,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
@@ -23,6 +22,7 @@ from .deepgram import (
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
 )
+from .elevenlabs import ELEVENLABS_STT_LANGUAGES, ELEVENLABS_STT_MODELS
 from .gladia import GLADIA_STT_LANGUAGES, GLADIA_STT_MODELS
 from .google import (
     GOOGLE_MODELS,

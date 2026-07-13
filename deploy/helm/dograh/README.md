@@ -32,10 +32,10 @@ and `examples/values-aws.yaml` for topology-specific overrides.
 | Workload                     | Replicas    | Strategy        | Notes |
 |------------------------------|-------------|-----------------|-------|
 | `dograh-web`                 | 2 (HPA opt) | RollingUpdate   | Long-lived WS, graceful drain |
-| `dograh-arq-worker`          | 1 (knob)    | RollingUpdate   | Stateless |
+| `dograh-arq-worker`          | 1 (HPA opt) | RollingUpdate   | Stateless |
 | `dograh-ari-manager`         | **1 fixed** | **Recreate**    | Telephony singleton |
 | `dograh-campaign-orchestrator` | **1 fixed** | **Recreate**  | Campaign singleton (in-memory locks) |
-| `dograh-ui`                  | 2           | RollingUpdate   | Next.js SSR |
+| `dograh-ui`                  | 2 (HPA opt) | RollingUpdate   | Next.js SSR |
 | `dograh-coturn`              | 1           | Recreate        | LoadBalancer Service, port-pinned |
 
 HTTP traffic: Gateway API (default) or Ingress (fallback).
@@ -53,10 +53,13 @@ silent. Each is exposed in `values.yaml` for operator override.
 - **Liveness probes on singletons: `exec` (`pgrep`).** No HTTP endpoint
   exists on ari-manager / campaign-orchestrator; process-alive check is
   the simplest correct signal.
-- **HPA on web: CPU/memory, disabled by default.** Plan recommends HPA
-  but CPU/memory is a poor signal for WS workloads. Default
-  `autoscaling.web.enabled=false`; flip on with a knowing eye and plan
-  to replace with a connection-count metric.
+- **HPA on web / workers / ui: CPU(/memory), disabled by default.**
+  Templates exist for all three tiers (`web-hpa.yaml`,
+  `arq-worker-hpa.yaml`, `ui-hpa.yaml`) but every `autoscaling.<tier>`
+  block ships `enabled: false` — flip on per tier with a knowing eye.
+  CPU/memory is a poor signal for the WS-heavy web tier and a coarse
+  one for the IO-bound ARQ workers (plan: queue-depth / active-call
+  scaling, see TODOs); it is a reasonable signal for the Next.js UI.
 - **Singleton replica counts: hard-coded.** No `replicaCount` knob
   exposed on ari-manager / campaign-orchestrator. Prevents accidental
   `kubectl scale` corrupting in-memory dedup state.
@@ -95,8 +98,10 @@ volume. The remaining `/tmp` uses (`audio_file_cache.py`,
 - **MinIO public route via separate hostname.** Make `/voice-audio/`
   path-prefix the default but allow operators to opt into a dedicated
   hostname.
-- **KEDA for ARQ workers.** When a queue-depth metric is available,
-  switch ARQ from fixed replicas to KEDA-driven scaling.
+- **KEDA for ARQ workers.** When a queue-depth or active-calls metric
+  is available, switch ARQ from CPU HPA to KEDA-driven scaling. Keep
+  `autoscaling.workers.enabled=false` when a KEDA ScaledObject owns the
+  Deployment so the chart doesn't render a competing HPA.
 
 ## Validation
 
@@ -108,6 +113,7 @@ helm template test-release . > /tmp/render-default.yaml
 helm template test-release . -f examples/values-single-node.yaml > /tmp/render-single.yaml
 helm template test-release . -f examples/values-managed.yaml > /tmp/render-managed.yaml
 helm template test-release . -f examples/values-aws.yaml > /tmp/render-aws.yaml
+helm template test-release . -f examples/values-k3s-prod.yaml > /tmp/render-k3s.yaml
 ```
 
 Spot-check expectations:
@@ -131,7 +137,8 @@ deploy/helm/dograh/
 ├── examples/
 │   ├── values-single-node.yaml
 │   ├── values-managed.yaml
-│   └── values-aws.yaml
+│   ├── values-aws.yaml
+│   └── values-k3s-prod.yaml
 └── templates/
     ├── _helpers.tpl
     ├── NOTES.txt
@@ -144,10 +151,12 @@ deploy/helm/dograh/
     ├── web-hpa.yaml
     ├── web-pdb.yaml
     ├── arq-worker-deployment.yaml
+    ├── arq-worker-hpa.yaml
     ├── ari-manager-deployment.yaml
     ├── campaign-orchestrator-deployment.yaml
     ├── ui-deployment.yaml
     ├── ui-service.yaml
+    ├── ui-hpa.yaml
     ├── ui-pdb.yaml
     ├── coturn-deployment.yaml
     ├── coturn-service.yaml

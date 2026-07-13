@@ -7,7 +7,13 @@ metadata:
     {{- include "dograh.labels" . | nindent 4 }}
     app.kubernetes.io/component: arq-worker
 spec:
+  {{- /* Omit spec.replicas only when the HPA object will actually render — matches
+         the gate in templates/arq-worker-hpa.yaml. If HPA is enabled but both
+         metric targets are null the HPA is suppressed, so we must keep the
+         static replica count here to avoid a Deployment with no owner. */ -}}
+  {{- if not (and .Values.autoscaling.workers.enabled (or .Values.autoscaling.workers.targetCPUUtilizationPercentage .Values.autoscaling.workers.targetMemoryUtilizationPercentage)) }}
   replicas: {{ .Values.workers.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "dograh.selectorLabels" . | nindent 6 }}

@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoiceSelectorModal } from "@/components/VoiceSelectorModal";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
+import { formatRoundingPolicy } from "@/lib/billingDisplay";
 
 type ModelMode = "realtime" | "dograh" | "byok";
 
@@ -296,6 +297,25 @@ function formatPricePerMinute(price: ModelConfigurationMetricPrice): string {
     }).format(price.price_per_minute);
 }
 
+function MetricPrice({
+    label,
+    price,
+}: {
+    label: string;
+    price: ModelConfigurationMetricPrice;
+}) {
+    return (
+        <div className="space-y-0.5">
+            <p className="text-muted-foreground">
+                {label}: <span className="font-medium text-foreground">{formatPricePerMinute(price)}/{price.unit}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+                {formatRoundingPolicy(price.rounding_policy)}
+            </p>
+        </div>
+    );
+}
+
 function PricingSummary({
     pricing,
     includeDograhModel,
@@ -314,21 +334,16 @@ function PricingSummary({
             <CardContent className="space-y-2 pt-5 text-sm">
                 <p className="font-medium">Usage pricing</p>
                 {platformPrice && (
-                    <p className="text-muted-foreground">
-                        Platform usage: <span className="font-medium text-foreground">{formatPricePerMinute(platformPrice)}/{platformPrice.unit}</span>
-                    </p>
+                    <MetricPrice label="Platform usage" price={platformPrice} />
                 )}
                 {dograhModelPrice && (
-                    <p className="text-muted-foreground">
-                        Dograh model usage: <span className="font-medium text-foreground">{formatPricePerMinute(dograhModelPrice)}/{dograhModelPrice.unit}</span>
-                    </p>
+                    <MetricPrice label="Dograh model usage" price={dograhModelPrice} />
                 )}
                 {thirdPartyModels && (
                     <p className="text-muted-foreground">
                         Your selected model provider may charge separately for its usage.
                     </p>
                 )}
-                <p className="text-xs text-muted-foreground">Usage is rounded up to whole minutes per call.</p>
             </CardContent>
         </Card>
     );

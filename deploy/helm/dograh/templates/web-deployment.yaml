@@ -7,7 +7,11 @@ metadata:
     {{- include "dograh.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
-  {{- if not .Values.autoscaling.web.enabled }}
+  {{- /* Omit spec.replicas only when the HPA object will actually render — matches
+         the gate in templates/web-hpa.yaml. If HPA is enabled but both metric
+         targets are null the HPA is suppressed, so we must keep the static
+         replica count here to avoid a Deployment with no owner. */ -}}
+  {{- if not (and .Values.autoscaling.web.enabled (or .Values.autoscaling.web.targetCPUUtilizationPercentage .Values.autoscaling.web.targetMemoryUtilizationPercentage)) }}
   replicas: {{ .Values.web.replicaCount }}
   {{- end }}
   selector:

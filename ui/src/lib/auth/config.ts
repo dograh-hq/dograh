@@ -13,14 +13,7 @@ interface ResolvedAuthConfig {
   signupEnabled: boolean;
 }
 
-// Refresh the /health lookup at least every 5 minutes so operators flipping
-// ENABLE_SIGNUP (or migrating AUTH_PROVIDER) at runtime propagate without a
-// full UI-pod restart. Matches the `next: { revalidate: 300 }` hint on the
-// underlying fetch — the module cache and the fetch cache stay in sync.
-const AUTH_CONFIG_TTL_MS = 5 * 60 * 1000;
-
 let cachedConfig: ResolvedAuthConfig | null = null;
-let cachedConfigExpiresAt = 0;
 
 /**
  * Fetches the auth configuration from the backend health endpoint and caches it.
@@ -31,7 +24,7 @@ let cachedConfigExpiresAt = 0;
  * into the browser bundle at build time. Falls back to local auth on error.
  */
 async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
-  if (cachedConfig && Date.now() < cachedConfigExpiresAt) {
+  if (cachedConfig) {
     return cachedConfig;
   }
 
@@ -57,7 +50,6 @@ async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
       // versions before the flag existed) — matches the backend's own default.
       const signupEnabled = data.signup_enabled !== false;
       cachedConfig = { authProvider, stackConfig, signupEnabled };
-      cachedConfigExpiresAt = Date.now() + AUTH_CONFIG_TTL_MS;
       return cachedConfig;
     }
   } catch {
@@ -87,11 +79,8 @@ export async function getStackConfig(): Promise<StackConfig | null> {
 }
 
 /**
- * Returns true when the backend is running with signup allowed (the default,
- * `ENABLE_SIGNUP=true`). The UI uses this to render the signup link on
- * /auth/login and to allow direct hits to /auth/signup. When false, the
- * backend enforces a 403 on POST /auth/signup — this hook keeps the UI in
- * step so operators don't see broken links.
+ * Returns true when the backend allows signup (`ENABLE_SIGNUP`, default true).
+ * The login page uses this to hide the signup link on locked-down installs.
  */
 export async function getSignupEnabled(): Promise<boolean> {
   return (await resolveAuthConfig()).signupEnabled;

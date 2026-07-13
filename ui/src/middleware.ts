@@ -8,23 +8,11 @@ const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 // Paths that don't require authentication in OSS mode
 const PUBLIC_PATHS = ['/auth/login', '/auth/signup'];
 
-interface CachedServerConfig {
-  authProvider: string;
-  signupEnabled: boolean;
-}
+let cachedAuthProvider: string | null = null;
 
-// Cache the /health lookup for a short window so we don't hammer the api on
-// every request, but do refresh so an operator flipping ENABLE_SIGNUP (or
-// AUTH_PROVIDER) at runtime propagates without a full UI-pod restart. Five
-// minutes matches the same interval used by lib/auth/config.ts.
-const SERVER_CONFIG_TTL_MS = 5 * 60 * 1000;
-
-let cachedServerConfig: CachedServerConfig | null = null;
-let cachedServerConfigExpiresAt = 0;
-
-async function fetchServerConfig(): Promise<CachedServerConfig> {
-  if (cachedServerConfig && Date.now() < cachedServerConfigExpiresAt) {
-    return cachedServerConfig;
+async function fetchAuthProvider(): Promise<string> {
+  if (cachedAuthProvider) {
+    return cachedAuthProvider;
   }
 
   try {
@@ -33,18 +21,13 @@ async function fetchServerConfig(): Promise<CachedServerConfig> {
     if (res.ok) {
       const data = await res.json();
       // Only cache a DEFINITIVE answer from the backend. Never cache a failure:
-      // a single early request during container startup (before the api service
-      // is reachable) would otherwise poison the cache and redirect every Stack
-      // user to the local /auth/login form even though the backend reports
-      // `stack`.
-      cachedServerConfig = {
-        authProvider: (data.auth_provider as string) || 'local',
-        // Default to signup-enabled when the field is absent (older backend
-        // versions or a startup race) — matches the backend's own default.
-        signupEnabled: data.signup_enabled !== false,
-      };
-      cachedServerConfigExpiresAt = Date.now() + SERVER_CONFIG_TTL_MS;
-      return cachedServerConfig;
+      // this is a module-scoped cache with no TTL, so a single early request
+      // during container startup (before the api service is reachable) would
+      // otherwise poison it to 'local' for the life of the worker — redirecting
+      // every Stack user to the local /auth/login form even though the backend
+      // reports `stack`.
+      cachedAuthProvider = (data.auth_provider as string) || 'local';
+      return cachedAuthProvider;
     }
   } catch {
     // Backend not reachable — fall through without caching so we retry next request.
@@ -53,21 +36,11 @@ async function fetchServerConfig(): Promise<CachedServerConfig> {
   // Provider unknown (backend unreachable). Return a non-'local' sentinel so the
   // middleware does NOT guard/redirect: assuming 'local' here would bounce Stack
   // users to /auth/login. Deliberately not cached — the next request retries.
-  return { authProvider: 'unknown', signupEnabled: true };
+  return 'unknown';
 }
 
 export async function middleware(request: NextRequest) {
-  const { authProvider, signupEnabled } = await fetchServerConfig();
-
-  // When the operator has disabled signup (ENABLE_SIGNUP=false), bounce every
-  // /auth/signup hit to /auth/login *before* Next.js gets a chance to serve a
-  // prerendered signup page. Backend still enforces the 403 — this is UI polish.
-  if (
-    !signupEnabled &&
-    request.nextUrl.pathname.startsWith('/auth/signup')
-  ) {
-    return NextResponse.redirect(new URL('/auth/login', request.url));
-  }
+  const authProvider = await fetchAuthProvider();
 
   // Only handle OSS mode
   if (authProvider !== 'local') {

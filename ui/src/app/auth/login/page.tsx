@@ -15,10 +15,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  // Initialise to `true` (the backend default). Without this, the first paint
-  // hides the "Sign up" link and it pops back in after the fetch resolves —
-  // a jarring CLS on every login-page load on stock installs. The fetch below
-  // still flips it to false when the operator has actually disabled signup.
+  // Default true (the backend default) so the link doesn't flash out on stock installs.
   const [signupEnabled, setSignupEnabled] = useState<boolean>(true);
 
   useEffect(() => {
@@ -29,7 +26,7 @@ export default function LoginPage() {
         if (!cancelled) setSignupEnabled(data?.signupEnabled !== false);
       })
       .catch(() => {
-        // Backend unreachable — leave the optimistic default in place.
+        // Backend unreachable — keep the default.
       });
     return () => {
       cancelled = true;

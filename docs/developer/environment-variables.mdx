@@ -41,6 +41,7 @@ The relevant required variables for each mode are noted in the descriptions belo
 |---|---|---|
 | `OSS_JWT_SECRET` | N/A | **Required for OSS deployments.** Secret used to sign JWT tokens. Must be set to a strong random value in production |
 | `OSS_JWT_EXPIRY_HOURS` | `720` | JWT token lifetime in hours (default: 30 days) |
+| `ENABLE_SIGNUP` | `true` | Set to `false` to disable public signup on invite-only installs — `POST /api/v1/auth/signup` returns 403 and the login page hides the Sign up link |
 
 <Warning>
 Never use the placeholder `OSS_JWT_SECRET` in a production deployment. Generate a strong random secret and store it securely.

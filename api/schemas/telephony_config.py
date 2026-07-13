@@ -20,6 +20,10 @@ from api.services.telephony.providers.cloudonix.config import (
     CloudonixConfigurationRequest,
     CloudonixConfigurationResponse,
 )
+from api.services.telephony.providers.livekit_sip.config import (
+    LiveKitSipConfigurationRequest,
+    LiveKitSipConfigurationResponse,
+)
 from api.services.telephony.providers.plivo.config import (
     PlivoConfigurationRequest,
     PlivoConfigurationResponse,
@@ -48,6 +52,7 @@ TelephonyConfigRequest = Annotated[
     Union[
         ARIConfigurationRequest,
         CloudonixConfigurationRequest,
+        LiveKitSipConfigurationRequest,
         PlivoConfigurationRequest,
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
@@ -66,6 +71,7 @@ class TelephonyConfigurationResponse(BaseModel):
     flat discriminated union.
     """
 
+    livekit_sip: Optional[LiveKitSipConfigurationResponse] = None
     twilio: Optional[TwilioConfigurationResponse] = None
     plivo: Optional[PlivoConfigurationResponse] = None
     vonage: Optional[VonageConfigurationResponse] = None

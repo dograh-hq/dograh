@@ -54,6 +54,7 @@ class WorkflowRunMode(Enum):
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
     TEXTCHAT = "textchat"
+    LIVEKIT_SIP = "livekit_sip"
 
     # Historical, not used anymore. Don't
     # use and don't remove

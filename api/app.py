@@ -139,3 +139,7 @@ app.include_router(api_router, prefix=API_PREFIX)
 # Mounted under /api/v1 so existing reverse-proxy rules (nginx etc.) route it
 # without any extra configuration.
 app.mount(f"{API_PREFIX}/mcp", mcp_app)
+
+# Internal endpoints for dograh-livekit bridge — not versioned, private
+from api.routes.internal import router as internal_router
+app.include_router(internal_router)

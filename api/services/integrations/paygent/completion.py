@@ -34,8 +34,10 @@ def _build_snapshot(
 ) -> PaygentCallSnapshot:
     """Reconstruct a ``PaygentCallSnapshot`` from the persisted log dict."""
     return PaygentCallSnapshot(
-        # session_id == str(workflow_run_id) — consistent with Tuner's call_id
-        session_id=str(raw.get("workflow_run_id", workflow_run_id)),
+        # session_id is always the authoritative workflow_run_id; the persisted
+        # snapshot value is never used to override it, preventing billing drift
+        # if the log is stale or corrupted.
+        session_id=str(workflow_run_id),
         agent_id=raw.get("agent_id", ""),          # filled from node config below
         customer_id=raw.get("customer_id", ""),    # filled from node config below
         is_realtime=raw.get("is_realtime", False),
@@ -96,34 +98,60 @@ async def run_completion(
 
         # Fallback to usage_info if snapshot has 0s (Pipecat metrics might be missing)
         usage_info = context.workflow_run.usage_info or {}
-        # Only fallback to pipeline-level llm usage if this is NOT a realtime pipeline.
-        # In realtime pipelines, the collector properly segregates STS and LLM tokens; 
-        # falling back here would duplicate the STS tokens into the LLM bucket.
-        if snapshot.llm_prompt_tokens == 0 and snapshot.llm_completion_tokens == 0 and not snapshot.is_realtime:
-            for key, val in usage_info.get("llm", {}).items():
-                snapshot.llm_prompt_tokens += val.get("prompt_tokens", 0)
-                snapshot.llm_completion_tokens += val.get("completion_tokens", 0)
-                snapshot.llm_cached_tokens += val.get("cache_read_input_tokens", 0) + val.get("cache_creation_input_tokens", 0)
-                if not snapshot.llm_provider:
+        try:
+            # Only fallback to pipeline-level llm usage if this is NOT a realtime pipeline.
+            # In realtime pipelines, the collector properly segregates STS and LLM tokens;
+            # falling back here would duplicate the STS tokens into the LLM bucket.
+            if snapshot.llm_prompt_tokens == 0 and snapshot.llm_completion_tokens == 0 and not snapshot.is_realtime:
+                llm_providers: list[str] = []
+                llm_models: list[str] = []
+                for key, val in usage_info.get("llm", {}).items():
+                    snapshot.llm_prompt_tokens += val.get("prompt_tokens", 0)
+                    snapshot.llm_completion_tokens += val.get("completion_tokens", 0)
+                    snapshot.llm_cached_tokens += val.get("cache_read_input_tokens", 0) + val.get("cache_creation_input_tokens", 0)
                     parts = key.split("|||")
                     if len(parts) == 2:
-                        snapshot.llm_provider, snapshot.llm_model = parts
-        
-        if snapshot.tts_characters == 0:
-            for key, val in usage_info.get("tts", {}).items():
-                snapshot.tts_characters += val
-                if not snapshot.tts_provider:
-                    parts = key.split("|||")
-                    if len(parts) == 2:
-                        snapshot.tts_provider, snapshot.tts_model = parts
+                        llm_providers.append(parts[0])
+                        llm_models.append(parts[1])
+                if not snapshot.llm_provider and llm_providers:
+                    snapshot.llm_provider = ",".join(dict.fromkeys(llm_providers))
+                if not snapshot.llm_model and llm_models:
+                    snapshot.llm_model = ",".join(dict.fromkeys(llm_models))
 
-        if snapshot.stt_audio_seconds == 0:
-            for key, val in usage_info.get("stt", {}).items():
-                snapshot.stt_audio_seconds += val
-                if not snapshot.stt_provider:
+            if snapshot.tts_characters == 0:
+                tts_providers: list[str] = []
+                tts_models: list[str] = []
+                for key, val in usage_info.get("tts", {}).items():
+                    snapshot.tts_characters += val
                     parts = key.split("|||")
                     if len(parts) == 2:
-                        snapshot.stt_provider, snapshot.stt_model = parts
+                        tts_providers.append(parts[0])
+                        tts_models.append(parts[1])
+                if not snapshot.tts_provider and tts_providers:
+                    snapshot.tts_provider = ",".join(dict.fromkeys(tts_providers))
+                if not snapshot.tts_model and tts_models:
+                    snapshot.tts_model = ",".join(dict.fromkeys(tts_models))
+
+            if snapshot.stt_audio_seconds == 0:
+                stt_providers: list[str] = []
+                stt_models: list[str] = []
+                for key, val in usage_info.get("stt", {}).items():
+                    snapshot.stt_audio_seconds += val
+                    parts = key.split("|||")
+                    if len(parts) == 2:
+                        stt_providers.append(parts[0])
+                        stt_models.append(parts[1])
+                if not snapshot.stt_provider and stt_providers:
+                    snapshot.stt_provider = ",".join(dict.fromkeys(stt_providers))
+                if not snapshot.stt_model and stt_models:
+                    snapshot.stt_model = ",".join(dict.fromkeys(stt_models))
+
+                # 3rd fallback: if STT audio seconds is still 0 in a standard (non-realtime) call,
+                # fall back to the call's total wall-clock duration.
+                if snapshot.stt_audio_seconds == 0 and not snapshot.is_realtime:
+                    snapshot.stt_audio_seconds = float(snapshot.total_duration_seconds)
+        except Exception as exc:
+            logger.warning("[paygent] Failed to apply usage_info fallback for run {}: {}", context.workflow_run_id, exc)
 
         try:
             config = PaygentDeliveryConfig(

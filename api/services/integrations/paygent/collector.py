@@ -13,6 +13,7 @@ Design mirrors ``api/services/integrations/tuner/collector.py`` exactly:
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
@@ -86,8 +87,14 @@ class _UsageAccumulator:
         return int((self.call_end_abs_ns - self.call_start_abs_ns) / 1_000_000_000)
         
     def get_stt_audio_seconds(self) -> float:
-        duration = float(self.total_duration_seconds)
-        return duration
+        """Return measured STT audio seconds accumulated from the pipeline.
+
+        NOTE: This is the real measured STT audio duration collected from the
+        pipeline's STT metrics frames, NOT the total call wall-clock duration.
+        The call wall-clock duration is available separately via
+        ``total_duration_seconds``.
+        """
+        return self.stt_audio_seconds
 
     def add_llm(self, usage: LLMTokenUsage) -> None:
         self.llm_prompt_tokens += usage.prompt_tokens or 0
@@ -328,18 +335,32 @@ def _merge_sts_metadata(existing: dict, new: dict) -> dict:
         if not e_val and not n_val:
             continue
         
-        merged_cat = {}
-        if "tokens" in e_val or "tokens" in n_val:
+        merged_cat: dict = {}
+
+        # Prefer per-modality merge when either side has per-modality detail.
+        # Only use the flat aggregate{"tokens": N} form when neither side has
+        # any per-modality breakdown at all (e.g. legacy schema).
+        e_has_modalities = any(m in e_val for m in ("text", "audio", "image", "video"))
+        n_has_modalities = any(m in n_val for m in ("text", "audio", "image", "video"))
+
+        if e_has_modalities or n_has_modalities:
+            for modality in ("text", "audio", "image", "video"):
+                e_mod = e_val.get(modality, {}).get("tokens", 0)
+                n_mod = n_val.get(modality, {}).get("tokens", 0)
+                total = e_mod + n_mod
+                if total > 0:
+                    merged_cat[modality] = {"tokens": total}
+            # Also sum any lingering aggregate total so no tokens are lost
+            e_agg = e_val.get("tokens", 0) if not e_has_modalities else 0
+            n_agg = n_val.get("tokens", 0) if not n_has_modalities else 0
+            if e_agg or n_agg:
+                # Incorporate the unbroken-down side into the "text" bucket as
+                # a best-effort attribution rather than silently dropping it.
+                existing_text = merged_cat.get("text", {}).get("tokens", 0)
+                merged_cat["text"] = {"tokens": existing_text + e_agg + n_agg}
+        elif "tokens" in e_val or "tokens" in n_val:
             merged_cat["tokens"] = e_val.get("tokens", 0) + n_val.get("tokens", 0)
-            out[key] = merged_cat
-            continue
-            
-        for modality in ("text", "audio", "image", "video"):
-            e_mod = e_val.get(modality, {}).get("tokens", 0)
-            n_mod = n_val.get(modality, {}).get("tokens", 0)
-            total = e_mod + n_mod
-            if total > 0:
-                merged_cat[modality] = {"tokens": total}
+
         if merged_cat:
             out[key] = merged_cat
             
@@ -395,8 +416,12 @@ class PaygentCollector(BaseObserver):
         self._sts_model = sts_model
         self._acc = _UsageAccumulator()
         self._call_disposition: str = "completed"
-        # Dedup guard – pipecat sometimes re-delivers frames
+        # Dedup guard – pipecat sometimes re-delivers frames.
+        # Use a bounded deque+set pattern (mirrors tuner/collector.py) so that
+        # clearing never creates a window where previously-seen frames are
+        # double-counted after a reset.
         self._seen_frame_ids: set[int] = set()
+        self._frame_history: deque[int] = deque(maxlen=2000)
 
     # ------------------------------------------------------------------
     # Public hooks
@@ -444,13 +469,14 @@ class PaygentCollector(BaseObserver):
 
             frame = data.frame
 
-            # Dedup
+            # Dedup: bounded LRU set – rebuilds from deque when overfull so we
+            # never create a gap where previously seen frames are re-processed.
             if frame.id in self._seen_frame_ids:
                 return
             self._seen_frame_ids.add(frame.id)
-            # Bound the set to avoid unbounded memory growth on long calls
-            if len(self._seen_frame_ids) > 2000:
-                self._seen_frame_ids.clear()
+            self._frame_history.append(frame.id)
+            if len(self._seen_frame_ids) > len(self._frame_history):
+                self._seen_frame_ids = set(self._frame_history)
 
             if isinstance(frame, StartFrame):
                 self._acc.call_start_abs_ns = time.time_ns()
@@ -464,21 +490,20 @@ class PaygentCollector(BaseObserver):
                             if "realtime" in proc_lower or "live" in proc_lower:
                                 is_sts_frame = True
 
-                        logger.info(
-                            "[paygent_debug] Received LLM frame from processor='{}', is_realtime={}, is_sts_frame={}, tokens_dict={}",
-                            item.processor,
-                            getattr(self, "_is_realtime", False),
-                            is_sts_frame,
-                            item.value.__dict__
-                        )
-
                         if is_sts_frame:
-                            provider = getattr(self, "_sts_provider", "unknown") or getattr(self, "_llm_provider", "unknown")
-                            if provider not in ("grok", "ultravox", "grok_realtime", "ultravox_realtime"):
+                            # Normalise the raw provider slug so that variants like
+                            # "openai_realtime", "azure_realtime", etc. route correctly.
+                            raw_provider = (
+                                getattr(self, "_sts_provider", "") or getattr(self, "_llm_provider", "")
+                            )
+                            provider = _detect_provider(raw_provider) if raw_provider else "unknown"
+                            if provider not in ("grok", "ultravox"):
                                 usage = item.value
                                 raw_metadata = getattr(usage, "raw_usage_metadata", None)
                                 if raw_metadata:
-                                    if provider in ("openai", "openai_realtime"):
+                                    # OpenAI Realtime and Azure Realtime (azure→openai via _detect_provider)
+                                    # share the same wire format.
+                                    if provider in ("openai", "azure"):
                                         new_meta = _openai_realtime_usage_to_sts_metadata(raw_metadata)
                                     else:
                                         new_meta = _google_live_usage_to_sts_metadata(raw_metadata)

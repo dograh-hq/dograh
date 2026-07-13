@@ -127,6 +127,8 @@ class PaygentNodeData(BaseNodeData):
             missing.append("paygent_agent_id")
         if not self.paygent_customer_id or not self.paygent_customer_id.strip():
             missing.append("paygent_customer_id")
+        if not self.paygent_indicator or not self.paygent_indicator.strip():
+            missing.append("paygent_indicator")
 
         if missing:
             fields = ", ".join(missing)

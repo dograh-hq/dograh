@@ -25,10 +25,13 @@ spec:
       labels:
         {{- include "dograh.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: ari-manager
-      {{- with .Values.ariManager.podAnnotations }}
       annotations:
+        # Roll pods when the ConfigMap changes. See web-deployment.yaml for
+        # the full rationale.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.ariManager.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "dograh.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}

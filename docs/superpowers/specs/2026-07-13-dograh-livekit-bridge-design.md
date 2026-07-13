@@ -10,10 +10,10 @@ Add a **LiveKit + Agno multi-agent runtime** as a parallel pathway to the existi
 
 ### 1.1 Motivation
 
-- **SOTA models**: Leverage Gemini 3.1 Flash Live, GPT-4o Realtime, Claude via Bedrock — natively supported through LiveKit plugins
 - **Multi-agent orchestration**: From single-agent linear pipelines to multi-step, multi-agent workflows with conditional routing (Agno `Workflow` + `Router`)
 - **LiveKit-native transport**: SIP trunks, room management, WebRTC — managed by LiveKit Cloud, reducing operational burden
 - **Zero risk to existing system**: New service, no changes to Pipecat runtime or Dograh core
+- **SOTA models for verification**: Post-call QA analysis can leverage advanced models (Claude 4, GPT-4o) for nuanced call quality evaluation (QA node in Dograh workflows)
 
 ### 1.2 Non-Goals
 
@@ -21,6 +21,7 @@ Add a **LiveKit + Agno multi-agent runtime** as a parallel pathway to the existi
 - Does NOT change Dograh's UI, workflow editor, or data model
 - Does NOT depend on Luminai infrastructure (SurrealDB, NATS, GCP)
 - Does NOT copy Luminai code — reuses patterns, not source
+- Does NOT migrate WhatsApp to LiveKit in MVP — stays on Pipecat
 
 ## 2. Architecture
 
@@ -249,29 +250,22 @@ These are **new endpoints** to be added to Dograh's API. They are read-only or w
 
 ## 5. Models & Providers
 
-### 5.1 Realtime Models (native audio)
+Models are selected from Dograh's configuration (`llm_config`, `stt_config`, `tts_config`) — same as Pipecat. No hardcoded model list.
 
-| Provider | Model | LiveKit Plugin |
-|---|---|---|
-| Google | `gemini-3.1-flash-live-preview` | `livekit.plugins.google.realtime` |
-| Google | `gemini-2.5-flash-native-audio` | `livekit.plugins.google.realtime` |
-| OpenAI | `gpt-4o-realtime-preview` | `livekit.plugins.openai.realtime` |
-| AWS | `amazon.nova-sonic-2` | `livekit.plugins.aws.realtime` |
+### 5.1 Realtime (native audio)
 
-### 5.2 Fallback Models (STT + LLM + TTS)
+For providers that handle STT+LLM+TTS in a single streaming API (e.g., `google_realtime`, `openai_realtime`, `aws_realtime`), the LiveKit realtime plugin is used with the model configured in Dograh.
 
-| Component | Provider Options |
-|---|---|
-| STT | Deepgram (Nova-3), Google STT |
-| LLM | Google Gemini (Flash/Pro), Anthropic Claude (via Bedrock), OpenAI GPT-4o |
-| TTS | Cartesia Sonic, ElevenLabs, Google TTS, Deepgram Aura |
+### 5.2 Fallback (STT + LLM + TTS)
 
-### 5.3 Verification Model (SOTA)
+For text-based LLM providers (e.g., `anthropic`, `groq`, non-realtime `google`), the standard STT+LLM+TTS pipeline is used with providers configured in Dograh:
+- STT: Deepgram, Google STT
+- LLM: Google Gemini, Anthropic Claude (Bedrock), OpenAI
+- TTS: Cartesia Sonic, ElevenLabs, Google TTS, Deepgram Aura
 
-For post-call QA analysis and verification:
-- **Claude Sonnet 4** (via Anthropic API) — best-in-class for nuanced evaluation
-- **GPT-4o** (via OpenAI API) — fallback for structured JSON extraction
-- Selected per workflow via `qa_provider` / `qa_model` in Dograh QA node config
+### 5.3 QA/Verification
+
+Post-call QA analysis (Dograh QA node) uses the model configured in the workflow — same as Pipecat today. No special SOTA model requirement at the bridge level.
 
 ## 6. Docker Deployment
 
@@ -316,8 +310,43 @@ dograh-livekit:
 5. Session records, usage metrics, and recordings are persisted in Dograh's PostgreSQL
 6. The existing Pipecat pathway continues to work unchanged
 
-## 9. Open Questions
+## 9. Resolved Design Decisions
 
-- **Tool UUID resolution**: Dograh's tool system uses UUIDs. Does the internal API need to resolve these to executable tool definitions, or does `dograh-livekit` handle resolution itself?
-- **Campaign outbound**: For campaign calls, does the outbound trigger flow through Dograh's campaign orchestrator, or directly through `dograh-livekit`'s SIP outbound trunk?
-- **WhatsApp channel**: Should WhatsApp also route through the LiveKit pathway (as Luminai does), or stay on Pipecat?
+### 9.1 Tool UUID Resolution
+
+**Decision**: Dograh API resolves tool UUIDs to executable definitions.
+
+`GET /api/internal/deploy/{id}/runtime-config` returns `{tools: [{name, type, config, input_schema}, ...]}` — fully resolved, ready to register with Agno. `dograh-livekit` never sees raw UUIDs.
+
+Rationale: Dograh is the single source of truth for tools. If the tool system changes (UUID → slug), `dograh-livekit` is unaffected.
+
+### 9.2 Campaign Outbound
+
+**Decision**: Add a `LiveKitSipProvider` to Dograh's existing telephony provider abstraction. The campaign orchestrator remains unchanged.
+
+```
+CampaignCallDispatcher.dispatch_call()
+    → provider.initiate_call()
+        ├── TwilioProvider    → PSTN → webhook → Pipecat  (oggi)
+        └── LiveKitSipProvider → LiveKit SIP outbound     (nuovo)
+                                    → LiveKit Cloud room
+                                    → AgentServer → dograh-livekit
+                                        → Agno Workflow
+```
+
+The `LiveKitSipProvider` implements the same `TelephonyProvider` interface:
+1. `initiate_call()` → LiveKit API `CreateSIPParticipant` (outbound SIP)
+2. Room metadata carries `{deploy_id, org_id, campaign_id, lead_id}`
+3. `dograh-livekit` picks up the job — same flow as inbound calls
+
+**Criticità valutate**:
+- Rate limiter, circuit breaker, retry logic → tutti invariati (restano in Dograh)
+- Concurrency slot → invariato (Dograh gestisce gli slot)
+- From number pool → il `LiveKitSipProvider` usa i numeri LiveKit assegnati al trunk
+- **Nessuna duplicazione della logica campaign**
+
+### 9.3 WhatsApp
+
+**Decision**: WhatsApp stays on Pipecat for MVP.
+
+Migrating WhatsApp to LiveKit would require Gupshup integration, async message handling, and testing — ~2-3 weeks extra. Can be added later as a follow-up when the voice pathway is stable.

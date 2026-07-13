@@ -382,6 +382,30 @@ class MPSServiceKeyClient:
                 response=response,
             )
 
+    async def get_billing_pricing(self, organization_id: int) -> dict:
+        """Return MPS-owned effective platform and Dograh model prices for an org."""
+        if DEPLOYMENT_MODE == "oss":
+            raise ValueError("OSS deployments do not fetch hosted billing prices")
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/pricing",
+                headers=self._get_headers(organization_id=organization_id),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to get MPS billing pricing: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to get MPS billing pricing: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
     async def ensure_billing_account_v2(
         self,
         organization_id: int,

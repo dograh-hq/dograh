@@ -79,6 +79,7 @@ class HealthResponse(BaseModel):
     auth_provider: str
     turn_enabled: bool
     force_turn_relay: bool
+    signup_enabled: bool
     # Public Stack Auth client config — only populated when auth_provider == "stack".
     # The UI reads these at runtime to initialize Stack, so they no longer need to
     # be baked into the browser bundle at build time. Both are public values.
@@ -93,6 +94,7 @@ async def health() -> HealthResponse:
         AUTH_PROVIDER,
         BACKEND_API_ENDPOINT,
         DEPLOYMENT_MODE,
+        ENABLE_SIGNUP,
         FORCE_TURN_RELAY,
         STACK_AUTH_PROJECT_ID,
         STACK_PUBLISHABLE_CLIENT_KEY,
@@ -123,6 +125,7 @@ async def health() -> HealthResponse:
         auth_provider=AUTH_PROVIDER,
         turn_enabled=bool(TURN_SECRET),
         force_turn_relay=FORCE_TURN_RELAY,
+        signup_enabled=ENABLE_SIGNUP,
         stack_project_id=STACK_AUTH_PROJECT_ID if is_stack else None,
         stack_publishable_client_key=(
             STACK_PUBLISHABLE_CLIENT_KEY if is_stack else None

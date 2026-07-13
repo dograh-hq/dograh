@@ -38,6 +38,11 @@ from pipecat.services.dograh.flux.stt import DograhFluxSTTService
 from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
 from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
+from pipecat.services.elevenlabs.stt import (
+    CommitStrategy,
+    ElevenLabsRealtimeSTTService,
+    ElevenLabsRealtimeSTTSettings,
+)
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
@@ -106,6 +111,52 @@ DEEPGRAM_FLUX_LANGUAGE_HINTS = {
 def dograh_stt_uses_flux_language(language: str | None) -> bool:
     language = language or "multi"
     return language in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS
+
+
+def _resolve_elevenlabs_stt_language(
+    language_code: str | None,
+) -> Language | str | None:
+    if not language_code or language_code == "auto":
+        return None
+    try:
+        return Language(language_code)
+    except ValueError:
+        return language_code
+
+
+def _elevenlabs_websocket_url(base_url: str) -> str:
+    """Normalize an ElevenLabs API base URL for WebSocket clients."""
+    base_url = base_url.strip()
+    parsed = urlparse(base_url)
+    if not parsed.netloc:
+        return base_url.rstrip("/")
+
+    websocket_scheme = {
+        "http": "ws",
+        "https": "wss",
+    }.get(parsed.scheme, parsed.scheme)
+    return urlunparse(
+        parsed._replace(
+            scheme=websocket_scheme,
+            path=parsed.path.rstrip("/"),
+        )
+    )
+
+
+def _elevenlabs_realtime_stt_host(base_url: str) -> str:
+    """Return the host/path prefix Pipecat's ElevenLabs realtime STT expects.
+
+    Pipecat's realtime STT service builds
+    ``wss://{host}/v1/speech-to-text/realtime`` internally, so remove the scheme
+    from the same normalized WebSocket URL used by ElevenLabs TTS. Preserve
+    netloc (including optional ports) and any path prefix used by BYOK proxies.
+    """
+    websocket_url = _elevenlabs_websocket_url(base_url)
+    parsed = urlparse(websocket_url)
+    if parsed.netloc:
+        path = parsed.path
+        return f"{parsed.netloc}{path}" if path else parsed.netloc
+    return websocket_url
 
 
 def stt_uses_external_turns(user_config) -> bool:
@@ -415,6 +466,24 @@ def create_stt_service(
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.ELEVENLABS.value:
+        language_code = getattr(user_config.stt, "language", None)
+        pipecat_language = _resolve_elevenlabs_stt_language(language_code)
+
+        _validate_runtime_service_url(user_config.stt.base_url, "base_url")
+        elevenlabs_host = _elevenlabs_realtime_stt_host(user_config.stt.base_url)
+
+        return ElevenLabsRealtimeSTTService(
+            api_key=user_config.stt.api_key,
+            base_url=elevenlabs_host,
+            commit_strategy=CommitStrategy.VAD,
+            settings=ElevenLabsRealtimeSTTSettings(
+                model=user_config.stt.model,
+                language=pipecat_language,
+            ),
+            should_interrupt=False,
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid STT provider {user_config.stt.provider}"
@@ -488,13 +557,11 @@ def create_tts_service(
             voice_id = user_config.tts.voice.split(" - ")[1]
         except IndexError:
             voice_id = user_config.tts.voice
-        # ElevenLabs TTS uses WebSocket. Users configure base_url with an HTTP
-        # scheme (matching ElevenLabs documentation, e.g.
-        # https://api.eu.residency.elevenlabs.io); rewrite it to the WS scheme.
+        # ElevenLabs TTS consumes the full normalized WebSocket URL. Realtime
+        # STT uses the same normalization before adapting it to Pipecat's
+        # scheme-less base_url contract.
         _validate_runtime_service_url(user_config.tts.base_url, "base_url")
-        elevenlabs_url = user_config.tts.base_url.replace("https://", "wss://").replace(
-            "http://", "ws://"
-        )
+        elevenlabs_url = _elevenlabs_websocket_url(user_config.tts.base_url)
         return ElevenLabsTTSService(
             reconnect_on_error=False,
             api_key=user_config.tts.api_key,

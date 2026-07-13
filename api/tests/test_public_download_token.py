@@ -163,7 +163,9 @@ class TestPublicTokenLifecycle:
         token = await db_session.ensure_public_access_token(seeded_run.run.id)
 
         revoked = await db_session.revoke_public_access_token(
-            seeded_run.run.id, organization_id=seeded_run.org.id
+            seeded_run.run.id,
+            workflow_id=seeded_run.workflow.id,
+            organization_id=seeded_run.org.id,
         )
 
         assert revoked is True
@@ -176,11 +178,35 @@ class TestPublicTokenLifecycle:
         token = await db_session.ensure_public_access_token(seeded_run.run.id)
 
         revoked = await db_session.revoke_public_access_token(
-            seeded_run.run.id, organization_id=seeded_run.org.id + 9999
+            seeded_run.run.id,
+            workflow_id=seeded_run.workflow.id,
+            organization_id=seeded_run.org.id + 9999,
         )
 
         assert revoked is False
         # Token from another org must remain valid.
+        assert await db_session.get_workflow_run_by_public_token(token) is not None
+
+    async def test_revoke_is_workflow_scoped(self, db_session, seeded_run):
+        """A mismatched workflow_id (same org) must not revoke the run's token."""
+        token = await db_session.ensure_public_access_token(seeded_run.run.id)
+
+        # Another workflow in the same org — its id must not authorize revoking
+        # a run that belongs to a different workflow.
+        other_workflow = await db_session.create_workflow(
+            name="Other WF",
+            workflow_definition=GRAPH,
+            user_id=seeded_run.user.id,
+            organization_id=seeded_run.org.id,
+        )
+
+        revoked = await db_session.revoke_public_access_token(
+            seeded_run.run.id,
+            workflow_id=other_workflow.id,
+            organization_id=seeded_run.org.id,
+        )
+
+        assert revoked is False
         assert await db_session.get_workflow_run_by_public_token(token) is not None
 
 
@@ -200,7 +226,7 @@ async def test_revoke_endpoint_success(monkeypatch):
     result = await workflow_route.revoke_workflow_run_public_token(7, 99, user=user)
 
     assert result == {"revoked": True}
-    revoke.assert_awaited_once_with(99, organization_id=42)
+    revoke.assert_awaited_once_with(99, workflow_id=7, organization_id=42)
 
 
 @pytest.mark.asyncio

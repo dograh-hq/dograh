@@ -209,4 +209,8 @@ TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")
 # embedded in webhook payloads, emails and reports. They expire this many days
 # after they are minted; expired tokens are rejected at lookup and rotated on
 # the next authenticated regeneration.
-PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS = int(os.getenv("PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS", "30"))
+# Floor at 1 so a misconfigured env var (0 or negative) can't mint tokens that
+# expire at creation and immediately fail the freshness lookup.
+PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS = max(
+    1, int(os.getenv("PUBLIC_DOWNLOAD_TOKEN_TTL_DAYS", "30"))
+)

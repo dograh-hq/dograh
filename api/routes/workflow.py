@@ -1393,7 +1393,9 @@ async def revoke_workflow_run_public_token(
     fetched. Scoped to the caller's organization for tenant isolation.
     """
     revoked = await db_client.revoke_public_access_token(
-        run_id, organization_id=user.selected_organization_id
+        run_id,
+        workflow_id=workflow_id,
+        organization_id=user.selected_organization_id,
     )
     if not revoked:
         raise HTTPException(status_code=404, detail="Workflow run not found")

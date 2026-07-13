@@ -462,8 +462,13 @@ class WorkflowRunClient(BaseDBClient):
             The public access token string, or None if workflow run not found
         """
         async with self.async_session() as session:
+            # Lock the run row so a concurrent rotation and a revoke cannot
+            # interleave (lost update) and leave a valid token after a revoke
+            # reported success.
             result = await session.execute(
-                select(WorkflowRunModel).where(WorkflowRunModel.id == workflow_run_id)
+                select(WorkflowRunModel)
+                .where(WorkflowRunModel.id == workflow_run_id)
+                .with_for_update()
             )
             run = result.scalars().first()
             if not run:
@@ -516,25 +521,30 @@ class WorkflowRunClient(BaseDBClient):
             return result.scalars().first()
 
     async def revoke_public_access_token(
-        self, workflow_run_id: int, organization_id: int
+        self, workflow_run_id: int, workflow_id: int, organization_id: int
     ) -> bool:
         """Revoke a run's public access token within the caller's organization.
 
         Clears both the token and its expiry so any previously issued link stops
         resolving immediately. Scoped by ``organization_id`` for tenant isolation
-        so one org cannot revoke another org's token.
+        and by ``workflow_id`` so a nested-resource URL cannot target a run
+        belonging to a different workflow in the same organization.
 
         Returns:
             True if a matching run was found and updated, False otherwise.
         """
         async with self.async_session() as session:
+            # Lock the run row so a concurrent ensure_public_access_token
+            # rotation cannot re-mint a token after this revoke commits.
             result = await session.execute(
                 select(WorkflowRunModel)
                 .join(WorkflowRunModel.workflow)
                 .where(
                     WorkflowRunModel.id == workflow_run_id,
+                    WorkflowRunModel.workflow_id == workflow_id,
                     WorkflowModel.organization_id == organization_id,
                 )
+                .with_for_update(of=WorkflowRunModel)
             )
             run = result.scalars().first()
             if not run:

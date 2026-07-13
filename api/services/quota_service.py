@@ -506,12 +506,14 @@ async def authorize_workflow_run_start(
 
     except Exception as e:
         logger.error(f"Error during quota check: {str(e)}")
-        # Quota verification could not be completed (a degraded DB read, config
-        # resolution, or a config-shape bug threw). Billing and abuse protection
-        # are control-plane functions, so fail closed by default rather than let
-        # a billable run start unverified. This is the single policy gate for
-        # all "cannot verify" errors, so QUOTA_FAIL_MODE governs them uniformly;
-        # self-hosters who prefer availability can set QUOTA_FAIL_MODE=open.
+        # Quota verification could not be completed (a degraded DB read for the
+        # owner/run, config resolution, or a config-shape bug threw). Billing and
+        # abuse protection are control-plane functions, so fail closed by default
+        # rather than let a billable run start unverified. QUOTA_FAIL_MODE governs
+        # the credit-verification failures that reach this handler; the earlier
+        # workflow-load and org-membership checks are authorization/existence
+        # gates that always deny on error, independent of this availability
+        # policy. Self-hosters who prefer availability can set QUOTA_FAIL_MODE=open.
         if QUOTA_FAIL_MODE == "open":
             logger.warning(
                 "QUOTA_FAIL_MODE=open: allowing workflow {} org {} to proceed "

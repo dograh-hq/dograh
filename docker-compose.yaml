@@ -147,6 +147,9 @@ services:
       ENVIRONMENT: "${ENVIRONMENT:-local}"
       LOG_LEVEL: "INFO"
 
+      # Set to "false" in .env to disable public signup (invite-only installs).
+      ENABLE_SIGNUP: "${ENABLE_SIGNUP:-true}"
+
       # Public origin for this deployment. The API derives BACKEND_API_ENDPOINT,
       # MINIO_PUBLIC_ENDPOINT and TURN_HOST from PUBLIC_BASE_URL / PUBLIC_HOST when
       # they are not set explicitly (see api/constants.py), so a standard remote

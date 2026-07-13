@@ -329,7 +329,7 @@ class CustomToolManager:
         return handler, timeout_secs
 
     def _transfer_handler_timeout_secs(self, tool: Any) -> float:
-        config = ((tool.definition or {}).get("config", {}) or {})
+        config = (tool.definition or {}).get("config", {}) or {}
         try:
             transfer_timeout = int(config.get("timeout", 30))
         except (TypeError, ValueError):
@@ -338,9 +338,8 @@ class CustomToolManager:
 
         resolver_timeout = 0.0
         resolver = config.get("resolver")
-        if (
-            config.get("destination_source", "static") == "dynamic"
-            and isinstance(resolver, dict)
+        if config.get("destination_source", "static") == "dynamic" and isinstance(
+            resolver, dict
         ):
             try:
                 resolver_timeout = float(resolver.get("timeout_ms", 3000)) / 1000.0
@@ -602,10 +601,9 @@ class CustomToolManager:
                     return
 
                 resolver = config.get("resolver") if isinstance(config, dict) else None
-                is_dynamic_transfer = (
-                    config.get("destination_source", "static") == "dynamic"
-                    and isinstance(resolver, dict)
-                )
+                is_dynamic_transfer = config.get(
+                    "destination_source", "static"
+                ) == "dynamic" and isinstance(resolver, dict)
                 resolver_phase_muted = False
 
                 def clear_transfer_setup_mute_state() -> None:

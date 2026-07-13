@@ -19,7 +19,10 @@ import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
-import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
+import {
+    getWorkflowApiV1WorkflowFetchWorkflowIdGet,
+    getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet,
+} from '@/client/sdk.gen';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
@@ -84,6 +87,35 @@ function MetricCard({ label, value }: { label: string; value: string }) {
         <div className="rounded-xl border border-border bg-muted/40 px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
             <p className="mt-2 text-lg font-semibold text-foreground">{value}</p>
+        </div>
+    );
+}
+
+function CopyDebugIdButton({ label, value }: { label: string; value: string }) {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = async () => {
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+                <p className="font-mono text-sm font-semibold text-foreground">{value}</p>
+            </div>
+            <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={handleCopy}
+                aria-label={`Copy ${label.toLowerCase()}`}
+            >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
         </div>
     );
 }
@@ -569,6 +601,7 @@ export default function WorkflowRunPage() {
     const [isLoading, setIsLoading] = useState(true);
     const auth = useAuth();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
+    const [workflowName, setWorkflowName] = useState<string | null>(null);
     const { hasSeenTooltip, markTooltipSeen } = useOnboarding();
     const customizeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -586,37 +619,52 @@ export default function WorkflowRunPage() {
             if (!auth.isAuthenticated || auth.loading) return;
 
             setIsLoading(true);
-            const workflowId = params.workflowId;
-            const runId = params.runId;
-            const response = await getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet({
-                path: {
-                    workflow_id: Number(workflowId),
-                    run_id: Number(runId),
-                },
-            });
-            setIsLoading(false);
-            const runData = {
-                mode: response.data?.mode ?? '',
-                is_completed: response.data?.is_completed ?? false,
-                transcript_url: response.data?.transcript_url ?? null,
-                recording_url: response.data?.recording_url ?? null,
-                user_recording_url: response.data?.user_recording_url ?? null,
-                bot_recording_url: response.data?.bot_recording_url ?? null,
-                cost_info: response.data?.cost_info ?? null,
-                initial_context: response.data?.initial_context as Record<string, string> | null ?? null,
-                gathered_context: response.data?.gathered_context as Record<string, string> | null ?? null,
-                logs: response.data?.logs as WorkflowRunLogs | null ?? null,
-                annotations: response.data?.annotations as Record<string, unknown> | null ?? null,
-            };
-            setWorkflowRun(runData);
-            posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
-                workflow_id: Number(workflowId),
-                run_id: Number(runId),
-                is_completed: runData.is_completed,
-                has_recording: !!runData.recording_url,
-                has_split_recordings: !!runData.user_recording_url && !!runData.bot_recording_url,
-                has_transcript: !!runData.transcript_url,
-            });
+            setWorkflowName(null);
+            const workflowId = Number(params.workflowId);
+            const runId = Number(params.runId);
+
+            try {
+                const [runResponse, workflowResponse] = await Promise.all([
+                    getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet({
+                        path: {
+                            workflow_id: workflowId,
+                            run_id: runId,
+                        },
+                    }),
+                    getWorkflowApiV1WorkflowFetchWorkflowIdGet({
+                        path: {
+                            workflow_id: workflowId,
+                        },
+                    }),
+                ]);
+
+                setWorkflowName(workflowResponse.data?.name ?? null);
+                const runData = {
+                    mode: runResponse.data?.mode ?? '',
+                    is_completed: runResponse.data?.is_completed ?? false,
+                    transcript_url: runResponse.data?.transcript_url ?? null,
+                    recording_url: runResponse.data?.recording_url ?? null,
+                    user_recording_url: runResponse.data?.user_recording_url ?? null,
+                    bot_recording_url: runResponse.data?.bot_recording_url ?? null,
+                    cost_info: runResponse.data?.cost_info ?? null,
+                    initial_context: runResponse.data?.initial_context as Record<string, string> | null ?? null,
+                    gathered_context: runResponse.data?.gathered_context as Record<string, string> | null ?? null,
+                    logs: runResponse.data?.logs as WorkflowRunLogs | null ?? null,
+                    annotations: runResponse.data?.annotations as Record<string, unknown> | null ?? null,
+                };
+                setWorkflowRun(runData);
+                posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
+                    workflow_id: workflowId,
+                    workflow_name: workflowResponse.data?.name ?? null,
+                    run_id: runId,
+                    is_completed: runData.is_completed,
+                    has_recording: !!runData.recording_url,
+                    has_split_recordings: !!runData.user_recording_url && !!runData.bot_recording_url,
+                    has_transcript: !!runData.transcript_url,
+                });
+            } finally {
+                setIsLoading(false);
+            }
         };
         fetchWorkflowRun();
     }, [params.workflowId, params.runId, auth]);
@@ -627,6 +675,8 @@ export default function WorkflowRunPage() {
     const userSplitRecordingUrl = workflowRun?.user_recording_url ?? null;
     const botSplitRecordingUrl = workflowRun?.bot_recording_url ?? null;
     const hasSplitTracks = Boolean(userSplitRecordingUrl && botSplitRecordingUrl);
+    const workflowId = String(params.workflowId);
+    const runId = String(params.runId);
 
     if (isLoading) {
         returnValue = (
@@ -656,22 +706,43 @@ export default function WorkflowRunPage() {
                 <div className="min-w-0 flex-1 overflow-y-auto">
                     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
                     <Card className="border-border">
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <CardTitle className="text-2xl">
-                                    {isTextChatRun ? 'Text Chat Session' : 'Agent Run Completed'}
-                                </CardTitle>
-                                <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-sky-500/15' : 'bg-emerald-500/20'}`}>
-                                    {isTextChatRun ? (
-                                        <FileText className="h-5 w-5 text-sky-500" />
-                                    ) : (
-                                        <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
+                        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 flex-1 space-y-2">
+                                {workflowName && (
+                                    <div className="flex min-w-0 items-center gap-3">
+                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                                            <Bot className="h-5 w-5" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                                                Agent
+                                            </p>
+                                            <p className="truncate text-xl font-semibold text-foreground">
+                                                {workflowName}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                    <CopyDebugIdButton label="Agent ID" value={workflowId} />
+                                    <CopyDebugIdButton label="Run ID" value={runId} />
+                                </div>
+                                <div className="flex min-w-0 items-center gap-4 pt-1">
+                                    <CardTitle className="min-w-0 text-2xl">
+                                        {isTextChatRun ? 'Text Chat Session' : 'Agent Run Completed'}
+                                    </CardTitle>
+                                    <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-sky-500/15' : 'bg-emerald-500/20'}`}>
+                                        {isTextChatRun ? (
+                                            <FileText className="h-5 w-5 text-sky-500" />
+                                        ) : (
+                                            <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex shrink-0 items-center gap-2">
                                 <Link href={`/workflow/${params.workflowId}`}>
                                     <Button
                                         ref={customizeButtonRef}

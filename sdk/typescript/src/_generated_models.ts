@@ -640,6 +640,57 @@ export interface components {
             /** @description HTTP API configuration. */
             config: components["schemas"]["HttpApiConfig"];
         };
+        /**
+         * HttpTransferResolverConfig
+         * @description HTTP endpoint used to resolve transfer destination at call time.
+         */
+        HttpTransferResolverConfig: {
+            /**
+             * Type
+             * @description Resolver type.
+             * @default http
+             * @constant
+             */
+            type: "http";
+            /**
+             * Url
+             * @description HTTP or HTTPS endpoint for transfer resolution.
+             */
+            url: string;
+            /**
+             * Headers
+             * @description Static headers to include with every resolver request.
+             */
+            headers?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Credential Uuid
+             * @description Reference to an external credential for resolver authentication.
+             */
+            credential_uuid?: string | null;
+            /**
+             * Timeout Ms
+             * @description Resolver request timeout in milliseconds.
+             * @default 3000
+             */
+            timeout_ms: number;
+            /**
+             * Wait Message
+             * @description Optional short message played while Dograh resolves routing.
+             */
+            wait_message?: string | null;
+            /**
+             * Parameters
+             * @description Parameters the model may provide when calling this transfer tool.
+             */
+            parameters?: components["schemas"]["ToolParameter"][] | null;
+            /**
+             * Preset Parameters
+             * @description Parameters injected by Dograh from fixed values or workflow context templates.
+             */
+            preset_parameters?: components["schemas"]["PresetToolParameter"][] | null;
+        };
         /** InitiateCallRequest */
         InitiateCallRequest: {
             /** Workflow Id */
@@ -1035,8 +1086,16 @@ export interface components {
          */
         TransferCallConfig: {
             /**
+             * Destination Source
+             * @description Whether transfer destination is static/template or resolved by HTTP.
+             * @default static
+             * @enum {string}
+             */
+            destination_source: "static" | "dynamic";
+            /**
              * Destination
              * @description Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
+             * @default
              */
             destination: string;
             /**
@@ -1062,6 +1121,13 @@ export interface components {
              * @default 30
              */
             timeout: number;
+            /**
+             * Parameters
+             * @description Parameters the model may provide when calling this transfer tool, for example state, department, or transfer reason.
+             */
+            parameters?: components["schemas"]["ToolParameter"][] | null;
+            /** @description Optional resolver that determines transfer routing at call time. */
+            resolver?: components["schemas"]["HttpTransferResolverConfig"] | null;
         };
         /**
          * TransferCallToolDefinition
@@ -1245,6 +1311,7 @@ export type GraphConstraints = components['schemas']['GraphConstraints'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HttpApiConfig = components['schemas']['HttpApiConfig'];
 export type HttpApiToolDefinition = components['schemas']['HttpApiToolDefinition'];
+export type HttpTransferResolverConfig = components['schemas']['HttpTransferResolverConfig'];
 export type InitiateCallRequest = components['schemas']['InitiateCallRequest'];
 export type McpToolConfig = components['schemas']['McpToolConfig'];
 export type McpToolDefinition = components['schemas']['McpToolDefinition'];

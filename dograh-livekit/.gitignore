@@ -1,2 +1,3 @@
 dograh-livekit/.venv/
 dograh-livekit/*.egg-info/
+*.egg-info/

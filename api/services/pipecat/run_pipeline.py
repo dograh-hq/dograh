@@ -66,6 +66,7 @@ from api.services.pipecat.service_factory import (
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
+from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.pipecat.transport_setup import create_webrtc_transport
 from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
@@ -1033,6 +1034,12 @@ async def _run_pipeline_impl(
 
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+    transcript_log_coordinator = TranscriptLogCoordinator(in_memory_logs_buffer)
+    if task.turn_tracking_observer is None:
+        raise RuntimeError("Transcript logging requires turn tracking to be enabled")
+    transcript_log_coordinator.attach_turn_tracking_observer(
+        task.turn_tracking_observer
+    )
 
     for runtime_session in integration_runtime_sessions:
         runtime_session.attach(task)
@@ -1087,7 +1094,9 @@ async def _run_pipeline_impl(
 
     # Register turn log handlers for all call types (WebRTC and telephony)
     register_turn_log_handlers(
-        in_memory_logs_buffer, user_context_aggregator, assistant_context_aggregator
+        transcript_log_coordinator,
+        user_context_aggregator,
+        assistant_context_aggregator,
     )
 
     # Register event handlers — resolve provider_id for PostHog tracking
@@ -1101,6 +1110,7 @@ async def _run_pipeline_impl(
         engine=engine,
         audio_buffer=audio_buffer,
         in_memory_logs_buffer=in_memory_logs_buffer,
+        transcript_log_coordinator=transcript_log_coordinator,
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,

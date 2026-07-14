@@ -1,6 +1,7 @@
 import asyncio
 import io
 import wave
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import List, Optional
 
@@ -104,15 +105,9 @@ class InMemoryLogsBuffer:
     def __init__(self, workflow_run_id: int):
         self._workflow_run_id = workflow_run_id
         self._events: List[dict] = []
-        self._turn_counter = 0
+        self._current_turn: Optional[int] = None
         self._current_node_id: Optional[str] = None
         self._current_node_name: Optional[str] = None
-        self._user_speech_start_timestamp: Optional[str] = None
-        self._user_speech_end_timestamp: Optional[str] = None
-        self._user_speech_start_from_vad = False
-        self._user_speech_end_from_vad = False
-        self._bot_speech_start_timestamp: Optional[str] = None
-        self._bot_speech_end_timestamp: Optional[str] = None
 
     def set_current_node(self, node_id: str, node_name: str):
         """Set the current node ID and name to be injected into subsequent events."""
@@ -129,153 +124,44 @@ class InMemoryLogsBuffer:
         """Get the current node name."""
         return self._current_node_name
 
-    @staticmethod
-    def _now_iso() -> str:
-        return datetime.now(UTC).isoformat(timespec="milliseconds")
+    def set_current_turn(self, turn: int) -> None:
+        """Set the fallback turn for non-transcript events."""
+        self._current_turn = turn
 
-    def mark_user_started_speaking(
-        self, timestamp: Optional[str] = None, *, from_vad: bool = False
+    async def append(
+        self,
+        event: dict,
+        *,
+        timestamp: Optional[str] = None,
+        turn: Optional[int] = None,
+        node_id: Optional[str] = None,
+        node_name: Optional[str] = None,
+        use_current_node: bool = True,
     ):
-        """Record when the user started speaking for the current turn."""
-        vad_interval_is_open = (
-            self._user_speech_start_from_vad and self._user_speech_end_timestamp is None
-        )
-        if vad_interval_is_open and not from_vad:
-            return
-
-        self._user_speech_start_timestamp = timestamp or self._now_iso()
-        self._user_speech_end_timestamp = None
-        self._user_speech_start_from_vad = from_vad
-        self._user_speech_end_from_vad = False
-        self._update_latest_payload_start_timestamp(
-            RealtimeFeedbackType.USER_TRANSCRIPTION.value,
-            self._user_speech_start_timestamp,
-            require_final=True,
-        )
-
-    def mark_user_stopped_speaking(
-        self, timestamp: Optional[str] = None, *, from_vad: bool = False
-    ):
-        """Record when the user stopped speaking and update the latest user event."""
-        if self._user_speech_end_from_vad and not from_vad:
-            return
-
-        self._user_speech_end_timestamp = timestamp or self._now_iso()
-        self._user_speech_end_from_vad = from_vad
-        self._update_latest_payload_end_timestamp(
-            RealtimeFeedbackType.USER_TRANSCRIPTION.value,
-            self._user_speech_end_timestamp,
-            require_final=True,
-        )
-
-    def mark_bot_started_speaking(self, timestamp: Optional[str] = None):
-        """Record when the bot started speaking for the current assistant turn."""
-        self._bot_speech_start_timestamp = timestamp or self._now_iso()
-        self._bot_speech_end_timestamp = None
-        self._update_latest_payload_start_timestamp(
-            RealtimeFeedbackType.BOT_TEXT.value,
-            self._bot_speech_start_timestamp,
-        )
-
-    def mark_bot_stopped_speaking(self, timestamp: Optional[str] = None):
-        """Record when the bot stopped speaking and update the latest bot event."""
-        self._bot_speech_end_timestamp = timestamp or self._now_iso()
-        self._update_latest_payload_end_timestamp(
-            RealtimeFeedbackType.BOT_TEXT.value,
-            self._bot_speech_end_timestamp,
-        )
-
-    def _find_latest_open_payload(
-        self, event_type: str, *, require_final: bool = False
-    ) -> dict | None:
-        for event in reversed(self._events):
-            if event.get("type") != event_type:
-                continue
-            payload = event.get("payload")
-            if not isinstance(payload, dict):
-                continue
-            if require_final and payload.get("final") is not True:
-                continue
-            if payload.get("end_timestamp"):
-                continue
-            return payload
-        return None
-
-    def _update_latest_payload_start_timestamp(
-        self, event_type: str, start_timestamp: str, *, require_final: bool = False
-    ):
-        payload = self._find_latest_open_payload(
-            event_type, require_final=require_final
-        )
-        if payload is not None:
-            payload["timestamp"] = start_timestamp
-
-    def _update_latest_payload_end_timestamp(
-        self, event_type: str, end_timestamp: str, *, require_final: bool = False
-    ):
-        payload = self._find_latest_open_payload(
-            event_type, require_final=require_final
-        )
-        if payload is not None:
-            payload["end_timestamp"] = end_timestamp
-
-    def _event_with_speech_timestamps(self, event: dict) -> dict:
-        event_type = event.get("type")
-        payload = event.get("payload")
-        if not isinstance(payload, dict):
-            return event
-
-        payload_with_timestamps = dict(payload)
-        if (
-            event_type == RealtimeFeedbackType.USER_TRANSCRIPTION.value
-            and payload.get("final") is True
-        ):
-            if self._user_speech_start_timestamp:
-                payload_with_timestamps["timestamp"] = self._user_speech_start_timestamp
-            if self._user_speech_end_timestamp:
-                payload_with_timestamps["end_timestamp"] = (
-                    self._user_speech_end_timestamp
-                )
-        elif event_type == RealtimeFeedbackType.BOT_TEXT.value:
-            bot_interval_is_active = self._bot_speech_end_timestamp is None
-            if bot_interval_is_active and self._bot_speech_start_timestamp:
-                payload_with_timestamps["timestamp"] = self._bot_speech_start_timestamp
-
-        if payload_with_timestamps == payload:
-            return event
-        return {**event, "payload": payload_with_timestamps}
-
-    async def append(self, event: dict):
-        """Append a feedback event to the buffer with timestamp and current node."""
-        event = self._event_with_speech_timestamps(event)
+        """Append an immutable event with optional correlation metadata."""
+        if use_current_node:
+            node_id = self._current_node_id if node_id is None else node_id
+            node_name = self._current_node_name if node_name is None else node_name
         timestamped_event = stamp_realtime_feedback_event(
-            event,
-            timestamp=self._now_iso(),
-            turn=self._turn_counter,
-            node_id=self._current_node_id,
-            node_name=self._current_node_name,
+            deepcopy(event),
+            timestamp=timestamp or datetime.now(UTC).isoformat(timespec="milliseconds"),
+            turn=self._current_turn if turn is None else turn,
+            node_id=node_id,
+            node_name=node_name,
         )
         self._events.append(timestamped_event)
         logger.trace(
             f"Appended event {event.get('type')} to logs buffer for workflow {self._workflow_run_id}"
         )
 
-    def increment_turn(self):
-        """Increment turn counter (called on user transcription completion)."""
-        self._turn_counter += 1
-        logger.trace(
-            f"Incremented turn counter to {self._turn_counter} for workflow {self._workflow_run_id}"
-        )
-
     def _sorted_events(self) -> List[dict]:
-        # Stable sort by the realtime (payload) timestamp when available, falling
-        # back to the buffer-append timestamp. Python's sort is stable, so events
-        # sharing a key retain their original insertion order — this keeps
-        # consecutive bot-text chunks of a single turn contiguous.
+        # Stable sort by the top-level event timestamp used by the persisted
+        # realtime feedback schema. Legacy events without one fall back to their
+        # payload timestamp. Events sharing a key retain insertion order.
         return sorted(self._events, key=realtime_feedback_event_sort_key)
 
     def get_events(self) -> List[dict]:
-        """Get all events for final storage, ordered by realtime timestamp."""
+        """Get all events for final storage, ordered by event timestamp."""
         return self._sorted_events()
 
     def contains_user_speech(self) -> bool:

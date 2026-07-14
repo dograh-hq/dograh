@@ -34,7 +34,7 @@ def test_stamp_and_sort_realtime_feedback_events():
             previous_node_id=None,
             previous_node_name=None,
         ),
-        timestamp="2026-01-01T00:00:03+00:00",
+        timestamp="2026-01-01T00:00:01+00:00",
         turn=0,
         node_id="node-1",
         node_name="Greeting",
@@ -42,7 +42,9 @@ def test_stamp_and_sort_realtime_feedback_events():
     bot_text = stamp_realtime_feedback_event(
         build_bot_text_event(
             text="Hello there",
-            timestamp="2026-01-01T00:00:01+00:00",
+            # Deliberately earlier than the node's event timestamp: ordering
+            # follows the top-level event timestamp, not payload speech time.
+            timestamp="2026-01-01T00:00:00+00:00",
         ),
         timestamp="2026-01-01T00:00:02+00:00",
         turn=0,
@@ -50,7 +52,7 @@ def test_stamp_and_sort_realtime_feedback_events():
 
     events = sorted([node_transition, bot_text], key=realtime_feedback_event_sort_key)
 
-    assert events == [bot_text, node_transition]
+    assert events == [node_transition, bot_text]
     assert node_transition["node_id"] == "node-1"
     assert node_transition["node_name"] == "Greeting"
 

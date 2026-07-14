@@ -12,10 +12,21 @@ if [[ ! -f "$LIB_PATH" ]]; then
     LIB_PATH="$BOOTSTRAP_LIB"
 fi
 
+# The preflight rewrites .env (awk + mv in dograh_set_env_key), so running this
+# script via sudo leaves .env root-owned and later sudo-less edits fail. Hand
+# the deploy dir back to the user who invoked sudo; a no-op for unprivileged
+# runs and real root, where SUDO_UID is unset.
+restore_ownership() {
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" && -n "${DOGRAH_DEPLOY_PROJECT_DIR:-}" && -d "$DOGRAH_DEPLOY_PROJECT_DIR" ]]; then
+        chown -R "$SUDO_UID:$SUDO_GID" "$DOGRAH_DEPLOY_PROJECT_DIR" || true
+    fi
+}
+
 cleanup() {
     if [[ -n "$BOOTSTRAP_LIB" ]]; then
         rm -f "$BOOTSTRAP_LIB"
     fi
+    restore_ownership
 }
 trap cleanup EXIT
 
@@ -90,5 +101,9 @@ fi
 if (( ${#EXTRA_ARGS[@]} )); then
     CMD+=("${EXTRA_ARGS[@]}")
 fi
+
+# exec replaces the shell, so the EXIT trap never fires on the success path —
+# restore ownership here; everything this script writes happens before this point.
+restore_ownership
 
 exec "${CMD[@]}"

@@ -22,6 +22,16 @@ cleanup() {
     if [[ -n "$BOOTSTRAP_LIB" ]]; then
         rm -f "$BOOTSTRAP_LIB"
     fi
+    # The script runs as root, so everything it creates in the deploy directory
+    # (.env, certs/, a cloned repo in build mode) is root-owned, which breaks
+    # later sudo-less git/edit operations. Hand it back to the user who invoked
+    # sudo. SUDO_UID is unset when running as real root (e.g. cloud-init) —
+    # root already owns its files, nothing to restore. Runs from the EXIT trap
+    # so a mid-setup failure also leaves ownership fixed.
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" && -n "${DOGRAH_DEPLOY_PROJECT_DIR:-}" && -d "$DOGRAH_DEPLOY_PROJECT_DIR" ]]; then
+        echo -e "${BLUE}Restoring ownership of $DOGRAH_DEPLOY_PROJECT_DIR to ${SUDO_USER:-uid $SUDO_UID}...${NC}"
+        chown -R "$SUDO_UID:$SUDO_GID" "$DOGRAH_DEPLOY_PROJECT_DIR" || true
+    fi
 }
 trap cleanup EXIT
 

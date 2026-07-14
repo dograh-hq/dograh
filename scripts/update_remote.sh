@@ -22,6 +22,16 @@ cleanup() {
     if [[ -n "$BOOTSTRAP_LIB" ]]; then
         rm -f "$BOOTSTRAP_LIB"
     fi
+    # When run via sudo (the common case: docker access, root-owned installs),
+    # the refreshed deployment files and the rewritten .env become root-owned,
+    # breaking later sudo-less edits. Hand the install back to the user who
+    # invoked sudo; a no-op for unprivileged runs and real root, where SUDO_UID
+    # is unset. Runs from the EXIT trap so a mid-update failure also leaves
+    # ownership fixed.
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" && -n "${DOGRAH_DEPLOY_PROJECT_DIR:-}" && -d "$DOGRAH_DEPLOY_PROJECT_DIR" ]]; then
+        echo -e "${BLUE}Restoring ownership of $DOGRAH_DEPLOY_PROJECT_DIR to ${SUDO_USER:-uid $SUDO_UID}...${NC}"
+        chown -R "$SUDO_UID:$SUDO_GID" "$DOGRAH_DEPLOY_PROJECT_DIR" || true
+    fi
 }
 trap cleanup EXIT
 

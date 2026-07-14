@@ -143,3 +143,20 @@ app.mount(f"{API_PREFIX}/mcp", mcp_app)
 # Internal endpoints for dograh-livekit bridge — not versioned, private
 from api.routes.internal import router as internal_router
 app.include_router(internal_router)
+
+
+# ── LiveKit bridge: sync dispatch rules on startup ──────────────────────────
+
+
+@app.on_event("startup")
+async def _sync_livekit_dispatch_rules():
+    """Sync LiveKit SIP dispatch rules for all published workflows."""
+    try:
+        from api.services.livekit_bridge.sync import sync_all_published_workflows
+        from api.db import db_client
+        count = await sync_all_published_workflows(db_client)
+        if count:
+            import logging
+            logging.getLogger(__name__).info(f"LiveKit: synced {count} dispatch rules")
+    except Exception:
+        pass  # LiveKit bridge is optional

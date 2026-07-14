@@ -73,6 +73,26 @@ function headersToRows(headers: Record<string, string> | undefined | null): KeyV
     return Object.entries(headers).map(([key, value]) => ({ key, value }));
 }
 
+type ToolTestResult = {
+    status?: string;
+    status_code?: number | null;
+    data?: unknown;
+    error?: string | null;
+    duration_ms?: number;
+};
+
+function extractContextVars(presetParams: PresetToolParameter[]): { initialContext: string[]; gatheredContext: string[] } {
+    const initialContext = new Set<string>();
+    const gatheredContext = new Set<string>();
+    for (const p of presetParams) {
+        for (const match of (p.valueTemplate ?? "").matchAll(/\{\{(initial_context|gathered_context)\.([^}]+)\}\}/g)) {
+            if (match[1] === "initial_context") initialContext.add(match[2]);
+            else gatheredContext.add(match[2]);
+        }
+    }
+    return { initialContext: [...initialContext], gatheredContext: [...gatheredContext] };
+}
+
 export default function ToolDetailPage() {
     const { toolUuid } = useParams<{ toolUuid: string }>();
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -84,6 +104,11 @@ export default function ToolDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [showCodeDialog, setShowCodeDialog] = useState(false);
+    const [testArgValues, setTestArgValues] = useState<Record<string, string>>({});
+    const [testContextValues, setTestContextValues] = useState<Record<string, string>>({});
+    const [testResult, setTestResult] = useState<ToolTestResult | null>(null);
+    const [isTesting, setIsTesting] = useState(false);
+    const [testError, setTestError] = useState<string | null>(null);
 
     // Common form state
     const [name, setName] = useState("");
@@ -286,16 +311,26 @@ export default function ToolDetailPage() {
 
                 // Load parameters
                 if (config.parameters && Array.isArray(config.parameters)) {
-                    setParameters(
-                        config.parameters.map((p) => ({
-                            name: p.name || "",
-                            type: normalizeParameterType(p.type),
-                            description: p.description || "",
-                            required: p.required ?? true,
-                        }))
-                    );
+                    const loadedParameters = config.parameters.map((p) => ({
+                        name: p.name || "",
+                        type: normalizeParameterType(p.type),
+                        description: p.description || "",
+                        required: p.required ?? true,
+                    }));
+                    setParameters(loadedParameters);
+                    const defaults: Record<string, string> = {};
+                    for (const p of loadedParameters) {
+                        if (!p.name) continue;
+                        if (p.type === "number") defaults[p.name] = "0";
+                        else if (p.type === "boolean") defaults[p.name] = "true";
+                        else if (p.type === "object") defaults[p.name] = "{}";
+                        else if (p.type === "array") defaults[p.name] = "[]";
+                        else defaults[p.name] = "";
+                    }
+                    setTestArgValues(defaults);
                 } else {
                     setParameters([]);
+                    setTestArgValues({});
                 }
 
                 if (config.preset_parameters && Array.isArray(config.preset_parameters)) {
@@ -404,6 +439,11 @@ export default function ToolDetailPage() {
             const invalidParams = parameters.filter((p) => !p.name.trim());
             if (invalidParams.length > 0) {
                 setError("All parameters must have a name");
+                return;
+            }
+            const paramNames = parameters.map((p) => p.name.trim()).filter(Boolean);
+            if (new Set(paramNames).size !== paramNames.length) {
+                setError("Parameter names must be unique");
                 return;
             }
 
@@ -637,6 +677,60 @@ const response = await fetch("${url}", {
 const data = await response.json();`;
     };
 
+    const handleTestTool = async () => {
+        if (!tool) return;
+
+        try {
+            setIsTesting(true);
+            setTestError(null);
+            setTestResult(null);
+
+            const args: Record<string, unknown> = {};
+            for (const p of parameters) {
+                const raw = testArgValues[p.name];
+                if (raw === undefined || raw === "") continue;
+                if (p.type === "number") args[p.name] = Number(raw);
+                else if (p.type === "boolean") args[p.name] = raw === "true";
+                else if (p.type === "object" || p.type === "array") {
+                    try { args[p.name] = JSON.parse(raw); }
+                    catch { throw new Error(`${p.name}: invalid JSON`); }
+                } else {
+                    args[p.name] = raw;
+                }
+            }
+
+            const initial_context: Record<string, unknown> = {};
+            const gathered_context: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(testContextValues)) {
+                if (!value) continue;
+                if (key.startsWith("initial_context.")) initial_context[key.slice("initial_context.".length)] = value;
+                else if (key.startsWith("gathered_context.")) gathered_context[key.slice("gathered_context.".length)] = value;
+            }
+
+            const accessToken = await getAccessToken();
+            const response = await fetch(`/api/v1/tools/${toolUuid}/test`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ arguments: args, initial_context, gathered_context }),
+            });
+
+            const payload = await response.json();
+            if (!response.ok) {
+                setTestError(detailFromError(payload, "Failed to test tool"));
+                return;
+            }
+
+            setTestResult(payload);
+        } catch (err) {
+            setTestError(err instanceof Error ? err.message : "Failed to test tool");
+        } finally {
+            setIsTesting(false);
+        }
+    };
+
     if (loading || !user) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -681,7 +775,10 @@ const data = await response.json();`;
     const isTransferCallTool = tool.category === "transfer_call";
     const isBuiltinTool = tool.category === "calculator";
     const isMcpTool = tool.category === "mcp";
+    const isHttpApiTool = !isEndCallTool && !isTransferCallTool && !isBuiltinTool && !isMcpTool;
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
+    const contextVars = extractContextVars(presetParameters);
+    const hasContextVars = contextVars.initialContext.length > 0 || contextVars.gatheredContext.length > 0;
 
     return (
         <div className="min-h-screen">
@@ -716,7 +813,7 @@ const data = await response.json();`;
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {!isEndCallTool && !isTransferCallTool && !isBuiltinTool && !isMcpTool && (
+                            {isHttpApiTool && (
                                 <Button
                                     variant="outline"
                                     onClick={() => setShowCodeDialog(true)}
@@ -901,6 +998,174 @@ const data = await response.json();`;
                             onCustomMessageRecordingIdChange={setCustomMessageRecordingId}
                             recordings={recordings}
                         />
+                    )}
+
+                    {isHttpApiTool && (
+                        <Card className="mt-6">
+                            <CardHeader>
+                                <CardTitle>Test Tool</CardTitle>
+                                <CardDescription>
+                                    Run the saved configuration against the real endpoint. Save changes before testing.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {/* Arguments */}
+                                <div className="space-y-3">
+                                    <div>
+                                        <p className="text-sm font-medium">Arguments</p>
+                                        <p className="text-xs text-muted-foreground">Values the model would provide at call time.</p>
+                                    </div>
+                                    {parameters.length > 0 ? (
+                                        <div className="space-y-4">
+                                            {parameters.map((p) => (
+                                                <div key={p.name} className="space-y-1.5">
+                                                    <div className="flex items-center gap-2">
+                                                        <Label htmlFor={`arg-${p.name}`} className="text-sm font-mono">
+                                                            {p.name}
+                                                        </Label>
+                                                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                                            {p.type}
+                                                        </span>
+                                                        {p.required && (
+                                                            <span className="text-xs text-destructive">required</span>
+                                                        )}
+                                                    </div>
+                                                    {p.description && (
+                                                        <p className="text-xs text-muted-foreground">{p.description}</p>
+                                                    )}
+                                                    {p.type === "boolean" ? (
+                                                        <select
+                                                            id={`arg-${p.name}`}
+                                                            value={testArgValues[p.name] ?? "true"}
+                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                                                            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                                                        >
+                                                            <option value="true">true</option>
+                                                            <option value="false">false</option>
+                                                        </select>
+                                                    ) : p.type === "number" ? (
+                                                        <Input
+                                                            id={`arg-${p.name}`}
+                                                            type="number"
+                                                            value={testArgValues[p.name] ?? "0"}
+                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                                                        />
+                                                    ) : p.type === "object" || p.type === "array" ? (
+                                                        <Textarea
+                                                            id={`arg-${p.name}`}
+                                                            value={testArgValues[p.name] ?? (p.type === "array" ? "[]" : "{}")}
+                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                                                            rows={3}
+                                                            className="font-mono text-sm"
+                                                        />
+                                                    ) : (
+                                                        <Input
+                                                            id={`arg-${p.name}`}
+                                                            value={testArgValues[p.name] ?? ""}
+                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                                                            placeholder={`Enter ${p.name}`}
+                                                        />
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">No parameters — tool will be called with no arguments.</p>
+                                    )}
+                                </div>
+
+                                {/* Context Variables (only shown if preset params use them) */}
+                                {hasContextVars && (
+                                    <div className="space-y-3 border-t pt-4">
+                                        <div>
+                                            <p className="text-sm font-medium">Context Variables</p>
+                                            <p className="text-xs text-muted-foreground">Values for preset parameter templates (e.g. {"{{"}<span>initial_context.phone_number</span>{"}}"}).</p>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {contextVars.initialContext.map((varName) => (
+                                                <div key={`ic-${varName}`} className="space-y-1">
+                                                    <Label className="text-xs font-mono text-muted-foreground">
+                                                        initial_context.<span className="text-foreground">{varName}</span>
+                                                    </Label>
+                                                    <Input
+                                                        value={testContextValues[`initial_context.${varName}`] ?? ""}
+                                                        onChange={(e) => setTestContextValues((prev) => ({ ...prev, [`initial_context.${varName}`]: e.target.value }))}
+                                                        placeholder={varName}
+                                                    />
+                                                </div>
+                                            ))}
+                                            {contextVars.gatheredContext.map((varName) => (
+                                                <div key={`gc-${varName}`} className="space-y-1">
+                                                    <Label className="text-xs font-mono text-muted-foreground">
+                                                        gathered_context.<span className="text-foreground">{varName}</span>
+                                                    </Label>
+                                                    <Input
+                                                        value={testContextValues[`gathered_context.${varName}`] ?? ""}
+                                                        onChange={(e) => setTestContextValues((prev) => ({ ...prev, [`gathered_context.${varName}`]: e.target.value }))}
+                                                        placeholder={varName}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Run button */}
+                                <div className="flex justify-end">
+                                    <Button onClick={handleTestTool} disabled={isTesting}>
+                                        {isTesting ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                Testing...
+                                            </>
+                                        ) : (
+                                            "Test Tool"
+                                        )}
+                                    </Button>
+                                </div>
+
+                                {/* Errors */}
+                                {testError && (
+                                    <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
+                                        {testError}
+                                    </div>
+                                )}
+
+                                {/* Result */}
+                                {testResult && (
+                                    <div className="space-y-3 border-t pt-4">
+                                        <div className="flex items-center gap-3">
+                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                                                testResult.status === "success"
+                                                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                                    : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                                            }`}>
+                                                <span>{testResult.status === "success" ? "✓" : "✗"}</span>
+                                                {testResult.status}
+                                            </span>
+                                            {testResult.status_code != null && (
+                                                <span className="text-sm text-muted-foreground">HTTP {testResult.status_code}</span>
+                                            )}
+                                            {testResult.duration_ms !== undefined && (
+                                                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">
+                                                    {testResult.duration_ms}ms
+                                                </span>
+                                            )}
+                                        </div>
+                                        {testResult.error && (
+                                            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded text-destructive text-sm">
+                                                {testResult.error}
+                                            </div>
+                                        )}
+                                        {testResult.data != null && (
+                                            <div className="bg-muted rounded-lg p-4 font-mono text-sm overflow-auto max-h-80">
+                                                <pre>{JSON.stringify(testResult.data, null, 2)}</pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
                     )}
 
                     {error && (

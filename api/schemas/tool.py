@@ -491,3 +491,30 @@ class McpRefreshResponse(BaseModel):
     tool_uuid: str
     discovered_tools: list = Field(default_factory=list)
     error: Optional[str] = None
+
+
+class ToolTestRequest(BaseModel):
+    """Request body for testing an HTTP API tool outside a live call."""
+
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arguments to send as model-provided tool parameters.",
+    )
+    initial_context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Initial context variables available to preset parameters.",
+    )
+    gathered_context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Gathered context variables available to preset parameters.",
+    )
+
+
+class ToolTestResponse(BaseModel):
+    """Result of testing an HTTP API tool."""
+
+    status: str
+    status_code: Optional[int] = None
+    data: Optional[Any] = None
+    error: Optional[str] = None
+    duration_ms: int

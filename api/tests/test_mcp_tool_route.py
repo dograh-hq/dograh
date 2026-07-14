@@ -26,9 +26,12 @@ from api.routes.tool import (
     CreateToolRequest,
     McpToolConfig,
     McpToolDefinition,
+    ToolTestRequest,
     UpdateToolRequest,
     _populate_discovered_tools,
     refresh_mcp_tools,
+    router,
+    test_tool as test_tool_route,
 )
 from api.services.workflow.tools.mcp_tool import (
     validate_mcp_definition,
@@ -418,6 +421,80 @@ def _mcp_tool_model(org_id=1):
         "config": {"url": "https://x/mcp", "tools_filter": []},
     }
     return t
+
+
+def _http_tool_model():
+    t = MagicMock()
+    t.tool_uuid = "tu-http"
+    t.name = "Mock HTTP"
+    t.category = "http_api"
+    t.definition = {
+        "schema_version": 1,
+        "type": "http_api",
+        "config": {"method": "GET", "url": "https://example.com/search"},
+    }
+    return t
+
+
+@pytest.mark.asyncio
+async def test_tool_executes_http_api_tool_with_context(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model()
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    executor = AsyncMock(
+        return_value={
+            "status": "success",
+            "status_code": 200,
+            "data": {"ok": True},
+        }
+    )
+    monkeypatch.setattr(tool_route, "execute_http_tool", executor)
+
+    resp = await test_tool_route(
+        "tu-http",
+        request=ToolTestRequest(
+            arguments={"query": "cart"},
+            initial_context={"customer_id": "c_123"},
+            gathered_context={"sentiment": "cooperative"},
+        ),
+        user=_fake_user(),
+    )
+
+    assert resp.status == "success"
+    assert resp.status_code == 200
+    assert resp.data == {"ok": True}
+    assert resp.error is None
+    executor.assert_awaited_once_with(
+        tool,
+        {"query": "cart"},
+        call_context_vars={"customer_id": "c_123"},
+        gathered_context_vars={"sentiment": "cooperative"},
+        organization_id=1,
+    )
+
+
+def test_tool_test_route_is_registered():
+    assert any(
+        route.path == "/tools/{tool_uuid}/test" and "POST" in route.methods
+        for route in router.routes
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_rejects_non_http_api_tool(monkeypatch):
+    import api.routes.tool as tool_route
+
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=_mcp_tool_model())
+    )
+
+    with pytest.raises(HTTPException) as ei:
+        await test_tool_route("tu-mcp", request=ToolTestRequest(), user=_fake_user())
+
+    assert ei.value.status_code == 400
 
 
 @pytest.mark.asyncio

@@ -17,7 +17,6 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
-    FunctionCallsFromLLMInfoFrame,
     FunctionCallsStartedFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
@@ -1217,7 +1216,6 @@ class TestCustomToolManagerIntegration:
             expected_down_frames=[
                 LLMServiceMetadataFrame,
                 LLMFullResponseStartFrame,
-                FunctionCallsFromLLMInfoFrame,
                 UserTurnInferenceCompletedFrame,
                 FunctionCallsStartedFrame,
                 LLMFullResponseEndFrame,

@@ -1,5 +1,6 @@
 """API routes for managing tools."""
 
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +23,8 @@ from api.schemas.tool import (
     ToolDefinition,
     ToolParameter,
     ToolResponse,
+    ToolTestRequest,
+    ToolTestResponse,
     TransferCallConfig,
     TransferCallToolDefinition,
     UpdateToolRequest,
@@ -38,6 +41,7 @@ from api.services.tool_management import (
 from api.services.tool_management import (
     populate_discovered_tools as _populate_discovered_tools,
 )
+from api.services.workflow.tools.custom_tool import execute_http_tool
 
 router = APIRouter(prefix="/tools")
 
@@ -56,6 +60,8 @@ __all__ = [
     "ToolDefinition",
     "ToolParameter",
     "ToolResponse",
+    "ToolTestRequest",
+    "ToolTestResponse",
     "TransferCallConfig",
     "TransferCallToolDefinition",
     "UpdateToolRequest",
@@ -193,6 +199,47 @@ async def refresh_mcp_tools(
         return await refresh_mcp_tool_for_user(tool_uuid, user)
     except ToolManagementError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post("/{tool_uuid}/test")
+async def test_tool(
+    tool_uuid: str,
+    request: ToolTestRequest,
+    user: UserModel = Depends(get_user),
+) -> ToolTestResponse:
+    """Execute an HTTP API tool with sample arguments and context."""
+    if not user.selected_organization_id:
+        raise HTTPException(
+            status_code=400, detail="No organization selected for the user"
+        )
+
+    tool = await db_client.get_tool_by_uuid(
+        tool_uuid, user.selected_organization_id, include_archived=True
+    )
+
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    if tool.category != ToolCategory.HTTP_API.value:
+        raise HTTPException(status_code=400, detail="Only HTTP API tools can be tested")
+
+    started_at = time.perf_counter()
+    result = await execute_http_tool(
+        tool,
+        request.arguments,
+        call_context_vars=request.initial_context,
+        gathered_context_vars=request.gathered_context,
+        organization_id=user.selected_organization_id,
+    )
+    duration_ms = max(0, round((time.perf_counter() - started_at) * 1000))
+
+    return ToolTestResponse(
+        status=result.get("status", "error"),
+        status_code=result.get("status_code"),
+        data=result.get("data"),
+        error=result.get("error"),
+        duration_ms=duration_ms,
+    )
 
 
 @router.put("/{tool_uuid}")

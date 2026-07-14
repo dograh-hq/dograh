@@ -37,12 +37,16 @@ DOGRAH_DEPLOY_PROJECT_DIR="$SCRIPT_DIR"
 
 VALIDATE_ONLY=0
 MODE="pull"
+FOREGROUND=0
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --build)
             MODE="build"
+            ;;
+        --foreground)
+            FOREGROUND=1
             ;;
         --preflight-only|--validate-only)
             VALIDATE_ONLY=1
@@ -92,15 +96,21 @@ if dograh_is_local_ipv4 "${SERVER_IP:-}"; then
 fi
 
 if [[ "$MODE" == "build" ]]; then
-    CMD=("${COMPOSE_CMD[@]}" "${PROFILE_ARGS[@]}" up -d --build --force-recreate)
+    CMD=("${COMPOSE_CMD[@]}" "${PROFILE_ARGS[@]}" up --build --force-recreate)
 else
-    CMD=("${COMPOSE_CMD[@]}" "${PROFILE_ARGS[@]}" up -d --pull always --force-recreate)
+    CMD=("${COMPOSE_CMD[@]}" "${PROFILE_ARGS[@]}" up --pull always --force-recreate)
+fi
+
+if [[ "$FOREGROUND" == "0" ]]; then
+    CMD+=(" -d")
 fi
 
 # Bash 3.2 on macOS treats "${empty_array[@]}" as unbound under `set -u`.
 if (( ${#EXTRA_ARGS[@]} )); then
     CMD+=("${EXTRA_ARGS[@]}")
 fi
+
+echo "${CMD[@]}"
 
 # exec replaces the shell, so the EXIT trap never fires on the success path —
 # restore ownership here; everything this script writes happens before this point.

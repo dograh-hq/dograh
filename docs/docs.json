@@ -22,6 +22,10 @@
                 "pages": [
                   "getting-started/index",
                   "getting-started/first-agent",
+                  "getting-started/trigger-calls-from-your-backend",
+                  "getting-started/send-call-data-with-webhooks",
+                  "getting-started/connect-telephony",
+                  "getting-started/add-tools-and-knowledge-base",
                   "getting-started/prerequisites",
                   "getting-started/troubleshooting"
                 ]

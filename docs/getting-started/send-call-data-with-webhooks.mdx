@@ -1,0 +1,62 @@
+---
+title: "Send Call Data Back Automatically"
+description: "Get everything Dograh learned during the call back into your system the moment it ends."
+---
+
+The last page covered sending data into a call with API Trigger and `initial_context`. Now the opposite side: how Dograh sends what it learned back out to your system once the call ends.
+
+Say a caller tells your agent, *"I'll pay the full amount tomorrow."* If the node handling that moment has variable extraction turned on, Dograh pulls structured fields out of that one sentence: the amount they'll pay, payment method, sentiment, a confidence score, and next steps. From *"I'll pay full amount tomorrow"*, that becomes: amount to pay is the full balance, payment method not specified, sentiment cooperative, next step is a follow-up call the day they promised to pay.
+
+That extracted data lives in `gathered_context`. So the full picture is: `initial_context` is what your backend sends into the call, `gathered_context` is what Dograh extracts from it. A **Webhook** node is how you get `gathered_context` back out.
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/w4XvzPWoFv4"
+  title="Dograh Webhook Node Explained, Get Call Data Into Your Backend"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+## Step 1: Add the node
+
+Click **Add node**, scroll down, and you'll find the **Webhook** node. Add it and open it up.
+
+## Step 2: Set the endpoint
+
+First thing you'll see is the endpoint URL. Paste your backend's webhook URL here. Still testing? Use a free URL from [webhook.site](https://webhook.site), copy your unique URL there and paste it into Dograh.
+
+Set the method to **POST**. If your backend needs auth, add a bearer token or API key right here too.
+
+## Step 3: Build the payload template
+
+This is the important part, it decides exactly what JSON Dograh sends. Include both kinds of context: `initial_context` fields like debtor name, client name, and debt amount, and `gathered_context` fields like amount to pay, payment method, and sentiment.
+
+```json
+{
+  "debtor_name": "{{initial_context.debtor_name}}",
+  "client_name": "{{initial_context.client_name}}",
+  "debt_amount": "{{initial_context.debt_amount}}",
+  "amount_user_will_pay": "{{gathered_context.amount_user_will_pay}}",
+  "payment_method": "{{gathered_context.payment_method}}",
+  "sentiment": "{{gathered_context.sentiment}}"
+}
+```
+
+<Warning>
+Variable names in your payload have to match your context fields exactly, or that field just won't show up.
+</Warning>
+
+## Step 4: Save and publish
+
+Save the webhook node, then publish the agent.
+
+## Step 5: Test it
+
+Run a test call. When it ends, go back to your webhook receiver. You'll see one request with both `initial_context`, the data you sent into the call, and `gathered_context`, what Dograh extracted from the conversation, sitting in the same JSON payload.
+
+That's the complete loop: your backend sends `initial_context` into Dograh, Dograh runs the call and extracts `gathered_context`, and the webhook node sends the final structured data back to your backend. For production, swap the webhook.site URL for your real backend URL.
+
+## Next Steps
+
+- **Connect a real phone number**: [Connect Your Phone Number](/getting-started/connect-telephony) covers hooking up Twilio so these calls go out for real.
+- **Full variable list and authentication options**: see the [Webhook reference](/voice-agent/webhook) and the [Webhook Payloads developer reference](/developer/webhooks).

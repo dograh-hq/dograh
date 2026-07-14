@@ -484,6 +484,19 @@ def create_stt_service(
             should_interrupt=False,
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.TELNYX.value:
+        # Telnyx STT is a REST API (POST /v2/ai/audio/transcriptions), not a
+        # streaming WebSocket. A full pipecat STTService integration requires
+        # batch transcription per utterance. Raised as a follow-up; for now
+        # the config is selectable but the service factory raises so the
+        # user gets a clear message instead of a silent no-op.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Telnyx STT is not yet wired to a streaming pipecat service. "
+                "Please select a different STT provider. Telnyx TTS is available."
+            ),
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid STT provider {user_config.stt.provider}"
@@ -826,6 +839,20 @@ def create_tts_service(
                 voice=voice,
                 language=pipecat_language,
             ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.TELNYX.value:
+        from api.services.pipecat.telnyx_tts import TelnyxTTSService
+
+        return TelnyxTTSService(
+            api_key=user_config.tts.api_key,
+            voice=getattr(user_config.tts, "voice", None) or "Telnyx.NaturalHD.astra",
+            model=getattr(user_config.tts, "model", None) or "natural-hd",
+            language=getattr(user_config.tts, "language", None) or "en",
+            speed=getattr(user_config.tts, "speed", 1.0),
+            sample_rate=audio_config.transport_out_sample_rate,
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,

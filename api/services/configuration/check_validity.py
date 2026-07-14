@@ -65,6 +65,7 @@ class UserConfigurationValidator:
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
             ServiceProviders.XAI.value: self._check_xai_api_key,
+            ServiceProviders.TELNYX.value: self._check_telnyx_api_key,
         }
 
     async def validate(
@@ -400,6 +401,31 @@ class UserConfigurationValidator:
                 "Please check that your API key is correct and active. "
                 "You can verify your keys at "
                 "https://console.x.ai."
+            )
+        return True
+
+    def _check_telnyx_api_key(self, model: str, api_key: str) -> bool:
+        # Smoke-test the Telnyx Inference API key against the models endpoint.
+        # Only a clear 401 rejects; other statuses pass through (key may be
+        # scoped in ways we can't fully validate here).
+        try:
+            response = httpx.get(
+                "https://api.telnyx.com/v2/ai/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
+        except httpx.RequestError:
+            raise ValueError(
+                "Could not connect to the Telnyx API. Please check your "
+                "network connection and try again."
+            )
+        if response.status_code == 200:
+            return True
+        if response.status_code == 401:
+            raise ValueError(
+                "Invalid Telnyx API key. The key was rejected by the Telnyx "
+                "API. Please check that your API key is correct and active. "
+                "You can verify your keys at https://portal.telnyx.com."
             )
         return True
 

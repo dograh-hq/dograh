@@ -51,6 +51,11 @@ from api.services.configuration.options import (
     SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
+    TELNYX_STT_LANGUAGES,
+    TELNYX_STT_MODELS,
+    TELNYX_TTS_LANGUAGES,
+    TELNYX_TTS_MODELS,
+    TELNYX_TTS_VOICES,
 )
 from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
 
@@ -95,6 +100,7 @@ class ServiceProviders(str, Enum):
     AZURE_REALTIME = "azure_realtime"
     SMALLEST = "smallest"
     XAI = "xai"
+    TELNYX = "telnyx"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -1313,6 +1319,53 @@ class XAITTSConfiguration(BaseServiceConfiguration):
         return "xai-tts"
 
 
+
+TELNYX_PROVIDER_MODEL_CONFIG = provider_model_config("Telnyx")
+
+
+@register_tts
+class TelnyxTTSConfiguration(BaseTTSConfiguration):
+    model_config = TELNYX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.TELNYX] = ServiceProviders.TELNYX
+    voice: str = Field(
+        default="Telnyx.NaturalHD.astra",
+        description="Telnyx voice ID (e.g., Telnyx.NaturalHD.astra).",
+        json_schema_extra={"examples": TELNYX_TTS_VOICES, "allow_custom_input": True},
+    )
+    model: str = Field(
+        default="natural-hd",
+        description="Telnyx TTS model.",
+        json_schema_extra={"examples": TELNYX_TTS_MODELS, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code.",
+        json_schema_extra={"examples": TELNYX_TTS_LANGUAGES, "allow_custom_input": True},
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier.",
+    )
+
+
+@register_stt
+class TelnyxSTTConfiguration(BaseSTTConfiguration):
+    model_config = TELNYX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.TELNYX] = ServiceProviders.TELNYX
+    model: str = Field(
+        default="openai/whisper-large-v3-turbo",
+        description="Telnyx STT model.",
+        json_schema_extra={"examples": TELNYX_STT_MODELS, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code.",
+        json_schema_extra={"examples": TELNYX_STT_LANGUAGES, "allow_custom_input": True},
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1330,6 +1383,7 @@ TTSConfig = Annotated[
         AzureSpeechTTSConfiguration,
         SmallestAITTSConfiguration,
         XAITTSConfiguration,
+        TelnyxTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1745,6 +1799,7 @@ STTConfig = Annotated[
         AzureSpeechSTTConfiguration,
         SmallestAISTTConfiguration,
         ElevenlabsSTTConfiguration,
+        TelnyxSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

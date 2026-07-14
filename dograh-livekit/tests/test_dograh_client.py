@@ -13,7 +13,7 @@ class TestFetchRuntimeConfig:
     @pytest.mark.asyncio
     async def test_fetches_full_config(self, client, settings):
         mock_response = {
-            "deploy_id": "dp_123",
+            "workflow_id": 123,
             "org_id": "org_456",
             "agent_id": "ag_789",
             "agent_name": "Test Agent",
@@ -36,21 +36,21 @@ class TestFetchRuntimeConfig:
         }
 
         with respx.mock:
-            respx.get(f"{settings.dograh_api_url}/api/internal/deploy/dp_123/runtime-config").mock(
+            respx.get(f"{settings.dograh_api_url}/api/internal/workflows/123/runtime-config").mock(
                 return_value=Response(200, json=mock_response)
             )
-            config = await client.fetch_runtime_config("dp_123")
-            assert config.deploy_id == "dp_123"
+            config = await client.fetch_runtime_config(123)
+            assert config.workflow_id == 123
             assert len(config.tools) == 1
 
     @pytest.mark.asyncio
     async def test_handles_404(self, client, settings):
         with respx.mock:
-            respx.get(f"{settings.dograh_api_url}/api/internal/deploy/unknown/runtime-config").mock(
+            respx.get(f"{settings.dograh_api_url}/api/internal/workflows/999/runtime-config").mock(
                 return_value=Response(404, json={"detail": "Not found"})
             )
             with pytest.raises(ValueError, match="not found"):
-                await client.fetch_runtime_config("unknown")
+                await client.fetch_runtime_config(999)
 
 
 class TestSearchKnowledge:
@@ -79,7 +79,7 @@ class TestSessionLifecycle:
                 return_value=Response(201, json=mock_session)
             )
             session = await client.create_session(
-                deploy_id="dp_123",
+                workflow_id=123,
                 org_id="org_456",
                 room_name="test-room",
                 channel="voice_sip",

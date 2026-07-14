@@ -86,8 +86,8 @@ class ToolDefinition(BaseModel):
 
 
 class RuntimeConfig(BaseModel):
-    """Full config returned by Dograh's GET /api/internal/deploy/{id}/runtime-config."""
-    deploy_id: str
+    """Full config returned by Dograh's GET /api/internal/workflows/{id}/runtime-config."""
+    workflow_id: int = 0
     org_id: str
     agent_id: str = ""
     agent_name: str = ""

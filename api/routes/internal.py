@@ -36,7 +36,7 @@ class SearchRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    deploy_id: str
+    workflow_id: str
     org_id: str
     room_name: str
     channel: str = "voice_sip"
@@ -47,7 +47,7 @@ class CreateSessionRequest(BaseModel):
 class HangupRequest(BaseModel):
     session_id: str
     org_id: str
-    deploy_id: str
+    workflow_id: str
     room_name: str = ""
     duration_sec: float = 0
     outcome: str = "completed"
@@ -57,30 +57,34 @@ class HangupRequest(BaseModel):
 # ── Runtime Config ──────────────────────────────────────────────────────────
 
 
-@router.get("/deploy/{deploy_id}/runtime-config")
+@router.get("/workflows/{workflow_id}/runtime-config")
 async def get_runtime_config(
-    deploy_id: str,
+    workflow_id: int,
     _token: None = Depends(_verify_internal_token),
 ):
-    """Return full runtime config for a deploy — consumed by dograh-livekit."""
+    """Return full runtime config for a workflow — consumed by dograh-livekit."""
     from api.db import db_client
 
-    deploy = await db_client.get_deploy(deploy_id)
-    if not deploy:
-        raise HTTPException(status_code=404, detail="Deploy not found")
-
-    workflow = await db_client.get_workflow(deploy.workflow_id)
+    workflow = await db_client.get_workflow(workflow_id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
+    # Get published definition
+    published = await db_client.get_published_workflow_definition(workflow_id)
+    if not published:
+        raise HTTPException(status_code=404, detail="No published version")
+
+    definition = published.workflow_json or {}
+    configs = published.workflow_configurations or {}
+
     # Resolve tools from UUIDs
     tools = []
-    for node in workflow.definition.get("nodes", []):
+    for node in definition.get("nodes", []):
         node_data = node.get("data") or {}
         tool_uuids = node_data.get("tool_uuids") or []
         for uuid in tool_uuids:
             try:
-                tool_def = await db_client.get_tool_definition(uuid, deploy.organization_id)
+                tool_def = await db_client.get_tool_definition(uuid, workflow.organization_id)
                 if tool_def:
                     tools.append(tool_def)
             except Exception:
@@ -88,28 +92,37 @@ async def get_runtime_config(
 
     # Resolve KB refs
     kb_refs = []
-    for node in workflow.definition.get("nodes", []):
+    for node in definition.get("nodes", []):
         node_data = node.get("data") or {}
         doc_uuids = node_data.get("document_uuids") or []
         kb_refs.extend(doc_uuids)
     kb_refs = list(set(kb_refs))
 
+    # Extract system prompt from global node
+    system_prompt = ""
+    greeting_message = ""
+    for node in definition.get("nodes", []):
+        if node.get("type") == "globalNode":
+            system_prompt = (node.get("data") or {}).get("prompt", "")
+        if node.get("type") == "startCall":
+            greeting_message = (node.get("data") or {}).get("greeting", "")
+
     return {
-        "deploy_id": deploy_id,
-        "org_id": str(deploy.organization_id),
-        "agent_id": str(deploy.agent_id) if deploy.agent_id else "",
-        "agent_name": deploy.name if hasattr(deploy, "name") else "",
-        "workflow_graph": workflow.definition,
-        "llm_config": getattr(deploy, "llm_config", {}) or {},
-        "stt_config": getattr(deploy, "stt_config", {}) or {},
-        "tts_config": getattr(deploy, "tts_config", {}) or {},
-        "system_prompt": getattr(deploy, "system_prompt", "") or "",
-        "greeting_message": getattr(deploy, "greeting_message", "") or "",
+        "workflow_id": workflow_id,
+        "org_id": str(workflow.organization_id),
+        "agent_id": str(workflow.id),
+        "agent_name": workflow.name,
+        "workflow_graph": definition,
+        "llm_config": configs.get("llm_config", {}),
+        "stt_config": configs.get("stt_config", {}),
+        "tts_config": configs.get("tts_config", {}),
+        "system_prompt": system_prompt or configs.get("system_prompt", ""),
+        "greeting_message": greeting_message,
         "tools": tools,
         "kb_refs": kb_refs,
-        "handoff_sip_number": getattr(deploy, "handoff_sip_number", "") or "",
+        "handoff_sip_number": "",
         "orchestrator_mode": "agentos",
-        "stages": workflow.definition.get("nodes", []),
+        "stages": definition.get("nodes", []),
     }
 
 
@@ -145,17 +158,19 @@ async def create_session(
     from api.db import db_client
 
     try:
-        session = await db_client.create_session(
-            deploy_id=body.deploy_id,
-            org_id=int(body.org_id),
-            room_name=body.room_name,
-            channel=body.channel,
-            agent_id=body.agent_id,
-            llm_model=body.llm_model,
+        session = await db_client.create_workflow_run(
+            name=f"LK-{body.room_name}",
+            workflow_id=int(body.workflow_id),
+            mode="livekit_sip",
+            user_id=None,
+            organization_id=int(body.org_id),
+            initial_context={
+                "channel": body.channel,
+                "room_name": body.room_name,
+            },
         )
-    except AttributeError:
-        # Fallback: create_session may not exist yet; return a stub
-        return {"id": f"session_{body.deploy_id}_{body.room_name}", "status": "active"}
+    except Exception:
+        return {"id": f"session_{body.workflow_id}_{body.room_name}", "status": "active"}
 
     return {"id": str(session.id) if hasattr(session, "id") else "unknown", "status": "active"}
 
@@ -167,13 +182,15 @@ async def update_session(
     _token: None = Depends(_verify_internal_token),
 ):
     """Update a session record."""
-    from api.db import db_client
-
-    org_id = body.pop("org_id", None)
     try:
-        await db_client.update_session(session_id, **body)
+        from api.db import db_client
+        await db_client.update_workflow_run(
+            run_id=int(session_id),
+            gathered_context=body.get("context", {}),
+            is_completed=body.get("is_completed", False),
+        )
     except Exception:
-        pass  # Non-blocking — session updates are best-effort
+        pass
 
     return {"status": "updated"}
 
@@ -186,12 +203,11 @@ async def hangup_session(
     """Handle session hangup notification."""
     try:
         from api.db import db_client
-        await db_client.update_session(
-            body.session_id,
-            duration_sec=body.duration_sec,
-            outcome=body.outcome,
+        await db_client.update_workflow_run(
+            run_id=int(body.session_id) if body.session_id.isdigit() else None,
+            is_completed=True,
         )
     except Exception:
-        pass  # Non-blocking
+        pass
 
     return {"status": "ok"}

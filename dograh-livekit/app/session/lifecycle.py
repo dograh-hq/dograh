@@ -13,11 +13,11 @@ async def fetch_agent_config(raw_metadata: str) -> dict:
     client = DograhClient(settings)
 
     meta = json.loads(raw_metadata or "{}")
-    deploy_id = meta.get("deploy_id", "")
-    if not deploy_id:
-        raise ValueError("deploy_id missing from room metadata")
+    workflow_id = int(meta.get("workflow_id", meta.get("deploy_id", 0)))
+    if not workflow_id:
+        raise ValueError("workflow_id missing from room metadata")
 
-    config = await client.fetch_runtime_config(deploy_id)
+    config = await client.fetch_runtime_config(workflow_id)
     config_dict = config.model_dump()
     config_dict["channel"] = meta.get("channel", "voice_sip")
     config_dict["sender_phone"] = meta.get("sender_phone", "")
@@ -28,17 +28,17 @@ async def fetch_agent_config(raw_metadata: str) -> dict:
 
 
 async def write_session_record(
-    deploy_id: str, org_id: str, room_name: str, channel: str, agent_id: str, **kwargs
+    workflow_id: int, org_id: str, room_name: str, channel: str, agent_id: str, **kwargs
 ) -> dict:
     client = DograhClient(settings)
     return await client.create_session(
-        deploy_id=deploy_id, org_id=org_id, room_name=room_name,
+        workflow_id=workflow_id, org_id=org_id, room_name=room_name,
         channel=channel, agent_id=agent_id, **kwargs,
     )
 
 
 async def hangup_cleanup(
-    session_id: str, org_id: str, deploy_id: str,
+    session_id: str, org_id: str, workflow_id: int,
     room_name: str, duration_sec: float, channel: str,
 ) -> None:
     from livekit.api import LiveKitAPI
@@ -58,7 +58,7 @@ async def hangup_cleanup(
     client = DograhClient(settings)
     try:
         await client.hangup_session(
-            session_id=session_id, org_id=org_id, deploy_id=deploy_id,
+            session_id=session_id, org_id=org_id, workflow_id=workflow_id,
             room_name=room_name, duration_sec=duration_sec,
             outcome="completed", channel=channel,
         )

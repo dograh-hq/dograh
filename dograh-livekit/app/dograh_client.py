@@ -21,15 +21,15 @@ class DograhClient:
             "Content-Type": "application/json",
         }
 
-    async def fetch_runtime_config(self, deploy_id: str) -> RuntimeConfig:
-        """Fetch full runtime config for a deploy."""
+    async def fetch_runtime_config(self, workflow_id: int) -> RuntimeConfig:
+        """Fetch full runtime config for a workflow."""
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
-                f"{self._base_url}/api/internal/deploy/{deploy_id}/runtime-config",
+                f"{self._base_url}/api/internal/workflows/{workflow_id}/runtime-config",
                 headers=self._headers,
             )
             if response.status_code == 404:
-                raise ValueError(f"Deploy {deploy_id} not found")
+                raise ValueError(f"Workflow {workflow_id} not found")
             response.raise_for_status()
             data = response.json()
             return RuntimeConfig(**data)
@@ -47,7 +47,7 @@ class DograhClient:
 
     async def create_session(
         self,
-        deploy_id: str,
+        workflow_id: int,
         org_id: str,
         room_name: str,
         channel: str,
@@ -60,7 +60,7 @@ class DograhClient:
                 f"{self._base_url}/api/internal/sessions",
                 headers=self._headers,
                 json={
-                    "deploy_id": deploy_id,
+                    "workflow_id": str(workflow_id),
                     "org_id": org_id,
                     "room_name": room_name,
                     "channel": channel,
@@ -82,7 +82,7 @@ class DograhClient:
             response.raise_for_status()
             return response.json()
 
-    async def hangup_session(self, session_id: str, org_id: str, deploy_id: str, **kwargs) -> None:
+    async def hangup_session(self, session_id: str, org_id: str, workflow_id: int, **kwargs) -> None:
         """Notify Dograh of session hangup."""
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
@@ -91,7 +91,7 @@ class DograhClient:
                 json={
                     "session_id": session_id,
                     "org_id": org_id,
-                    "deploy_id": deploy_id,
+                    "workflow_id": str(workflow_id),
                     **kwargs,
                 },
             )

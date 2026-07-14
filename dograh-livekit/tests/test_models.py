@@ -17,7 +17,7 @@ from app.models import (
 class TestRuntimeConfig:
     def test_valid_minimal_config(self):
         data = {
-            "deploy_id": "dp_123",
+            "workflow_id": 123,
             "org_id": "org_456",
             "agent_id": "ag_789",
             "workflow_graph": {
@@ -44,12 +44,12 @@ class TestRuntimeConfig:
             "tools": [],
         }
         config = RuntimeConfig(**data)
-        assert config.deploy_id == "dp_123"
+        assert config.workflow_id == 123
         assert len(config.workflow_graph.nodes) == 2
 
-    def test_invalid_missing_deploy_id(self):
+    def test_invalid_missing_org_id(self):
         with pytest.raises(ValueError):
-            RuntimeConfig(org_id="org_1", workflow_graph={"nodes": [], "edges": []})
+            RuntimeConfig(workflow_id=123, workflow_graph={"nodes": [], "edges": []})
 
     def test_tool_definition_parsing(self):
         tool = ToolDefinition(
@@ -63,7 +63,7 @@ class TestRuntimeConfig:
     def test_extra_fields_allowed(self):
         """RuntimeConfig should accept extra fields from Dograh API."""
         data = {
-            "deploy_id": "dp_123",
+            "workflow_id": 123,
             "org_id": "org_456",
             "workflow_graph": {"nodes": [], "edges": []},
             "custom_field": "should be allowed",

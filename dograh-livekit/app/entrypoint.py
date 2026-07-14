@@ -62,19 +62,20 @@ async def lumina_session(ctx: agents.JobContext):
 
         raw_metadata = ctx.job.room.metadata or ""
         meta = json.loads(raw_metadata or "{}")
-        deploy_id = meta.get("deploy_id", "")
+        deploy_id = meta.get("deploy_id", "") or str(meta.get("workflow_id", ""))
+        workflow_id = int(meta.get("workflow_id", deploy_id)) if meta.get("workflow_id") or deploy_id.isdigit() else 0
         channel = meta.get("channel", "voice_sip")
         org_id = meta.get("org_id", "")
 
-        if not deploy_id:
-            raise ValueError("deploy_id missing from room metadata")
+        if not deploy_id and not workflow_id:
+            raise ValueError("workflow_id missing from room metadata")
         if not org_id:
             raise ValueError("org_id missing from room metadata")
 
-        logger.info(f"Session start — room={ctx.room.name} deploy={deploy_id} channel={channel}")
+        logger.info(f"Session start — room={ctx.room.name} workflow={workflow_id or deploy_id} channel={channel}")
 
         config = await fetch_agent_config(raw_metadata)
-        config["deploy_id"] = deploy_id
+        config["workflow_id"] = workflow_id or int(deploy_id)
         config["org_id"] = org_id
         config["sender_phone"] = meta.get("sender_phone", "")
         config["channel"] = channel
@@ -83,7 +84,7 @@ async def lumina_session(ctx: agents.JobContext):
         llm_cfg = config.get("llm_config") or {}
         llm_model = str(llm_cfg.get("model") or "unknown")
         session_record = await write_session_record(
-            deploy_id=deploy_id, org_id=org_id, room_name=ctx.room.name,
+            workflow_id=workflow_id or int(deploy_id), org_id=org_id, room_name=ctx.room.name,
             channel=channel, agent_id=str(config.get("agent_id") or ""),
             llm_model=llm_model,
         )
@@ -120,6 +121,6 @@ async def lumina_session(ctx: agents.JobContext):
     finally:
         if session_id and org_id:
             await hangup_cleanup(
-                session_id=session_id, org_id=org_id, deploy_id=deploy_id,
+                session_id=session_id, org_id=org_id, workflow_id=workflow_id or int(deploy_id),
                 room_name=ctx.room.name, duration_sec=duration, channel=channel,
             )

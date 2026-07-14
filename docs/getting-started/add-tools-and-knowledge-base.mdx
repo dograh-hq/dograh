@@ -51,8 +51,8 @@ Click **Upload Document**, or go straight to **Knowledge Base Files**. Pick the 
 
 Dograh asks how it should retrieve from this document:
 
-- **Full Document** works best for small files, where the agent can see the whole thing at once.
-- **Chunked Search** is for large documents, where the agent should only pull the relevant section.
+- **Full Document** works best for small files, where the agent can see the whole thing at once. It does not require an embeddings model.
+- **Chunked Search** is for large documents, where the agent should only pull the relevant section. Configure an embeddings model before selecting this mode; otherwise document processing or retrieval will fail.
 
 A short policy document is a Full Document case. Upload it, then wait for the status to say **Completed**.
 

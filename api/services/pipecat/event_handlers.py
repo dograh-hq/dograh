@@ -14,6 +14,7 @@ from api.services.pipecat.in_memory_buffers import (
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.tracing_config import get_trace_url
+from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.posthog_client import capture_event
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
@@ -65,6 +66,7 @@ def register_event_handlers(
     engine: PipecatEngine,
     audio_buffer: AudioBufferProcessor,
     in_memory_logs_buffer: InMemoryLogsBuffer,
+    transcript_log_coordinator: TranscriptLogCoordinator,
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
     pre_call_fetch_task: asyncio.Task | None = None,
@@ -223,7 +225,12 @@ def register_event_handlers(
         task: PipelineWorker,
         _frame: Frame,
     ):
-        logger.debug(f"In on_pipeline_finished callback handler")
+        logger.debug("In on_pipeline_finished callback handler")
+
+        # Turn and feedback observers run on independent queues. Drain them
+        # before finalizing immutable transcripts and taking the DB snapshot.
+        await task.wait_for_observers()
+        await transcript_log_coordinator.flush()
 
         workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
 

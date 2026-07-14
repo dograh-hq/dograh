@@ -21,7 +21,6 @@ node changes.
 """
 
 import json
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
 from loguru import logger
@@ -37,6 +36,9 @@ from api.services.pipecat.realtime_feedback_events import (
 
 if TYPE_CHECKING:
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+    from api.services.pipecat.transcript_log_coordinator import (
+        TranscriptLogCoordinator,
+    )
 
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -55,20 +57,12 @@ from pipecat.frames.frames import (
     TTSTextFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
-    UserStartedSpeakingFrame,
-    UserStoppedSpeakingFrame,
-    VADUserStartedSpeakingFrame,
-    VADUserStoppedSpeakingFrame,
 )
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.utils.enums import RealtimeFeedbackType
-
-
-def _epoch_seconds_to_utc_iso(timestamp: float) -> str:
-    return datetime.fromtimestamp(timestamp, UTC).isoformat(timespec="milliseconds")
 
 
 class RealtimeFeedbackObserver(BaseObserver):
@@ -147,35 +141,13 @@ class RealtimeFeedbackObserver(BaseObserver):
             return
         # Bot speaking state - WS only (ephemeral state signals, not persisted)
         elif isinstance(frame, BotStartedSpeakingFrame):
-            if self._logs_buffer:
-                self._logs_buffer.mark_bot_started_speaking()
             await self._send_ws(
                 {"type": RealtimeFeedbackType.BOT_STARTED_SPEAKING.value, "payload": {}}
             )
         elif isinstance(frame, BotStoppedSpeakingFrame):
-            if self._logs_buffer:
-                self._logs_buffer.mark_bot_stopped_speaking()
             await self._send_ws(
                 {"type": RealtimeFeedbackType.BOT_STOPPED_SPEAKING.value, "payload": {}}
             )
-        elif isinstance(frame, UserStartedSpeakingFrame):
-            if self._logs_buffer:
-                self._logs_buffer.mark_user_started_speaking()
-        elif isinstance(frame, UserStoppedSpeakingFrame):
-            if self._logs_buffer:
-                self._logs_buffer.mark_user_stopped_speaking()
-        elif isinstance(frame, VADUserStartedSpeakingFrame):
-            if self._logs_buffer:
-                self._logs_buffer.mark_user_started_speaking(
-                    _epoch_seconds_to_utc_iso(frame.timestamp - frame.start_secs),
-                    from_vad=True,
-                )
-        elif isinstance(frame, VADUserStoppedSpeakingFrame):
-            if self._logs_buffer:
-                self._logs_buffer.mark_user_stopped_speaking(
-                    _epoch_seconds_to_utc_iso(frame.timestamp - frame.stop_secs),
-                    from_vad=True,
-                )
         # User mute state - WS only (ephemeral state signals, not persisted)
         elif isinstance(frame, UserMuteStartedFrame):
             await self._send_ws(
@@ -325,42 +297,36 @@ class RealtimeFeedbackObserver(BaseObserver):
 
 
 def register_turn_log_handlers(
-    logs_buffer: "InMemoryLogsBuffer",
+    transcript_coordinator: "TranscriptLogCoordinator",
     user_aggregator,
     assistant_aggregator,
 ):
     """Register event handlers on aggregators to persist final turn transcripts.
 
     Hooks into on_user_turn_message_added and on_assistant_turn_stopped to store
-    complete turn text in the logs buffer. Works for both WebRTC and telephony
-    calls — independent of WebSocket availability.
+    complete turn text through the turn-aware coordinator. Works for both
+    WebRTC and telephony calls — independent of WebSocket availability.
     """
 
     @user_aggregator.event_handler("on_user_turn_message_added")
     async def on_user_turn_message_added(aggregator, message):
-        logs_buffer.increment_turn()
         try:
-            await logs_buffer.append(
-                build_user_transcription_event(
-                    text=message.content,
-                    final=True,
-                    timestamp=message.timestamp,
-                    end_timestamp=getattr(message, "end_timestamp", None),
-                )
+            await transcript_coordinator.record_user_transcript(
+                text=message.content,
+                timestamp=message.timestamp,
+                end_timestamp=getattr(message, "end_timestamp", None),
             )
         except Exception as e:
-            logger.error(f"Failed to append user turn to logs buffer: {e}")
+            logger.error(f"Failed to coordinate user turn transcript: {e}")
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message):
         if message.content:
             try:
-                await logs_buffer.append(
-                    build_bot_text_event(
-                        text=message.content,
-                        timestamp=message.timestamp,
-                        end_timestamp=getattr(message, "end_timestamp", None),
-                    )
+                await transcript_coordinator.record_assistant_transcript(
+                    text=message.content,
+                    timestamp=message.timestamp,
+                    end_timestamp=getattr(message, "end_timestamp", None),
                 )
             except Exception as e:
-                logger.error(f"Failed to append assistant turn to logs buffer: {e}")
+                logger.error(f"Failed to coordinate assistant turn transcript: {e}")

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build
 # Stage 1: Dependencies
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Install Python and build dependencies for native modules
@@ -15,7 +15,7 @@ COPY ui/package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 
 # Stage 2: Builder
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install libc6-compat for native modules in builder stage too
@@ -49,7 +49,7 @@ RUN npm run build && \
     rm -rf /tmp/* /root/.npm /root/.next/cache
 
 # Stage 3: Runner (production image)
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 # Environment variables will be provided by docker-compose

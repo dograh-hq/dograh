@@ -12,7 +12,7 @@ from api.services.pipecat.transport_params import realtime_param_overrides
 from api.services.telephony.factory import load_credentials_for_transport
 
 from .serializers import CloudonixFrameSerializer
-from .strategies import CloudonixHangupStrategy
+from .strategies import CloudonixConferenceStrategy, CloudonixHangupStrategy
 
 
 async def create_transport(
@@ -55,6 +55,7 @@ async def create_transport(
         domain_id=domain_id,
         bearer_token=bearer_token,
         hangup_strategy=CloudonixHangupStrategy(),
+        transfer_strategy=CloudonixConferenceStrategy(),
     )
 
     mixer = await build_audio_out_mixer(

@@ -1052,6 +1052,33 @@ class CloudonixProvider(TelephonyProvider):
 
     # ======== CALL TRANSFER METHODS ========
 
+    @staticmethod
+    def _is_sip_destination(destination: str) -> bool:
+        """A SIP destination is a SIP URI; everything else is a PSTN number."""
+        return destination.strip().lower().startswith("sip:")
+
+    @staticmethod
+    def _conference_join_cxml(destination: str, conference_name: str, callback_url: str) -> str:
+        """CXML the destination leg runs once it answers: join the conference.
+
+        PSTN destinations are dialed as a number; SIP destinations are dialed as
+        a ``<Sip>`` noun. The destination is placed into ``conference_name`` so
+        the forked caller leg meets it there.
+        """
+        if CloudonixProvider._is_sip_destination(destination):
+            dial_target = f"<Sip>{destination}</Sip>"
+        else:
+            dial_target = f"<Number>{destination}</Number>"
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response>"
+            "<Say>You have answered a transfer call. Connecting you now.</Say>"
+            "<Dial>"
+            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join">{conference_name}</Conference>'
+            "</Dial>"
+            "</Response>"
+        )
+
     async def transfer_call(
         self,
         destination: str,
@@ -1060,33 +1087,85 @@ class CloudonixProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        """Dial the transfer destination into a conference via Cloudonix.
+
+        Places an outbound call whose inline CXML joins ``conference_name`` when
+        the destination answers, and sets the call object's ``callback`` to the
+        Cloudonix transfer-result route so the destination's session-status
+        transitions (``connected`` / terminal) drive transfer completion. The
+        original caller leg is later forked into the same conference by
+        ``CloudonixConferenceStrategy``.
+
+        Supports both PSTN numbers and SIP URIs as ``destination``.
+
+        Returns a dict with the destination leg's ``call_sid`` (session token).
         """
-        Initiate a call transfer via Cloudonix.
+        if not self.validate_config():
+            raise ValueError("Cloudonix provider not properly configured")
 
-        Uses inline CXML to put the destination into a conference when they answer,
-        and a status callback to track the transfer outcome.
+        if not self.from_numbers:
+            raise ValueError(
+                "No phone numbers configured for Cloudonix provider; a caller-id "
+                "is required to place the transfer call."
+            )
+        from_number = random.choice(self.from_numbers)
 
-        Args:
-            destination: The destination phone number (E.164 format)
-            transfer_id: Unique identifier for tracking this transfer
-            conference_name: Name of the conference to join the destination into
-            timeout: Transfer timeout in seconds
-            **kwargs: Additional Twilio-specific parameters
+        backend_endpoint, _ = await get_backend_endpoints()
+        callback_url = (
+            f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"
+        )
 
-        Returns:
-            Dict containing transfer result information
+        endpoint = f"{self.base_url}/calls/{self.domain_id}/application"
+        data: Dict[str, Any] = {
+            "destination": destination,
+            "caller-id": from_number,
+            "cxml": self._conference_join_cxml(destination, conference_name, callback_url),
+            # "callback": callback_url,
+            "timeout": timeout,
+        }
 
-        Raises:
-            ValueError: If provider configuration is invalid
-            Exception: If Twilio API call fails
-        """
-        raise NotImplementedError("Cloudonix provider does not support call transfers")
+        headers = self._get_auth_headers()
+        masked_destination = (
+            f"***{destination[-4:]}" if len(destination) > 4 else "***"
+        )
+        logger.info(
+            f"[Cloudonix Transfer] Dialing {masked_destination} into conference "
+            f"{conference_name} (transfer_id={transfer_id})"
+        )
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(endpoint, json=data, headers=headers) as response:
+                response_text = await response.text()
+                if response.status != 200:
+                    logger.error(
+                        f"[Cloudonix Transfer] Dial failed: HTTP {response.status}, "
+                        f"body: {response_text}"
+                    )
+                    raise Exception(
+                        f"Cloudonix transfer dial failed (HTTP {response.status}): "
+                        f"{response_text}"
+                    )
+
+                response_data = await response.json()
+                session_token = response_data.get("token")
+                if not session_token:
+                    raise Exception(
+                        "No session token returned from Cloudonix transfer dial"
+                    )
+
+                logger.info(
+                    f"[Cloudonix Transfer] Destination leg initiated "
+                    f"(token={session_token}, transfer_id={transfer_id})"
+                )
+                return {
+                    "call_sid": session_token,
+                    "status": response_data.get("status", "initiated"),
+                    "provider": self.PROVIDER_NAME,
+                    "from_number": from_number,
+                    "to_number": destination,
+                    "raw_response": response_data,
+                }
 
     def supports_transfers(self) -> bool:
-        """
-        Cloudonix does not support call transfers.
-
-        Returns:
-            False - Cloudonix provider does not support call transfers
-        """
-        return False
+        """Cloudonix supports conference-based call transfers."""
+        return True

@@ -26,23 +26,31 @@ def _collect_extracted_variable_keys(runs: List[Any]) -> list[str]:
     return list(keys)
 
 
-async def _refresh_public_tokens(runs: List[Any]) -> None:
-    """Rotate/mint a valid public token for each run that has a downloadable
-    artifact, so the report's URLs point at fresh (unexpired) tokens rather than
-    stale or missing ones. Runs with no recording/transcript are skipped so we
-    don't mint public tokens for runs with nothing to expose.
+async def _refresh_public_tokens(runs: List[Any]) -> dict[int, str]:
+    """Return ``{run_id: fresh_token}`` for runs with a downloadable artifact.
+
+    Report rows are immutable projected ``Row`` objects, so we return a mapping
+    rather than mutating them; ``build_run_report_csv`` applies it when emitting
+    URLs. Rotating/minting keeps the report's links on current (unexpired)
+    tokens; runs with no recording/transcript are skipped so we don't mint
+    public tokens for runs with nothing to expose.
     """
+    tokens: dict[int, str] = {}
     for run in runs:
         if run.recording_url or run.transcript_url:
-            run.public_access_token = await db_client.ensure_public_access_token(run.id)
+            tokens[run.id] = await db_client.ensure_public_access_token(run.id)
+    return tokens
 
 
-def build_run_report_csv(runs: List[Any]) -> io.StringIO:
+def build_run_report_csv(
+    runs: List[Any], public_tokens: Optional[dict[int, str]] = None
+) -> io.StringIO:
     """Build a CSV from completed workflow runs.
 
-    Callers should ``await _refresh_public_tokens(runs)`` first so the emitted
-    artifact URLs carry current (unexpired) tokens.
+    ``public_tokens`` (from ``_refresh_public_tokens``) overrides each run's
+    stored token so the emitted artifact URLs carry current (unexpired) tokens.
     """
+    public_tokens = public_tokens or {}
     extracted_var_keys = _collect_extracted_variable_keys(runs)
 
     output = io.StringIO()
@@ -90,10 +98,11 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
             extracted = {}
         extracted_values = [extracted.get(key, "") for key in extracted_var_keys]
 
+        token = public_tokens.get(run.id, run.public_access_token)
         post_values = [
             call_tags,
-            artifact_url(run.public_access_token, "transcript") or "",
-            artifact_url(run.public_access_token, "recording") or "",
+            artifact_url(token, "transcript") or "",
+            artifact_url(token, "recording") or "",
         ]
 
         writer.writerow(pre_values + extracted_values + post_values)
@@ -111,8 +120,10 @@ async def generate_campaign_report_csv(
     runs = await db_client.get_completed_runs_for_report(
         campaign_id=campaign_id, start_date=start_date, end_date=end_date
     )
-    await _refresh_public_tokens(runs)
-    return build_run_report_csv(runs), f"campaign_{campaign_id}_report.csv"
+    public_tokens = await _refresh_public_tokens(runs)
+    return build_run_report_csv(
+        runs, public_tokens
+    ), f"campaign_{campaign_id}_report.csv"
 
 
 async def generate_workflow_report_csv(
@@ -124,8 +135,10 @@ async def generate_workflow_report_csv(
     runs = await db_client.get_completed_runs_for_report(
         workflow_id=workflow_id, start_date=start_date, end_date=end_date
     )
-    await _refresh_public_tokens(runs)
-    return build_run_report_csv(runs), f"workflow_{workflow_id}_report.csv"
+    public_tokens = await _refresh_public_tokens(runs)
+    return build_run_report_csv(
+        runs, public_tokens
+    ), f"workflow_{workflow_id}_report.csv"
 
 
 async def generate_usage_runs_report_csv(
@@ -144,6 +157,6 @@ async def generate_usage_runs_report_csv(
         end_date=end_date,
         filters=filters,
     )
-    await _refresh_public_tokens(runs)
+    public_tokens = await _refresh_public_tokens(runs)
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    return build_run_report_csv(runs), f"usage_runs_{timestamp}.csv"
+    return build_run_report_csv(runs, public_tokens), f"usage_runs_{timestamp}.csv"

@@ -680,6 +680,8 @@ class CampaignClient(BaseDBClient):
                     WorkflowRunModel.cost_info,
                     WorkflowRunModel.usage_info,
                     WorkflowRunModel.public_access_token,
+                    WorkflowRunModel.recording_url,
+                    WorkflowRunModel.transcript_url,
                 )
                 .where(*conditions)
                 .order_by(WorkflowRunModel.created_at.desc())

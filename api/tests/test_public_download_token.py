@@ -209,43 +209,43 @@ class TestPublicTokenLifecycle:
         assert revoked is False
         assert await db_session.get_workflow_run_by_public_token(token) is not None
 
-    async def test_refresh_public_tokens_rotates_for_runs_with_artifacts(
+    async def test_report_refreshes_expired_token_end_to_end(
         self, db_session, async_session, seeded_run
     ):
-        """Report/list surfaces refresh an expired token so their URLs stay valid."""
-        from api.services.reports.run_report import _refresh_public_tokens
+        """CSV report rebuilds URLs from a refreshed token via the real query.
+
+        Exercises the projected-Row path end to end (the row set is immutable),
+        so a regression in _refresh/build would surface here.
+        """
+        import csv as _csv
+
+        from api.services.reports.run_report import generate_workflow_report_csv
 
         run = await async_session.get(WorkflowRunModel, seeded_run.run.id)
+        run.is_completed = True
+        run.usage_info = {"call_duration_seconds": 30}
         run.recording_url = "recordings/run-1.wav"
         run.public_access_token = "legacy-token"
         run.public_access_token_expires_at = datetime.now(UTC) - timedelta(days=1)
         await async_session.flush()
 
-        await _refresh_public_tokens([run])
+        csv_buf, _name = await generate_workflow_report_csv(seeded_run.workflow.id)
+        rows = list(_csv.DictReader(csv_buf))
 
-        assert run.public_access_token != "legacy-token"
-        # The refreshed token must resolve at the freshness-enforcing lookup.
-        assert (
-            await db_session.get_workflow_run_by_public_token(run.public_access_token)
-            is not None
-        )
+        assert len(rows) == 1
+        recording_url = rows[0]["Recording URL"]
+        token = recording_url.split("/workflow/")[1].split("/")[0]
+        assert token != "legacy-token"
+        # The refreshed token resolves at the freshness-enforcing lookup.
+        assert await db_session.get_workflow_run_by_public_token(token) is not None
 
-    async def test_refresh_public_tokens_skips_runs_without_artifacts(
-        self, db_session, async_session, seeded_run
-    ):
-        """A run with nothing downloadable must not get a public token minted."""
+    async def test_refresh_public_tokens_skips_runs_without_artifacts(self):
+        """A run with nothing downloadable yields no token in the map."""
         from api.services.reports.run_report import _refresh_public_tokens
 
-        run = await async_session.get(WorkflowRunModel, seeded_run.run.id)
-        run.recording_url = None
-        run.transcript_url = None
-        run.public_access_token = None
-        run.public_access_token_expires_at = None
-        await async_session.flush()
+        run = SimpleNamespace(id=1, recording_url=None, transcript_url=None)
 
-        await _refresh_public_tokens([run])
-
-        assert run.public_access_token is None
+        assert await _refresh_public_tokens([run]) == {}
 
 
 # ---------------------------------------------------------------------------

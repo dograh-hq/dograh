@@ -51,6 +51,8 @@ cd ui && npm install && cd ..
 5. Start Postgres, Redis, and MinIO:
 
 ```bash
+source <(bash scripts/dev_ports.sh)
+
 docker compose -f docker-compose-local.yaml up -d
 ```
 
@@ -70,6 +72,7 @@ bash scripts/start_services_dev.sh
 ```bash
 DEV_BACKEND_PORT="$(bunx path-to-port .)"
 BACKEND_URL="http://localhost:${DEV_BACKEND_PORT}"
+source <(bash scripts/dev_ports.sh)
 cd ui && NEXT_PUBLIC_BACKEND_URL="$BACKEND_URL" BACKEND_URL="$BACKEND_URL" npm run dev -- --hostname 0.0.0.0 --port "$((DEV_BACKEND_PORT + 1))"
 ```
 

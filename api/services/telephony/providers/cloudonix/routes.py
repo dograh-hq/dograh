@@ -11,14 +11,105 @@ from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
 from api.db import db_client
+from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.providers.cloudonix.provider import CloudonixProvider
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
 )
+from api.services.telephony.transfer_event_protocol import (
+    TransferEvent,
+    TransferEventType,
+)
 
 router = APIRouter()
+
+# Cloudonix session statuses that terminate a transfer without an answer.
+_CLOUDONIX_TRANSFER_FAILURE_STATUSES = {
+    "busy",
+    "noanswer",
+    "cancel",
+    "nocredit",
+    "error",
+    "congestion",
+    "failed",
+}
+
+
+@router.post("/cloudonix/transfer-result/{transfer_id}")
+async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
+    """Drive transfer completion from the destination leg's session status.
+
+    ``CloudonixProvider.transfer_call`` sets this URL as the outbound call
+    object's ``callback``. Cloudonix POSTs session-status notifications here;
+    a ``connected`` status means the destination answered (publish
+    DESTINATION_ANSWERED so the shared handler forks the caller into the
+    conference), while terminal non-answer statuses publish TRANSFER_FAILED.
+    Intermediate statuses (ringing/processing) are acked without publishing.
+    """
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        data = await request.json()
+    else:
+        data = dict(await request.form())
+
+    # Cloudonix session notifications may arrive as a single object or a
+    # one-element list (see session-update webhook payloads).
+    if isinstance(data, list):
+        data = data[0] if data else {}
+
+    status = str(data.get("StatusCallbackEvent", "")).lower()
+    destination_token = data.get("Session", "")
+
+    logger.info(
+        f"[Cloudonix Transfer] transfer_id={transfer_id} status={status} "
+        f"token={destination_token}"
+    )
+
+    call_transfer_manager = await get_call_transfer_manager()
+    transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
+    if not transfer_context:
+        logger.warning(
+            f"[Cloudonix Transfer] No transfer context for {transfer_id}; ignoring"
+        )
+        return {"status": "ignored", "reason": "unknown_transfer"}
+
+    original_call_sid = transfer_context.original_call_sid
+    conference_name = transfer_context.conference_name
+
+    if (status == "participant-join"):
+        event = TransferEvent(
+            type=TransferEventType.DESTINATION_ANSWERED,
+            transfer_id=transfer_id,
+            original_call_sid=original_call_sid or "",
+            transfer_call_sid=destination_token,
+            conference_name=conference_name,
+            message="Great! The destination answered. Connecting you now.",
+            status="success",
+            action="destination_answered",
+        )     
+    elif status in _CLOUDONIX_TRANSFER_FAILURE_STATUSES:
+        event = TransferEvent(
+            type=TransferEventType.TRANSFER_FAILED,
+            transfer_id=transfer_id,
+            original_call_sid=original_call_sid or "",
+            transfer_call_sid=destination_token,
+            conference_name=conference_name,
+            message="The transfer call could not be completed.",
+            status="transfer_failed",
+            action="transfer_failed",
+            reason=status,
+        )
+    else:
+        logger.info(
+            f"[Cloudonix Transfer] Intermediate status {status} for {transfer_id}, "
+            "waiting"
+        )
+        return {"status": "pending"}
+
+    await call_transfer_manager.publish_transfer_event(event)
+    return {"status": "completed"}
 
 
 @router.post("/cloudonix/status-callback/{workflow_run_id}")

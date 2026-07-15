@@ -317,18 +317,6 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         except Exception as e:
             logger.error(f"Failed to process function call arguments: {e}")
 
-    async def _handle_evt_response_done(self, evt):
-        # Allow Pipecat to process and emit standard LLM metrics
-        await super()._handle_evt_response_done(evt)
-
-        try:
-            from api.services.pipecat.realtime.paygent_sts_frames import STSUsageFrame, extract_openai_realtime_sts_usage
-            sts_meta = extract_openai_realtime_sts_usage(evt)
-            if sts_meta:
-                await self.push_frame(STSUsageFrame(usage_metadata=sts_meta))
-        except Exception as e:
-            logger.error(f"[paygent] Failed to extract custom STS usage: {e}")
-
     # ------------------------------------------------------------------
     # Transcription: broadcast with finalized=True for every
     # completed-transcription event from OpenAI.

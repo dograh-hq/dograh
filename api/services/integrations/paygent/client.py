@@ -136,12 +136,13 @@ async def _post(
     *,
     label: str,
 ) -> None:
-    """POST ``payload`` to ``url`` and log the result.  Non-fatal on 4xx/5xx."""
-    try:
-        resp = await client.post(url, json=payload, headers=_headers(api_key))
-        resp.raise_for_status()
-    except Exception:
-        pass
+    """POST ``payload`` to ``url``; raises on 4xx/5xx or network failure.
+
+    Intentionally non-swallowing: callers in ``deliver()`` each wrap this in
+    their own try/except to build the ``errors`` list and the ``status`` field.
+    """
+    resp = await client.post(url, json=payload, headers=_headers(api_key))
+    resp.raise_for_status()
 
 
 async def deliver(

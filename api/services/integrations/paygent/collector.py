@@ -13,7 +13,6 @@ Design mirrors ``api/services/integrations/tuner/collector.py`` exactly:
 from __future__ import annotations
 
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
@@ -23,14 +22,15 @@ from pipecat.frames.frames import (
     EndFrame,
     MetricsFrame,
     StartFrame,
-    TextFrame,
+    TTSTextFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.metrics.metrics import (
     LLMTokenUsage,
     LLMUsageMetricsData,
     TTSUsageMetricsData,
 )
-from api.services.pipecat.realtime.paygent_sts_frames import STSUsageFrame
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 
@@ -79,6 +79,8 @@ class _UsageAccumulator:
     # Call timing
     call_start_abs_ns: int = field(default_factory=time.time_ns)
     call_end_abs_ns: int | None = None
+    # STT: timestamp of when user started speaking; None when not speaking
+    _user_started_speaking_ns: int | None = field(default=None, repr=False)
     
     @property
     def total_duration_seconds(self) -> int:
@@ -121,16 +123,30 @@ class _UsageAccumulator:
             
         try:
             self.tts_characters += int(val or 0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[paygent] Failed to accumulate TTS characters (val={!r}): {}", val, exc)
 
     def add_tts_manual(self, text: str) -> None:
         if not self._has_tts_metrics:
             self.tts_characters += len(text)
 
+    def on_user_started_speaking(self) -> None:
+        """Mark the start of a user utterance for STT audio metering."""
+        if self._user_started_speaking_ns is None:
+            self._user_started_speaking_ns = time.time_ns()
+
+    def on_user_stopped_speaking(self) -> None:
+        """Accumulate the completed utterance duration into stt_audio_seconds."""
+        if self._user_started_speaking_ns is not None:
+            elapsed_s = (time.time_ns() - self._user_started_speaking_ns) / 1_000_000_000
+            self.stt_audio_seconds += elapsed_s
+            self._user_started_speaking_ns = None
+
     def finalize(self) -> None:
         if self.call_end_abs_ns is None:
             self.call_end_abs_ns = time.time_ns()
+        # If user was mid-utterance when the call ended, close the interval.
+        self.on_user_stopped_speaking()
 
 
 def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
@@ -207,7 +223,7 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
     if ptc is not None and not prompt_details and not tool_details:
         text_in += int(ptc)
 
-    # output side: TEXT + DOCUMENT + AUDIO + VIDEO
+    # output side: TEXT + DOCUMENT + AUDIO + VIDEO + THINKING
     text_out = _modality_token_count(response_details, "TEXT") + _modality_token_count(response_details, "DOCUMENT")
     audio_out = _modality_token_count(response_details, "AUDIO") + _modality_token_count(response_details, "VIDEO")
 
@@ -215,6 +231,14 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
     if text_out == 0 and audio_out == 0 and rtc is not None:
         # Default fallback to audio output for STS audio connection
         audio_out = int(rtc)
+
+    # Thinking / reasoning tokens (Gemini 2.5+ thinking models).
+    # Emitted as a separate output modality so Paygent has full billing visibility.
+    thinking_tokens = _optional_int(
+        usage,
+        "thoughts_token_count", "thoughtsTokenCount",
+        "thinking_token_count", "thinkingTokenCount",
+    ) or 0
 
     # Cache breakdowns
     cached_text = _modality_token_count(cache_details, "TEXT") + _modality_token_count(cache_details, "DOCUMENT")
@@ -237,6 +261,7 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
     o = {}
     if text_out > 0: o["text"] = {"tokens": text_out}
     if audio_out > 0: o["audio"] = {"tokens": audio_out}
+    if thinking_tokens > 0: o["thinking"] = {"tokens": thinking_tokens}
     if o: out["output"] = o
 
     # Cached breakdown
@@ -340,11 +365,11 @@ def _merge_sts_metadata(existing: dict, new: dict) -> dict:
         # Prefer per-modality merge when either side has per-modality detail.
         # Only use the flat aggregate{"tokens": N} form when neither side has
         # any per-modality breakdown at all (e.g. legacy schema).
-        e_has_modalities = any(m in e_val for m in ("text", "audio", "image", "video"))
-        n_has_modalities = any(m in n_val for m in ("text", "audio", "image", "video"))
+        e_has_modalities = any(m in e_val for m in ("text", "audio", "image", "video", "thinking"))
+        n_has_modalities = any(m in n_val for m in ("text", "audio", "image", "video", "thinking"))
 
         if e_has_modalities or n_has_modalities:
-            for modality in ("text", "audio", "image", "video"):
+            for modality in ("text", "audio", "image", "video", "thinking"):
                 e_mod = e_val.get(modality, {}).get("tokens", 0)
                 n_mod = n_val.get(modality, {}).get("tokens", 0)
                 total = e_mod + n_mod
@@ -416,12 +441,11 @@ class PaygentCollector(BaseObserver):
         self._sts_model = sts_model
         self._acc = _UsageAccumulator()
         self._call_disposition: str = "completed"
-        # Dedup guard – pipecat sometimes re-delivers frames.
-        # Use a bounded deque+set pattern (mirrors tuner/collector.py) so that
-        # clearing never creates a window where previously-seen frames are
-        # double-counted after a reset.
+        # Dedup guard: pipecat can re-deliver frames. This collector is created
+        # fresh per call (see create_runtime_sessions) so the set size is bounded
+        # by call duration. We intentionally do NOT trim the set: trimming would
+        # evict old IDs and allow re-delivered frames to be processed a second time.
         self._seen_frame_ids: set[int] = set()
-        self._frame_history: deque[int] = deque(maxlen=2000)
 
     # ------------------------------------------------------------------
     # Public hooks
@@ -469,14 +493,11 @@ class PaygentCollector(BaseObserver):
 
             frame = data.frame
 
-            # Dedup: bounded LRU set – rebuilds from deque when overfull so we
-            # never create a gap where previously seen frames are re-processed.
+            # Dedup: per-call set; grows with the call but is GC’d when the
+            # call ends. Never trim — trimming would reopen a re-delivery window.
             if frame.id in self._seen_frame_ids:
                 return
             self._seen_frame_ids.add(frame.id)
-            self._frame_history.append(frame.id)
-            if len(self._seen_frame_ids) > len(self._frame_history):
-                self._seen_frame_ids = set(self._frame_history)
 
             if isinstance(frame, StartFrame):
                 self._acc.call_start_abs_ns = time.time_ns()
@@ -536,16 +557,27 @@ class PaygentCollector(BaseObserver):
                     # structure by some providers; we also pull from the aggregator
                     # snapshot at call-finish (see runtime.py) for robustness.
 
-            elif isinstance(frame, STSUsageFrame):
-                self._acc.sts_usage_metadata = _merge_sts_metadata(
-                    self._acc.sts_usage_metadata or {}, frame.usage_metadata
-                )
-
-            elif isinstance(frame, TextFrame):
-                # Fallback character counting for providers that don't emit metrics (like Cartesia)
+            elif isinstance(frame, TTSTextFrame):
+                # Fallback character counting for providers that don't emit native TTS metrics.
+                # TTSTextFrame carries only the text actually sent to the TTS engine;
+                # using base TextFrame would incorrectly include user transcriptions.
                 self._acc.add_tts_manual(frame.text)
+
+            elif isinstance(frame, UserStartedSpeakingFrame):
+                # Measure real STT audio seconds from VAD events rather than
+                # relying on wall-clock time. Skipped for realtime pipelines
+                # which have no separate STT stage.
+                if not self._is_realtime:
+                    self._acc.on_user_started_speaking()
+
+            elif isinstance(frame, UserStoppedSpeakingFrame):
+                if not self._is_realtime:
+                    self._acc.on_user_stopped_speaking()
 
             elif isinstance(frame, (EndFrame, CancelFrame)):
                 self._acc.finalize()
         except Exception as exc:
-            pass
+            logger.warning(
+                "[paygent] Unexpected error processing frame {!r} in collector: {}",
+                type(data.frame).__name__, exc, exc_info=True,
+            )

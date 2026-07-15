@@ -106,6 +106,10 @@ async def run_completion(
                 llm_providers: list[str] = []
                 llm_models: list[str] = []
                 for key, val in usage_info.get("llm", {}).items():
+                    # Skip post-call QA analysis entries — they must not be billed
+                    # as in-conversation LLM usage.
+                    if key.startswith("QAAnalysis|||"):
+                        continue
                     snapshot.llm_prompt_tokens += val.get("prompt_tokens", 0)
                     snapshot.llm_completion_tokens += val.get("completion_tokens", 0)
                     snapshot.llm_cached_tokens += val.get("cache_read_input_tokens", 0) + val.get("cache_creation_input_tokens", 0)
@@ -145,11 +149,9 @@ async def run_completion(
                     snapshot.stt_provider = ",".join(dict.fromkeys(stt_providers))
                 if not snapshot.stt_model and stt_models:
                     snapshot.stt_model = ",".join(dict.fromkeys(stt_models))
-
-                # 3rd fallback: if STT audio seconds is still 0 in a standard (non-realtime) call,
-                # fall back to the call's total wall-clock duration.
-                if snapshot.stt_audio_seconds == 0 and not snapshot.is_realtime:
-                    snapshot.stt_audio_seconds = float(snapshot.total_duration_seconds)
+                # Note: if STT audio seconds remain 0 after all fallbacks, we do NOT
+                # substitute total_duration_seconds — that would overbill wall-clock time
+                # (silence, hold, agent speech) as STT input.
         except Exception as exc:
             logger.warning("[paygent] Failed to apply usage_info fallback for run {}: {}", context.workflow_run_id, exc)
 

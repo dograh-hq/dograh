@@ -1,0 +1,95 @@
+---
+title: "Use External Tools, Knowledge"
+description: "Make your agent do something during the call, not just talk. Connect it to live data and your company documents."
+---
+
+You've made the agent reachable through real phone calls. Now let's make it useful during the call.
+
+Your agent can hold a conversation. But can it check an order, or answer a policy question correctly? That's what this page is about.
+
+There are two ways to connect real information to your agent. A **tool** is for anything live, data that changes, or an action that needs to happen, like checking an order or looking up availability. A **Knowledge Base** is for anything written down, like your return policy or an FAQ, that doesn't change from call to call.
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/gJCBmsHW8_A"
+  title="How to Add API Tools and a Knowledge Base to Your Voice Agent"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+Here's the setup used in the video: an order support agent named Maya, for a store called QuickMart. A customer can ask what's in their cart, and Maya calls an API to check it. A customer can also ask a policy question, and Maya answers from a document you uploaded.
+
+## Step 1: Create the tool
+
+Open the node where most of the conversation happens, in this case Maya's main support node. Scroll down and click **Create a Tool**, then choose **External HTTP API**. Name it `get_cart_details`.
+
+<Note>
+The description matters more than anything else here. It's what the agent reads to decide when to call the tool. Write it plainly: *"Use this tool when the caller asks about cart details. It returns the cart's products, quantities, total, and discounted total."*
+</Note>
+
+For the endpoint, this demo uses [dummyjson.com](https://dummyjson.com), a public sample API. Copy this exact URL and test it yourself, no backend required:
+
+```
+GET https://dummyjson.com/carts/1
+```
+
+No auth, no parameters. It's a GET request because you're fetching information, not changing anything. In your own setup, this would point at your CRM or order system instead.
+
+Save the tool.
+
+## Step 2: Attach the tool to the node
+
+Creating the tool isn't enough by itself. Go back to Maya's node and select `get_cart_details` under Tools, then save.
+
+<Warning>
+A tool only becomes available once it's attached to the node that needs it. If you skip this, the tool exists but the agent will never call it.
+</Warning>
+
+## Step 3: Upload a Knowledge Base document
+
+Click **Upload Document**, or go straight to **Knowledge Base Files**. Pick the document you want the agent to read from, a return policy, a shipping FAQ, whatever your customers actually ask about.
+
+Dograh asks how it should retrieve from this document:
+
+- **Full Document** works best for small files, where the agent can see the whole thing at once. It does not require an embeddings model.
+- **Chunked Search** is for large documents, where the agent should only pull the relevant section. Configure an embeddings model before selecting this mode; otherwise document processing or retrieval will fail.
+
+A short policy document is a Full Document case. Upload it, then wait for the status to say **Completed**.
+
+## Step 4: Attach the document to the node
+
+Same rule as the tool. Go back to Maya's node, scroll to **Knowledge Base Documents**, and attach the file.
+
+<Warning>
+Uploading isn't enough on its own. The document has to be attached to the node where the agent should use it.
+</Warning>
+
+## Step 5: Tell the agent when to use each
+
+In the node's prompt, spell out which mechanism handles which question. Don't leave it to guesswork:
+
+```
+If the caller asks about cart contents, order items, quantities, total, or discounts,
+use the get_cart_details tool before answering.
+
+For questions about returns, refunds, or cancellations,
+use the attached Knowledge Base document.
+```
+
+Save the node.
+
+## Step 6: Test it
+
+Start a Web Call and try both:
+
+- *"Hi Maya, what's inside my cart?"* Watch the transcript. Maya decides the tool is relevant, calls the API, and answers from the response instead of guessing.
+- *"What's the return policy?"* Maya retrieves the answer from the document and responds from that context.
+
+That's the difference that matters: for cart details, Maya uses the tool because the data changes call to call. For the return policy, she uses the Knowledge Base because that answer lives in a document and doesn't change. Tools connect your agent to systems. Knowledge Base connects it to documents. Together, your agent starts to feel connected to your actual business, not just reciting a script.
+
+## Next Steps
+
+You've now got the full loop: calls trigger automatically, data flows in and out, your number is connected, and the agent can act on live data and your own documents.
+
+- **Full tool reference**: parameter types, authentication, and best practices in [HTTP API Tools](/voice-agent/tools/http-api).
+- **Full Knowledge Base reference**: chunking behavior and embedding setup in [Knowledge Base](/voice-agent/knowledge-base).

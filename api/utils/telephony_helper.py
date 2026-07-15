@@ -3,6 +3,8 @@ Telephony helper utilities.
 Common functions used across telephony operations.
 """
 
+import inspect
+
 from fastapi import Request
 from loguru import logger
 from starlette.responses import HTMLResponse
@@ -119,9 +121,12 @@ def _test_number_formats_with_country_code(
     return False
 
 
-def normalize_webhook_data(provider_class, webhook_data):
+def normalize_webhook_data(provider_class, webhook_data, headers=None):
     """Normalize webhook data using the provider's parse method"""
-    return provider_class.parse_inbound_webhook(webhook_data)
+    parse_method = provider_class.parse_inbound_webhook
+    if headers is not None and "headers" in inspect.signature(parse_method).parameters:
+        return parse_method(webhook_data, headers=headers)
+    return parse_method(webhook_data)
 
 
 def generic_hangup_response():

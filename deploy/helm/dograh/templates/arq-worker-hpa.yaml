@@ -1,0 +1,34 @@
+{{- if and .Values.autoscaling.workers.enabled (or .Values.autoscaling.workers.targetCPUUtilizationPercentage .Values.autoscaling.workers.targetMemoryUtilizationPercentage) }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "dograh.arqWorker.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: arq-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "dograh.arqWorker.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.workers.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.workers.maxReplicas }}
+  metrics:
+    {{- if .Values.autoscaling.workers.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.workers.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.workers.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.workers.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

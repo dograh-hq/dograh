@@ -18,13 +18,12 @@ Dograh publishes two images — `dograh-api` and `dograh-ui` — to both contain
 - **GitHub Container Registry** — [github.com/orgs/dograh-hq/packages](https://github.com/orgs/dograh-hq/packages)
 - **Docker Hub** — [hub.docker.com/u/dograhai](https://hub.docker.com/u/dograhai)
 
-Each release is published under two kinds of tags. Note the formats differ between GitHub releases and the Docker image tags — `update_remote.sh` understands both and normalizes for you.
+Each release is published under release tags. Note the formats differ between GitHub releases and Docker image tags — `update_remote.sh` understands both and normalizes for you.
 
 | Where | Tag format | Example | When to use |
 |-------|-----------|---------|-------------|
-| GitHub release tag | `dograh-vX.Y.Z` | `dograh-v1.28.0` | What you see at [github.com/dograh-hq/dograh/releases](https://github.com/dograh-hq/dograh/releases) |
+| GitHub release tag | `dograh-vX.Y.Z` | `dograh-v1.28.0` | Use when copying the version from a GitHub release |
 | Docker image tag (semver) | `X.Y.Z` | `1.28.0` | Stable, recommended for production |
-| Docker image tag (SHA)    | short SHA | `a1b2c3d` | Bleeding edge — any commit merged to `main` |
 | Docker image tag (`latest`) | `latest` | `latest` | Tracks the most recent release tag |
 
 <Warning>
@@ -49,7 +48,7 @@ curl -o update_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main
 bash update_remote.sh
 ```
 
-You'll be prompted for the target version, defaulting to the most recent release. Accepted forms: bare semver (`1.28.0`), v-prefixed (`v1.28.0`), the full GitHub tag (`dograh-v1.28.0`), or `main` for bleeding edge — the script normalizes them. Non-interactive callers can set it via environment variable and skip the confirmation prompt:
+You'll be prompted for the target version, defaulting to the most recent release. Accepted forms: bare semver (`1.28.0`), v-prefixed (`v1.28.0`), the full GitHub tag (`dograh-v1.28.0`), or `main` to refresh deployment files from the default branch — the script normalizes them. Non-interactive callers can set it via environment variable and skip the confirmation prompt:
 
 ```bash
 TARGET_VERSION=1.28.0 DOGRAH_UPDATE_YES=1 bash update_remote.sh
@@ -67,12 +66,19 @@ The script overwrites `docker-compose.yaml` and the remote helper bundle (`remot
 
 ## Local deployment
 
-For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh` / `setup_local.ps1`), there are no host-side config files to refresh — pull new images and restart:
+For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh` / `setup_local.ps1`), refresh `docker-compose.yaml` and the startup script, stop the stack, then run the startup script. The script preserves existing `.env` secrets, creates `REDIS_PASSWORD` and MinIO credentials if they are missing, and only creates `POSTGRES_PASSWORD` for brand-new `.env` files. If a retained local Postgres volume already exists, it syncs the database user's password to `.env` before starting the full stack:
 
-```bash
+<CodeGroup>
+```bash macOS/Linux
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
+curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh
 docker compose down
-docker compose up --pull always
+./start_docker.sh
 ```
+```powershell Windows
+Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml; Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1; docker compose down; .\start_docker.ps1
+```
+</CodeGroup>
 
 To pin a specific version instead of `latest`, edit `docker-compose.yaml` and change both `image:` lines for `api` and `ui` to the same tag (e.g. `:1.28.0` — Docker image tags use bare semver, no `v` prefix), then run the commands above.
 
@@ -136,6 +142,6 @@ sudo docker compose --profile remote up -d
 If you update the `pipecat` submodule, you **must** run `git submodule update --init --recursive` before rebuilding, or the Docker build will not pick up `pipecat` changes.
 </Warning>
 
-If you maintain a fork with local customizations on top of upstream, merging conflicts in `docker-compose.yaml`, `remote_up.sh`, `scripts/run_dograh_init.sh`, `deploy/templates/*`, or `setup_remote.sh` is up to you — resolve them as you would any other git merge. Leave `OSS_JWT_SECRET` and `TURN_SECRET` in `.env` unchanged across updates to preserve sessions and WebRTC auth.
+If you maintain a fork with local customizations on top of upstream, merging conflicts in `docker-compose.yaml`, `remote_up.sh`, `scripts/run_dograh_init.sh`, `deploy/templates/*`, or `setup_remote.sh` is up to you — resolve them as you would any other git merge. Leave `OSS_JWT_SECRET`, `TURN_SECRET`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, and `MINIO_ROOT_PASSWORD` in `.env` unchanged across updates to preserve sessions, WebRTC auth, and service credentials.
 
 The same migration warning above applies: rolling back across a schema change can leave the DB in a state the older API can't read.

@@ -8,6 +8,23 @@ Dograh AI can be deployed using Docker in two main configurations. Choose the op
 - **Option 1**: For local development and testing on your own machine
 - **Option 2**: For remote server deployment with HTTPS (using IP address). If you also have a custom domain, you can first deploy Dograh stack on your server using steps in this document and then proceed to the [Custom Domain](deployment/custom-domain) section.
 
+<Tip>
+**Using Claude Code or Codex?** Install the official Dograh setup skill and let your agent drive either deployment below — it orients to your OS, picks local vs remote, runs Dograh's own setup scripts, and verifies the result with a built-in health check.
+
+<CodeGroup>
+```text Claude Code
+/plugin marketplace add dograh-hq/dograh-plugins
+/plugin install dograh@dograh
+```
+```text Codex
+codex plugin marketplace add dograh-hq/dograh-plugins
+codex plugin add dograh@dograh
+```
+</CodeGroup>
+
+Start a new session, then ask it to *"set up Dograh"* (or run `/dograh-setup` in Claude Code). More at [dograh-hq/dograh-plugins](https://github.com/dograh-hq/dograh-plugins).
+</Tip>
+
 ## Option 1: Local Docker Deployment
 
 Watch the video tutorial below for a step-by-step walkthrough of setting up Dograh AI locally with Docker.
@@ -20,18 +37,26 @@ Watch the video tutorial below for a step-by-step walkthrough of setting up Dogr
   allowFullScreen
 ></iframe>
 
-For local development and testing, you can run Dograh AI directly on your machine using Docker with a single command.
+For local development and testing, you can run Dograh AI directly on your machine using Docker with a small startup script.
 
 ### Quick Start
 
-Run this single command to download and start Dograh AI:
+Download the compose file and starter script, then confirm the prompt to start Dograh AI:
 
-```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
+<CodeGroup>
+```bash macOS/Linux
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
+```powershell Windows
+Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml; Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1; .\start_docker.ps1
+```
+</CodeGroup>
 
-This command:
+This setup:
 - Downloads the latest docker-compose.yaml
+- Creates `OSS_JWT_SECRET`, `REDIS_PASSWORD`, and MinIO credentials in `.env` if they do not already exist
+- Creates `POSTGRES_PASSWORD` for brand-new `.env` files and syncs retained local Postgres volumes to that value before startup
+- Prompts before running Docker Compose
 - Starts all required services including PostgreSQL, Redis, MinIO, API, and UI
 - Pulls the latest images automatically
 
@@ -43,7 +68,7 @@ http://localhost:3010
 ```
 
 <Note>
-You can disable telemetry by setting `ENABLE_TELEMETRY=false` in the command above.
+You can disable telemetry by setting `ENABLE_TELEMETRY=false` before running `./start_docker.sh` or `.\start_docker.ps1`.
 </Note>
 
 ### Troubleshooting WebRTC Connectivity
@@ -62,8 +87,7 @@ For these cases, use the alternate local setup script which configures a coturn 
 curl -o setup_local.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_local.sh && chmod +x setup_local.sh && ./setup_local.sh
 ```
 ```powershell Windows
-Invoke-WebRequest -OutFile setup_local.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_local.ps1
-.\setup_local.ps1
+Invoke-WebRequest -OutFile setup_local.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_local.ps1; .\setup_local.ps1
 ```
 </CodeGroup>
 
@@ -72,10 +96,10 @@ The script will prompt you for:
 - The host browsers should use to reach TURN (press Enter for `127.0.0.1`; use your LAN IP if testing from another device on the same network)
 - A shared secret for the TURN server (press Enter to generate a random one)
 
-It creates `docker-compose.yaml`, a `.env` file with TURN credentials, and the small helper bundle that `dograh-init` uses to render coturn config at startup. Start the stack with the `local-turn` profile so coturn comes up alongside the other services:
+It creates `docker-compose.yaml`, a `.env` file with JWT and TURN credentials, and the small helper bundle that `dograh-init` uses to render coturn config at startup. Start the stack with the `local-turn` profile so coturn comes up alongside the other services:
 
 ```bash
-docker compose --profile local-turn up --pull always
+docker compose --profile local-turn --profile tunnel up --pull always
 ```
 
 The application is still available at `http://localhost:3010`.
@@ -96,13 +120,14 @@ Watch the video tutorial below for a step-by-step walkthrough of deploying Dogra
   allowFullScreen
 ></iframe>
 
-Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates. **We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS**.
+Deploy Dograh AI on a remote server to make it accessible from anywhere. If your server has a **public IP**, setup obtains a free, trusted HTTPS certificate automatically via [sslip.io](https://sslip.io) and Let's Encrypt — no domain name or DNS configuration required, and no browser warning. On a private/reserved IP it falls back to a self-signed certificate. **We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS**.
 
 <Warning>We highly recommend you set up the platform on a fresh server, so that there are less chances of confliciting dependencies, and ports from other applications.</Warning>
 
 ### Prerequisites
 
 - A server with Docker and Docker Compose installed. It should have minimum of 8 GB RAM and 4 vCPUs.
+- Root (`sudo`) access on the server — the setup script must be run as root and exits early otherwise.
 - Public IP address for your server. You can also access the server using a local IP address in your VPC as long as its reachable from your browser.
 - TCP Ports 80, 443, 3478, 5349 and UDP Ports 3478, 5349 and 49152:49200 reachable from Internet (Port 80 and 443 to access the UI and rest of the ports for WebRTC Signaling)
 
@@ -113,8 +138,12 @@ Deploy Dograh AI on a remote server to make it accessible from anywhere using yo
 Run the automated setup script that will configure everything for you:
 
 ```bash
-curl -o setup_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_remote.sh && chmod +x setup_remote.sh && ./setup_remote.sh
+curl -o setup_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_remote.sh && chmod +x setup_remote.sh && sudo ./setup_remote.sh
 ```
+
+<Note>
+Run with `sudo` — the script must run as root (it provisions Docker, binds ports 80/443, and installs a Let's Encrypt certificate with a system renewal hook) and exits early if it isn't. On a public IP it obtains and auto-renews a trusted certificate; on a private IP it falls back to a self-signed one, since Let's Encrypt can't validate a private address. Optional environment-variable overrides: `CERT_MODE=self-signed` forces a self-signed cert, `ACME_DOMAIN_SUFFIX=nip.io` switches to the nip.io pool if sslip.io is rate-limited, and `LETSENCRYPT_EMAIL=you@example.com` sets the address for expiry notices.
+</Note>
 
 The script will prompt you for:
 - Your server's public IP address
@@ -125,7 +154,8 @@ The script will prompt you for:
 It will automatically:
 - Get the source — `docker-compose.yaml` only (prebuilt mode), or clone the full repo (build mode)
 - Download the validated remote deployment helper bundle
-- Generate SSL certificates
+- Obtain a free trusted Let's Encrypt certificate via sslip.io and configure auto-renewal (public IP), or generate a self-signed certificate (private IP / no root)
+- For a public IP, also start the stack and print your ready-to-use `https://…sslip.io` URL
 - Create an environment file with TURN server configuration
 - Validate the runtime config that `dograh-init` will render from `.env`
 - Write a `docker-compose.override.yaml` with build directives (build mode only)
@@ -136,7 +166,7 @@ It will automatically:
 Please ensure that Docker Compose is installed on your machine before proceeding further. You can check whether its installed by running `docker compose version` command. If its not installed, please install it by following your server provider documentation.
 </Note>
 
-After the setup script completes, start Dograh. The script prints the exact command to run at the end — it differs slightly between modes:
+After the setup script completes, start Dograh. For a **public-IP install the trusted-certificate flow already started the stack** and printed your `https://…sslip.io` URL — you can skip to [Access Your Application](#access-your-application). For a self-signed install, start it yourself (the script prints the exact command at the end — it differs slightly between modes):
 
 <CodeGroup>
 ```bash Prebuilt mode
@@ -153,13 +183,13 @@ First boot in build mode takes several minutes — Docker has to build both the 
 
 ### Access Your Application
 
-Your application will be available at
-```
-https://YOUR_SERVER_IP
-```
+Your application will be available at the URL the setup script printed at the end:
+
+- **Public IP (trusted certificate):** `https://<your-ip-with-dashes>.sslip.io` — for example `https://203-0-113-10.sslip.io`. No browser warning.
+- **Self-signed (private IP):** `https://YOUR_SERVER_IP`
 
 <Note>
-Since we are using a self-signed certificate, your browser will show a security warning. You can safely accept it to proceed.
+With a self-signed certificate your browser shows a security warning you can safely accept. With the sslip.io Let's Encrypt certificate there is no warning.
 </Note>
 
 You should be able to create and test a voice agent now. 
@@ -169,7 +199,7 @@ You should be able to create and test a voice agent now.
 - The remote deployment includes an nginx reverse proxy for HTTPS termination
 - File downloads (transcripts, recordings) are automatically routed through nginx
 - WebSocket connections for real-time features are properly proxied
-- The setup uses self-signed certificates - browsers will show a security warning that you can safely accept for testing
+- Public-IP installs get a trusted Let's Encrypt certificate (via sslip.io) that renews automatically; private-IP installs use a self-signed certificate (browser warning)
 - The TURN server (coturn) is configured for WebRTC NAT traversal
 - For production deployments with proper SSL and domain names, see the [Custom Domain](custom-domain) documentation
 
@@ -186,7 +216,7 @@ The setup script creates the following files in the `dograh/` directory:
 | `scripts/lib/setup_common.sh` | Shared deployment helper library |
 | `deploy/templates/` | nginx and coturn runtime config templates |
 | `generate_certificate.sh` | Script to regenerate SSL certificates |
-| `certs/local.crt` | Self-signed SSL certificate |
+| `certs/local.crt` | SSL certificate (Let's Encrypt via sslip.io, or self-signed) |
 | `certs/local.key` | SSL private key |
 | `.env` | Single source of truth for deployment settings (TURN secret, JWT secret, FastAPI worker count, public host/base URL) |
 

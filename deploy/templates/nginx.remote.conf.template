@@ -4,8 +4,21 @@ server {
     listen 80;
     server_name __DOGRAH_PUBLIC_HOST__;
 
-    # Redirect all HTTP to HTTPS
-    return 301 https://$host$request_uri;
+    # Serve Let's Encrypt HTTP-01 challenges out of the certs webroot that
+    # certbot --webroot writes into (./certs is bind-mounted here read-only).
+    # Only this path is exposed; local.crt/local.key are never served.
+    location ^~ /.well-known/acme-challenge/ {
+        root /etc/nginx/certs;
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+
+    # Redirect everything else to HTTPS. This must live in a location block,
+    # not a server-level `return`, or it would fire before location matching
+    # and hijack the ACME challenge above.
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 
 server {

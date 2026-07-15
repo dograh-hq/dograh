@@ -80,7 +80,7 @@ fi
 
 # Install pipecat in editable mode with all extras
 echo "Installing pipecat dependencies..."
-uv pip install -e ./pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp]
+uv pip install -e ./pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]
 
 if [ "$DEV_MODE" -eq 1 ]; then
     echo "Installing pipecat dev dependencies..."

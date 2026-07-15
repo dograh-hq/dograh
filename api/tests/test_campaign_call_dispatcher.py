@@ -25,6 +25,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
+from api.services.call_concurrency import CallConcurrencySlot
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
 
 # =============================================================================
@@ -257,6 +258,27 @@ def mock_rate_limiter():
         "get_workflow_from_number_mapping": mock_get_from_number_mapping,
         "delete_workflow_from_number_mapping": mock_delete_from_number_mapping,
     }
+
+
+@pytest.fixture(autouse=True)
+def mock_call_concurrency():
+    async def acquire_slot(organization_id, *, source, **kwargs):
+        return CallConcurrencySlot(
+            organization_id=organization_id,
+            slot_id=f"slot-{uuid.uuid4().hex[:8]}",
+            max_concurrent=20,
+            source=source,
+            scope_key=kwargs.get("scope_key"),
+        )
+
+    with patch(
+        "api.services.campaign.campaign_call_dispatcher.call_concurrency"
+    ) as mock_concurrency:
+        mock_concurrency.acquire_org_slot = AsyncMock(side_effect=acquire_slot)
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_slot = AsyncMock(return_value=True)
+        mock_concurrency.release_workflow_run_slot = AsyncMock(return_value=True)
+        yield mock_concurrency
 
 
 # =============================================================================
@@ -793,3 +815,47 @@ class TestProcessBatchEdgeCases:
                     {"campaign_id": campaign_test_data.campaign_id},
                 )
                 await session.commit()
+
+
+class TestAcquireConcurrentSlotScoping:
+    """Campaign max_concurrency must scope to the campaign, not the org counter."""
+
+    def _campaign(self, orchestrator_metadata):
+        campaign = MagicMock()
+        campaign.id = 42
+        campaign.orchestrator_metadata = orchestrator_metadata
+        return campaign
+
+    @pytest.mark.asyncio
+    async def test_campaign_max_concurrency_uses_campaign_scope(
+        self, mock_call_concurrency
+    ):
+        dispatcher = CampaignCallDispatcher()
+        campaign = self._campaign({"max_concurrency": 3})
+
+        await dispatcher.acquire_concurrent_slot(7, campaign, timeout=5)
+
+        mock_call_concurrency.acquire_org_slot.assert_awaited_once_with(
+            7,
+            source="campaign:42",
+            timeout=5,
+            scope_key="campaign:42",
+            scope_max_concurrent=3,
+            retry_interval=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_campaign_max_concurrency_skips_scope(self, mock_call_concurrency):
+        dispatcher = CampaignCallDispatcher()
+        campaign = self._campaign({})
+
+        await dispatcher.acquire_concurrent_slot(7, campaign, timeout=5)
+
+        mock_call_concurrency.acquire_org_slot.assert_awaited_once_with(
+            7,
+            source="campaign:42",
+            timeout=5,
+            scope_key=None,
+            scope_max_concurrent=None,
+            retry_interval=1,
+        )

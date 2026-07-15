@@ -14,7 +14,7 @@ import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -255,7 +255,7 @@ class VobizProvider(TelephonyProvider):
         return is_valid
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """
         Generate Vobiz XML response for starting a call session.
@@ -269,7 +269,7 @@ class VobizProvider(TelephonyProvider):
 
         vobiz_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}</Stream>
+    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}</Stream>
 </Response>"""
         return vobiz_xml
 
@@ -335,9 +335,10 @@ class VobizProvider(TelephonyProvider):
         - call_uuid (instead of CallSid)
         - status, from, to, duration, etc.
         """
+        call_status = data.get("CallStatus", "")
         return {
             "call_id": data.get("CallUUID", ""),
-            "status": data.get("CallStatus", ""),
+            "status": TelephonyCallStatus.from_raw(call_status) or call_status,
             "from_number": data.get("From"),
             "to_number": data.get("To"),
             "direction": data.get("Direction"),
@@ -349,7 +350,7 @@ class VobizProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -393,7 +394,7 @@ class VobizProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_id,
                 transport_kwargs={"stream_id": stream_id, "call_id": call_id},
             )

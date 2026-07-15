@@ -196,7 +196,12 @@ class _ToolDocumentRefsMixin(BaseModel):
             },
         )
     ],
-    graph_constraints=GraphConstraints(min_incoming=0, max_incoming=0),
+    graph_constraints=GraphConstraints(
+        min_incoming=0,
+        max_incoming=0,
+        min_instances=1,
+        max_instances=1,
+    ),
     property_order=(
         "name",
         "greeting_type",
@@ -245,7 +250,6 @@ class _ToolDocumentRefsMixin(BaseModel):
             "description": (
                 "Text spoken via TTS at the start of the call. Supports "
                 "{{template_variables}}. Leave empty to skip the greeting. "
-                "Not supported with realtime (speech-to-speech) models."
             ),
             "display_options": DisplayOptions(show={"greeting_type": ["text"]}),
             "placeholder": "Hi {{first_name}}, this is Sarah from Acme.",
@@ -539,6 +543,7 @@ class EndCallNodeData(
         max_incoming=0,
         min_outgoing=0,
         max_outgoing=0,
+        max_instances=1,
     ),
     property_order=("name", "prompt"),
     field_overrides={
@@ -597,7 +602,11 @@ class GlobalNodeData(BaseNodeData, _PromptedNodeDataMixin):
     examples=[
         NodeExample(name="default", data={"name": "Inbound Trigger", "enabled": True})
     ],
-    graph_constraints=GraphConstraints(min_incoming=0, max_incoming=0),
+    graph_constraints=GraphConstraints(
+        min_incoming=0,
+        max_incoming=0,
+        max_instances=1,
+    ),
     property_order=("name", "enabled", "trigger_path"),
     field_overrides={
         "name": {
@@ -718,6 +727,8 @@ class TriggerNodeData(BaseNodeData):
                 "rsvp": "{{gathered_context.rsvp}}",
                 "duration": "{{cost_info.call_duration_seconds}}",
                 "recording_url": "{{recording_url}}",
+                "user_recording_url": "{{user_recording_url}}",
+                "bot_recording_url": "{{bot_recording_url}}",
                 "transcript_url": "{{transcript_url}}",
             },
         },

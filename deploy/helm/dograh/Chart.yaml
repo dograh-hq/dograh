@@ -1,0 +1,37 @@
+apiVersion: v2
+name: dograh
+description: |
+  Dograh — open-source voice AI platform. Deploys the FastAPI backend
+  (decomposed into web, ARQ worker, ARI manager singleton, and campaign
+  orchestrator singleton), the Next.js UI, and coturn for WebRTC media
+  relay. Optional bundled PostgreSQL, Redis, and MinIO via subcharts.
+type: application
+
+# version: chart version. Bump for any chart change.
+# appVersion: Dograh application version. Tracks the image tag.
+version: 0.1.0
+appVersion: "0.1.0"
+
+kubeVersion: ">=1.28.0-0"
+
+keywords:
+  - voice-ai
+  - webrtc
+  - telephony
+  - fastapi
+
+home: https://dograh.com
+sources:
+  - https://github.com/dograh-hq/dograh
+
+maintainers:
+  - name: Dograh
+
+# The bundled stateful deps (PostgreSQL, Redis, MinIO) for the internal/all-in-one
+# modes are plain in-chart manifests (templates/internal-*.yaml) built on official
+# upstream images — NOT subcharts. This avoids depending on third-party chart
+# packaging/registries that can change or disappear (as the Bitnami catalog did in
+# Aug 2025). Production deployments should use the external/managed modes
+# (database.mode=external, redis.mode=external, storage.mode=s3|externalMinio).
+#
+# dependencies: []

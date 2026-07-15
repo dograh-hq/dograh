@@ -1,18 +1,25 @@
 'use client';
 
-import { StackClientApp, StackProvider, StackTheme, useUser as useStackUser } from '@stackframe/stack';
+import { StackClientApp, StackProvider, StackTheme } from '@stackframe/stack';
 import React, { useMemo, useRef } from 'react';
 
-import type { AuthUser } from '../types';
 import { AuthContext } from './AuthProvider';
 
 // Create a singleton StackClientApp instance to prevent multiple initializations
 let stackClientAppInstance: StackClientApp<true, string> | null = null;
 
-function getStackClientApp(): StackClientApp<true, string> {
+function getStackClientApp(
+  projectId: string,
+  publishableClientKey: string,
+): StackClientApp<true, string> {
   if (!stackClientAppInstance) {
+    // projectId / publishableClientKey are passed explicitly (fetched from the
+    // backend at runtime) instead of being read from inlined NEXT_PUBLIC_* env,
+    // so the prebuilt image works without build-time configuration.
     stackClientAppInstance = new StackClientApp({
       tokenStore: "nextjs-cookie",
+      projectId,
+      publishableClientKey,
       urls: {
         afterSignIn: "/after-sign-in"
       }
@@ -23,18 +30,22 @@ function getStackClientApp(): StackClientApp<true, string> {
 
 interface StackProviderWrapperProps {
   children: React.ReactNode;
+  projectId: string;
+  publishableClientKey: string;
 }
 
-// Simple context provider that uses Stack's useUser directly
-function StackAuthContextProvider({ children }: { children: React.ReactNode }) {
-  const stackUser = useStackUser();
+function StackAuthContextProvider({
+  children,
+  app,
+}: {
+  children: React.ReactNode;
+  app: StackClientApp<true, string>;
+}) {
+  const stackUser = app.useUser();
 
   // Store user in ref for callbacks to access latest value without creating new callbacks
   const userRef = useRef(stackUser);
   userRef.current = stackUser;
-
-  // Derive loading state: loading if we don't have a user yet
-  const isLoading = stackUser === null;
 
   // Stable callbacks that use ref to access current user
   const getAccessToken = React.useCallback(async () => {
@@ -85,21 +96,17 @@ function StackAuthContextProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // IMPORTANT: Use primitive values (userId, isLoading) in deps, NOT stackUser object
-  // Stack's useUser() returns a new object reference on every render, which would cause infinite re-renders
-  const userId = stackUser?.id;
-
   const contextValue = useMemo(() => ({
-    user: userRef.current as AuthUser,
-    isAuthenticated: !!userId,
-    loading: isLoading,
+    user: stackUser,
+    isAuthenticated: !!stackUser,
+    loading: false,
     getAccessToken,
     redirectToLogin,
     logout,
     provider: 'stack' as const,
     getSelectedTeam,
     listPermissions,
-  }), [userId, isLoading, getAccessToken, redirectToLogin, logout, getSelectedTeam, listPermissions]);
+  }), [stackUser, getAccessToken, redirectToLogin, logout, getSelectedTeam, listPermissions]);
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -114,13 +121,13 @@ const translationOverrides = {
   "Sign up with {provider}": "Sign up with {provider} Business",
 };
 
-export function StackProviderWrapper({ children }: StackProviderWrapperProps) {
-  const stackClientApp = getStackClientApp();
+export function StackProviderWrapper({ children, projectId, publishableClientKey }: StackProviderWrapperProps) {
+  const stackClientApp = getStackClientApp(projectId, publishableClientKey);
 
   return (
     <StackProvider app={stackClientApp} translationOverrides={translationOverrides}>
       <StackTheme>
-        <StackAuthContextProvider>
+        <StackAuthContextProvider app={stackClientApp}>
           {children}
         </StackAuthContextProvider>
       </StackTheme>

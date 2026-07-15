@@ -11,7 +11,7 @@ from api.services.voice_prompting_guide._base import (
 
 TOPIC = VoicePromptingTopic(
     id="call_flow_design",
-    title="Structure node prompts; sequence multi-turn tasks; ask one thing at a time",
+    title="Structure node prompts; sequence multi-turn tasks; design conversation around variable extraction",
     severity="medium",
     applies_to_node_types=("agentNode", "startCall"),
     stages={
@@ -36,16 +36,16 @@ TOPIC = VoicePromptingTopic(
             relevant=True,
             lens=(
                 "Check the node asks for one thing at a time and that extraction "
-                "logic isn't tangled into the conversational prompt."
+                "logic isn't tangled into the conversational prompt. Check whether the nodes "
+                "are created around variable extraction."
             ),
         ),
     },
     content="""\
 A good node prompt is broken into clear sections — pick five to eight depending
 on the use case rather than dumping one wall of text. Sections worth using:
-overall context & persona, main task at this node, call flow at this node,
-response style, speech handling, common objections, knowledge base, guardrails,
-rules, and success criteria.
+main task at this node, call flow at this node, common objections, knowledge base, 
+guardrails, rules, and success criteria.
 
 For multi-turn tasks, break the work into a numbered sequence inside the call
 flow. A refund-status flow looks like:
@@ -55,6 +55,9 @@ flow. A refund-status flow looks like:
   4. Call get_order_details with orderId and name.
   5. Read back the order status.
   6. Ask if they need anything else.
+
+Remember, the goal of this call is to collect information so design the questions
+and flow which makese a coherent sense to a user.
 
 Collect one thing at a time. Agents that ask "Can I get your name, date of
 birth, and reason for calling?" almost always fail — the user gives one piece,
@@ -99,5 +102,5 @@ each node prompt — a global node is reachable from anywhere in the call.
             ),
         ),
     ),
-    cross_refs=("success_criteria", "readback_and_extraction", "tool_calls"),
+    cross_refs=("common_guidelines", "success_criteria", "tool_calls"),
 )

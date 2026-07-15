@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from pydantic import ValidationError
 
 from api.services.workflow.dto import (
     ReactFlowDTO,
@@ -22,6 +23,7 @@ from api.services.workflow.dto import (
 from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs import (
     NodeSpec,
+    PropertyRendererOptions,
     PropertySpec,
     PropertyType,
     all_specs,
@@ -296,6 +298,13 @@ def test_all_registered_node_models_inherit_base_node_data():
                 "tuner_agent_id",
                 "tuner_workspace_id",
                 "tuner_api_key",
+                "cost_calculation_enabled",
+                "cost_llm_input_rate",
+                "cost_llm_cached_input_rate",
+                "cost_llm_output_rate",
+                "cost_tts_rate",
+                "cost_stt_rate",
+                "cost_telephony_rate",
             ],
         ),
     ],
@@ -303,6 +312,33 @@ def test_all_registered_node_models_inherit_base_node_data():
 def test_node_spec_property_order_stable(spec_name: str, expected_order: list[str]):
     spec = next(spec for spec in all_specs() if spec.name == spec_name)
     assert [prop.name for prop in spec.properties] == expected_order
+
+
+def test_tuner_cost_rate_fields_use_typed_renderer_options():
+    spec = next(spec for spec in all_specs() if spec.name == "tuner")
+    cost_rate_props = [
+        prop
+        for prop in spec.properties
+        if prop.name.startswith("cost_") and prop.name.endswith("_rate")
+    ]
+
+    assert len(cost_rate_props) == 6
+    assert all(prop.renderer_options is not None for prop in cost_rate_props)
+    assert all(
+        prop.renderer_options.layout is not None
+        and prop.renderer_options.layout.column_span == 6
+        for prop in cost_rate_props
+    )
+    assert all(
+        prop.renderer_options.number_input is not None
+        and prop.renderer_options.number_input.fractional is True
+        for prop in cost_rate_props
+    )
+
+
+def test_property_renderer_options_reject_unknown_hints():
+    with pytest.raises(ValidationError):
+        PropertyRendererOptions.model_validate({"layout": {"width": "half"}})
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -322,7 +358,7 @@ _UI_ONLY_KEYS = frozenset(
         "placeholder",
         "display_options",
         "editor",
-        "extra",
+        "renderer_options",
         "label",  # PropertyOption display string
     }
 )
@@ -414,4 +450,9 @@ def test_to_mcp_dict_retains_authoring_signal_startcall():
     ]
 
     # graph_constraints drops its null sub-fields.
-    assert projected["graph_constraints"] == {"min_incoming": 0, "max_incoming": 0}
+    assert projected["graph_constraints"] == {
+        "min_incoming": 0,
+        "max_incoming": 0,
+        "min_instances": 1,
+        "max_instances": 1,
+    }

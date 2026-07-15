@@ -35,6 +35,8 @@ export async function GET() {
   let authProvider = "local";
   let turnEnabled = false;
   let forceTurnRelay = false;
+  let tunnelUrl: string | null = null;
+  let backendApiEndpoint: string | null = null;
   let backendStatus: "reachable" | "unreachable" = "unreachable";
   let backendMessage: string | null = `Backend is not reachable at ${backendUrl}.`;
 
@@ -53,6 +55,12 @@ export async function GET() {
       authProvider = data.auth_provider;
       turnEnabled = Boolean(data.turn_enabled);
       forceTurnRelay = Boolean(data.force_turn_relay);
+      tunnelUrl = data.tunnel_url ?? null;
+      backendApiEndpoint =
+        typeof data.backend_api_endpoint === "string" &&
+        data.backend_api_endpoint.length > 0
+          ? trimTrailingSlash(data.backend_api_endpoint)
+          : null;
       backendStatus = "reachable";
       backendMessage = null;
     }
@@ -68,6 +76,8 @@ export async function GET() {
     authProvider,
     turnEnabled,
     forceTurnRelay,
+    tunnelUrl,
+    backendApiEndpoint,
     backend: {
       status: backendStatus,
       url: backendUrl,

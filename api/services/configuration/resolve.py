@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import copy
 
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import (
     REGISTRY,
     ServiceType,
 )
 
-# Maps override key → (UserConfiguration field, ServiceType for registry lookup)
+# Maps override key → (EffectiveAIModelConfiguration field, ServiceType for registry lookup)
 _SECTION_MAP: dict[str, ServiceType] = {
     "llm": ServiceType.LLM,
     "tts": ServiceType.TTS,
@@ -36,7 +36,7 @@ _SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
 
 def enrich_overrides_with_api_keys(
     model_overrides: dict,
-    user_config: UserConfiguration,
+    user_config: EffectiveAIModelConfiguration,
 ) -> dict:
     """Copy API keys from the global config into model_overrides where missing.
 
@@ -74,9 +74,9 @@ def enrich_overrides_with_api_keys(
 
 
 def resolve_effective_config(
-    user_config: UserConfiguration,
+    user_config: EffectiveAIModelConfiguration,
     model_overrides: dict | None,
-) -> UserConfiguration:
+) -> EffectiveAIModelConfiguration:
     """Deep-merge workflow model_overrides onto global user config.
 
     - If model_overrides is None or empty, returns a copy of user_config unchanged.

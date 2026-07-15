@@ -1,30 +1,65 @@
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, Dict, Optional
 
 import aioboto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from .base import BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem
 
 
 class S3FileSystem(BaseFileSystem):
     """S3 implementation of the filesystem interface."""
 
-    def __init__(self, bucket_name: str, region_name: str = "us-east-1"):
+    def __init__(
+        self,
+        bucket_name: str,
+        region_name: str = "us-east-1",
+        endpoint_url: Optional[str] = None,
+        signature_version: Optional[str] = None,
+        addressing_style: Optional[str] = None,
+    ):
         """Initialize S3 filesystem.
 
         Args:
             bucket_name: Name of the S3 bucket
             region_name: AWS region name
+            endpoint_url: Optional custom S3 endpoint (e.g. for MinIO/rustfs).
+                ``None`` uses AWS's default endpoint resolution.
+            signature_version: Optional botocore signature version (e.g.
+                ``"s3v4"``). ``None`` keeps botocore's default signing behavior.
+            addressing_style: Optional S3 addressing style (``"path"`` /
+                ``"virtual"`` / ``"auto"``). ``None`` keeps botocore's default.
         """
         self.bucket_name = bucket_name
         self.region_name = region_name
+        self.endpoint_url = endpoint_url
         self.session = aioboto3.Session()
 
-    async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
+        # Build a botocore Config only when an override is requested so that the
+        # default behavior is byte-for-byte unchanged when no env vars are set.
+        config_kwargs: Dict[str, Any] = {}
+        if signature_version:
+            config_kwargs["signature_version"] = signature_version
+        if addressing_style:
+            config_kwargs["s3"] = {"addressing_style": addressing_style}
+        self._config = Config(**config_kwargs) if config_kwargs else None
+
+    def _client_kwargs(self) -> Dict[str, Any]:
+        """Common kwargs for every ``session.client("s3", ...)`` call.
+
+        Only includes ``endpoint_url`` / ``config`` when configured, so default
+        deployments behave exactly as before.
+        """
+        kwargs: Dict[str, Any] = {"region_name": self.region_name}
+        if self.endpoint_url:
+            kwargs["endpoint_url"] = self.endpoint_url
+        if self._config is not None:
+            kwargs["config"] = self._config
+        return kwargs
+
+    async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         try:
-            async with self.session.client(
-                "s3", region_name=self.region_name
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.put_object(
                     Bucket=self.bucket_name, Key=file_path, Body=await content.read()
                 )
@@ -34,9 +69,7 @@ class S3FileSystem(BaseFileSystem):
 
     async def aupload_file(self, local_path: str, destination_path: str) -> bool:
         try:
-            async with self.session.client(
-                "s3", region_name=self.region_name
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.upload_file(
                     local_path, self.bucket_name, destination_path
                 )
@@ -59,9 +92,7 @@ class S3FileSystem(BaseFileSystem):
         disposition on the response.
         """
         try:
-            async with self.session.client(
-                "s3", region_name=self.region_name
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 params = {"Bucket": self.bucket_name, "Key": file_path}
 
                 # Make artifacts viewable inline in the browser when requested
@@ -100,9 +131,7 @@ class S3FileSystem(BaseFileSystem):
     async def aget_file_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get S3 object metadata."""
         try:
-            async with self.session.client(
-                "s3", region_name=self.region_name
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 response = await s3_client.head_object(
                     Bucket=self.bucket_name, Key=file_path
                 )
@@ -126,9 +155,7 @@ class S3FileSystem(BaseFileSystem):
     ) -> Optional[str]:
         """Generate a presigned PUT URL for direct file upload."""
         try:
-            async with self.session.client(
-                "s3", region_name=self.region_name
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 url = await s3_client.generate_presigned_url(
                     "put_object",
                     Params={
@@ -145,9 +172,7 @@ class S3FileSystem(BaseFileSystem):
     async def adownload_file(self, source_path: str, local_path: str) -> bool:
         """Download a file from S3 to local path."""
         try:
-            async with self.session.client(
-                "s3", region_name=self.region_name
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.download_file(self.bucket_name, source_path, local_path)
             return True
         except ClientError:
@@ -156,9 +181,7 @@ class S3FileSystem(BaseFileSystem):
     async def acopy_file(self, source_path: str, destination_path: str) -> bool:
         """Copy a file within S3 (server-side copy)."""
         try:
-            async with self.session.client(
-                "s3", region_name=self.region_name
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.copy_object(
                     Bucket=self.bucket_name,
                     Key=destination_path,

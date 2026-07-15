@@ -25,7 +25,7 @@ TELNYX_TIMESTAMP_TOLERANCE_SECONDS = 300
 TELNYX_PUBLIC_KEY_BYTES = 32
 TELNYX_SIGNATURE_BYTES = 64
 
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -101,10 +101,10 @@ class TelnyxProvider(TelephonyProvider):
 
         # Build the WebSocket stream URL for inline audio streaming
         workflow_id = kwargs.get("workflow_id")
-        user_id = kwargs.get("user_id")
+        organization_id = kwargs.get("organization_id")
         stream_url = (
             f"{wss_backend_endpoint}/api/v1/telephony/ws"
-            f"/{workflow_id}/{user_id}/{workflow_run_id}"
+            f"/{workflow_id}/{organization_id}/{workflow_run_id}"
         )
 
         # Build the webhook URL for status callbacks
@@ -267,7 +267,7 @@ class TelnyxProvider(TelephonyProvider):
             return False
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """Not used for Telnyx — streaming is inline with the dial request."""
         return ""
@@ -305,23 +305,25 @@ class TelnyxProvider(TelephonyProvider):
         }
 
     @staticmethod
-    def _resolve_status(event_type: str, payload: Dict[str, Any]) -> str:
+    def _resolve_status(
+        event_type: str, payload: Dict[str, Any]
+    ) -> TelephonyCallStatus | str:
         """Map a Telnyx event type (and hangup cause) to a normalized status."""
         EVENT_STATUS = {
-            "call.initiated": "initiated",
-            "call.answered": "in-progress",
-            "call.hangup": "completed",
+            "call.initiated": TelephonyCallStatus.INITIATED,
+            "call.answered": TelephonyCallStatus.IN_PROGRESS,
+            "call.hangup": TelephonyCallStatus.COMPLETED,
             "call.machine.detection.ended": "machine-detected",
             "streaming.started": "streaming-started",
             "streaming.stopped": "streaming-stopped",
         }
 
         HANGUP_STATUS = {
-            "busy": "busy",
-            "no_answer": "no-answer",
-            "timeout": "no-answer",
-            "call_rejected": "failed",
-            "unallocated_number": "failed",
+            "busy": TelephonyCallStatus.BUSY,
+            "no_answer": TelephonyCallStatus.NO_ANSWER,
+            "timeout": TelephonyCallStatus.NO_ANSWER,
+            "call_rejected": TelephonyCallStatus.FAILED,
+            "unallocated_number": TelephonyCallStatus.FAILED,
         }
 
         status = EVENT_STATUS.get(event_type, event_type)
@@ -336,7 +338,7 @@ class TelnyxProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """Handle Telnyx WebSocket connection for real-time audio.
@@ -404,7 +406,7 @@ class TelnyxProvider(TelephonyProvider):
                 provider_name=self.PROVIDER_NAME,
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
-                user_id=user_id,
+                organization_id=organization_id,
                 call_id=call_control_id,
                 transport_kwargs={
                     "stream_id": stream_id,

@@ -14,6 +14,7 @@ import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowV
 import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } from '@/client/types.gen';
 import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
+import { HireExpertNudge } from "@/components/lead-forms/HireExpertNudge";
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -442,7 +443,7 @@ function RenderWorkflow({
     const renameWorkflow = useCallback(async (newName: string) => {
         // The header doesn't render the pencil until the page has mounted with
         // initial data, so workflowConfigurations is non-null by the time this
-        // runs. Throw rather than silently sending DEFAULT_WORKFLOW_CONFIGURATIONS,
+        // runs. Throw rather than silently sending fallback workflow configurations,
         // which would overwrite the saved server-side config.
         if (!workflowConfigurations) {
             throw new Error("Workflow configurations not loaded");
@@ -481,6 +482,7 @@ function RenderWorkflow({
     return (
         <WorkflowProvider value={workflowContextValue}>
             <div className="flex flex-col h-screen min-w-fit">
+                <HireExpertNudge workflowId={workflowId} />
                 {/* New Workflow Editor Header */}
                 <WorkflowEditorHeader
                     workflowName={workflowName}
@@ -690,6 +692,7 @@ function RenderWorkflow({
                     isOpen={isAddNodePanelOpen}
                     onNodeSelect={handleNodeSelect}
                     onClose={() => setIsAddNodePanelOpen(false)}
+                    nodes={nodes}
                 />
 
                 <VersionHistoryPanel

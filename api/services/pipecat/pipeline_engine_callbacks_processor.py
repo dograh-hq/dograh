@@ -3,6 +3,7 @@ from typing import Awaitable, Callable, Optional
 
 from loguru import logger
 
+from api.schemas.workflow_configurations import DEFAULT_MAX_CALL_DURATION_SECONDS
 from pipecat.frames.frames import (
     Frame,
     HeartbeatFrame,
@@ -23,7 +24,7 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
 
     def __init__(
         self,
-        max_call_duration_seconds: int = 300,
+        max_call_duration_seconds: int = DEFAULT_MAX_CALL_DURATION_SECONDS,
         max_duration_end_task_callback: Optional[Callable[[], Awaitable[None]]] = None,
         generation_started_callback: Optional[Callable[[], Awaitable[None]]] = None,
         llm_text_frame_callback: Optional[Callable[[str], Awaitable[None]]] = None,

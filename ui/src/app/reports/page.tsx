@@ -2,11 +2,12 @@
 
 import { addDays, format, subDays } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { useEffect,useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   getDailyReportApiV1OrganizationsReportsDailyGet,
   getDailyRunsDetailApiV1OrganizationsReportsDailyRunsGet,
+  getPreferencesApiV1OrganizationsPreferencesGet,
   getWorkflowOptionsApiV1OrganizationsReportsWorkflowsGet
 } from '@/client/sdk.gen';
 import type { WorkflowRunDetail } from '@/client/types.gen';
@@ -16,7 +17,6 @@ import { Card } from '@/components/ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useUserConfig } from '@/context/UserConfigContext';
 import { useAuth } from '@/lib/auth';
 
 import { DispositionChart } from './components/DispositionChart';
@@ -57,10 +57,8 @@ export default function ReportsPage() {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { userConfig } = useUserConfig();
+  const [timezone, setTimezone] = useState('America/New_York');
   const auth = useAuth();
-
-  const timezone = userConfig?.timezone || 'America/New_York';
 
   // Fetch workflows on mount
   useEffect(() => {
@@ -78,6 +76,22 @@ export default function ReportsPage() {
       }
     };
     fetchWorkflows();
+  }, [auth.isAuthenticated]);
+
+  useEffect(() => {
+    const fetchPreferences = async () => {
+      if (!auth.isAuthenticated) return;
+
+      try {
+        const response = await getPreferencesApiV1OrganizationsPreferencesGet();
+        if (response.data?.timezone) {
+          setTimezone(response.data.timezone);
+        }
+      } catch (err) {
+        console.error('Failed to fetch organization preferences:', err);
+      }
+    };
+    fetchPreferences();
   }, [auth.isAuthenticated]);
 
   // Fetch report data when date or workflow changes
@@ -187,7 +201,9 @@ export default function ReportsPage() {
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Daily Reports</h1>
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold">Daily Reports</h1>
+        </div>
 
         {/* Date Navigation & Workflow Selector */}
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">

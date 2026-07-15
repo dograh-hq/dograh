@@ -369,47 +369,49 @@ async def search_chunks(
 
     try:
         # Import here to avoid circular dependency
-        from api.services.configuration.registry import ServiceProviders
-        from api.services.gen_ai import (
-            AzureOpenAIEmbeddingService,
-            OpenAIEmbeddingService,
+        from api.services.configuration.ai_model_configuration import (
+            apply_managed_embeddings_base_url,
+            get_resolved_ai_model_configuration,
         )
+        from api.services.gen_ai import build_embedding_service
 
-        # Try to get user's embeddings configuration
-        user_config = await db_client.get_user_configurations(user.id)
+        # Try to get the organization's embeddings configuration
+        resolved_config = await get_resolved_ai_model_configuration(
+            organization_id=user.selected_organization_id,
+        )
+        effective_config = resolved_config.effective
         embeddings_api_key = None
         embeddings_model = None
         embeddings_provider = None
+        embeddings_base_url = None
         embeddings_endpoint = None
         embeddings_api_version = None
 
-        if user_config.embeddings:
-            embeddings_api_key = user_config.embeddings.api_key
-            embeddings_model = user_config.embeddings.model
-            embeddings_provider = getattr(user_config.embeddings, "provider", None)
-            embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+        if effective_config.embeddings:
+            embeddings_api_key = effective_config.embeddings.api_key
+            embeddings_model = effective_config.embeddings.model
+            embeddings_provider = getattr(effective_config.embeddings, "provider", None)
+            embeddings_endpoint = getattr(effective_config.embeddings, "endpoint", None)
+            embeddings_base_url = apply_managed_embeddings_base_url(
+                provider=embeddings_provider,
+                base_url=getattr(effective_config.embeddings, "base_url", None),
+            )
             embeddings_api_version = getattr(
-                user_config.embeddings, "api_version", None
+                effective_config.embeddings, "api_version", None
             )
 
-        # Initialize embedding service based on provider
-        if embeddings_provider == ServiceProviders.AZURE.value and embeddings_endpoint:
-            embedding_service = AzureOpenAIEmbeddingService(
-                db_client=db_client,
-                api_key=embeddings_api_key,
-                endpoint=embeddings_endpoint,
-                model_id=embeddings_model or "text-embedding-3-small",
-                api_version=embeddings_api_version or "2024-02-15-preview",
-            )
-        else:
-            embedding_service = OpenAIEmbeddingService(
-                db_client=db_client,
-                api_key=embeddings_api_key,
-                model_id=embeddings_model or "text-embedding-3-small",
-                base_url=getattr(user_config.embeddings, "base_url", None)
-                if user_config.embeddings
-                else None,
-            )
+        # Manual search runs outside any workflow run, so resolve the MPS
+        # correlation id here.
+        embedding_service = await build_embedding_service(
+            db_client=db_client,
+            provider=embeddings_provider,
+            api_key=embeddings_api_key,
+            model=embeddings_model,
+            base_url=embeddings_base_url,
+            endpoint=embeddings_endpoint,
+            api_version=embeddings_api_version,
+            resolve_correlation=True,
+        )
 
         # Perform search
         results = await embedding_service.search_similar_chunks(

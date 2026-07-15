@@ -1,0 +1,94 @@
+{{- if .Values.coturn.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dograh.coturn.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coturn
+spec:
+  # coturn is a singleton (per-LB instance). HA TURN requires a separate
+  # design (multiple LBs or anycast).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "dograh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: coturn
+  template:
+    metadata:
+      labels:
+        {{- include "dograh.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: coturn
+      {{- with .Values.coturn.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      annotations:
+        # Re-roll coturn when turnserver.conf changes.
+        checksum/config: {{ include (print $.Template.BasePath "/coturn-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "dograh.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: coturn
+          image: {{ include "dograh.coturn.image" . }}
+          imagePullPolicy: {{ .Values.coturn.image.pullPolicy }}
+          # coturn doesn't expand env vars in its config file; pass the
+          # secret as a CLI flag instead so it can come from a Kubernetes
+          # Secret without being baked into the ConfigMap.
+          command:
+            - sh
+            - -c
+            - exec turnserver -c /etc/coturn-template/turnserver.conf --static-auth-secret="${TURN_SECRET}"
+          env:
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "dograh.secretName" . }}
+                  key: TURN_SECRET
+          ports:
+            - name: turn-udp
+              containerPort: {{ .Values.coturn.ports.plain }}
+              protocol: UDP
+            - name: turn-tcp
+              containerPort: {{ .Values.coturn.ports.plain }}
+              protocol: TCP
+            - name: turns-udp
+              containerPort: {{ .Values.coturn.ports.tls }}
+              protocol: UDP
+            - name: turns-tcp
+              containerPort: {{ .Values.coturn.ports.tls }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.coturn.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/coturn-template
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "dograh.coturn.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.coturn.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coturn.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coturn.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

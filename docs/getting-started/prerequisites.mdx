@@ -74,12 +74,21 @@ Dograh images are available from two registries:
 - **GitHub Container Registry (Default)**: `ghcr.io/dograh-hq` - Recommended for most users
 - **Docker Hub**: `dograhai` - Alternative registry
 
-To use a specific registry, set the `REGISTRY` environment variable:
+To use a specific registry, set the `REGISTRY` environment variable when running the startup script:
 
+<CodeGroup>
 ```bash
 # Using GitHub Container Registry (recommended)
-REGISTRY=ghcr.io/dograh-hq docker compose up --pull always
+REGISTRY=ghcr.io/dograh-hq ./start_docker.sh
 
 # Using Docker Hub
-REGISTRY=dograhai docker compose up --pull always
+REGISTRY=dograhai ./start_docker.sh
 ```
+```powershell Windows
+# Using GitHub Container Registry (recommended)
+$env:REGISTRY = 'ghcr.io/dograh-hq'; .\start_docker.ps1
+
+# Using Docker Hub
+$env:REGISTRY = 'dograhai'; .\start_docker.ps1
+```
+</CodeGroup>

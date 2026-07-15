@@ -3,6 +3,15 @@ title: "Custom Telephony Provider"
 description: "Build your own telephony provider integration for Dograh AI"
 ---
 
+## Prerequisites
+
+This guide assumes familiarity with two libraries the provider interface is built on:
+
+- **[Pipecat](https://docs.pipecat.ai)** — the open-source real-time voice/multimodal pipeline framework Dograh's call pipeline is built on. Its [`FastAPIWebsocketTransport`](https://docs.pipecat.ai/server/services/transport/fastapi-websocket) is what streams audio between the telephony provider and Dograh's pipeline — you'll be constructing one of these in your transport factory. If you haven't built a Pipecat transport or frame serializer before, skim their [transports guide](https://docs.pipecat.ai/server/base-classes/transport) first.
+- **[Pydantic](https://docs.pydantic.dev)** — used for the request/response schemas that define a provider's stored credentials (`config.py` below). If you're new to Pydantic, its [models documentation](https://docs.pydantic.dev/latest/concepts/models/) covers everything used here (`BaseModel`, `Field`, `Literal` discriminators).
+
+You don't need deep expertise in either — enough to read a `BaseModel` and a Pipecat transport class is sufficient to follow this guide.
+
 ## Overview
 
 A telephony provider is implemented as a **self-registering package** under `api/services/telephony/providers/<name>/`. The package contributes everything Dograh needs to wire the provider in — the provider class, transport factory, audio config, request/response schemas, optional HTTP routes, and the form metadata used to render its configuration UI — through a single `ProviderSpec` registered at import time.
@@ -62,11 +71,11 @@ class YourProvider(TelephonyProvider):
 
     # ---------- webhooks ----------
     async def verify_webhook_signature(self, url, params, signature) -> bool: ...
-    async def get_webhook_response(self, workflow_id, user_id, workflow_run_id) -> str: ...
+    async def get_webhook_response(self, workflow_id, organization_id, workflow_run_id) -> str: ...
     def parse_status_callback(self, data: dict) -> dict: ...
 
     # ---------- websocket ----------
-    async def handle_websocket(self, websocket, workflow_id, user_id, workflow_run_id): ...
+    async def handle_websocket(self, websocket, workflow_id, organization_id, workflow_run_id): ...
 
     # ---------- inbound ----------
     @classmethod
@@ -102,6 +111,14 @@ class YourProvider(TelephonyProvider):
 ```
 
 See `api/services/telephony/base.py` for the full docstrings on each method.
+
+<Warning>
+  `get_webhook_response` and `handle_websocket` receive an `organization_id`, not a
+  user id. It is the tenant that every workflow and workflow-run lookup must be
+  scoped by — pass it straight through to `run_pipeline_telephony`. The workflow
+  owner is deliberately not handed to providers; read it off the workflow row if you
+  need it for attribution.
+</Warning>
 
 ## Implementation Guide
 
@@ -350,7 +367,7 @@ Each provider declares its wire format through its `AudioConfig`. Common shapes:
 - **Vonage**: 16 kHz Linear PCM as binary frames
 - **Asterisk ARI**: 8 kHz Linear PCM via externalMedia
 
-The pipeline sample rate is capped at 16 kHz to satisfy VAD; transports handle resampling between the wire format and the pipeline's internal rate.
+The pipeline sample rate is capped at 16 kHz to satisfy [VAD](/configurations/interruption#what-is-vad), which only accepts 8000 Hz or 16000 Hz; transports handle resampling between the wire format and the pipeline's internal rate.
 
 ## Testing
 
@@ -376,7 +393,7 @@ For end-to-end testing, save your provider through the telephony-configurations 
 
 1. **Trust the registry** — never import another provider's class directly; resolve through the factory helpers (`get_default_telephony_provider`, `get_telephony_provider_by_id`, etc.).
 2. **Sensitive fields** — mark every credential field `sensitive=True` in `ProviderUIMetadata`. The save endpoint masks these on read and preserves the original when the client re-submits a masked value.
-3. **Inbound signature verification** — always validate inbound webhook signatures in `verify_inbound_signature`. Returning `True` when no signature header is present is acceptable; return `False` when a signature *is* present but invalid.
+3. **Inbound signature verification** — always validate inbound webhook signatures in `verify_inbound_signature`, and fail closed. If your provider signs every webhook (most do), a *missing* signature header means the request did not come from the provider: return `False`, exactly as `providers/twilio/` and `providers/plivo/` do. Never `return True` as a placeholder — these handlers are reachable by anyone who can guess a `workflow_run_id`.
 4. **Transports load credentials lazily** — call `load_credentials_for_transport` with the `telephony_configuration_id` from the workflow run. Don't read the org's default config from `transport.py`.
 5. **Logging** — use `loguru.logger`.
 

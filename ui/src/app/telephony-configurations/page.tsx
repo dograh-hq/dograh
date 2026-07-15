@@ -53,6 +53,7 @@ export default function TelephonyConfigurationsPage() {
   const { user, getAccessToken, loading: authLoading } = useAuth();
   const {
     telnyxMissingWebhookPublicKeyCount,
+    vonageMissingSignatureSecretCount,
     refresh: refreshWarnings,
   } = useTelephonyConfigWarnings();
   const [items, setItems] = useState<TelephonyConfigurationListItem[]>([]);
@@ -82,9 +83,9 @@ export default function TelephonyConfigurationsPage() {
     }
   }, [authLoading, user, getAccessToken]);
 
-  // After a save (create/update), the backing config may have flipped between
-  // missing/present webhook_public_key — refresh the cached warning state so
-  // the page banner and nav badge update without a manual reload.
+  // After a save (create/update), webhook-verification warning state may have
+  // changed — refresh the cached warning state so the page banner and nav badge
+  // update without a manual reload.
   const onSaved = useCallback(async () => {
     await fetchItems();
     await refreshWarnings();
@@ -148,7 +149,7 @@ export default function TelephonyConfigurationsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
@@ -194,6 +195,26 @@ export default function TelephonyConfigurationsPage() {
           </div>
         )}
 
+        {vonageMissingSignatureSecretCount > 0 && (
+          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+              <div className="space-y-1 text-sm">
+                <p className="font-medium">Signature secret not configured</p>
+                <p>
+                  {vonageMissingSignatureSecretCount === 1
+                    ? "1 Vonage configuration is"
+                    : `${vonageMissingSignatureSecretCount} Vonage configurations are`}{" "}
+                  missing a signature secret. Without it, Vonage signed webhooks
+                  are rejected, so inbound calls and call status updates will not
+                  work. Copy the signature secret from your Vonage account and
+                  paste it into the affected Vonage configuration below.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="grid gap-3">
             <Skeleton className="h-24 w-full" />
@@ -217,7 +238,7 @@ export default function TelephonyConfigurationsPage() {
           <div className="grid gap-3">
             {items.map((item) => (
               <Card key={item.id}>
-                <CardContent className="flex items-center gap-4 py-4">
+                <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center">
                   <Link
                     href={`/telephony-configurations/${item.id}`}
                     className="flex flex-1 items-center gap-4 min-w-0"
@@ -255,7 +276,7 @@ export default function TelephonyConfigurationsPage() {
                       </button>
                     </div>
                   </Link>
-                  <div className="flex items-center gap-1">
+                  <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:flex-nowrap">
                     {!item.is_default_outbound && (
                       <Button
                         variant="ghost"
@@ -282,13 +303,15 @@ export default function TelephonyConfigurationsPage() {
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
-                    <Link
-                      href={`/telephony-configurations/${item.id}`}
-                      className="text-muted-foreground"
-                      aria-label="View phone numbers"
-                    >
-                      <ChevronRight className="h-5 w-5" />
-                    </Link>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link
+                        href={`/telephony-configurations/${item.id}`}
+                        aria-label={`Manage phone numbers for ${item.name}`}
+                      >
+                        Manage Phone Numbers
+                        <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

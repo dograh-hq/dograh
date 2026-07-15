@@ -1,9 +1,14 @@
 import { Loader2 } from "lucide-react";
 
-export default function SpinLoader(){
-    return(
-        <div className="flex items-center justify-center min-h-screen">
-                <Loader2 className="w-15 h-15 animate-spin" />
-              </div>
-    )
+interface SpinLoaderProps {
+    label?: string;
+}
+
+export default function SpinLoader({ label }: SpinLoaderProps) {
+    return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin text-foreground" />
+            {label && <span>{label}</span>}
+        </div>
+    );
 }

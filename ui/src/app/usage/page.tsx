@@ -2,12 +2,12 @@
 
 import { ChevronLeft, ChevronRight, Download, Globe } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
 import { toast } from 'sonner';
 
-import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
-import type { DailyUsageBreakdownResponse, MpsCreditsResponse, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
+import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getPreferencesApiV1OrganizationsPreferencesGet, getUsageHistoryApiV1OrganizationsUsageRunsGet, getWorkflowsSummaryApiV1WorkflowSummaryGet, savePreferencesApiV1OrganizationsPreferencesPut } from '@/client/sdk.gen';
+import type { DailyUsageBreakdownResponse, OrganizationPreferences, UsageHistoryResponse, WorkflowRunUsageResponse, WorkflowSummaryResponse } from '@/client/types.gen';
 import { CallTypeCell } from '@/components/CallTypeCell';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
@@ -15,7 +15,6 @@ import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPrevie
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import {
     Table,
     TableBody,
@@ -25,23 +24,48 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { useUserConfig } from '@/context/UserConfigContext';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 import { usageFilterAttributes } from '@/lib/filterAttributes';
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
-import { ActiveFilter, DateRangeValue } from '@/types/filters';
+import type { ActiveFilter, DateRangeValue, FilterAttribute, NumberFilterOption } from '@/types/filters';
 
 // Get local timezone
 const getLocalTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+const buildAgentFilterAttributes = (
+    agentOptions: NumberFilterOption[] | null,
+    isLoadingAgentOptions: boolean
+): FilterAttribute[] => {
+    return usageFilterAttributes.map(attribute => {
+        if (attribute.id !== 'workflowId') {
+            return attribute;
+        }
+
+        return {
+            ...attribute,
+            label: 'Agent',
+            type: 'numberSelect',
+            config: {
+                ...attribute.config,
+                placeholder: 'Select an agent',
+                numberSelectLabel: 'Agent',
+                ...(agentOptions || isLoadingAgentOptions
+                    ? {
+                        numberSelectOptions: agentOptions ?? [],
+                        numberSelectOptionsLoading: isLoadingAgentOptions,
+                    }
+                    : {}),
+            },
+        } satisfies FilterAttribute;
+    });
+};
+
 export default function UsagePage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const { userConfig, saveUserConfig, loading: userConfigLoading, organizationPricing } = useUserConfig();
+    const { organizationPricing } = useUserConfig();
     const auth = useAuth();
-
-    // MPS credits state
-    const [mpsCredits, setMpsCredits] = useState<MpsCreditsResponse | null>(null);
-    const [isLoadingCredits, setIsLoadingCredits] = useState(true);
 
     // Usage history state
     const [usageHistory, setUsageHistory] = useState<UsageHistoryResponse | null>(null);
@@ -52,6 +76,12 @@ export default function UsagePage() {
     });
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
     const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+    const [agentFilterOptions, setAgentFilterOptions] = useState<NumberFilterOption[] | null>(null);
+    const [isLoadingAgentFilterOptions, setIsLoadingAgentFilterOptions] = useState(false);
+    const availableUsageFilterAttributes = useMemo(
+        () => buildAgentFilterAttributes(agentFilterOptions, isLoadingAgentFilterOptions),
+        [agentFilterOptions, isLoadingAgentFilterOptions]
+    );
 
     // Daily usage breakdown state (only for paid orgs)
     const [dailyUsage, setDailyUsage] = useState<DailyUsageBreakdownResponse | null>(null);
@@ -61,10 +91,10 @@ export default function UsagePage() {
     // edits in the FilterBuilder; `appliedFilters` is what's actually been
     // committed via Apply (and what drives fetching + the download button).
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
-        return decodeFiltersFromURL(searchParams, usageFilterAttributes);
+        return decodeFiltersFromURL(searchParams, availableUsageFilterAttributes);
     });
     const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
-        return decodeFiltersFromURL(searchParams, usageFilterAttributes);
+        return decodeFiltersFromURL(searchParams, availableUsageFilterAttributes);
     });
 
     // Media preview dialog
@@ -74,22 +104,9 @@ export default function UsagePage() {
     const localTimezone = getLocalTimezone();
     const [selectedTimezone, setSelectedTimezone] = useState<ITimezoneOption | string>('');
     const [savingTimezone, setSavingTimezone] = useState(false);
+    const [preferences, setPreferences] = useState<OrganizationPreferences>({});
+    const [preferencesLoading, setPreferencesLoading] = useState(true);
     const timezoneSelectId = useId(); // Stable ID for react-select to prevent hydration mismatch
-
-    // Fetch MPS credits
-    const fetchMpsCredits = useCallback(async () => {
-        if (!auth.isAuthenticated) return;
-        try {
-            const response = await getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet();
-            if (response.data) {
-                setMpsCredits(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch MPS credits:', error);
-        } finally {
-            setIsLoadingCredits(false);
-        }
-    }, [auth.isAuthenticated]);
 
     // Translate the FilterBuilder state into the query-param shape the
     // backend expects. Shared between the listing fetch and the CSV export
@@ -111,7 +128,7 @@ export default function UsagePage() {
             if (otherFilters.length > 0) {
                 const filterData = otherFilters.map(filter => ({
                     attribute: filter.attribute.id,
-                    type: filter.attribute.type,
+                    type: filter.attribute.type === 'numberSelect' ? 'number' : filter.attribute.type,
                     value: filter.value,
                 }));
                 filterParam = JSON.stringify(filterData);
@@ -168,6 +185,54 @@ export default function UsagePage() {
         }
     }, [auth.isAuthenticated, organizationPricing]);
 
+    const fetchAgentFilterOptions = useCallback(async () => {
+        if (!auth.isAuthenticated) return;
+
+        setIsLoadingAgentFilterOptions(true);
+        try {
+            const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({
+                query: {
+                    status: 'active',
+                },
+            });
+            if (response.error) {
+                throw new Error(detailFromError(response.error, 'Failed to load agents'));
+            }
+
+            const options = [...(response.data ?? [])]
+                .sort((a: WorkflowSummaryResponse, b: WorkflowSummaryResponse) => (
+                    a.name.localeCompare(b.name) || a.id - b.id
+                ))
+                .map((workflow: WorkflowSummaryResponse) => ({
+                    label: `${workflow.name || 'Untitled Agent'} (#${workflow.id})`,
+                    value: workflow.id,
+                }));
+            setAgentFilterOptions(options);
+        } catch (error) {
+            console.error('Failed to fetch agent filter options:', error);
+            setAgentFilterOptions(null);
+        } finally {
+            setIsLoadingAgentFilterOptions(false);
+        }
+    }, [auth.isAuthenticated]);
+
+    const fetchPreferences = useCallback(async () => {
+        if (!auth.isAuthenticated) return;
+
+        setPreferencesLoading(true);
+        try {
+            const response = await getPreferencesApiV1OrganizationsPreferencesGet();
+            const nextPreferences = response.data || {};
+            setPreferences(nextPreferences);
+            setSelectedTimezone(nextPreferences.timezone || localTimezone);
+        } catch (error) {
+            console.error('Failed to fetch organization preferences:', error);
+            setSelectedTimezone(localTimezone);
+        } finally {
+            setPreferencesLoading(false);
+        }
+    }, [auth.isAuthenticated, localTimezone]);
+
     // Download a CSV of all runs matching the current filters.
     const handleDownloadReport = async () => {
         if (!auth.isAuthenticated) return;
@@ -203,39 +268,65 @@ export default function UsagePage() {
     const handleTimezoneChange = async (timezone: ITimezoneOption | string) => {
         setSelectedTimezone(timezone);
         setSavingTimezone(true);
+        const previousTimezone = preferences.timezone || localTimezone;
         try {
             const tzValue = typeof timezone === 'string' ? timezone : timezone.value;
-            await saveUserConfig({ timezone: tzValue });
+            const response = await savePreferencesApiV1OrganizationsPreferencesPut({
+                body: {
+                    ...preferences,
+                    timezone: tzValue,
+                },
+            });
+            if (response.error) {
+                throw new Error('Failed to save timezone');
+            }
+            setPreferences(response.data || { ...preferences, timezone: tzValue });
         } catch (error) {
             console.error('Failed to save timezone:', error);
-            // Revert to previous timezone on error
-            const prevTz = userConfig?.timezone || localTimezone;
-            setSelectedTimezone(prevTz);
+            setSelectedTimezone(previousTimezone);
         } finally {
             setSavingTimezone(false);
         }
     };
 
-    // Update timezone when userConfig loads
+    // Update timezone when organization preferences load.
     useEffect(() => {
-        if (!userConfigLoading) {
-            // Config has loaded - set the timezone
-            if (userConfig?.timezone) {
-                setSelectedTimezone(userConfig.timezone);
-            } else {
-                // No saved timezone, use local
-                setSelectedTimezone(localTimezone);
-            }
-        }
-    }, [userConfig, userConfigLoading, localTimezone]);
+        fetchPreferences();
+    }, [fetchPreferences]);
+
+    useEffect(() => {
+        fetchAgentFilterOptions();
+    }, [fetchAgentFilterOptions]);
+
+    useEffect(() => {
+        setActiveFilters(currentFilters => {
+            let changed = false;
+            const nextFilters = currentFilters.map(filter => {
+                const updatedAttribute = availableUsageFilterAttributes.find(
+                    attribute => attribute.id === filter.attribute.id
+                );
+
+                if (!updatedAttribute || updatedAttribute === filter.attribute) {
+                    return filter;
+                }
+
+                changed = true;
+                return {
+                    ...filter,
+                    attribute: updatedAttribute,
+                };
+            });
+
+            return changed ? nextFilters : currentFilters;
+        });
+    }, [availableUsageFilterAttributes]);
 
     // Initial load - fetch when auth becomes available
     useEffect(() => {
         if (auth.isAuthenticated) {
-            fetchMpsCredits();
             fetchUsageHistory(currentPage, appliedFilters);
         }
-    }, [auth.isAuthenticated, currentPage, appliedFilters, fetchUsageHistory, fetchMpsCredits]);
+    }, [auth.isAuthenticated, currentPage, appliedFilters, fetchUsageHistory]);
 
     // Fetch daily usage when organizationPricing becomes available
     useEffect(() => {
@@ -340,8 +431,8 @@ export default function UsagePage() {
                                     instanceId={timezoneSelectId}
                                     value={selectedTimezone}
                                     onChange={handleTimezoneChange}
-                                    isDisabled={savingTimezone || userConfigLoading}
-                                    placeholder={userConfigLoading ? "Loading..." : "Select timezone"}
+                                    isDisabled={savingTimezone || preferencesLoading}
+                                    placeholder={preferencesLoading ? "Loading..." : "Select timezone"}
                                     styles={{
                                         control: (base, state) => ({
                                             ...base,
@@ -409,46 +500,6 @@ export default function UsagePage() {
                     </div>
                 </div>
 
-                {/* MPS Credits Card */}
-                <Card className="mb-6">
-                    <CardHeader>
-                        <CardTitle>Dograh Model Credits</CardTitle>
-                        <CardDescription>
-                            These track usage of Dograh models using Dograh Service Keys.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoadingCredits ? (
-                            <div className="animate-pulse space-y-4">
-                                <div className="h-4 bg-muted rounded w-1/4"></div>
-                                <div className="h-8 bg-muted rounded"></div>
-                                <div className="h-4 bg-muted rounded w-1/3"></div>
-                            </div>
-                        ) : mpsCredits ? (
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-baseline">
-                                    <div>
-                                        <p className="text-2xl font-bold">
-                                            {mpsCredits.total_credits_used.toFixed(2)} <span className="text-lg font-normal text-muted-foreground">/ {mpsCredits.total_quota.toFixed(2)}</span>
-                                        </p>
-                                        <p className="text-sm text-muted-foreground">Credits Used</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-lg font-semibold">{mpsCredits.remaining_credits.toFixed(2)}</p>
-                                        <p className="text-sm text-muted-foreground">Remaining</p>
-                                    </div>
-                                </div>
-
-                                {mpsCredits.total_quota > 0 && (
-                                    <Progress value={(mpsCredits.total_credits_used / mpsCredits.total_quota) * 100} className="h-3" />
-                                )}
-                            </div>
-                        ) : (
-                            <p className="text-muted-foreground">No Dograh service keys configured. Set up a service key in your model configuration to see usage.</p>
-                        )}
-                    </CardContent>
-                </Card>
-
                 {/* Daily Usage Table - Only for paid organizations */}
                 {organizationPricing?.price_per_second_usd && (
                     <div className="mb-6">
@@ -462,7 +513,7 @@ export default function UsagePage() {
                 {/* Filter Builder */}
                 <div className="mb-6 space-y-3">
                     <FilterBuilder
-                        availableAttributes={usageFilterAttributes}
+                        availableAttributes={availableUsageFilterAttributes}
                         activeFilters={activeFilters}
                         onFiltersChange={handleFiltersChange}
                         onApplyFilters={handleApplyFilters}
@@ -516,9 +567,9 @@ export default function UsagePage() {
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Date</TableHead>
                                                 <TableHead className="font-semibold text-right">Duration</TableHead>
-                                                <TableHead className="font-semibold text-right">
-                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Tokens'}
-                                                </TableHead>
+                                                {organizationPricing?.price_per_second_usd && (
+                                                    <TableHead className="font-semibold text-right">Cost (USD)</TableHead>
+                                                )}
                                                 <TableHead className="font-semibold">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -555,12 +606,14 @@ export default function UsagePage() {
                                                     <TableCell className="text-right">
                                                         {formatDuration(run.call_duration_seconds)}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
-                                                        {organizationPricing?.price_per_second_usd && run.charge_usd !== undefined && run.charge_usd !== null
-                                                            ? `$${run.charge_usd.toFixed(2)}`
-                                                            : run.dograh_token_usage.toLocaleString()
-                                                        }
-                                                    </TableCell>
+                                                    {organizationPricing?.price_per_second_usd && (
+                                                        <TableCell className="text-right font-medium">
+                                                            {run.charge_usd !== undefined && run.charge_usd !== null
+                                                                ? `$${run.charge_usd.toFixed(2)}`
+                                                                : '-'
+                                                            }
+                                                        </TableCell>
+                                                    )}
                                                     <TableCell>
                                                         <MediaPreviewButton
                                                             recordingUrl={run.recording_url}

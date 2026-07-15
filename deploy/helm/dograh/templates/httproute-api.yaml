@@ -1,0 +1,35 @@
+{{- if eq .Values.exposure.mode "gatewayApi" }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "dograh.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- if .Values.exposure.gatewayApi.createGateway }}
+    - name: {{ include "dograh.fullname" . }}
+    {{- else }}
+    {{- range .Values.exposure.gatewayApi.parentRefs }}
+    - name: {{ .name }}
+      {{- if .namespace }}
+      namespace: {{ .namespace }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  {{- if .Values.exposure.gatewayApi.listenerHostname }}
+  hostnames:
+    - {{ .Values.exposure.gatewayApi.listenerHostname | quote }}
+  {{- end }}
+  rules:
+    - matches:
+        # /api/v1/ (not /api/) — /api/auth/* and /api/config/* are Next.js
+        # routes on the UI and must not be captured here.
+        - path:
+            type: PathPrefix
+            value: /api/v1/
+      backendRefs:
+        - name: {{ include "dograh.web.fullname" . }}
+          port: {{ .Values.web.service.port }}
+{{- end }}

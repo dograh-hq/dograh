@@ -19,7 +19,7 @@ import ipaddress
 import os
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
@@ -40,12 +40,17 @@ from api.routes.turn_credentials import (
     generate_turn_credentials,
 )
 from api.services.auth.depends import get_user_ws
+from api.services.call_concurrency import (
+    CallConcurrencyLimitError,
+    WorkflowRunSlotAlreadyBoundError,
+    call_concurrency,
+)
 from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
 from api.services.pipecat.ws_sender_registry import (
     register_ws_sender,
     unregister_ws_sender,
 )
-from api.services.quota_service import check_dograh_quota
+from api.services.quota_service import authorize_workflow_run_start
 
 router = APIRouter(prefix="/ws")
 
@@ -246,6 +251,74 @@ class SignalingManager:
     def __init__(self):
         self._connections: Dict[str, WebSocket] = {}
         self._peer_connections: Dict[str, SmallWebRTCConnection] = {}
+        self._connection_peer_ids: Dict[str, Set[str]] = {}
+        self._peer_connection_owners: Dict[str, str] = {}
+
+    def _track_peer_connection(
+        self, connection_id: str, pc_id: str, pc: SmallWebRTCConnection
+    ) -> None:
+        self._peer_connections[pc_id] = pc
+        self._peer_connection_owners[pc_id] = connection_id
+        self._connection_peer_ids.setdefault(connection_id, set()).add(pc_id)
+
+    def _forget_peer_connection(self, pc_id: str) -> Optional[str]:
+        connection_id = self._peer_connection_owners.pop(pc_id, None)
+        self._peer_connections.pop(pc_id, None)
+
+        if connection_id:
+            peer_ids = self._connection_peer_ids.get(connection_id)
+            if peer_ids is not None:
+                peer_ids.discard(pc_id)
+                if not peer_ids:
+                    self._connection_peer_ids.pop(connection_id, None)
+
+        return connection_id
+
+    async def _send_json_if_connected(
+        self, websocket: WebSocket, message: dict
+    ) -> bool:
+        if websocket.application_state != WebSocketState.CONNECTED:
+            return False
+
+        try:
+            await websocket.send_json(message)
+            return True
+        except Exception as e:
+            logger.debug(f"Failed to send signaling WebSocket message: {e}")
+            return False
+
+    async def _close_websocket_if_connected(
+        self, websocket: WebSocket, code: int = 1000, reason: str = ""
+    ) -> None:
+        if websocket.application_state != WebSocketState.CONNECTED:
+            return
+
+        try:
+            await websocket.close(code=code, reason=reason)
+        except Exception as e:
+            logger.debug(f"Failed to close signaling WebSocket: {e}")
+
+    async def _notify_call_ended_and_close_websocket(
+        self,
+        websocket: WebSocket,
+        workflow_run_id: int,
+        pc_id: str,
+        reason: str,
+    ) -> None:
+        await self._send_json_if_connected(
+            websocket,
+            {
+                "type": "call-ended",
+                "payload": {
+                    "workflow_run_id": workflow_run_id,
+                    "pc_id": pc_id,
+                    "reason": reason,
+                },
+            },
+        )
+        await self._close_websocket_if_connected(
+            websocket, code=1000, reason="call ended"
+        )
 
     async def handle_websocket(
         self,
@@ -253,39 +326,61 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        organization_id: int,
+        enforce_call_concurrency: bool = False,
+        call_concurrency_source: str = "webrtc",
     ):
         """Handle WebSocket connection for signaling."""
         await websocket.accept()
         connection_id = f"{workflow_id}:{workflow_run_id}:{user.id}"
-        self._connections[connection_id] = websocket
+        connection_key = f"{connection_id}:{id(websocket)}"
+        self._connections[connection_key] = websocket
 
         try:
             while True:
                 message = await websocket.receive_json()
                 await self._handle_message(
-                    websocket, message, workflow_id, workflow_run_id, user
+                    websocket,
+                    message,
+                    workflow_id,
+                    workflow_run_id,
+                    user,
+                    organization_id,
+                    connection_key,
+                    enforce_call_concurrency,
+                    call_concurrency_source,
                 )
         except WebSocketDisconnect:
             logger.info(f"WebSocket disconnected for {connection_id}")
         except Exception as e:
-            logger.error(f"WebSocket error for {connection_id}: {e}")
+            if websocket.application_state == WebSocketState.DISCONNECTED:
+                logger.info(f"WebSocket disconnected for {connection_id}")
+            else:
+                logger.error(f"WebSocket error for {connection_id}: {e}")
         finally:
             # Cleanup
-            self._connections.pop(connection_id, None)
+            self._connections.pop(connection_key, None)
+            peer_ids = list(self._connection_peer_ids.pop(connection_key, set()))
 
             # Unregister WebSocket sender for real-time feedback
             unregister_ws_sender(workflow_run_id)
 
-            # Clean up all peer connections for this workflow run
+            # Clean up peer connections owned by this WebSocket.
             # Note: In a WebSocket-based signaling approach (vs HTTP PATCH),
             # we maintain our own connection map instead of relying on
             # SmallWebRTCRequestHandler's _pcs_map. This is suitable for
             # multi-worker FastAPI deployments where state cannot be shared.
-            for pc_id in list(self._peer_connections.keys()):
+            for pc_id in peer_ids:
+                self._peer_connection_owners.pop(pc_id, None)
                 pc = self._peer_connections.pop(pc_id, None)
                 if pc:
-                    await pc.disconnect()
-                    logger.debug(f"Disconnected peer connection: {pc_id}")
+                    try:
+                        await pc.disconnect()
+                        logger.debug(f"Disconnected peer connection: {pc_id}")
+                    except Exception as e:
+                        logger.debug(
+                            f"Failed to disconnect peer connection {pc_id}: {e}"
+                        )
 
     async def _handle_message(
         self,
@@ -294,17 +389,31 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        organization_id: int,
+        connection_key: str,
+        enforce_call_concurrency: bool,
+        call_concurrency_source: str = "webrtc",
     ):
         """Handle incoming WebSocket messages."""
         msg_type = message.get("type")
         payload = message.get("payload", {})
 
         if msg_type == "offer":
-            await self._handle_offer(ws, payload, workflow_id, workflow_run_id, user)
+            await self._handle_offer(
+                ws,
+                payload,
+                workflow_id,
+                workflow_run_id,
+                user,
+                organization_id,
+                connection_key,
+                enforce_call_concurrency,
+                call_concurrency_source,
+            )
         elif msg_type == "ice-candidate":
-            await self._handle_ice_candidate(ws, payload, workflow_run_id)
+            await self._handle_ice_candidate(payload, connection_key)
         elif msg_type == "renegotiate":
-            await self._handle_renegotiation(ws, payload, workflow_id, workflow_run_id)
+            await self._handle_renegotiation(ws, payload, connection_key)
 
     async def _handle_offer(
         self,
@@ -313,6 +422,10 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        organization_id: int,
+        connection_key: str,
+        enforce_call_concurrency: bool,
+        call_concurrency_source: str = "webrtc",
     ):
         """Handle offer message and create answer with ICE trickling."""
         pc_id = payload.get("pc_id")
@@ -320,16 +433,28 @@ class SignalingManager:
         type_ = payload.get("type")
         call_context_vars = payload.get("call_context_vars", {})
 
+        if not pc_id or not sdp or not type_:
+            await ws.send_json(
+                {
+                    "type": "error",
+                    "payload": {"message": "Missing offer fields"},
+                }
+            )
+            return
+
         # Set run context for logging and tracing. org_id must be set before
         # pc.initialize() so that aiortc's internal tasks inherit it.
         set_current_run_id(workflow_run_id)
-        org_id = await db_client.get_workflow_organization_id(workflow_id)
-        if org_id:
-            set_current_org_id(org_id)
+        set_current_org_id(organization_id)
 
         # Check Dograh quota before initiating the call (apply per-workflow
         # model_overrides so we evaluate the keys this workflow will use).
-        quota_result = await check_dograh_quota(user, workflow_id=workflow_id)
+        quota_result = await authorize_workflow_run_start(
+            workflow_id=workflow_id,
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
+            actor_user=user,
+        )
         if not quota_result.has_quota:
             # Send error response for quota issues
             await ws.send_json(
@@ -343,7 +468,16 @@ class SignalingManager:
             )
             return
 
-        if pc_id and pc_id in self._peer_connections:
+        if pc_id in self._peer_connections:
+            if self._peer_connection_owners.get(pc_id) != connection_key:
+                await ws.send_json(
+                    {
+                        "type": "error",
+                        "payload": {"message": "Peer connection already owned"},
+                    }
+                )
+                return
+
             # Reuse existing connection
             logger.info(f"Reusing existing connection for pc_id: {pc_id}")
             pc = self._peer_connections[pc_id]
@@ -362,64 +496,126 @@ class SignalingManager:
                 }
             )
         else:
+            concurrency_slot = None
+            concurrency_bound = False
+            pipeline_started = False
+            pc = None
+            if enforce_call_concurrency:
+                try:
+                    concurrency_slot = await call_concurrency.acquire_org_slot(
+                        organization_id,
+                        source=call_concurrency_source,
+                        timeout=0,
+                    )
+                    await call_concurrency.bind_workflow_run(
+                        concurrency_slot,
+                        workflow_run_id,
+                    )
+                    concurrency_bound = True
+                except CallConcurrencyLimitError:
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "payload": {
+                                "error_type": "concurrency_limit_exceeded",
+                                "message": "Concurrent call limit reached",
+                            },
+                        }
+                    )
+                    return
+                except WorkflowRunSlotAlreadyBoundError:
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "payload": {
+                                "error_type": "workflow_run_already_active",
+                                "message": "Workflow run already has an active call",
+                            },
+                        }
+                    )
+                    return
+
             # Create new connection using correct SmallWebRTC API
             # Generate ICE servers with time-limited TURN credentials for this user
-            user_ice_servers = get_ice_servers(user_id=str(user.id))
-            pc = SmallWebRTCConnection(
-                ice_servers=user_ice_servers, connection_timeout_secs=60
-            )
-            # Set the pc_id before initialization so it's available in get_answer()
-            pc._pc_id = pc_id
-
-            # Initialize connection with offer
-            await pc.initialize(sdp=sdp, type=type_)
-
-            # Store peer connection using client's pc_id
-            self._peer_connections[pc_id] = pc
-
-            # Register WebSocket sender for real-time feedback
-            async def ws_sender(message: dict):
-                if ws.application_state == WebSocketState.CONNECTED:
-                    await ws.send_json(message)
-
-            register_ws_sender(workflow_run_id, ws_sender)
-
-            # Setup closed handler
-            @pc.event_handler("closed")
-            async def handle_disconnected(webrtc_connection: SmallWebRTCConnection):
-                logger.info(f"PeerConnection closed: {webrtc_connection.pc_id}")
-                self._peer_connections.pop(webrtc_connection.pc_id, None)
-
-            # Start pipeline in background
-            asyncio.create_task(
-                run_pipeline_smallwebrtc(
-                    pc,
-                    workflow_id,
-                    workflow_run_id,
-                    user.id,
-                    call_context_vars,
-                    user_provider_id=str(user.provider_id),
+            try:
+                user_ice_servers = get_ice_servers(user_id=str(user.id))
+                pc = SmallWebRTCConnection(
+                    ice_servers=user_ice_servers, connection_timeout_secs=60
                 )
-            )
+                # Set the pc_id before initialization so it's available in get_answer()
+                pc._pc_id = pc_id
 
-            # Get answer after initialization
-            answer = pc.get_answer()
+                # Initialize connection with offer
+                await pc.initialize(sdp=sdp, type=type_)
 
-            # Send answer immediately (ICE candidates will be sent separately via trickling)
-            await ws.send_json(
-                {
-                    "type": "answer",
-                    "payload": {
-                        "sdp": filter_outbound_sdp(answer["sdp"]),
-                        "type": answer["type"],
-                        "pc_id": answer["pc_id"],
-                    },
-                }
-            )
+                # Store peer connection using client's pc_id
+                self._track_peer_connection(connection_key, pc_id, pc)
 
-    async def _handle_ice_candidate(
-        self, ws: WebSocket, payload: dict, workflow_run_id: int
-    ):
+                # Register WebSocket sender for real-time feedback
+                async def ws_sender(message: dict):
+                    if ws.application_state == WebSocketState.CONNECTED:
+                        await ws.send_json(message)
+
+                register_ws_sender(workflow_run_id, ws_sender)
+
+                # Setup closed handler
+                @pc.event_handler("closed")
+                async def handle_disconnected(
+                    webrtc_connection: SmallWebRTCConnection,
+                ):
+                    logger.info(f"PeerConnection closed: {webrtc_connection.pc_id}")
+                    owner_connection_id = self._forget_peer_connection(
+                        webrtc_connection.pc_id
+                    )
+                    if owner_connection_id == connection_key:
+                        await self._notify_call_ended_and_close_websocket(
+                            ws,
+                            workflow_run_id,
+                            webrtc_connection.pc_id,
+                            reason="peer_connection_closed",
+                        )
+
+                # Start pipeline in background
+                asyncio.create_task(
+                    run_pipeline_smallwebrtc(
+                        pc,
+                        workflow_id,
+                        workflow_run_id,
+                        user.id,
+                        call_context_vars,
+                        user_provider_id=str(user.provider_id),
+                        organization_id=organization_id,
+                    )
+                )
+                pipeline_started = True
+
+                # Get answer after initialization
+                answer = pc.get_answer()
+
+                # Send answer immediately (ICE candidates will be sent separately via trickling)
+                await ws.send_json(
+                    {
+                        "type": "answer",
+                        "payload": {
+                            "sdp": filter_outbound_sdp(answer["sdp"]),
+                            "type": answer["type"],
+                            "pc_id": answer["pc_id"],
+                        },
+                    }
+                )
+            except Exception:
+                if pipeline_started and pc is not None:
+                    try:
+                        await pc.disconnect()
+                    except Exception as e:
+                        logger.debug(f"Failed to disconnect failed offer pc: {e}")
+                elif concurrency_bound:
+                    await call_concurrency.release_workflow_run_slot(workflow_run_id)
+                elif concurrency_slot is not None:
+                    await call_concurrency.release_slot(concurrency_slot)
+                raise
+
+    async def _handle_ice_candidate(self, payload: dict, connection_key: str):
         """Handle incoming ICE candidate from client.
 
         Uses SmallWebRTC's native ICE trickling support via add_ice_candidate().
@@ -437,6 +633,9 @@ class SignalingManager:
         pc = self._peer_connections.get(pc_id)
         if not pc:
             logger.warning(f"No peer connection found for pc_id: {pc_id}")
+            return
+        if self._peer_connection_owners.get(pc_id) != connection_key:
+            logger.warning(f"Ignoring ICE candidate for unowned pc_id: {pc_id}")
             return
 
         if candidate_data:
@@ -462,7 +661,7 @@ class SignalingManager:
             logger.debug(f"End of ICE candidates for pc_id: {pc_id}")
 
     async def _handle_renegotiation(
-        self, ws: WebSocket, payload: dict, workflow_id: int, workflow_run_id: int
+        self, ws: WebSocket, payload: dict, connection_key: str
     ):
         """Handle renegotiation request."""
         pc_id = payload.get("pc_id")
@@ -471,6 +670,11 @@ class SignalingManager:
         restart_pc = payload.get("restart_pc", False)
 
         if not pc_id or pc_id not in self._peer_connections:
+            await ws.send_json(
+                {"type": "error", "payload": {"message": "Peer connection not found"}}
+            )
+            return
+        if self._peer_connection_owners.get(pc_id) != connection_key:
             await ws.send_json(
                 {"type": "error", "payload": {"message": "Peer connection not found"}}
             )
@@ -505,13 +709,33 @@ async def signaling_websocket(
     user: UserModel = Depends(get_user_ws),
 ):
     """WebSocket endpoint for WebRTC signaling with ICE trickling."""
-    workflow_run = await db_client.get_workflow_run(workflow_run_id, user.id)
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    workflow_run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=user.selected_organization_id
+    )
     if not workflow_run:
-        logger.warning(f"workflow run {workflow_run_id} not found for user {user.id}")
+        logger.warning(
+            f"workflow run {workflow_run_id} not found for org "
+            f"{user.selected_organization_id}"
+        )
         raise HTTPException(status_code=400, detail="Bad workflow_run_id")
+    if workflow_run.workflow_id != workflow_id:
+        logger.warning(
+            f"workflow run {workflow_run_id} belongs to workflow "
+            f"{workflow_run.workflow_id}, not {workflow_id}"
+        )
+        raise HTTPException(status_code=400, detail="workflow_run_workflow_mismatch")
 
     await signaling_manager.handle_websocket(
-        websocket, workflow_id, workflow_run_id, user
+        websocket,
+        workflow_id,
+        workflow_run_id,
+        user,
+        user.selected_organization_id,
+        enforce_call_concurrency=True,
+        call_concurrency_source="webrtc",
     )
 
 
@@ -545,6 +769,17 @@ async def public_signaling_websocket(
         await websocket.close(code=1008, reason="Invalid embed token")
         return
 
+    workflow_run = await db_client.get_workflow_run(
+        embed_session.workflow_run_id,
+        organization_id=embed_token.organization_id,
+    )
+    if not workflow_run:
+        await websocket.close(code=1008, reason="Invalid workflow run")
+        return
+    if workflow_run.workflow_id != embed_token.workflow_id:
+        await websocket.close(code=1008, reason="workflow_run_workflow_mismatch")
+        return
+
     # Enforce the embed token's allowed-domain policy on the public signaling
     # path, mirroring the HTTP embed endpoints (issue #330). Without this a
     # leaked or replayed session token could attach from an arbitrary origin.
@@ -568,5 +803,11 @@ async def public_signaling_websocket(
 
     # Handle the WebSocket connection using the existing signaling manager
     await signaling_manager.handle_websocket(
-        websocket, embed_token.workflow_id, embed_session.workflow_run_id, user
+        websocket,
+        embed_token.workflow_id,
+        embed_session.workflow_run_id,
+        user,
+        embed_token.organization_id,
+        enforce_call_concurrency=True,
+        call_concurrency_source="public_embed",
     )

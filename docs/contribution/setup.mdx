@@ -1,63 +1,102 @@
 ---
 title: Setup
-description: Set up the Dograh contributor environment with the devcontainer-first workflow.
+description: Get a Dograh dev environment running and learn the daily commands.
 ---
-<Note>
-If the steps below do not work for you, please open an issue on [GitHub](https://github.com/dograh-hq/dograh/issues).
-</Note>
 
-### Recommended: Devcontainer Setup
+Dograh is a Next.js UI (`ui/`), a FastAPI backend (`api/`), and a [Pipecat](https://github.com/pipecat-ai/pipecat)-based voice pipeline (`pipecat/`, a git submodule), backed by Postgres, Redis, and MinIO.
 
-#### System Requirements
-- Git
-- Docker Desktop or another local Docker engine
-- For the IDE path: VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
-- For the terminal-only path: Node.js on your host so you can install the Dev Container CLI
+<Tip>
+**Using Claude Code or Codex?** Install the [Dograh setup skill](https://github.com/dograh-hq/dograh-plugins) (`/plugin marketplace add dograh-hq/dograh-plugins`, then `/plugin install dograh@dograh`) and ask your agent to *"set up Dograh for development"* — it runs the steps below for you and verifies the stack is healthy.
+</Tip>
 
-1. Fork the Dograh repository at https://github.com/dograh-hq/dograh
-2. Clone **your fork**:
+## Set up
+
+You need Git, a local Docker engine (such as Docker Desktop), and VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
+
+1. Fork [dograh-hq/dograh](https://github.com/dograh-hq/dograh) and clone **your fork**:
+
 ```bash
-git clone https://github.com/<GITHUB_HANDLE>/dograh
+git clone https://github.com/<YOUR_HANDLE>/dograh
 cd dograh
 ```
-3. Start the devcontainer.
 
-   In VS Code, open the repository and run **Dev Containers: Reopen in Container**.
+2. Open the folder in VS Code and run **Dev Containers: Reopen in Container**. The first build takes several minutes — it starts Postgres, Redis, and MinIO, seeds the Python venv, creates the `.env` files, and installs UI dependencies. Later opens are fast.
 
-   Without an IDE, use the Dev Container CLI:
-```bash
-npm install -g @devcontainers/cli
-devcontainer up --workspace-folder .
-devcontainer exec --workspace-folder . bash
-```
-4. Wait for the first build to finish. The first build takes several minutes; subsequent opens are much faster.
-5. Start the backend from a terminal inside the container:
+3. Start the backend from a terminal inside the container. The script waits for the health check and prints a status summary, so when it exits successfully the backend is up:
+
 ```bash
 bash scripts/start_services_dev.sh
 ```
 
-   Without an IDE, run the same command from your host:
+4. Start the UI from a second terminal inside the container:
+
 ```bash
-devcontainer exec --workspace-folder . bash scripts/start_services_dev.sh
-```
-6. Start the UI from another terminal inside the container:
-```bash
-cd ui
-npm run dev -- --hostname 0.0.0.0
+cd ui && npm run dev -- --hostname 0.0.0.0
 ```
 
-   Without an IDE, use another host terminal:
-```bash
-devcontainer exec --workspace-folder . bash -lc 'cd ui && npm run dev -- --hostname 0.0.0.0'
-```
-7. Verify that the backend is healthy:
-```bash
-curl -X GET localhost:8000/api/v1/health
-```
-8. Open the app at `http://localhost:3000`.
+5. Open the app at `http://localhost:3000`.
 
-### More Setup Options
+If these steps do not work for you, please open an issue on [GitHub](https://github.com/dograh-hq/dograh/issues).
 
-- For what the devcontainer bootstrap does, rebuild guidance, logs, and personal install hooks, see [Devcontainer Workflow](/contribution/devcontainer).
-- If you cloned `dograh-hq/dograh` directly instead of your fork, see [Fork Workflow](/contribution/fork-workflow) to reset `origin` and `upstream`.
-- If you do not want to use the devcontainer, see [Host-managed Setup](/contribution/host-managed-setup).
+<AccordionGroup>
+<Accordion title="Cloned dograh-hq/dograh directly instead of your fork?">
+Run `bash scripts/setup_fork.sh` once. It prompts for your fork URL, points `origin` at it, and adds `upstream` as `dograh-hq/dograh`. See [Fork and upstream remotes](/contribution/reference#fork-and-upstream-remotes).
+</Accordion>
+<Accordion title="No VS Code? No devcontainer at all?">
+The devcontainer also runs headless via the [Dev Container CLI](/contribution/reference#dev-container-cli), or you can run everything [directly on your host](/contribution/reference#host-managed-setup).
+</Accordion>
+</AccordionGroup>
+
+## Daily workflow
+
+| What | How |
+| --- | --- |
+| Restart the backend | Re-run `bash scripts/start_services_dev.sh` — it stops the old processes first |
+| Stop the backend | `bash scripts/stop_services.sh` |
+| Backend logs | `tail -f logs/latest/*.log` |
+| Code reload | Edits under `api/` auto-reload; `ari_manager`, `campaign_orchestrator`, and `arq` need a backend restart |
+| Rebuild the container | Only when `.devcontainer/`, `api/requirements*.txt`, or `pipecat/` change — plain source edits never need it |
+| Sync the pipecat submodule | `git submodule update --init --recursive` after pulling a submodule bump |
+
+## Debugging
+
+The repo ships debug configurations in `.vscode/launch.json` for every backend service and for pytest. To run under the debugger instead of the start script:
+
+1. Stop the script-managed backend if it is running, so the ports are free:
+
+```bash
+bash scripts/stop_services.sh
+```
+
+2. In VS Code's **Run and Debug** panel, pick a configuration and press F5:
+
+| Configuration | What it runs |
+| --- | --- |
+| **API: Uvicorn (reload)** | The FastAPI backend, with auto-reload (port from `UVICORN_PORT` in `api/.env`, default 8000) |
+| **API: Arq worker (watch)** / **API: Campaign orchestrator** / **API: ARI manager** | The other backend services — launch them alongside Uvicorn as needed |
+| **Tests: API (pytest, full suite / current file)** | pytest under the debugger, against `api/.env.test` |
+| **Tests: Pipecat (pytest, current file)** / **Python: Current file** | Debug a pipecat test or any standalone script |
+
+All configurations load `api/.env` (test configs use `api/.env.test`) and set `justMyCode: false`, so you can step into FastAPI and pipecat code — breakpoints in the `pipecat/` submodule work because it is installed editable. Inside the devcontainer the Python interpreter is preselected; on a host-managed setup, pick `./venv/bin/python` via **Python: Select Interpreter** first.
+
+## Repository layout
+
+| Path | What's there |
+| --- | --- |
+| `ui/` | Next.js frontend — the workflow builder, dashboard, and agent editor |
+| `api/` | FastAPI backend — REST API, campaign orchestration, telephony, ARQ background workers |
+| `pipecat/` | Git submodule for the voice pipeline (STT → LLM → TTS) |
+| `docs/` | This documentation site, written in MDX, previewed with `mint dev` |
+| `sdk/` | Python/TypeScript SDKs for driving Dograh programmatically |
+| `scripts/` | Setup, deployment, and update scripts |
+| `deploy/` | nginx and coturn config templates used by remote deployment |
+
+## Contributing a change
+
+1. Create a branch and make your change.
+2. Push to your fork (`origin`) and open a pull request against `dograh-hq/dograh:main`.
+3. A maintainer reviews and merges.
+
+Bug reports and feature ideas go through [GitHub Issues](https://github.com/dograh-hq/dograh/issues) and [Ideas](https://github.com/orgs/dograh-hq/discussions/categories/ideas). Issues tagged `good first issue` are a good place to start. For questions while you're working, use the [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g).
+
+Deploying your own build instead of contributing upstream? See [Deployments](/deployment/introduction) instead.

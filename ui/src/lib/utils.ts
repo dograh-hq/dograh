@@ -4,6 +4,7 @@ import { twMerge } from "tailwind-merge"
 import { getAuthUserApiV1UserAuthUserGet } from "@/client/sdk.gen";
 import { getWorkflowCountApiV1WorkflowCountGet } from "@/client/sdk.gen";
 import { impersonateApiV1SuperuserImpersonatePost } from "@/client/sdk.gen";
+import { detailFromError } from "@/lib/apiError";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -106,34 +107,17 @@ export async function getRedirectUrl(token: string, permissions: { id: string }[
 
 
 /**
- * --------------------------------------------------------------------------
- * Cookie helpers
- * --------------------------------------------------------------------------
- */
-
-export function setStackRefreshCookie(refreshToken: string) {
-  const expiryDate = new Date();
-  expiryDate.setFullYear(expiryDate.getFullYear() + 1);
-
-  const isDograhDomain = window.location.hostname.endsWith('.dograh.com');
-  const cookieDomainPart = isDograhDomain ? '; domain=.dograh.com' : '';
-
-  document.cookie =
-    `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID}=${refreshToken}; ` +
-    `expires=${expiryDate.toUTCString()}; path=/` +
-    `${cookieDomainPart}; secure; samesite=lax`;
-}
-
-/**
  * Centralised impersonation logic to avoid code duplication between pages.
  *
- * It performs the super-admin impersonate request, sets the cross-sub-domain
- * refresh cookie and optionally redirects the browser to the supplied path.
+ * It performs the super-admin impersonate request, sends the Stack tokens to
+ * the target-domain helper route, and optionally redirects the browser to the
+ * supplied path.
  */
 export async function impersonateAsSuperadmin(params: {
   accessToken: string;
   userId?: number;
   providerUserId?: string;
+  email?: string;
   redirectPath?: string;
   /**
    * If true the browser opens the impersonated session in a **new tab**
@@ -141,7 +125,21 @@ export async function impersonateAsSuperadmin(params: {
    */
   openInNewTab?: boolean;
 }): Promise<void> {
-  const { accessToken, userId, providerUserId, redirectPath, openInNewTab = false } = params;
+  const {
+    accessToken: adminAccessToken,
+    userId,
+    providerUserId,
+    email,
+    redirectPath,
+    openInNewTab = false,
+  } = params;
+  const targetWindow = openInNewTab ? window.open('', '_blank') : null;
+  if (targetWindow) {
+    targetWindow.opener = null;
+  }
+  if (openInNewTab && !targetWindow) {
+    throw new Error('Unable to open impersonation tab. Please allow pop-ups and try again.');
+  }
 
   // Build request body depending on which identifier we have.
   const body: Record<string, unknown> = {};
@@ -151,20 +149,36 @@ export async function impersonateAsSuperadmin(params: {
   if (providerUserId !== undefined) {
     body.provider_user_id = providerUserId;
   }
-
-  if (Object.keys(body).length === 0) {
-    throw new Error('Either userId or providerUserId must be provided');
+  if (email !== undefined) {
+    body.email = email;
   }
 
-  const resp = await impersonateApiV1SuperuserImpersonatePost({
-    body,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  if (Object.keys(body).length === 0) {
+    targetWindow?.close();
+    throw new Error('Either userId, providerUserId, or email must be provided');
+  }
+
+  let resp: Awaited<ReturnType<typeof impersonateApiV1SuperuserImpersonatePost>>;
+  try {
+    resp = await impersonateApiV1SuperuserImpersonatePost({
+      body,
+      headers: {
+        Authorization: `Bearer ${adminAccessToken}`,
+      },
+    });
+  } catch (error) {
+    targetWindow?.close();
+    throw error;
+  }
+
+  if (resp.error) {
+    targetWindow?.close();
+    throw new Error(detailFromError(resp.error, 'Failed to impersonate user'));
+  }
 
   const refreshToken = resp.data?.refresh_token;
   if (!refreshToken) {
+    targetWindow?.close();
     throw new Error('No refresh token returned from impersonate');
   }
 
@@ -187,14 +201,16 @@ export async function impersonateAsSuperadmin(params: {
 
   // Build the redirect URL to the helper route, passing along the refresh token and
   // the final destination.
-  const impersonateUrl = `${appBaseUrl}/impersonate?refresh_token=${encodeURIComponent(
-    refreshToken,
-  )}&redirect_path=${encodeURIComponent(finalRedirect)}`;
+  const impersonateUrl = new URL('/impersonate', appBaseUrl);
+  impersonateUrl.searchParams.set('refresh_token', refreshToken);
+  impersonateUrl.searchParams.set('redirect_path', finalRedirect);
 
   if (openInNewTab) {
-    window.open(impersonateUrl, '_blank');
+    if (!targetWindow) {
+      throw new Error('Unable to open impersonation tab. Please allow pop-ups and try again.');
+    }
+    targetWindow.location.href = impersonateUrl.toString();
   } else {
-    window.location.href = impersonateUrl;
+    window.location.href = impersonateUrl.toString();
   }
 }
-

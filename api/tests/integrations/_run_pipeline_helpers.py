@@ -160,14 +160,6 @@ def patch_run_pipeline_externals(
                 NoopFeedbackObserver,
             )
         )
-        # Disposition mapper would otherwise call out to the LLM.
-        stack.enter_context(
-            patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-                new_callable=AsyncMock,
-                return_value="completed",
-            )
-        )
         # Capture the PipelineWorker so the test can drive it from outside.
         stack.enter_context(
             patch(
@@ -203,7 +195,11 @@ async def create_workflow_run_rows(
     Returns:
         Tuple of (workflow_run, user, workflow).
     """
-    from api.schemas.user_configuration import UserConfiguration
+    from api.enums import OrganizationConfigurationKey
+    from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+    from api.services.configuration.ai_model_configuration import (
+        convert_legacy_ai_model_configuration_to_v2,
+    )
 
     org = OrganizationModel(provider_id=f"test-org-{provider_id_suffix}")
     async_session.add(org)
@@ -216,9 +212,16 @@ async def create_workflow_run_rows(
     async_session.add(user)
     await async_session.flush()
 
-    await db_session.update_user_configuration(
-        user_id=user.id,
-        configuration=UserConfiguration.model_validate(USER_CONFIGURATION),
+    user_configuration = EffectiveAIModelConfiguration.model_validate(
+        USER_CONFIGURATION
+    )
+    await db_session.upsert_configuration(
+        org.id,
+        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
+            mode="json",
+            exclude_none=True,
+        ),
     )
 
     workflow = await db_session.create_workflow(

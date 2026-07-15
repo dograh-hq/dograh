@@ -26,7 +26,11 @@ from loguru import logger
 from api.constants import REDIS_URL
 from api.db import db_client
 from api.enums import CallType, WorkflowRunMode
-from api.services.quota_service import check_dograh_quota_by_user_id
+from api.services.call_concurrency import (
+    CallConcurrencyLimitError,
+    call_concurrency,
+)
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
@@ -119,10 +123,19 @@ class ARIConnection:
         r = await self._get_redis()
         return await r.exists(f"{_EXT_CHANNEL_KEY_PREFIX}{channel_id}") > 0
 
-    async def _delete_ext_channel(self, channel_id: str):
+    async def _delete_ext_channel(self, channel_id: Optional[str]):
         """Remove the external media channel marker."""
+        if not channel_id:
+            return
         r = await self._get_redis()
         await r.delete(f"{_EXT_CHANNEL_KEY_PREFIX}{channel_id}")
+
+    async def _delete_transfer_channel_mapping(self, channel_id: Optional[str]):
+        """Remove transfer destination channel correlation marker."""
+        if not channel_id:
+            return
+        r = await self._get_redis()
+        await r.delete(f"ari:transfer_channel:{channel_id}")
 
     async def _set_pending_bridge(
         self,
@@ -340,19 +353,18 @@ class ARIConnection:
 
                 workflow_run_id = args_dict.get("workflow_run_id")
                 workflow_id = args_dict.get("workflow_id")
-                user_id = args_dict.get("user_id")
 
-                if not workflow_run_id or not workflow_id or not user_id:
+                if not workflow_run_id or not workflow_id:
                     logger.warning(
                         f"[ARI org={self.organization_id}] StasisStart missing required args: "
-                        f"workflow_run_id={workflow_run_id}, workflow_id={workflow_id}, user_id={user_id}"
+                        f"workflow_run_id={workflow_run_id}, workflow_id={workflow_id}"
                     )
                     return
 
                 # Start pipeline connection in background task
                 asyncio.create_task(
                     self._handle_stasis_start(
-                        channel_id, channel_state, workflow_run_id, workflow_id, user_id
+                        channel_id, channel_state, workflow_run_id, workflow_id
                     )
                 )
 
@@ -435,7 +447,6 @@ class ARIConnection:
     async def _create_external_media(
         self,
         workflow_id: str,
-        user_id: str,
         workflow_run_id: str,
         channel_id: Optional[str] = None,
     ) -> str:
@@ -451,10 +462,10 @@ class ARIConnection:
         the POST and avoid racing against the StasisStart event.
         """
         # v() appends URI query params to the websocket_client.conf URL
-        # e.g. wss://api.dograh.com/ws/ari?workflow_id=1&user_id=2&workflow_run_id=3
+        # e.g. wss://api.dograh.com/ws/ari?workflow_id=1&organization_id=2&workflow_run_id=3
         transport_data = (
             f"v(workflow_id={workflow_id},"
-            f"user_id={user_id},"
+            f"organization_id={self.organization_id},"
             f"workflow_run_id={workflow_run_id})"
         )
 
@@ -518,6 +529,8 @@ class ARIConnection:
         channel = event.get("channel", {})
         caller_number = channel.get("caller", {}).get("number", "unknown")
         called_number = channel.get("dialplan", {}).get("exten", "unknown")
+        concurrency_slot = None
+        workflow_run = None
 
         try:
             # 1. Resolve the workflow from the called extension via the
@@ -564,19 +577,21 @@ class ARIConnection:
 
             user_id = workflow.user_id
 
-            # 3. Check quota (apply per-workflow model_overrides).
-            quota_result = await check_dograh_quota_by_user_id(
-                user_id, workflow_id=inbound_workflow_id
-            )
-            if not quota_result.has_quota:
+            try:
+                concurrency_slot = await call_concurrency.acquire_org_slot(
+                    self.organization_id,
+                    source="ari_inbound",
+                    timeout=0,
+                )
+            except CallConcurrencyLimitError:
                 logger.warning(
-                    f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "
-                    f"— hanging up inbound call {channel_id}"
+                    f"[ARI org={self.organization_id}] Concurrent call limit "
+                    f"reached; hanging up inbound channel {channel_id}"
                 )
                 await self._delete_channel(channel_id)
                 return
 
-            # 4. Create workflow run
+            # 3. Create workflow run
             call_id = channel_id
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
@@ -594,13 +609,31 @@ class ARIConnection:
                 gathered_context={
                     "call_id": call_id,
                 },
+                organization_id=self.organization_id,
             )
+            await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
 
             logger.info(
                 f"[ARI org={self.organization_id}] Created inbound workflow run "
                 f"{workflow_run.id} for channel {channel_id} "
                 f"(caller={caller_number}, called={called_number})"
             )
+
+            # 4. Check quota after the run exists so hosted v2 can mint and
+            # store the MPS correlation id before the pipeline starts.
+            quota_result = await authorize_workflow_run_start(
+                workflow_id=inbound_workflow_id,
+                organization_id=self.organization_id,
+                workflow_run_id=workflow_run.id,
+            )
+            if not quota_result.has_quota:
+                logger.warning(
+                    f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "
+                    f"— hanging up inbound call {channel_id}"
+                )
+                await call_concurrency.release_workflow_run_slot(workflow_run.id)
+                await self._delete_channel(channel_id)
+                return
 
             # 5. Answer the inbound channel
             await self._answer_channel(channel_id)
@@ -611,9 +644,12 @@ class ARIConnection:
                 channel_state,
                 str(workflow_run.id),
                 str(inbound_workflow_id),
-                str(user_id),
             )
         except Exception as e:
+            if workflow_run:
+                await call_concurrency.release_workflow_run_slot(workflow_run.id)
+            elif concurrency_slot:
+                await call_concurrency.release_slot(concurrency_slot)
             logger.error(
                 f"[ARI org={self.organization_id}] Error handling inbound StasisStart "
                 f"for channel {channel_id}: {e}"
@@ -629,7 +665,6 @@ class ARIConnection:
         channel_state: str,
         workflow_run_id: str,
         workflow_id: str,
-        user_id: str,
     ):
         """Set up external media for a caller channel that has entered Stasis.
 
@@ -673,7 +708,6 @@ class ARIConnection:
             # 3. Create the ext media channel with the id we just registered.
             created_id = await self._create_external_media(
                 workflow_id,
-                user_id,
                 workflow_run_id,
                 channel_id=ext_channel_id,
             )
@@ -749,6 +783,14 @@ class ARIConnection:
         the bridge and both channels — like endConferenceOnExit.
         """
         try:
+            # Release the org concurrency slot. Normally the pipeline's own
+            # teardown does this when the ext media websocket closes, but if
+            # the pipeline never started (caller hung up before external
+            # media connected, ext media creation failed, ...) this is the
+            # only cleanup that runs before the Redis stale timeout. No-op
+            # when the slot was already released.
+            await call_concurrency.unregister_active_call(int(workflow_run_id))
+
             workflow_run = await db_client.get_workflow_run_by_id(int(workflow_run_id))
             if not workflow_run or not workflow_run.gathered_context:
                 logger.warning(
@@ -764,6 +806,11 @@ class ARIConnection:
             ext_channel_id = ctx.get("ext_channel_id")
             bridge_id = ctx.get("bridge_id")
             transfer_state = ctx.get("transfer_state")
+            transfer_bridge_id = ctx.get("transfer_bridge_id") or bridge_id
+            transfer_caller_channel_id = (
+                ctx.get("transfer_caller_channel_id") or call_id
+            )
+            transfer_destination_channel_id = ctx.get("transfer_destination_channel_id")
 
             # Check if this is a call transfer scenario external channel. Skip full teardown if
             # transfer is in progress and this is the external media channel
@@ -794,6 +841,64 @@ class ARIConnection:
                 )
                 return
 
+            if (
+                transfer_state == "complete"
+                and transfer_bridge_id
+                and transfer_caller_channel_id
+                and transfer_destination_channel_id
+                and channel_id
+                in (
+                    transfer_caller_channel_id,
+                    transfer_destination_channel_id,
+                )
+            ):
+                peer_channel_id = (
+                    transfer_destination_channel_id
+                    if channel_id == transfer_caller_channel_id
+                    else transfer_caller_channel_id
+                )
+                logger.info(
+                    f"[ARI org={self.organization_id}] Completed transfer participant "
+                    f"{channel_id} left Stasis; tearing down peer {peer_channel_id} "
+                    f"and bridge {transfer_bridge_id}"
+                )
+
+                # Mark terminal state before issuing ARI deletes so duplicate
+                # StasisEnd events run through the idempotent normal cleanup path.
+                ctx["transfer_state"] = "terminated"
+                await db_client.update_workflow_run(
+                    run_id=int(workflow_run_id), gathered_context=ctx
+                )
+
+                await self._delete_bridge(transfer_bridge_id)
+                if peer_channel_id and peer_channel_id != channel_id:
+                    await self._delete_channel(peer_channel_id)
+
+                keys_to_delete = [
+                    cid
+                    for cid in (
+                        transfer_caller_channel_id,
+                        transfer_destination_channel_id,
+                        ext_channel_id,
+                        channel_id,
+                    )
+                    if cid
+                ]
+                if keys_to_delete:
+                    await self._delete_channel_run(*keys_to_delete)
+
+                await self._delete_ext_channel(ext_channel_id)
+                await self._delete_transfer_channel_mapping(
+                    transfer_destination_channel_id
+                )
+
+                logger.info(
+                    f"[ARI org={self.organization_id}] Completed transfer teardown "
+                    f"finished for channel={channel_id}, peer={peer_channel_id}, "
+                    f"bridge={transfer_bridge_id}"
+                )
+                return
+
             # Normal full teardown for non-transfer scenarios (transfer_state is None or not in-progress)
             # Delete the bridge first (removes channels from it)
             if bridge_id:
@@ -813,6 +918,7 @@ class ARIConnection:
 
             # Clean up the Redis marker for external channel
             await self._delete_ext_channel(ext_channel_id)
+            await self._delete_transfer_channel_mapping(transfer_destination_channel_id)
 
             logger.info(
                 f"[ARI org={self.organization_id}] StasisEnd full teardown for "

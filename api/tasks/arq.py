@@ -12,7 +12,7 @@ from api.tasks.function_names import FunctionNames
 setup_logging()
 
 # Now import ARQ and task dependencies
-from arq import create_pool
+from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
 
 parsed_url = urlparse(REDIS_URL)
@@ -45,22 +45,29 @@ from api.tasks.campaign_tasks import (
 )
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
-from api.tasks.s3_upload import (
-    process_workflow_completion,
-    upload_voicemail_audio_to_s3,
-)
+from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
+from api.tasks.workflow_completion import process_workflow_completion
 
 
 class WorkerSettings:
     functions = [
         run_integrations_post_workflow_run,
-        upload_voicemail_audio_to_s3,
         process_workflow_completion,
         sync_campaign_source,
         process_campaign_batch,
         process_knowledge_base_document,
+        deliver_webhook,
     ]
-    cron_jobs = []
+    cron_jobs = [
+        # Safety net for webhook deliveries whose ARQ job was lost (worker
+        # restart / Redis flush): re-enqueue any pending delivery that is overdue.
+        cron(
+            sweep_webhook_deliveries,
+            minute=set(range(0, 60, 5)),
+            second=0,
+            run_at_startup=True,
+        ),
+    ]
     redis_settings = REDIS_SETTINGS
     max_jobs = 10
 
@@ -109,6 +116,8 @@ async def get_arq_redis() -> ArqRedis:
     return _redis_pool
 
 
-async def enqueue_job(function_name: FunctionNames, *args):
+async def enqueue_job(function_name: FunctionNames, *args, **kwargs):
     redis = await get_arq_redis()
-    await redis.enqueue_job(function_name, *args)
+    # kwargs forwards ARQ job options (e.g. _job_id, _defer_by) used for
+    # deterministic, backed-off webhook delivery retries.
+    return await redis.enqueue_job(function_name, *args, **kwargs)

@@ -34,7 +34,7 @@ class TestGoogleVertexLLMConfiguration:
 class TestGoogleVertexLLMServiceFactory:
     def test_create_llm_service_from_provider_uses_vertex_service(self):
         with patch(
-            "api.services.pipecat.service_factory.GoogleVertexLLMService"
+            "api.services.pipecat.service_factory.DograhGoogleVertexLLMService"
         ) as mock_service:
             create_llm_service_from_provider(
                 provider=ServiceProviders.GOOGLE_VERTEX.value,
@@ -65,7 +65,7 @@ class TestGoogleVertexLLMServiceFactory:
         )
 
         with patch(
-            "api.services.pipecat.service_factory.GoogleVertexLLMService"
+            "api.services.pipecat.service_factory.DograhGoogleVertexLLMService"
         ) as mock_service:
             create_llm_service(user_config)
 

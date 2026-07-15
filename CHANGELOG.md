@@ -1,5 +1,152 @@
 # Changelog
 
+## 1.41.0 (2026-07-06)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: client gen default configurations by @a6kme in https://github.com/dograh-hq/dograh/pull/499
+### Bug Fixes
+* fix: clean up ARI transferred call legs on participant hangup by @chewwbaka in https://github.com/dograh-hq/dograh/pull/498
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.40.0...dograh-v1.41.0
+
+## 1.40.0 (2026-07-03)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: support inbound vonage calls by @chewwbaka in https://github.com/dograh-hq/dograh/pull/480
+* feat: better interrupt strategies by @a6kme in https://github.com/dograh-hq/dograh/pull/479
+* feat(webhooks): durable retrying delivery for final webhooks by @xTararAisx in https://github.com/dograh-hq/dograh/pull/478
+* feat: add Helm chart for Kubernetes deployment by @a6kme in https://github.com/dograh-hq/dograh/pull/365
+### Bug Fixes
+* fix: fix initial greeting for  realtime models by @a6kme in https://github.com/dograh-hq/dograh/pull/481
+* fix: guard Chatwoot bubble toggle until holder is in the DOM by @pk-198 in https://github.com/dograh-hq/dograh/pull/485
+### Documentation
+* docs: fix dead entry points, add first-agent tutorial, explain unexplained features by @rushilbh27 in https://github.com/dograh-hq/dograh/pull/489
+* docs: add missing cross-links for machine and human readability by @rushilbh27 in https://github.com/dograh-hq/dograh/pull/492
+* docs: clarify Asterisk ARI websocket_client.conf URI and why /ws/ari 403s when tested directly by @mvanhorn in https://github.com/dograh-hq/dograh/pull/490
+### Other Changes
+* embed cal and chatwoot bubble missing fix by @pk-198 in https://github.com/dograh-hq/dograh/pull/483
+* Docs/add japanese readme by @sscodeai in https://github.com/dograh-hq/dograh/pull/477
+* Implement cost calculator for Tuber by @Mohamed-Mamdouh in https://github.com/dograh-hq/dograh/pull/471
+
+## New Contributors
+* @pk-198 made their first contribution in https://github.com/dograh-hq/dograh/pull/483
+* @sscodeai made their first contribution in https://github.com/dograh-hq/dograh/pull/477
+* @rushilbh27 made their first contribution in https://github.com/dograh-hq/dograh/pull/489
+* @xTararAisx made their first contribution in https://github.com/dograh-hq/dograh/pull/478
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.39.0...dograh-v1.40.0
+
+## 1.39.0 (2026-06-27)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(scripts): free trusted HTTPS via sslip.io for public-IP remote i… by @a6kme in https://github.com/dograh-hq/dograh/pull/460
+### Bug Fixes
+* fix: reject misrouted smallwebrtc runs on the telephony websocket by @mvanhorn in https://github.com/dograh-hq/dograh/pull/468
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.38.0...dograh-v1.39.0
+
+## 1.38.0 (2026-06-25)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(scripts): generate REDIS_PASSWORD on setup, plumb through compose by @tecnomanu in https://github.com/dograh-hq/dograh/pull/458
+* feat(storage): support custom S3 endpoint, signature version, and addressing style by @skymoore in https://github.com/dograh-hq/dograh/pull/461
+* feat(twilio): add Answering Machine Detection (AMD) support via telephony config by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/443
+### Bug Fixes
+* fix: support Gemini JSON schema tools by @snvtac in https://github.com/dograh-hq/dograh/pull/463
+### Documentation
+* docs: update Tuner integration to use Dograh provider by @mohamedsalem-bot in https://github.com/dograh-hq/dograh/pull/457
+### Other Changes
+* style(docs): add custom green scrollbar by @Gurkirat-Singh-bit in https://github.com/dograh-hq/dograh/pull/434
+* Add Hostinger (managed-Traefik) deployment files by @a6kme in https://github.com/dograh-hq/dograh/pull/459
+
+## New Contributors
+* @Gurkirat-Singh-bit made their first contribution in https://github.com/dograh-hq/dograh/pull/434
+* @tecnomanu made their first contribution in https://github.com/dograh-hq/dograh/pull/458
+* @skymoore made their first contribution in https://github.com/dograh-hq/dograh/pull/461
+* @snvtac made their first contribution in https://github.com/dograh-hq/dograh/pull/463
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.37.0...dograh-v1.38.0
+
+## 1.37.0 (2026-06-19)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add Inworld TTS provider support by @manasseh-zw in https://github.com/dograh-hq/dograh/pull/420
+### Bug Fixes
+* fix(workflow): detect duplicate trigger paths when first node has no id by @Mubashirrrr in https://github.com/dograh-hq/dograh/pull/409
+* fix(qa): tolerate non-dict JSON from QA LLM instead of crashing by @Mubashirrrr in https://github.com/dograh-hq/dograh/pull/408
+* fix(devcontainer): expose UI/API ports for host access by @faisu in https://github.com/dograh-hq/dograh/pull/405
+* fix: disable duplicate trigger nodes in workflow builder by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/402
+* fix(ui): proxy WebSocket signaling upgrade so local web calls work (#425) by @yogi6969 in https://github.com/dograh-hq/dograh/pull/454
+
+## New Contributors
+* @faisu made their first contribution in https://github.com/dograh-hq/dograh/pull/405
+* @yogi6969 made their first contribution in https://github.com/dograh-hq/dograh/pull/454
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.36.0...dograh-v1.37.0
+
+## 1.36.0 (2026-06-18)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add Smallest AI TTS and STT provider integration by @harshitajain165 in https://github.com/dograh-hq/dograh/pull/444
+* feat: refreshed user onboarding by @a6kme in https://github.com/dograh-hq/dograh/pull/430
+* feat: add custom sarvam tts voice by @chewwbaka in https://github.com/dograh-hq/dograh/pull/449
+* feat(examples): add load-and-edit workflow SDK example in Python and TypeScript by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/441
+* feat(examples): add multi-node Workflow SDK example in Python and TypeScript by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/440
+### Bug Fixes
+* fix: add pace option in sarvam tts config by @chewwbaka in https://github.com/dograh-hq/dograh/pull/447
+* fix(ui): release microphone stream on call teardown so a second test call works by @Aymenbenpakiss in https://github.com/dograh-hq/dograh/pull/446
+* fix: add language field to CartesiaTTSConfiguration and pass to Cartesia TTS service by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/442
+* fix: sync Smallest AI voice dropdown with selected model by @harshitajain165 in https://github.com/dograh-hq/dograh/pull/451
+### Other Changes
+* Validate workflow status filter to prevent 500 on invalid enum value by @a6kme in https://github.com/dograh-hq/dograh/pull/450
+* allow self-hosters to enable Stack Auth via Dockerfile build args (v33.0) by @neggmmm in https://github.com/dograh-hq/dograh/pull/445
+
+## New Contributors
+* @harshitajain165 made their first contribution in https://github.com/dograh-hq/dograh/pull/444
+* @Aymenbenpakiss made their first contribution in https://github.com/dograh-hq/dograh/pull/446
+* @neggmmm made their first contribution in https://github.com/dograh-hq/dograh/pull/445
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.35.0...dograh-v1.36.0
+
+## 1.35.0 (2026-06-12)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add config v2 to simplify billing by @a6kme in https://github.com/dograh-hq/dograh/pull/428
+* feat: add Cartesia Sonic 3.5 as a TTS option by @manasseh-zw in https://github.com/dograh-hq/dograh/pull/423
+* feat: add a start docker script by @a6kme in https://github.com/dograh-hq/dograh/pull/426
+* feat: billing and credit management v2 by @a6kme in https://github.com/dograh-hq/dograh/pull/429
+### Bug Fixes
+* fix(telephony): handle Cloudonix CDR webhooks missing session/disposition by @Mubashirrrr in https://github.com/dograh-hq/dograh/pull/407
+
+## New Contributors
+* @manasseh-zw made their first contribution in https://github.com/dograh-hq/dograh/pull/423
+* @Mubashirrrr made their first contribution in https://github.com/dograh-hq/dograh/pull/407
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.34.0...dograh-v1.35.0
+
 ## 1.34.0 (2026-06-03)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

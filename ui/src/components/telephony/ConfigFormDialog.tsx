@@ -47,7 +47,8 @@ interface ConfigFormDialogProps {
   onSaved: () => void;
 }
 
-type FieldValues = Record<string, string | number | undefined>;
+type FieldValue = string | number | boolean | undefined;
+type FieldValues = Record<string, FieldValue>;
 
 export function ConfigFormDialog({
   open,
@@ -104,7 +105,7 @@ export function ConfigFormDialog({
     if (!isEdit) setValues({});
   }, [providerName, isEdit]);
 
-  const updateField = (fieldName: string, value: string | number) => {
+  const updateField = (fieldName: string, value: FieldValue) => {
     setValues((prev) => ({ ...prev, [fieldName]: value }));
   };
 
@@ -292,8 +293,8 @@ export function ConfigFormDialog({
 
 interface FieldInputProps {
   field: TelephonyProviderMetadata["fields"][number];
-  value: string | number | undefined;
-  onChange: (v: string | number) => void;
+  value: FieldValue;
+  onChange: (v: FieldValue) => void;
   isEdit: boolean;
 }
 
@@ -332,6 +333,15 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
         placeholder={placeholder}
         value={value as number | string | undefined ?? ""}
         onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+      />
+    );
+  }
+  if (field.type === "boolean") {
+    return (
+      <Switch
+        id={`cfg-field-${field.name}`}
+        checked={Boolean(value)}
+        onCheckedChange={onChange}
       />
     );
   }

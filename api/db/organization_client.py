@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import exists
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
 
@@ -8,6 +9,7 @@ from api.db.base_client import BaseDBClient
 from api.db.models import (
     APIKeyModel,
     OrganizationModel,
+    UserModel,
     organization_users_association,
 )
 from api.utils.api_key import generate_api_key
@@ -23,6 +25,22 @@ class OrganizationClient(BaseDBClient):
                 select(OrganizationModel).where(OrganizationModel.id == organization_id)
             )
             return result.scalars().first()
+
+    async def get_organization_users(self, organization_id: int) -> list[UserModel]:
+        """Get all users linked to an organization (many-to-many)."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserModel)
+                .join(
+                    organization_users_association,
+                    organization_users_association.c.user_id == UserModel.id,
+                )
+                .where(
+                    organization_users_association.c.organization_id == organization_id
+                )
+                .order_by(UserModel.id)
+            )
+            return list(result.scalars().all())
 
     async def get_or_create_organization_by_provider_id(
         self, org_provider_id: str, user_id: int
@@ -90,6 +108,24 @@ class OrganizationClient(BaseDBClient):
                 await session.refresh(organization)
                 return organization, was_created
             return organization, False
+
+    async def is_user_member_of_organization(
+        self, user_id: int, organization_id: int
+    ) -> bool:
+        """Return True if the user belongs to the given organization."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(
+                    exists().where(
+                        (organization_users_association.c.user_id == user_id)
+                        & (
+                            organization_users_association.c.organization_id
+                            == organization_id
+                        )
+                    )
+                )
+            )
+            return bool(result.scalar())
 
     async def add_user_to_organization(
         self, user_id: int, organization_id: int

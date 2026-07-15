@@ -15,10 +15,20 @@ from api.db import db_client
 from api.db.agent_trigger_client import TriggerPathConflictError
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
-from api.enums import CallType, PostHogEvent, StorageBackend
+from api.enums import CallType, PostHogEvent, StorageBackend, WorkflowStatus
+from api.schemas.ai_model_configuration import OrganizationAIModelConfigurationV2
 from api.schemas.workflow import WorkflowRunResponseSchema
+from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
+from api.services.configuration.ai_model_configuration import (
+    WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
+    check_for_masked_keys_in_ai_model_configuration_v2,
+    compile_ai_model_configuration_v2,
+    convert_legacy_ai_model_configuration_to_v2,
+    get_resolved_ai_model_configuration,
+    merge_ai_model_configuration_v2_secrets,
+)
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import (
     mask_workflow_configurations,
@@ -32,12 +42,15 @@ from api.services.configuration.resolve import (
 )
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
-from api.services.pricing.run_usage_response import format_public_usage_info
 from api.services.reports import generate_workflow_report_csv
 from api.services.storage import storage_fs
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
+from api.services.workflow.run_usage_response import (
+    format_public_cost_info,
+    format_public_usage_info,
+)
 from api.services.workflow.trigger_paths import (
     TriggerPathIssue,
     ensure_trigger_paths,
@@ -46,8 +59,15 @@ from api.services.workflow.trigger_paths import (
     trigger_path_to_node_id,
     validate_trigger_paths,
 )
-from api.services.workflow.workflow_graph import WorkflowGraph
+from api.services.workflow.workflow_graph import (
+    WorkflowGraph,
+    validate_node_instance_constraints,
+)
 from api.utils.artifacts import artifact_url
+from api.utils.recording_artifacts import (
+    get_recording_storage_key,
+    has_recording_track,
+)
 
 router = APIRouter(prefix="/workflow")
 
@@ -176,6 +196,27 @@ def _validation_errors_http_exception(
     )
 
 
+def _node_instance_validation_errors(
+    workflow_definition: Optional[dict],
+) -> list[WorkflowError]:
+    """Validate spec-driven max_instances without requiring a complete draft."""
+    if not workflow_definition:
+        return []
+    nodes = workflow_definition.get("nodes")
+    if not isinstance(nodes, list):
+        return []
+
+    node_types = [
+        node.get("type")
+        for node in nodes
+        if isinstance(node, dict) and isinstance(node.get("type"), str)
+    ]
+    return validate_node_instance_constraints(
+        node_types,
+        enforce_min_instances=False,
+    )
+
+
 class CallDispositionCodes(BaseModel):
     disposition_codes: list[str] = []
 
@@ -244,7 +285,10 @@ class UpdateWorkflowRequest(BaseModel):
     name: str | None = None
     workflow_definition: dict | None = None
     template_context_variables: dict | None = None
-    workflow_configurations: dict | None = None
+    # Typed so field constraints (e.g. the max_call_duration cap) are
+    # enforced by FastAPI; extra="allow" keeps passthrough keys like
+    # model_configuration_v2_override intact.
+    workflow_configurations: WorkflowConfigurationDefaults | None = None
 
 
 class WorkflowVersionResponse(BaseModel):
@@ -368,6 +412,9 @@ async def create_workflow(
     trigger_path_issues = validate_trigger_paths(workflow_definition)
     if trigger_path_issues:
         raise _trigger_path_validation_http_exception(trigger_path_issues)
+    instance_errors = _node_instance_validation_errors(workflow_definition)
+    if instance_errors:
+        raise _validation_errors_http_exception(instance_errors)
 
     # Validate trigger path uniqueness BEFORE creating the workflow so we
     # don't leave an orphaned workflow record when the trigger conflicts.
@@ -562,6 +609,31 @@ async def get_workflow_count(
     )
 
 
+def _validate_status_filter(status: Optional[str]) -> List[str]:
+    """Parse and validate a workflow ``status`` query filter.
+
+    Accepts a single value or a comma-separated list. Returns the list of
+    validated status values (empty when no filter was supplied). Any value
+    outside the ``workflow_status`` enum raises 422 so the request fails as a
+    clean client error instead of a 500 from the Postgres enum cast.
+    """
+    if status is None or status == "":
+        return []
+    allowed = {s.value for s in WorkflowStatus}
+    requested = [s.strip() for s in status.split(",")]
+    invalid = sorted({s for s in requested if s not in allowed})
+    if invalid:
+        invalid_display = ["<empty>" if s == "" else s for s in invalid]
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid workflow status filter: {invalid_display}. "
+                f"Allowed values: {sorted(allowed)}."
+            ),
+        )
+    return requested
+
+
 @router.get(
     "/fetch",
     **sdk_expose(
@@ -581,21 +653,22 @@ async def get_workflows(
     Returns a lightweight response with only essential fields for listing.
     Use GET /workflow/fetch/{workflow_id} to get full workflow details.
     """
-    # Handle comma-separated status values
-    if status and "," in status:
-        # Split comma-separated values and fetch workflows for each status
-        status_list = [s.strip() for s in status.split(",")]
+    statuses = _validate_status_filter(status)
+    if statuses:
+        # Fetch workflows for each requested status and combine the results.
         all_workflows = []
-        for status_value in status_list:
-            workflows = await db_client.get_all_workflows_for_listing(
-                organization_id=user.selected_organization_id, status=status_value
+        for status_value in statuses:
+            all_workflows.extend(
+                await db_client.get_all_workflows_for_listing(
+                    organization_id=user.selected_organization_id,
+                    status=status_value,
+                )
             )
-            all_workflows.extend(workflows)
         workflows = all_workflows
     else:
-        # Single status or no status filter
+        # No status filter
         workflows = await db_client.get_all_workflows_for_listing(
-            organization_id=user.selected_organization_id, status=status
+            organization_id=user.selected_organization_id, status=None
         )
 
     # Get run counts for all workflows in a single query
@@ -804,10 +877,20 @@ async def get_workflows_summary(
     ),
 ) -> List[WorkflowSummaryResponse]:
     """Get minimal workflow information (id and name only) for all workflows"""
-    workflows = await db_client.get_all_workflows(
-        organization_id=user.selected_organization_id,
-        status=status,
-    )
+    statuses = _validate_status_filter(status)
+    if statuses:
+        workflows = []
+        for status_value in statuses:
+            workflows.extend(
+                await db_client.get_all_workflows(
+                    organization_id=user.selected_organization_id,
+                    status=status_value,
+                )
+            )
+    else:
+        workflows = await db_client.get_all_workflows(
+            organization_id=user.selected_organization_id, status=None
+        )
     return [
         WorkflowSummaryResponse(id=workflow.id, name=workflow.name)
         for workflow in workflows
@@ -938,6 +1021,9 @@ async def update_workflow(
         trigger_path_issues = validate_trigger_paths(workflow_definition)
         if trigger_path_issues:
             raise _trigger_path_validation_http_exception(trigger_path_issues)
+        instance_errors = _node_instance_validation_errors(workflow_definition)
+        if instance_errors:
+            raise _validation_errors_http_exception(instance_errors, status_code=409)
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
@@ -955,12 +1041,79 @@ async def update_workflow(
                     existing_def,
                 )
 
-        # Validate model_overrides: resolve onto global config, then
-        # run the same validator used by the user-configurations endpoint.
-        # Also stamp the current global API key into the override so the override
-        # remains functional if the global config later switches to a different provider.
-        workflow_configurations = request.workflow_configurations
-        if workflow_configurations and workflow_configurations.get("model_overrides"):
+        # Validate model overrides. v2 uses a complete workflow-level model
+        # configuration; legacy v1 uses partial service overlays.
+        # exclude_unset keeps stored configs sparse: keys the request didn't
+        # send stay absent so runtime defaults keep applying to them.
+        workflow_configurations = (
+            request.workflow_configurations.model_dump(exclude_unset=True)
+            if request.workflow_configurations is not None
+            else None
+        )
+        if workflow_configurations and workflow_configurations.get(
+            WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+        ):
+            existing_workflow = await db_client.get_workflow(
+                workflow_id, organization_id=user.selected_organization_id
+            )
+            if existing_workflow is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Workflow with id {workflow_id} not found"
+                )
+            existing_draft = await db_client.get_draft_version(workflow_id)
+            existing_configs = (
+                existing_draft.workflow_configurations
+                if existing_draft
+                else existing_workflow.released_definition.workflow_configurations
+            )
+            existing_v2_override = (existing_configs or {}).get(
+                WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+            )
+            try:
+                incoming_v2_override = (
+                    OrganizationAIModelConfigurationV2.model_validate(
+                        workflow_configurations[
+                            WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+                        ]
+                    )
+                )
+                existing_v2_override_config = (
+                    OrganizationAIModelConfigurationV2.model_validate(
+                        existing_v2_override
+                    )
+                    if existing_v2_override
+                    else None
+                )
+                v2_override = merge_ai_model_configuration_v2_secrets(
+                    incoming_v2_override,
+                    existing_v2_override_config,
+                )
+                if existing_v2_override_config is None:
+                    resolved_config = await get_resolved_ai_model_configuration(
+                        organization_id=user.selected_organization_id,
+                    )
+                    v2_override = merge_ai_model_configuration_v2_secrets(
+                        v2_override,
+                        resolved_config.organization_configuration,
+                    )
+                check_for_masked_keys_in_ai_model_configuration_v2(v2_override)
+                effective = compile_ai_model_configuration_v2(v2_override)
+                await UserConfigurationValidator().validate(
+                    effective,
+                    organization_id=user.selected_organization_id,
+                    created_by=user.provider_id,
+                )
+            except (ValidationError, ValueError) as e:
+                raise HTTPException(status_code=422, detail=str(e))
+            workflow_configurations = {
+                **workflow_configurations,
+                WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY: v2_override.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                ),
+            }
+            workflow_configurations.pop("model_overrides", None)
+        elif workflow_configurations and workflow_configurations.get("model_overrides"):
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
             )
@@ -978,24 +1131,47 @@ async def update_workflow(
                 workflow_configurations,
                 existing_configs,
             )
-            user_config = await db_client.get_user_configurations(user.id)
+            resolved_config = await get_resolved_ai_model_configuration(
+                organization_id=user.selected_organization_id,
+            )
+            effective_config = resolved_config.effective
             try:
                 enriched_overrides = enrich_overrides_with_api_keys(
                     workflow_configurations["model_overrides"],
-                    user_config,
+                    effective_config,
                 )
-                effective = resolve_effective_config(user_config, enriched_overrides)
-                await UserConfigurationValidator().validate(
-                    effective,
-                    organization_id=user.selected_organization_id,
-                    created_by=user.provider_id,
+                effective = resolve_effective_config(
+                    effective_config, enriched_overrides
                 )
+                if resolved_config.source == "organization_v2":
+                    v2_override = convert_legacy_ai_model_configuration_to_v2(effective)
+                    await UserConfigurationValidator().validate(
+                        compile_ai_model_configuration_v2(v2_override),
+                        organization_id=user.selected_organization_id,
+                        created_by=user.provider_id,
+                    )
+                else:
+                    await UserConfigurationValidator().validate(
+                        effective,
+                        organization_id=user.selected_organization_id,
+                        created_by=user.provider_id,
+                    )
             except ValueError as e:
                 raise HTTPException(status_code=422, detail=str(e))
-            workflow_configurations = {
-                **workflow_configurations,
-                "model_overrides": enriched_overrides,
-            }
+            if resolved_config.source == "organization_v2":
+                workflow_configurations = {
+                    **workflow_configurations,
+                    WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY: v2_override.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                    ),
+                }
+                workflow_configurations.pop("model_overrides", None)
+            else:
+                workflow_configurations = {
+                    **workflow_configurations,
+                    "model_overrides": enriched_overrides,
+                }
 
         # Reject upfront if any new trigger path collides with another
         # workflow's trigger — keeps the workflow record from
@@ -1157,7 +1333,16 @@ async def get_workflow_run(
         raise HTTPException(status_code=404, detail="Workflow run not found")
 
     public_access_token = run.public_access_token
-    if (run.transcript_url or run.recording_url) and not public_access_token:
+    user_recording_url = get_recording_storage_key(run.extra, "user")
+    bot_recording_url = get_recording_storage_key(run.extra, "bot")
+    has_user_recording = has_recording_track(run.extra, "user")
+    has_bot_recording = has_recording_track(run.extra, "bot")
+    if (
+        run.transcript_url
+        or run.recording_url
+        or has_user_recording
+        or has_bot_recording
+    ) and not public_access_token:
         public_access_token = await db_client.ensure_public_access_token(run.id)
 
     return {
@@ -1168,25 +1353,22 @@ async def get_workflow_run(
         "is_completed": run.is_completed,
         "transcript_url": run.transcript_url,
         "recording_url": run.recording_url,
+        "user_recording_url": user_recording_url,
+        "bot_recording_url": bot_recording_url,
         "transcript_public_url": artifact_url(public_access_token, "transcript"),
         "recording_public_url": artifact_url(public_access_token, "recording"),
+        "user_recording_public_url": (
+            artifact_url(public_access_token, "user_recording")
+            if has_user_recording
+            else None
+        ),
+        "bot_recording_public_url": (
+            artifact_url(public_access_token, "bot_recording")
+            if has_bot_recording
+            else None
+        ),
         "public_access_token": public_access_token,
-        "cost_info": {
-            "dograh_token_usage": (
-                run.cost_info.get("dograh_token_usage")
-                if run.cost_info and "dograh_token_usage" in run.cost_info
-                else round(float(run.cost_info.get("total_cost_usd", 0)) * 100, 2)
-                if run.cost_info and "total_cost_usd" in run.cost_info
-                else 0
-            ),
-            "call_duration_seconds": int(
-                round(run.cost_info.get("call_duration_seconds"))
-            )
-            if run.cost_info and run.cost_info.get("call_duration_seconds") is not None
-            else None,
-        }
-        if run.cost_info
-        else None,
+        "cost_info": format_public_cost_info(run.cost_info, run.usage_info),
         "usage_info": format_public_usage_info(run.usage_info),
         "created_at": run.created_at,
         "definition_id": run.definition_id,

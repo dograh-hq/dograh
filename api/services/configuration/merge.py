@@ -7,7 +7,7 @@ stored, while honouring masked API keys.
 import copy
 from typing import Dict
 
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
     MODEL_OVERRIDE_FIELDS,
     SERVICE_SECRET_FIELDS,
@@ -66,9 +66,9 @@ def _merge_service_secret_fields(
 
 
 def merge_user_configurations(
-    existing: UserConfiguration, incoming_partial: Dict[str, dict]
-) -> UserConfiguration:
-    """Merge *incoming_partial* onto *existing* and return a new UserConfiguration.
+    existing: EffectiveAIModelConfiguration, incoming_partial: Dict[str, dict]
+) -> EffectiveAIModelConfiguration:
+    """Merge *incoming_partial* onto *existing* and return a new EffectiveAIModelConfiguration.
 
     *incoming_partial* is the body of the PUT request (already `model_dump()`ed or
     extracted via Pydantic `model_dump`).
@@ -113,7 +113,7 @@ def merge_user_configurations(
     if "timezone" in incoming_partial:
         merged["timezone"] = incoming_partial["timezone"]
 
-    return UserConfiguration.model_validate(merged)
+    return EffectiveAIModelConfiguration.model_validate(merged)
 
 
 def merge_workflow_configuration_secrets(

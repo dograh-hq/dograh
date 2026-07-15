@@ -38,6 +38,7 @@ export interface RealtimeFeedbackEvent {
         final?: boolean;
         user_id?: string;
         timestamp?: string;
+        end_timestamp?: string;
         function_name?: string;
         tool_call_id?: string;
         arguments?: unknown;

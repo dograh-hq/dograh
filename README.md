@@ -19,7 +19,8 @@
 <p align="center">
   <a href="https://docs.dograh.com">📖 Docs</a> &nbsp;·&nbsp;
   <a href="LICENSE">📜 BSD 2-Clause</a> &nbsp;·&nbsp;
-  <a href="README.zh-CN.md">🌐 中文</a>
+  <a href="README.zh-CN.md">🌐 中文</a> &nbsp;·&nbsp;
+  <a href="README.ja-JP.md">🌐 日本語</a>
 </p>
 
 <p align="center">
@@ -75,18 +76,29 @@ An honest comparison on the axes that matter most to teams evaluating voice AI p
 ##### Download and setup Dograh on your Local Machine
 
 > **Note**
-> We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.
+> We collect anonymous usage data to improve the product. You can opt out by setting `ENABLE_TELEMETRY=false` before running the startup script.
 
 > **Note**
 > If you wish to run the platform on a remote server instead, checkout our [Documentation](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment)
 
 ```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
+
+> **⚡ Prefer an AI agent to set it up for you?**
+> If you use **Claude Code** or **Codex**, install the official [Dograh setup skill](https://github.com/dograh-hq/dograh-plugins) and let your agent handle installation, configuration, and troubleshooting — it detects your OS, picks the right deploy path, runs Dograh's own setup scripts, and verifies the result.
+>
+> ```text
+> # In Claude Code
+> /plugin marketplace add dograh-hq/dograh-plugins
+> /plugin install dograh@dograh
+> ```
+>
+> Then start a new session and ask it to _"set up Dograh"_ (or run `/dograh-setup`). Codex is supported too — see the [plugin repo](https://github.com/dograh-hq/dograh-plugins#install).
 
 > **Note**
 > First startup may take 2-3 minutes to download all images. Once running, open http://localhost:3010 to create your first AI voice assistant!
-> For common issues and solutions, see 🔧 **[Troubleshooting](docs/troubleshooting.md)**.
+> For common issues and solutions, see 🔧 **[Troubleshooting](docs/getting-started/troubleshooting.mdx)**.
 
 ### 🎙️ Your First Voice Bot
 
@@ -165,9 +177,7 @@ We love contributions! Dograh AI is 100% open source and we intend to keep it th
 
 ## ⭐ Star History
 
-<a href="https://star-history.com/#dograh-hq/dograh&Date">
-  <img src="https://api.star-history.com/svg?repos=dograh-hq/dograh&type=Date" alt="Dograh star history" width="80%">
-</a>
+<img src="docs/images/star-history.png" alt="Dograh star history" width="80%">
 
 ## 📄 License
 

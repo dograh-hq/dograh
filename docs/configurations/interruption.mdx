@@ -9,6 +9,18 @@ Interruption handling controls whether the user can "barge in" and interrupt the
 
 ![Allow Interruption Toggle](../images/allow-interruption.png)
 
+## What is VAD?
+
+VAD (Voice Activity Detection) is what makes barge-in possible — it's the model that listens to the incoming audio stream and decides whether the caller is currently speaking. Dograh's pipeline runs [Silero VAD](https://github.com/snakers4/silero-vad) by default to detect the start and end of user speech in real time. Some realtime providers (such as OpenAI Realtime, Azure Realtime, and Grok Voice Agent) supply their own VAD signals, so local Silero VAD is skipped for those calls.
+
+When **Allow Interruption** is enabled on a node, VAD is what triggers the interrupt: the moment it detects the caller has started talking, the bot's speech is cut off and the pipeline starts processing the new input. When interruption is disabled, VAD output for the user's mic is ignored until the bot finishes speaking.
+
+VAD also feeds turn-taking more generally — it's part of how Dograh decides a caller has finished a turn and the agent should respond, independent of whether interruption is enabled.
+
+<Note>
+**Valid sample rates**: Dograh's pipeline runs VAD at either **8000 Hz** or **16000 Hz** — no other value is accepted. The overall pipeline sample rate is capped at 16 kHz to satisfy this. This only matters if you're integrating a [custom telephony provider](/integrations/telephony/custom#audio-format-considerations); telephony providers built into Dograh (Twilio, Vonage, Plivo, etc.) already negotiate a supported rate for you.
+</Note>
+
 ## How It Works
 
 Each node in your workflow has an **Allow Interruption** toggle:

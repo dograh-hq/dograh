@@ -2,7 +2,7 @@
 
 import { createClientConfig } from '../lib/apiClient';
 
-import { type ClientOptions, type Config, createClient, createConfig } from './client';
+import { type Client, type ClientOptions, type Config, createClient, createConfig } from './client';
 import type { ClientOptions as ClientOptions2 } from './types.gen';
 
 /**
@@ -15,4 +15,4 @@ import type { ClientOptions as ClientOptions2 } from './types.gen';
  */
 export type CreateClientConfig<T extends ClientOptions = ClientOptions2> = (override?: Config<ClientOptions & T>) => Config<Required<ClientOptions> & T>;
 
-export const client = createClient(createClientConfig(createConfig<ClientOptions2>({ baseUrl: 'https://app.dograh.com' })));
+export const client: Client = createClient(createClientConfig(createConfig<ClientOptions2>({ baseUrl: 'https://app.dograh.com' })));

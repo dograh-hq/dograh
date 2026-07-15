@@ -272,6 +272,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AmbientNoiseConfigurationDefaults */
+        AmbientNoiseConfigurationDefaults: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Volume
+             * @default 0.3
+             */
+            volume: number;
+        } & {
+            [key: string]: unknown;
+        };
         /**
          * CalculatorToolDefinition
          * @description Tool definition for Calculator tools.
@@ -536,6 +551,10 @@ export interface components {
             min_outgoing?: number | null;
             /** Max Outgoing */
             max_outgoing?: number | null;
+            /** Min Instances */
+            min_instances?: number | null;
+            /** Max Instances */
+            max_instances?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -620,6 +639,57 @@ export interface components {
             type: "http_api";
             /** @description HTTP API configuration. */
             config: components["schemas"]["HttpApiConfig"];
+        };
+        /**
+         * HttpTransferResolverConfig
+         * @description HTTP endpoint used to resolve transfer destination at call time.
+         */
+        HttpTransferResolverConfig: {
+            /**
+             * Type
+             * @description Resolver type.
+             * @default http
+             * @constant
+             */
+            type: "http";
+            /**
+             * Url
+             * @description HTTP or HTTPS endpoint for transfer resolution.
+             */
+            url: string;
+            /**
+             * Headers
+             * @description Static headers to include with every resolver request.
+             */
+            headers?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Credential Uuid
+             * @description Reference to an external credential for resolver authentication.
+             */
+            credential_uuid?: string | null;
+            /**
+             * Timeout Ms
+             * @description Resolver request timeout in milliseconds.
+             * @default 3000
+             */
+            timeout_ms: number;
+            /**
+             * Wait Message
+             * @description Optional short message played while Dograh resolves routing.
+             */
+            wait_message?: string | null;
+            /**
+             * Parameters
+             * @description Parameters the model may provide when calling this transfer tool.
+             */
+            parameters?: components["schemas"]["ToolParameter"][] | null;
+            /**
+             * Preset Parameters
+             * @description Parameters injected by Dograh from fixed values or workflow context templates.
+             */
+            preset_parameters?: components["schemas"]["PresetToolParameter"][] | null;
         };
         /** InitiateCallRequest */
         InitiateCallRequest: {
@@ -761,6 +831,18 @@ export interface components {
             node_types: components["schemas"]["NodeSpec"][];
         };
         /**
+         * NumberInputOptions
+         * @description Renderer hints for numeric inputs.
+         */
+        NumberInputOptions: {
+            /**
+             * Fractional
+             * @description Allow arbitrary fractional values via step='any'.
+             * @default false
+             */
+            fractional: boolean;
+        };
+        /**
          * PresetToolParameter
          * @description A parameter injected by Dograh at runtime.
          */
@@ -789,6 +871,17 @@ export interface components {
             required: boolean;
         };
         /**
+         * PropertyLayoutOptions
+         * @description Renderer layout hints for a property in the node editor.
+         */
+        PropertyLayoutOptions: {
+            /**
+             * Column Span
+             * @description Number of columns to occupy in the editor's 12-column grid.
+             */
+            column_span?: number | null;
+        };
+        /**
          * PropertyOption
          * @description An option in an `options` or `multi_options` dropdown.
          */
@@ -799,6 +892,16 @@ export interface components {
             label: string;
             /** Description */
             description?: string | null;
+        };
+        /**
+         * PropertyRendererOptions
+         * @description Typed renderer metadata for node properties.
+         *
+         *     Add new renderer behavior here instead of using free-form property metadata.
+         */
+        PropertyRendererOptions: {
+            layout?: components["schemas"]["PropertyLayoutOptions"] | null;
+            number_input?: components["schemas"]["NumberInputOptions"] | null;
         };
         /**
          * PropertySpec
@@ -855,10 +958,7 @@ export interface components {
             pattern?: string | null;
             /** Editor */
             editor?: string | null;
-            /** Extra */
-            extra?: {
-                [key: string]: unknown;
-            };
+            renderer_options?: components["schemas"]["PropertyRendererOptions"] | null;
         };
         /**
          * PropertyType
@@ -986,8 +1086,16 @@ export interface components {
          */
         TransferCallConfig: {
             /**
+             * Destination Source
+             * @description Whether transfer destination is static/template or resolved by HTTP.
+             * @default static
+             * @enum {string}
+             */
+            destination_source: "static" | "dynamic";
+            /**
              * Destination
-             * @description Phone number or SIP endpoint to transfer the call to, e.g. +1234567890 or PJSIP/1234.
+             * @description Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
+             * @default
              */
             destination: string;
             /**
@@ -1013,6 +1121,13 @@ export interface components {
              * @default 30
              */
             timeout: number;
+            /**
+             * Parameters
+             * @description Parameters the model may provide when calling this transfer tool, for example state, department, or transfer reason.
+             */
+            parameters?: components["schemas"]["ToolParameter"][] | null;
+            /** @description Optional resolver that determines transfer routing at call time. */
+            resolver?: components["schemas"]["HttpTransferResolverConfig"] | null;
         };
         /**
          * TransferCallToolDefinition
@@ -1045,10 +1160,7 @@ export interface components {
             template_context_variables?: {
                 [key: string]: unknown;
             } | null;
-            /** Workflow Configurations */
-            workflow_configurations?: {
-                [key: string]: unknown;
-            } | null;
+            workflow_configurations?: components["schemas"]["WorkflowConfigurationDefaults"] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1062,6 +1174,59 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorkflowConfigurationDefaults */
+        WorkflowConfigurationDefaults: {
+            ambient_noise_configuration?: components["schemas"]["AmbientNoiseConfigurationDefaults"];
+            /**
+             * Max Call Duration
+             * @default 300
+             */
+            max_call_duration: number;
+            /**
+             * Max User Idle Timeout
+             * @default 10
+             */
+            max_user_idle_timeout: number;
+            /**
+             * Smart Turn Stop Secs
+             * @default 2
+             */
+            smart_turn_stop_secs: number;
+            /**
+             * Turn Start Strategy
+             * @default default
+             * @enum {string}
+             */
+            turn_start_strategy: "default" | "min_words" | "provisional_vad";
+            /**
+             * Turn Start Min Words
+             * @default 3
+             */
+            turn_start_min_words: number;
+            /**
+             * Provisional Vad Pause Secs
+             * @default 1.5
+             */
+            provisional_vad_pause_secs: number;
+            /**
+             * Turn Stop Strategy
+             * @default transcription
+             * @enum {string}
+             */
+            turn_stop_strategy: "transcription" | "turn_analyzer";
+            /**
+             * Dictionary
+             * @default
+             */
+            dictionary: string;
+            /**
+             * Context Compaction Enabled
+             * @default false
+             */
+            context_compaction_enabled: boolean;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * WorkflowListResponse
@@ -1130,6 +1295,7 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type AmbientNoiseConfigurationDefaults = components['schemas']['AmbientNoiseConfigurationDefaults'];
 export type CalculatorToolDefinition = components['schemas']['CalculatorToolDefinition'];
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
 export type CreateToolRequest = components['schemas']['CreateToolRequest'];
@@ -1145,6 +1311,7 @@ export type GraphConstraints = components['schemas']['GraphConstraints'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HttpApiConfig = components['schemas']['HttpApiConfig'];
 export type HttpApiToolDefinition = components['schemas']['HttpApiToolDefinition'];
+export type HttpTransferResolverConfig = components['schemas']['HttpTransferResolverConfig'];
 export type InitiateCallRequest = components['schemas']['InitiateCallRequest'];
 export type McpToolConfig = components['schemas']['McpToolConfig'];
 export type McpToolDefinition = components['schemas']['McpToolDefinition'];
@@ -1152,8 +1319,11 @@ export type NodeCategory = components['schemas']['NodeCategory'];
 export type NodeExample = components['schemas']['NodeExample'];
 export type NodeSpec = components['schemas']['NodeSpec'];
 export type NodeTypesResponse = components['schemas']['NodeTypesResponse'];
+export type NumberInputOptions = components['schemas']['NumberInputOptions'];
 export type PresetToolParameter = components['schemas']['PresetToolParameter'];
+export type PropertyLayoutOptions = components['schemas']['PropertyLayoutOptions'];
 export type PropertyOption = components['schemas']['PropertyOption'];
+export type PropertyRendererOptions = components['schemas']['PropertyRendererOptions'];
 export type PropertySpec = components['schemas']['PropertySpec'];
 export type PropertyType = components['schemas']['PropertyType'];
 export type RecordingListResponseSchema = components['schemas']['RecordingListResponseSchema'];
@@ -1164,6 +1334,7 @@ export type TransferCallConfig = components['schemas']['TransferCallConfig'];
 export type TransferCallToolDefinition = components['schemas']['TransferCallToolDefinition'];
 export type UpdateWorkflowRequest = components['schemas']['UpdateWorkflowRequest'];
 export type ValidationError = components['schemas']['ValidationError'];
+export type WorkflowConfigurationDefaults = components['schemas']['WorkflowConfigurationDefaults'];
 export type WorkflowListResponse = components['schemas']['WorkflowListResponse'];
 export type WorkflowResponse = components['schemas']['WorkflowResponse'];
 export type $defs = Record<string, never>;

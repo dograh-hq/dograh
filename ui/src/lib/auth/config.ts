@@ -2,15 +2,30 @@ import "server-only";
 
 import { getServerBackendUrl } from "@/lib/apiClient";
 
-let cachedAuthProvider: string | null = null;
+export interface StackConfig {
+  projectId: string;
+  publishableClientKey: string;
+}
+
+interface ResolvedAuthConfig {
+  authProvider: string;
+  stackConfig: StackConfig | null;
+  signupEnabled: boolean;
+}
+
+let cachedConfig: ResolvedAuthConfig | null = null;
 
 /**
- * Fetches the auth provider from the backend health endpoint and caches it.
- * Falls back to 'local' on error.
+ * Fetches the auth configuration from the backend health endpoint and caches it.
+ *
+ * The backend reports the active auth provider and — when it is `stack` — the
+ * public Stack client config (project id + publishable client key). The UI uses
+ * these at runtime to initialize Stack Auth, so they no longer need to be baked
+ * into the browser bundle at build time. Falls back to local auth on error.
  */
-export async function getAuthProvider(): Promise<string> {
-  if (cachedAuthProvider) {
-    return cachedAuthProvider;
+async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
+  if (cachedConfig) {
+    return cachedConfig;
   }
 
   try {
@@ -20,13 +35,53 @@ export async function getAuthProvider(): Promise<string> {
     });
     if (res.ok) {
       const data = await res.json();
-      cachedAuthProvider = (data.auth_provider as string) || "local";
-      return cachedAuthProvider;
+      const authProvider = (data.auth_provider as string) || "local";
+      const stackConfig =
+        authProvider === "stack" &&
+        data.stack_project_id &&
+        data.stack_publishable_client_key
+          ? {
+              projectId: data.stack_project_id as string,
+              publishableClientKey:
+                data.stack_publishable_client_key as string,
+            }
+          : null;
+      // Default to signup-enabled when the backend omits the field (older api
+      // versions before the flag existed) — matches the backend's own default.
+      const signupEnabled = data.signup_enabled !== false;
+      cachedConfig = { authProvider, stackConfig, signupEnabled };
+      return cachedConfig;
     }
   } catch {
-    // Backend not reachable — fall back to local
+    // Backend not reachable — fall through without caching so we retry next request.
   }
 
-  cachedAuthProvider = "local";
-  return cachedAuthProvider;
+  // Unknown (backend unreachable). Return the local fallback for THIS request but
+  // do NOT cache it: caching here would pin the entire UI to local auth until a
+  // container restart if the first resolution loses the startup race with the api
+  // service. Leaving it uncached means the next request retries and self-heals.
+  return { authProvider: "local", stackConfig: null, signupEnabled: true };
+}
+
+/**
+ * Returns the active auth provider ('local' or 'stack'). Falls back to 'local'.
+ */
+export async function getAuthProvider(): Promise<string> {
+  return (await resolveAuthConfig()).authProvider;
+}
+
+/**
+ * Returns the public Stack client config when the active provider is `stack`,
+ * otherwise null. Server-only — the browser receives these via /api/config/auth.
+ */
+export async function getStackConfig(): Promise<StackConfig | null> {
+  return (await resolveAuthConfig()).stackConfig;
+}
+
+/**
+ * Returns true when the backend allows signup (`ENABLE_SIGNUP`, default true).
+ * The login page uses this to hide the signup link on locked-down installs.
+ */
+export async function getSignupEnabled(): Promise<boolean> {
+  return (await resolveAuthConfig()).signupEnabled;
 }

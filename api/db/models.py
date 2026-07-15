@@ -82,11 +82,23 @@ class UserModel(Base):
 
 
 class UserConfigurationModel(Base):
+    """Per-user keyed JSON store, mirroring organization_configurations.
+
+    Keys are defined in UserConfigurationKey. The legacy v1 AI model
+    configuration lives under MODEL_CONFIGURATION; last_validated_at is only
+    meaningful for that key.
+    """
+
     __tablename__ = "user_configurations"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    key = Column(String, nullable=False)
     configuration = Column(JSON, nullable=False, default=dict)
     last_validated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "key", name="_user_configuration_key_uc"),
+    )
 
 
 # New Organization model
@@ -97,22 +109,44 @@ class OrganizationModel(Base):
     provider_id = Column(String, unique=True, index=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
-    # Quota fields
+    # Deprecated: MPS owns quota and credit ledger state.
     quota_type = Column(
         Enum("monthly", "annual", name="quota_type"),
         nullable=False,
         default="monthly",
         server_default=text("'monthly'::quota_type"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
     )
     quota_dograh_tokens = Column(
-        Integer, nullable=False, default=0, server_default=text("0")
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
     )
     quota_reset_day = Column(
-        Integer, nullable=False, default=1, server_default=text("1")
-    )  # 1-28, only for monthly
-    quota_start_date = Column(DateTime(timezone=True), nullable=True)  # Only for annual
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text("1"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
+    quota_start_date = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
     quota_enabled = Column(
-        Boolean, nullable=False, default=False, server_default=text("false")
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
     )
 
     price_per_second_usd = Column(Float, nullable=True)
@@ -171,11 +205,8 @@ class OrganizationConfigurationModel(Base):
     key = Column(String, nullable=False)
     value = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_validated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     organization = relationship("OrganizationModel", back_populates="configurations")
@@ -510,6 +541,9 @@ class WorkflowRunModel(Base):
     is_completed = Column(Boolean, default=False)
     recording_url = Column(String, nullable=True)
     transcript_url = Column(String, nullable=True)
+    extra = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
     # Store storage backend as string enum (s3, minio)
     storage_backend = Column(
         Enum("s3", "minio", name="storage_backend"),
@@ -593,8 +627,9 @@ class WorkflowRunTextSessionModel(Base):
 
 class OrganizationUsageCycleModel(Base):
     """
-    This model is used to track the usage of Dograh tokens for an organization for a given usage
-    cycle.
+    This model is used to track reporting aggregates for an organization for a given
+    usage cycle. Quota fields on this model are deprecated; MPS owns quota and
+    credit ledger state.
     """
 
     __tablename__ = "organization_usage_cycles"
@@ -603,14 +638,24 @@ class OrganizationUsageCycleModel(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     period_start = Column(DateTime(timezone=True), nullable=False)
     period_end = Column(DateTime(timezone=True), nullable=False)
-    quota_dograh_tokens = Column(Integer, nullable=False)
+    quota_dograh_tokens = Column(
+        Integer,
+        nullable=False,
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
     used_dograh_tokens = Column(Float, nullable=False, default=0)
     total_duration_seconds = Column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
     # New USD tracking fields
     used_amount_usd = Column(Float, nullable=True, default=0)
-    quota_amount_usd = Column(Float, nullable=True)
+    quota_amount_usd = Column(
+        Float,
+        nullable=True,
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(
         DateTime(timezone=True),
@@ -971,6 +1016,103 @@ class ExternalCredentialModel(Base):
         Index("ix_webhook_credentials_organization_id", "organization_id"),
         Index("ix_webhook_credentials_uuid", "credential_uuid"),
         UniqueConstraint("organization_id", "name", name="unique_org_credential_name"),
+    )
+
+
+class WebhookDeliveryModel(Base):
+    """Durable record of an outbound webhook delivery attempt.
+
+    Final webhooks (e.g. a workflow's "Final Webhook" node) must not be lost to a
+    single transient network error. Instead of firing the HTTP request inline and
+    forgetting it, we persist one row per webhook node per workflow run and let an
+    ARQ task drive delivery with bounded, backed-off retries. The row is the source
+    of truth: it survives worker restarts and a periodic sweeper re-enqueues any
+    ``pending`` delivery whose ``scheduled_for`` is overdue. After ``max_attempts``
+    transient failures (or on a permanent 4xx) the row is parked as ``dead_letter``
+    for inspection rather than retried forever.
+
+    Mirrors the campaign retry pattern (``QueuedRunModel``): persisted state,
+    ``scheduled_for`` gating, a hard attempt ceiling, and a terminal failure state.
+    """
+
+    __tablename__ = "webhook_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Stable idempotency key sent to the receiver so it can dedupe retries.
+    delivery_uuid = Column(
+        String(36),
+        unique=True,
+        nullable=False,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    workflow_run_id = Column(
+        Integer,
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Frozen request definition. The payload is rendered once at enqueue time so
+    # retries are deterministic. Secrets are NOT stored here: the auth header is
+    # re-resolved from ``credential_uuid`` at send time (honours rotation/revocation).
+    webhook_name = Column(String, nullable=True)
+    endpoint_url = Column(String, nullable=False)
+    http_method = Column(String, nullable=False, default="POST")
+    payload = Column(JSON, nullable=False, default=dict)
+    custom_headers = Column(JSON, nullable=True)
+    credential_uuid = Column(String(36), nullable=True)
+
+    # Workflow node that produced this delivery. Combined with workflow_run_id it
+    # is the per-run/per-node idempotency key, so a retried run_integrations does
+    # not create (and send) a duplicate delivery for the same node. Non-nullable:
+    # a NULL would be distinct under the unique constraint and defeat the dedupe.
+    webhook_node_id = Column(String, nullable=False)
+
+    status = Column(
+        Enum(
+            "pending",
+            "succeeded",
+            "dead_letter",
+            name="webhook_delivery_status",
+        ),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+    attempt_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    max_attempts = Column(Integer, nullable=False, default=5, server_default=text("5"))
+    # When the next attempt becomes due. NULL once terminal (succeeded/dead_letter).
+    scheduled_for = Column(DateTime(timezone=True), nullable=True)
+
+    last_status_code = Column(Integer, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        # Sweeper lookup: due pending deliveries.
+        Index(
+            "idx_webhook_deliveries_pending_scheduled",
+            "scheduled_for",
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index("idx_webhook_deliveries_run", "workflow_run_id"),
+        # Per-run/per-node idempotency: one delivery per webhook node per run.
+        UniqueConstraint(
+            "workflow_run_id",
+            "webhook_node_id",
+            name="uq_webhook_deliveries_run_node",
+        ),
     )
 
 

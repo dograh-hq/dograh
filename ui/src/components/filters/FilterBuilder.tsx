@@ -1,10 +1,11 @@
-import { AlertCircle, Calendar, CheckSquare, Hash, Radio, RefreshCw, Tag, X } from "lucide-react";
+import { AlertCircle, Calendar, CheckSquare, Hash, ListFilter, Radio, RefreshCw, Tag, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
 import { MultiSelectFilter } from "@/components/filters/MultiSelectFilter";
 import { NumberFilter } from "@/components/filters/NumberFilter";
 import { NumberRangeFilter } from "@/components/filters/NumberRangeFilter";
+import { NumberSelectFilter } from "@/components/filters/NumberSelectFilter";
 import { RadioFilter } from "@/components/filters/RadioFilter";
 import { TagInputFilter } from "@/components/filters/TagInputFilter";
 import { TextFilter } from "@/components/filters/TextFilter";
@@ -165,6 +166,8 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
       case "number":
       case "numberRange":
         return <Hash className="h-4 w-4" />;
+      case "numberSelect":
+        return <ListFilter className="h-4 w-4" />;
       case "radio":
         return <Radio className="h-4 w-4" />;
       case "tags":
@@ -187,6 +190,12 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
       case "number": {
         const value = filter.value as NumberValue;
         return value.value !== null ? value.value.toString() : "No value";
+      }
+      case "numberSelect": {
+        const value = filter.value as NumberValue;
+        if (value.value === null) return "No value";
+        return filter.attribute.config.numberSelectOptions?.find(option => option.value === value.value)?.label
+          || value.value.toString();
       }
       case "numberRange":
         return formatNumberRange(filter.value as NumberRangeValue, filter.attribute.config.unit);
@@ -242,6 +251,18 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
             min={filter.attribute.config.min}
             max={filter.attribute.config.max}
             step={filter.attribute.config.step}
+          />
+        );
+      case "numberSelect":
+        return (
+          <NumberSelectFilter
+            value={filter.value as NumberValue}
+            onChange={(value) => updateFilter(index, value)}
+            error={error}
+            label={filter.attribute.config.numberSelectLabel}
+            placeholder={filter.attribute.config.placeholder}
+            options={filter.attribute.config.numberSelectOptions || []}
+            isLoading={filter.attribute.config.numberSelectOptionsLoading}
           />
         );
       case "numberRange":

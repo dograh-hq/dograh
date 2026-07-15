@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from api.db.base_client import BaseDBClient
@@ -298,6 +298,31 @@ class KnowledgeBaseClient(BaseDBClient):
                 await session.refresh(chunk)
 
             logger.info(f"Created {len(chunks)} chunks")
+            return chunks
+
+    async def replace_chunks_for_document(
+        self,
+        document_id: int,
+        organization_id: int,
+        chunks: List[KnowledgeBaseChunkModel],
+    ) -> List[KnowledgeBaseChunkModel]:
+        """Replace all chunks for a document with a new precomputed batch."""
+        async with self.async_session() as session:
+            await session.execute(
+                delete(KnowledgeBaseChunkModel).where(
+                    KnowledgeBaseChunkModel.document_id == document_id,
+                    KnowledgeBaseChunkModel.organization_id == organization_id,
+                )
+            )
+            session.add_all(chunks)
+            await session.commit()
+
+            for chunk in chunks:
+                await session.refresh(chunk)
+
+            logger.info(
+                f"Replaced chunks for document {document_id}: {len(chunks)} chunks"
+            )
             return chunks
 
     async def get_chunks_for_document(

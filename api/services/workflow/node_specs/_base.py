@@ -133,6 +133,42 @@ class PropertyOption(BaseModel):
         return out
 
 
+class PropertyLayoutOptions(BaseModel):
+    """Renderer layout hints for a property in the node editor."""
+
+    column_span: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=12,
+        description="Number of columns to occupy in the editor's 12-column grid.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class NumberInputOptions(BaseModel):
+    """Renderer hints for numeric inputs."""
+
+    fractional: bool = Field(
+        default=False,
+        description="Allow arbitrary fractional values via step='any'.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PropertyRendererOptions(BaseModel):
+    """Typed renderer metadata for node properties.
+
+    Add new renderer behavior here instead of using free-form property metadata.
+    """
+
+    layout: Optional[PropertyLayoutOptions] = None
+    number_input: Optional[NumberInputOptions] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PropertySpec(BaseModel):
     """Single field on a node.
 
@@ -180,8 +216,9 @@ class PropertySpec(BaseModel):
     # Renderer hint, e.g. "textarea" vs single-line for `string`.
     editor: Optional[str] = None
 
-    # Free-form metadata for renderer-specific behavior. Use sparingly.
-    extra: dict[str, Any] = Field(default_factory=dict)
+    # Typed metadata for renderer-specific behavior. Extend
+    # `PropertyRendererOptions` when the renderer needs a new hint.
+    renderer_options: Optional[PropertyRendererOptions] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -192,7 +229,7 @@ class PropertySpec(BaseModel):
         description, llm_hint, requiredness, default, enum options, nested
         row properties, and validation bounds. UI-rendering concerns
         (`display_name`, `placeholder`, `display_options`, `editor`,
-        `extra`) and null/empty fields are omitted — they're noise in the
+        `renderer_options`) and null/empty fields are omitted — they're noise in the
         model's context and never appear in authored SDK code.
         """
         out: dict[str, Any] = {
@@ -243,6 +280,8 @@ class GraphConstraints(BaseModel):
     max_incoming: Optional[int] = None
     min_outgoing: Optional[int] = None
     max_outgoing: Optional[int] = None
+    min_instances: Optional[int] = None
+    max_instances: Optional[int] = None
 
     model_config = ConfigDict(extra="forbid")
 

@@ -80,5 +80,5 @@ examples actually ask the agent to do.
             ),
         ),
     ),
-    cross_refs=("response_style", "persona_and_identity_lock"),
+    cross_refs=("common_guidelines",),
 )

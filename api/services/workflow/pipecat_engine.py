@@ -344,7 +344,11 @@ class PipecatEngine:
         )
 
         # Register function with LLM
-        self.llm.register_function(name, transition_func)
+        self.llm.register_function(
+            name,
+            transition_func,
+            is_node_transition=True,
+        )
 
     async def _register_knowledge_base_function(
         self, document_uuids: list[str]

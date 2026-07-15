@@ -47,7 +47,41 @@ if (Test-Path $EnvFile) {
     }
 }
 
-if (-not $env:UVICORN_BASE_PORT)   { $env:UVICORN_BASE_PORT = '8000' }
+function Resolve-DograhPort {
+    param(
+        [string]$Path,
+        [int]$Fallback
+    )
+
+    if (-not (Get-Command bunx -ErrorAction SilentlyContinue)) {
+        return $Fallback
+    }
+
+    try {
+        $candidate = bunx path-to-port $Path 2>&1 | ForEach-Object {
+            if ($_ -match '^\d+$') {
+                return $_
+            }
+        }
+
+        if ($candidate) {
+            return [int]$candidate
+        }
+    } catch {
+        return $Fallback
+    }
+
+    return $Fallback
+}
+
+$defaultPort = Resolve-DograhPort -Path $BaseDir -Fallback 8000
+if (-not $env:UVICORN_BASE_PORT) {
+    if ($env:UVICORN_PORT) {
+        $env:UVICORN_BASE_PORT = $env:UVICORN_PORT
+    } else {
+        $env:UVICORN_BASE_PORT = "${defaultPort}"
+    }
+}
 
 $HealthEndpoint    = '/api/v1/health'
 $HealthMaxAttempts = if ($env:HEALTH_MAX_ATTEMPTS) { [int]$env:HEALTH_MAX_ATTEMPTS } else { 30 }

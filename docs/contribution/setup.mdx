@@ -31,10 +31,14 @@ bash scripts/start_services_dev.sh
 4. Start the UI from a second terminal inside the container:
 
 ```bash
-cd ui && npm run dev -- --hostname 0.0.0.0
+DEV_BACKEND_PORT="$(bunx path-to-port .)"
+BACKEND_URL="http://localhost:${DEV_BACKEND_PORT}"
+cd ui && NEXT_PUBLIC_BACKEND_URL="$BACKEND_URL" BACKEND_URL="$BACKEND_URL" npm run dev -- --hostname 0.0.0.0 --port "$((DEV_BACKEND_PORT + 1))"
 ```
 
-5. Open the app at `http://localhost:3000`.
+5. Open the app at `http://localhost:$((DEV_BACKEND_PORT + 1))`.
+
+Backend API and Web UI defaults are now derived from `bunx path-to-port .` if no explicit `UVICORN_BASE_PORT` / `UVICORN_PORT` (backend) or `--port` (UI) is provided.
 
 If these steps do not work for you, please open an issue on [GitHub](https://github.com/dograh-hq/dograh/issues).
 
@@ -72,7 +76,7 @@ bash scripts/stop_services.sh
 
 | Configuration | What it runs |
 | --- | --- |
-| **API: Uvicorn (reload)** | The FastAPI backend, with auto-reload (port from `UVICORN_PORT` in `api/.env`, default 8000) |
+| **API: Uvicorn (reload)** | The FastAPI backend, with auto-reload (port from `UVICORN_BASE_PORT` / `UVICORN_PORT` in `api/.env`, default `bunx path-to-port .`) |
 | **API: Arq worker (watch)** / **API: Campaign orchestrator** / **API: ARI manager** | The other backend services — launch them alongside Uvicorn as needed |
 | **Tests: API (pytest, full suite / current file)** | pytest under the debugger, against `api/.env.test` |
 | **Tests: Pipecat (pytest, current file)** / **Python: Current file** | Debug a pipecat test or any standalone script |

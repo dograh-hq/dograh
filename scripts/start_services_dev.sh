@@ -19,6 +19,25 @@ VENV_PATH="$BASE_DIR/venv"
 
 LOG_TO_FILE=${LOG_TO_FILE:-true}
 
+resolve_default_uvicorn_port() {
+  local default_port="$1"
+  local root_dir="$2"
+  if ! command -v bunx >/dev/null 2>&1; then
+    echo "$default_port"
+    return
+  fi
+
+  local candidate
+  candidate="$(bunx path-to-port "$root_dir" 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
+
+  if [[ "$candidate" =~ ^[0-9]+$ ]]; then
+    echo "$candidate"
+    return
+  fi
+
+  echo "$default_port"
+}
+
 HEALTH_CHECK_ENDPOINT="/api/v1/health"
 HEALTH_MAX_ATTEMPTS=${HEALTH_MAX_ATTEMPTS:-30}
 HEALTH_INTERVAL=${HEALTH_INTERVAL:-2}
@@ -36,7 +55,7 @@ if [[ -f "$ENV_FILE" ]]; then
   set -a && . "$ENV_FILE" && set +a
 fi
 
-UVICORN_BASE_PORT=${UVICORN_BASE_PORT:-8000}
+UVICORN_BASE_PORT=${UVICORN_BASE_PORT:-${UVICORN_PORT:-$(resolve_default_uvicorn_port 8000 "$BASE_DIR")}}
 
 ###############################################################################
 ### 2) Define services

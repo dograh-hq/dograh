@@ -65,10 +65,12 @@ bash scripts/start_services_dev.sh
 ```
 </CodeGroup>
 
-7. Start the UI, then open `http://localhost:3000`:
+7. Compute the port, start the UI, then open `http://localhost:$((DEV_BACKEND_PORT + 1))`:
 
 ```bash
-cd ui && npm run dev
+DEV_BACKEND_PORT="$(bunx path-to-port .)"
+BACKEND_URL="http://localhost:${DEV_BACKEND_PORT}"
+cd ui && NEXT_PUBLIC_BACKEND_URL="$BACKEND_URL" BACKEND_URL="$BACKEND_URL" npm run dev -- --hostname 0.0.0.0 --port "$((DEV_BACKEND_PORT + 1))"
 ```
 
 ## Devcontainer internals

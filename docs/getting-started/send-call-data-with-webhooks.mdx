@@ -1,11 +1,9 @@
 ---
-title: "Send Call Data Back Automatically"
+title: "Sync Data using Webhook"
 description: "Get everything Dograh learned during the call back into your system the moment it ends."
 ---
 
 The last page covered sending data into a call with API Trigger and `initial_context`. Now the opposite side: how Dograh sends what it learned back out to your system once the call ends.
-
-Say a caller tells your agent, *"I'll pay the full amount tomorrow."* If the node handling that moment has variable extraction turned on, Dograh pulls structured fields out of that one sentence: the amount they'll pay, payment method, sentiment, a confidence score, and next steps. From *"I'll pay full amount tomorrow"*, that becomes: amount to pay is the full balance, payment method not specified, sentiment cooperative, next step is a follow-up call the day they promised to pay.
 
 That extracted data lives in `gathered_context`. So the full picture is: `initial_context` is what your backend sends into the call, `gathered_context` is what Dograh extracts from it. A **Webhook** node is how you get `gathered_context` back out.
 
@@ -58,5 +56,5 @@ That's the complete loop: your backend sends `initial_context` into Dograh, Dogr
 
 ## Next Steps
 
-- **Connect a real phone number**: [Connect Your Phone Number](/getting-started/connect-telephony) covers hooking up Twilio so these calls go out for real.
+- **Connect a real phone number**: [Connect with Telephony](/getting-started/connect-telephony) covers hooking up Twilio so these calls go out for real.
 - **Full variable list and authentication options**: see the [Webhook reference](/voice-agent/webhook) and the [Webhook Payloads developer reference](/developer/webhooks).

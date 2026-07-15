@@ -1059,7 +1059,7 @@ class CloudonixProvider(TelephonyProvider):
             "<Response>"
             "<Say>You have answered a transfer call. Connecting you now.</Say>"
             "<Dial>"
-            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join" holdMusic="false">{conference_name}</Conference>'
+            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join" holdMusic="false" beep="false">{conference_name}</Conference>'
             "</Dial>"
             "</Response>"
         )

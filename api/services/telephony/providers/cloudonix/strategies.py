@@ -58,7 +58,7 @@ class CloudonixConferenceStrategy(TransferStrategy):
             caller_cxml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
                 "<Response><Dial>"
-                f'<Conference endConferenceOnExit="true">{conference_name}</Conference>'
+                f'<Conference endConferenceOnExit="true" beep="false" holdMusic="false">{conference_name}</Conference>'
                 "</Dial><Hangup/></Response>"
             )
             payload = {"cxml": caller_cxml}

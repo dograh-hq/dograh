@@ -1,0 +1,79 @@
+---
+title: "Render"
+description: "One-click Blueprint deploy of the Dograh dashboard + API to Render, with managed Postgres and Redis."
+---
+
+Deploy the Dograh dashboard and API to [Render](https://render.com) from the
+[`render.yaml`](https://github.com/dograh-hq/dograh/blob/main/deploy/render/render.yaml)
+Blueprint — a good fit for **evaluating Dograh: building agents, workflows, and
+integrations, and driving the API/SDK** without managing a server.
+
+<a href="https://render.com/deploy?repo=https://github.com/dograh-hq/dograh">
+  <img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" />
+</a>
+
+<Note>
+  The Blueprint lives at `deploy/render/render.yaml`, not the repo root, so on
+  Render's setup page set the **Blueprint Path** to `deploy/render/render.yaml`.
+</Note>
+
+<Warning>
+  **No calls of any kind on Render.** Render has no UDP ingress, and *every*
+  Dograh call — telephony **and** the in-dashboard "test" call — uses WebRTC
+  media, which is UDP. This deploy lets you build and manage agents, workflows,
+  and integrations and drive the API/SDK, but you **cannot talk to an agent**.
+  For any voice, self-host — see the [Docker guide](/deployment/docker) or the
+  [Hostinger Blueprint](https://github.com/dograh-hq/dograh/tree/main/deploy/hostinger).
+</Warning>
+
+## What it provisions
+
+| Service | Type | Notes |
+| --- | --- | --- |
+| `dograh-api` | Web (Docker image) | Monolith image — migrations, API, ARQ workers, and telephony/campaign singletons in one container. Stays at **one instance**. |
+| `dograh-ui` | Web (Docker image) | Next.js dashboard; reaches the API on Render's private network. |
+| `dograh-postgres` | Managed Postgres | `pgvector` enabled by the app migrations. |
+| `dograh-redis` | Managed Key Value | Redis-compatible, internal-only. |
+
+## Object storage (bring your own S3)
+
+Render has no managed object store, so the Blueprint uses an **external
+S3-compatible bucket** instead of bundling MinIO. [Supabase
+Storage](https://supabase.com/docs/guides/storage/s3/compatibility) has a free
+S3-compatible tier that works well. Render prompts for these during deploy:
+
+| Variable | Value |
+| --- | --- |
+| `S3_BUCKET` | your bucket name |
+| `S3_REGION` | bucket region (Supabase: your project region) |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 access keys |
+| `S3_ENDPOINT_URL` | non-AWS endpoint, e.g. `https://<project>.supabase.co/storage/v1/s3` |
+
+`S3_SIGNATURE_VERSION=s3v4` and `S3_ADDRESSING_STYLE=path` are pre-set (required
+by Supabase and most non-AWS S3 servers).
+
+## Steps
+
+1. Click **Deploy to Render** (or, in Render, **New → Blueprint** and point it at
+   your fork). Set **Blueprint Path** to `deploy/render/render.yaml`.
+2. Fill in the object-storage values Render prompts for.
+3. After the first deploy, set **`PUBLIC_BASE_URL`** on `dograh-api` to its own
+   `*.onrender.com` URL — a Blueprint can't self-reference a service URL, and it's
+   needed for correct public links and inbound webhook signatures — then redeploy.
+4. Open the `dograh-ui` URL and sign in.
+
+## Notes
+
+- The **api needs a Standard (2 GB) instance or larger.** It runs the whole
+  monolith — uvicorn, an ARQ worker, telephony/campaign singletons, and pipecat —
+  in one container, so the **free/starter tiers (512 MB) run out of memory**. The
+  Blueprint sets `dograh-api` to `standard`; `dograh-ui` fits on free.
+- **Free Postgres expires after 30 days.** Upgrade to a paid plan for anything
+  beyond evaluation.
+- Prebuilt-image services **deploy manually** — trigger a redeploy from the Render
+  dashboard to pick up a newer Dograh image.
+
+## Related
+
+- [Docker Deployment](/deployment/docker) — full self-hosted install, including production voice
+- [Environment Variables](/developer/environment-variables)

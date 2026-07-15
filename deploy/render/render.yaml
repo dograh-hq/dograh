@@ -1,0 +1,125 @@
+# Dograh — Render Blueprint (Infrastructure as Code)
+# =============================================================================
+# Deploy: click the button below, then set "Blueprint Path" to
+# deploy/render/render.yaml on Render's setup page (this file is not at the repo
+# root, so Render won't auto-detect it):
+#   https://render.com/deploy?repo=https://github.com/dograh-hq/dograh
+#
+# Provisions the Dograh dashboard + API with managed Postgres and Key Value
+# (Redis). Object storage is external S3-compatible — bring your own bucket;
+# Supabase Storage's free S3-compatible tier works well. Full guide:
+#   https://docs.dograh.com/deployment/render
+#
+# IMPORTANT — Render has NO UDP ingress, and every Dograh call (telephony AND the
+# in-dashboard "test" call) uses WebRTC media, which is UDP. So on Render you can
+# build and manage agents, workflows, integrations, and drive the REST API/SDK
+# against a real backend — but you CANNOT talk to an agent (no telephony, no
+# in-dashboard test call). For any voice, self-host — see deploy/hostinger/ or
+# https://docs.dograh.com/deployment/docker
+# =============================================================================
+
+databases:
+  - name: dograh-postgres
+    # Free Postgres is 1 GB and EXPIRES after 30 days — upgrade to basic-256mb+
+    # for anything beyond evaluation. pgvector is enabled by the app migrations.
+    plan: free
+    postgresMajorVersion: "17"
+    region: oregon
+
+services:
+  - name: dograh-redis
+    type: keyvalue
+    plan: free
+    region: oregon
+    # Internal-only: reachable from Render services, not the public internet.
+    ipAllowList: []
+
+  - name: dograh-api
+    type: web
+    runtime: image
+    region: oregon
+    # The api is a MONOLITH — one container running uvicorn + an ARQ worker +
+    # the telephony/campaign singletons + pipecat. That needs ~2 GB RAM, so the
+    # free/starter tiers (512 MB) OOM. Standard (2 GB) is the practical minimum.
+    # Keep this at ONE instance — the image runs singletons that must not be
+    # replicated.
+    plan: standard
+    image:
+      url: docker.io/dograhai/dograh-api:latest
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      # uvicorn binds 8000 (UVICORN_BASE_PORT default); route Render traffic there.
+      - key: PORT
+        value: "8000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dograh-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: dograh-redis
+          type: keyvalue
+          property: connectionString
+      - key: OSS_JWT_SECRET
+        generateValue: true
+      - key: FASTAPI_WORKERS
+        value: "1"
+      # Trust Render's proxy X-Forwarded-Proto so request.url is https and
+      # inbound telephony webhook signature checks pass.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      # Public URL of THIS service — used for webhook signatures and public
+      # links. Set it to your dograh-api *.onrender.com URL after the first
+      # deploy (a Blueprint can't self-reference a service's public URL).
+      - key: PUBLIC_BASE_URL
+        sync: false
+      # --- Object storage: external S3-compatible (Supabase Storage recommended) ---
+      - key: ENABLE_AWS_S3
+        value: "true"
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      # For non-AWS S3 (e.g. Supabase): full endpoint URL, SigV4, path-style.
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_SIGNATURE_VERSION
+        value: s3v4
+      - key: S3_ADDRESSING_STYLE
+        value: path
+      - key: ENABLE_TELEMETRY
+        value: "true"
+      - key: POSTHOG_API_KEY
+        value: phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr
+      - key: POSTHOG_HOST
+        value: https://us.i.posthog.com
+
+  - name: dograh-ui
+    type: web
+    runtime: image
+    region: oregon
+    plan: free
+    image:
+      url: docker.io/dograhai/dograh-ui:latest
+    envVars:
+      - key: PORT
+        value: "3010"
+      - key: HOSTNAME
+        value: "0.0.0.0"
+      - key: NODE_ENV
+        value: oss
+      # SSR reaches the API over Render's private network (service-name DNS).
+      - key: BACKEND_URL
+        value: http://dograh-api:8000
+      - key: ENABLE_TELEMETRY
+        value: "true"
+      - key: POSTHOG_KEY
+        value: phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr
+      - key: POSTHOG_HOST
+        value: https://us.posthog.com

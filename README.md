@@ -140,6 +140,13 @@ Refer [Local Setup](https://docs.dograh.com/contribution/setup)
 
 For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker).
 
+### One-Click Cloud Deploy
+
+| Option | What you get | Voice calls |
+| --- | --- | --- |
+| [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dograh-hq/dograh) | Build agents, workflows & integrations, and drive the API — managed Postgres + Redis. For evaluation; no calls. Set **Blueprint Path** to `deploy/render/render.yaml` (see the [Render guide](https://docs.dograh.com/deployment/render)). | ❌ No calls — Render has no UDP |
+| [**Deploy on Hostinger**](deploy/hostinger/README.md) | Full stack on a managed-Traefik VPS, including live telephony. Built with the Hostinger team. | ✅ Full voice (coturn) |
+
 ### Cloud Version
 
 Visit [https://www.dograh.com](https://www.dograh.com/) for our managed cloud offering.

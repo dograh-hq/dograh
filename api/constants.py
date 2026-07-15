@@ -38,7 +38,17 @@ BACKEND_API_ENDPOINT = (
 )
 UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+def normalize_async_pg_url(url: str) -> str:
+    """Managed Postgres (Render, Heroku, Supabase, Neon, …) hands out a plain
+    postgres:// | postgresql:// URL, but we use SQLAlchemy's async engine, which
+    needs the asyncpg driver in the scheme. Rewrite the scheme so those URLs
+    work unchanged; leave an already-qualified scheme (…+asyncpg://) alone."""
+    if url.startswith(("postgres://", "postgresql://")):
+        return "postgresql+asyncpg://" + url.split("://", 1)[1]
+    return url
+
+
+DATABASE_URL = normalize_async_pg_url(os.environ["DATABASE_URL"])
 REDIS_URL = os.environ["REDIS_URL"]
 
 DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")

@@ -59,11 +59,12 @@ async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
     if isinstance(data, list):
         data = data[0] if data else {}
 
-    status = str(data.get("StatusCallbackEvent", "")).lower()
+    conferenceStatus = str(data.get("StatusCallbackEvent", "")).lower()
+    outboundCallStatus = str(data.get("status", "")).lower()
     destination_token = data.get("Session", "")
 
     logger.info(
-        f"[Cloudonix Transfer] transfer_id={transfer_id} status={status} "
+        f"[Cloudonix Transfer] transfer_id={transfer_id} status={outboundCallStatus} conferenceStatus={conferenceStatus}"
         f"token={destination_token}"
     )
 
@@ -78,7 +79,7 @@ async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
     original_call_sid = transfer_context.original_call_sid
     conference_name = transfer_context.conference_name
 
-    if (status == "participant-join"):
+    if (conferenceStatus == "participant-join"):
         event = TransferEvent(
             type=TransferEventType.DESTINATION_ANSWERED,
             transfer_id=transfer_id,
@@ -89,7 +90,7 @@ async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
             status="success",
             action="destination_answered",
         )     
-    elif status in _CLOUDONIX_TRANSFER_FAILURE_STATUSES:
+    elif outboundCallStatus in _CLOUDONIX_TRANSFER_FAILURE_STATUSES:
         event = TransferEvent(
             type=TransferEventType.TRANSFER_FAILED,
             transfer_id=transfer_id,
@@ -99,11 +100,11 @@ async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
             message="The transfer call could not be completed.",
             status="transfer_failed",
             action="transfer_failed",
-            reason=status,
+            reason=outboundCallStatus,
         )
     else:
         logger.info(
-            f"[Cloudonix Transfer] Intermediate status {status} for {transfer_id}, "
+            f"[Cloudonix Transfer] Intermediate status {outboundCallStatus} for {transfer_id}, "
             "waiting"
         )
         return {"status": "pending"}

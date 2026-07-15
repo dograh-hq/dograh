@@ -117,7 +117,8 @@
             "tag": "NEW",
             "pages": [
               "integrations/mcp",
-              "integrations/tuner"
+              "integrations/tuner",
+              "integrations/paygent"
             ]
           }
         ]

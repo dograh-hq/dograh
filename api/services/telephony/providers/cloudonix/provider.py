@@ -1051,12 +1051,6 @@ class CloudonixProvider(TelephonyProvider):
         return Response(content=twiml, media_type="application/xml"), "application/xml"
 
     # ======== CALL TRANSFER METHODS ========
-
-    @staticmethod
-    def _is_sip_destination(destination: str) -> bool:
-        """A SIP destination is a SIP URI; everything else is a PSTN number."""
-        return destination.strip().lower().startswith("sip:")
-
     @staticmethod
     def _conference_join_cxml(conference_name: str, callback_url: str) -> str:
         """CXML the destination leg runs once it answers: join the conference."""
@@ -1115,6 +1109,7 @@ class CloudonixProvider(TelephonyProvider):
             "timeout": timeout,
         }
 
+        data.update(kwargs)
         headers = self._get_auth_headers()
         masked_destination = (
             f"***{destination[-4:]}" if len(destination) > 4 else "***"

@@ -401,7 +401,7 @@ export type AzureRealtimeLlmConfiguration = {
     /**
      * Api Version
      *
-     * Azure OpenAI API version.
+     * Azure OpenAI Realtime protocol version. Use 'v1' for the GA API; date-based versions select the deprecated preview endpoint.
      */
     api_version?: string;
 };
@@ -3814,6 +3814,12 @@ export type NodeSpec = {
      * LLM-only guidance; omitted from the UI.
      */
     llm_hint?: string | null;
+    /**
+     * Docs Url
+     *
+     * Documentation URL shown in the node editor.
+     */
+    docs_url?: string | null;
     category: NodeCategory;
     /**
      * Icon
@@ -7473,6 +7479,38 @@ export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPo
 export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors];
 
 export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostData = {
+    body?: never;
+    path: {
+        /**
+         * Transfer Id
+         */
+        transfer_id: string;
+    };
+    query?: never;
+    url: '/api/v1/telephony/cloudonix/transfer-result/{transfer_id}';
+};
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostError = HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostErrors[keyof HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostErrors];
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostResponses = {
     /**
      * Successful Response
      */

@@ -241,9 +241,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             "call(s) after bot turn ended"
         )
         for tool_name, invocation_id, parameters in invocations:
-            await super()._handle_tool_invocation(
-                tool_name, invocation_id, parameters
-            )
+            await super()._handle_tool_invocation(tool_name, invocation_id, parameters)
 
     async def _send_tool_result(self, tool_call_id: str, result: str):
         is_node_transition = tool_call_id in self._pending_node_transition_tool_call_ids

@@ -33,6 +33,7 @@ class NodeSpecMetadata:
     category: NodeCategory
     icon: str
     llm_hint: str | None = None
+    docs_url: str | None = None
     version: str = "1.0.0"
     examples: tuple[NodeExample, ...] = ()
     graph_constraints: GraphConstraints | None = None
@@ -91,6 +92,7 @@ def node_spec(
     category: NodeCategory,
     icon: str,
     llm_hint: str | None = None,
+    docs_url: str | None = None,
     version: str = "1.0.0",
     examples: list[NodeExample] | tuple[NodeExample, ...] = (),
     graph_constraints: GraphConstraints | None = None,
@@ -104,6 +106,7 @@ def node_spec(
         category=category,
         icon=icon,
         llm_hint=llm_hint,
+        docs_url=docs_url,
         version=version,
         examples=tuple(examples),
         graph_constraints=graph_constraints,
@@ -137,6 +140,7 @@ def build_spec(model_cls: type[BaseModel]) -> NodeSpec:
         display_name=metadata.display_name,
         description=metadata.description,
         llm_hint=metadata.llm_hint,
+        docs_url=metadata.docs_url,
         category=metadata.category,
         icon=metadata.icon,
         version=metadata.version,

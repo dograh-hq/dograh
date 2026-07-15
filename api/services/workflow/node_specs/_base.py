@@ -300,6 +300,10 @@ class NodeSpec(BaseModel):
         default=None,
         description="LLM-only guidance; omitted from the UI.",
     )
+    docs_url: Optional[str] = Field(
+        default=None,
+        description="Documentation URL shown in the node editor.",
+    )
     category: NodeCategory
     icon: str  # lucide-react icon name (e.g., "Play")
     version: str = "1.0.0"
@@ -312,8 +316,8 @@ class NodeSpec(BaseModel):
     def to_mcp_dict(self) -> dict[str, Any]:
         """Lean projection of this spec for the `get_node_type` MCP tool.
 
-        Drops node-level UI metadata (`display_name`, `category`, `icon`,
-        `version`) and the per-property rendering concerns trimmed by
+        Drops node-level UI metadata (`display_name`, `docs_url`, `category`,
+        `icon`, `version`) and the per-property rendering concerns trimmed by
         `PropertySpec.to_mcp_dict`, leaving just the authoring-relevant
         schema the LLM consumes when composing a workflow. The full spec is
         still served verbatim to the frontend renderer (REST `node-types`

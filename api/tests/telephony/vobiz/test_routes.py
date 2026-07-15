@@ -17,11 +17,12 @@ from api.services.telephony.providers.vobiz.routes import (
 )
 
 
-def _provider() -> VobizProvider:
+def _provider(application_id: str | None = None) -> VobizProvider:
     return VobizProvider(
         {
             "auth_id": "MA123",
             "auth_token": "vobiz-auth-token",
+            "application_id": application_id,
             "from_numbers": ["+15551230002"],
         }
     )
@@ -76,6 +77,41 @@ def _signed_headers(provider: VobizProvider, *, url: str) -> dict[str, str]:
         "x-vobiz-signature-v3": signature,
         "x-vobiz-signature-v3-nonce": nonce,
     }
+
+
+class _StubResponse:
+    def __init__(self, status: int, body: str = ""):
+        self.status = status
+        self._body = body
+
+    async def text(self) -> str:
+        return self._body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _StubSession:
+    def __init__(self, responses: list[_StubResponse]):
+        self.responses = responses
+        self.requests: list[tuple[str, str, dict | None]] = []
+
+    def post(self, url: str, *, json: dict, headers: dict):
+        self.requests.append(("POST", url, json))
+        return self.responses.pop(0)
+
+    def delete(self, url: str, *, headers: dict):
+        self.requests.append(("DELETE", url, None))
+        return self.responses.pop(0)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 @pytest.mark.asyncio
@@ -216,6 +252,89 @@ async def test_vobiz_verify_inbound_signature_accepts_v2():
             "X-Vobiz-Signature-V2-Nonce": nonce,
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_vobiz_configure_inbound_updates_application_and_attaches_number():
+    provider = _provider(application_id="12345678901234567")
+    session = _StubSession([_StubResponse(204), _StubResponse(202)])
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await provider.configure_inbound(
+            "+15551230002",
+            "https://voice.example.test/api/v1/telephony/inbound/run",
+        )
+
+    assert result.ok
+    assert session.requests == [
+        (
+            "POST",
+            "https://api.vobiz.ai/api/v1/account/MA123/numbers/"
+            "%2B15551230002/application",
+            {"application_id": "12345678901234567"},
+        ),
+        (
+            "POST",
+            "https://api.vobiz.ai/api/v1/Account/MA123/Application/12345678901234567/",
+            {
+                "answer_url": (
+                    "https://voice.example.test/api/v1/telephony/inbound/run"
+                ),
+                "answer_method": "POST",
+            },
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vobiz_configure_inbound_does_not_update_application_when_attach_fails():
+    provider = _provider(application_id="12345678901234567")
+    session = _StubSession([_StubResponse(409, "number already assigned")])
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await provider.configure_inbound(
+            "+15551230002",
+            "https://voice.example.test/api/v1/telephony/inbound/run",
+        )
+
+    assert not result.ok
+    assert result.message == "Vobiz API 409: number already assigned"
+    assert session.requests == [
+        (
+            "POST",
+            "https://api.vobiz.ai/api/v1/account/MA123/numbers/"
+            "%2B15551230002/application",
+            {"application_id": "12345678901234567"},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vobiz_configure_inbound_detaches_number_without_clearing_application():
+    provider = _provider(application_id="12345678901234567")
+    session = _StubSession([_StubResponse(204)])
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await provider.configure_inbound("+15551230002", None)
+
+    assert result.ok
+    assert session.requests == [
+        (
+            "DELETE",
+            "https://api.vobiz.ai/api/v1/account/MA123/numbers/"
+            "%2B15551230002/application",
+            None,
+        )
+    ]
 
 
 @pytest.mark.asyncio

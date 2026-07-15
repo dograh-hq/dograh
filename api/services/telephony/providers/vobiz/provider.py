@@ -8,7 +8,7 @@ import hmac
 import json
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import aiohttp
 from fastapi import HTTPException
@@ -503,22 +503,14 @@ class VobizProvider(TelephonyProvider):
     async def configure_inbound(
         self, address: str, webhook_url: Optional[str]
     ) -> ProviderSyncResult:
-        """Update answer_url on the Vobiz Application (Plivo-compatible model).
+        """Attach or detach a Vobiz number from the configured Application.
 
-        Vobiz's update is partial so we POST only ``answer_url`` and
-        ``answer_method`` — ``app_name``, ``hangup_url``, etc. stay as the
-        user set them. The URL is shared across every number on the
-        application — clearing is a no-op to avoid silently breaking
-        inbound for sibling numbers.
+        Attaching first binds this number to the Application and then updates
+        the shared Application ``answer_url``. This ordering avoids changing
+        existing numbers when the target number cannot be bound. Detaching
+        removes only the number binding; it does not clear the shared
+        ``answer_url`` because sibling numbers may still use it.
         """
-        if webhook_url is None:
-            logger.info(
-                f"Vobiz configure_inbound clear for {address}: skipping "
-                f"application update (answer_url is shared across all numbers "
-                f"on application {self.application_id})"
-            )
-            return ProviderSyncResult(ok=True)
-
         if not self.validate_config():
             return ProviderSyncResult(
                 ok=False, message="Vobiz provider not properly configured"
@@ -534,6 +526,22 @@ class VobizProvider(TelephonyProvider):
                 ),
             )
 
+        try:
+            normalized_address = normalize_telephony_address(address)
+        except ValueError as e:
+            return ProviderSyncResult(ok=False, message=f"Invalid Vobiz number: {e}")
+
+        if normalized_address.address_type != "pstn":
+            return ProviderSyncResult(
+                ok=False,
+                message="Vobiz Application attachment requires a PSTN phone number",
+            )
+
+        encoded_address = quote(normalized_address.canonical, safe="")
+        number_endpoint = (
+            f"{self.base_url}/v1/account/{self.auth_id}/numbers/"
+            f"{encoded_address}/application"
+        )
         app_endpoint = (
             f"{self.base_url}/v1/Account/{self.auth_id}/Application/"
             f"{self.application_id}/"
@@ -550,6 +558,43 @@ class VobizProvider(TelephonyProvider):
 
         try:
             async with aiohttp.ClientSession() as session:
+                if webhook_url is None:
+                    async with session.delete(
+                        number_endpoint, headers=headers
+                    ) as response:
+                        if response.status not in (200, 204):
+                            body = await response.text()
+                            logger.error(
+                                f"Vobiz number detach failed for {address}: "
+                                f"{response.status} {body}"
+                            )
+                            return ProviderSyncResult(
+                                ok=False,
+                                message=f"Vobiz API {response.status}: {body}",
+                            )
+
+                    logger.info(
+                        f"Vobiz number {normalized_address.canonical} detached "
+                        f"from application {self.application_id}"
+                    )
+                    return ProviderSyncResult(ok=True)
+
+                async with session.post(
+                    number_endpoint,
+                    json={"application_id": str(self.application_id)},
+                    headers=headers,
+                ) as response:
+                    if response.status not in (200, 201, 204):
+                        body = await response.text()
+                        logger.error(
+                            f"Vobiz number attach failed for {address}: "
+                            f"{response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Vobiz API {response.status}: {body}",
+                        )
+
                 async with session.post(
                     app_endpoint, json=data, headers=headers
                 ) as response:
@@ -565,13 +610,14 @@ class VobizProvider(TelephonyProvider):
                         )
         except Exception as e:
             logger.error(
-                f"Exception updating Vobiz application {self.application_id}: {e}"
+                f"Exception syncing Vobiz application {self.application_id} "
+                f"for {address}: {e}"
             )
-            return ProviderSyncResult(ok=False, message=f"Vobiz update failed: {e}")
+            return ProviderSyncResult(ok=False, message=f"Vobiz sync failed: {e}")
 
         logger.info(
-            f"Vobiz answer_url set on application {self.application_id} "
-            f"(triggered by address {address})"
+            f"Vobiz number {normalized_address.canonical} attached to application "
+            f"{self.application_id}; answer_url set to {webhook_url}"
         )
         return ProviderSyncResult(ok=True)
 

@@ -29,6 +29,10 @@ Go back to Twilio, copy your **Auth Token**, and paste it in. Keep that token pr
 
 If you want this configuration to be the default for test calls and campaigns, enable that here. For a basic setup, leave answering machine detection off, then click **Create**.
 
+<Warning>
+Enable **Set as default for outbound calls** on your telephony configuration. If no default is set, API Trigger will return a `400: Telephony provider not configured for this organization` error even after a successful setup.
+</Warning>
+
 ## Step 4: Add your phone number
 
 Once the configuration exists, go to manage phone numbers and add the number you bought. Copy it from Twilio and paste it in as-is, country **US**. The label is optional, leave it blank if you want. Select your inbound workflow, in this demo, a debt collection agent. Keep it active, and enable default caller ID if you want test calls to always show that number.

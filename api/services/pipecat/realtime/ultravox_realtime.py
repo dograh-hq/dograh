@@ -11,6 +11,7 @@ the Dograh engine contract by:
   the existing call keeps its complete audio-native history
 - updating the next stage's system prompt and selected tools without a
   disconnect/reconnect cycle
+- deferring workflow-control tools until any active Ultravox response ends
 - handling Dograh-only frames such as user mute and idle append prompts
 - tagging user transcripts with ``finalized=True`` for downstream parity
 """
@@ -67,6 +68,12 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         # the context aggregator. Unlike Gemini, this ID is part of the wire
         # protocol needed to update the existing call without reconnecting.
         self._pending_node_transition_tool_call_ids: set[str] = set()
+        # A stage result can replace the active prompt and tools immediately.
+        # Hold transition invocations separately so ordinary tools can still
+        # run during speech while workflow control waits for response end.
+        self._deferred_node_transition_tool_invocations: list[
+            tuple[str, str, dict[str, Any]]
+        ] = []
         self._pending_user_text_messages: list[str] = []
 
     async def start(self, frame):
@@ -124,6 +131,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         self._call_started = False
         self._started_placeholder_sent = set()
         self._pending_node_transition_tool_call_ids = set()
+        self._deferred_node_transition_tool_invocations = []
         self._disconnecting = False
 
     async def _send_user_audio(self, frame):
@@ -206,7 +214,36 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
     ):
         if self._function_is_node_transition(tool_name):
             self._pending_node_transition_tool_call_ids.add(invocation_id)
+            if self._bot_responding:
+                self._deferred_node_transition_tool_invocations.append(
+                    (tool_name, invocation_id, parameters)
+                )
+                logger.debug(
+                    f"{self}: deferring workflow-control call {tool_name} "
+                    "until bot turn ends"
+                )
+                return
         await super()._handle_tool_invocation(tool_name, invocation_id, parameters)
+
+    async def _handle_response_end(self):
+        """Close the current response before applying queued workflow control."""
+        await super()._handle_response_end()
+        await self._run_deferred_node_transition_tool_invocations()
+
+    async def _run_deferred_node_transition_tool_invocations(self):
+        if not self._deferred_node_transition_tool_invocations:
+            return
+
+        invocations = self._deferred_node_transition_tool_invocations
+        self._deferred_node_transition_tool_invocations = []
+        logger.debug(
+            f"{self}: executing {len(invocations)} deferred workflow-control "
+            "call(s) after bot turn ended"
+        )
+        for tool_name, invocation_id, parameters in invocations:
+            await super()._handle_tool_invocation(
+                tool_name, invocation_id, parameters
+            )
 
     async def _send_tool_result(self, tool_call_id: str, result: str):
         is_node_transition = tool_call_id in self._pending_node_transition_tool_call_ids

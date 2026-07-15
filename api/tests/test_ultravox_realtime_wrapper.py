@@ -204,6 +204,55 @@ async def test_only_registered_node_transition_invocations_are_tracked():
     assert service.run_function_calls.await_count == 2
 
 
+@pytest.mark.asyncio
+async def test_node_transition_invocation_waits_for_response_end():
+    service = _make_service()
+    service.run_function_calls = AsyncMock()
+    service.stop_processing_metrics = AsyncMock()
+    service.push_frame = AsyncMock()
+    service.register_function(
+        "transition_to_next_node",
+        AsyncMock(),
+        is_node_transition=True,
+    )
+    service._bot_responding = "voice"
+
+    await service._handle_tool_invocation(
+        "transition_to_next_node", "call-transition", {"reason": "pricing"}
+    )
+
+    service.run_function_calls.assert_not_awaited()
+    assert service._deferred_node_transition_tool_invocations == [
+        (
+            "transition_to_next_node",
+            "call-transition",
+            {"reason": "pricing"},
+        )
+    ]
+
+    await service._handle_response_end()
+
+    service.run_function_calls.assert_awaited_once()
+    function_call = service.run_function_calls.await_args.args[0][0]
+    assert function_call.function_name == "transition_to_next_node"
+    assert function_call.tool_call_id == "call-transition"
+    assert function_call.arguments == {"reason": "pricing"}
+    assert service._deferred_node_transition_tool_invocations == []
+    assert service._bot_responding is None
+
+
+@pytest.mark.asyncio
+async def test_ordinary_tool_invocation_runs_while_response_is_active():
+    service = _make_service()
+    service.run_function_calls = AsyncMock()
+    service._bot_responding = "voice"
+
+    await service._handle_tool_invocation("lookup_price", "call-lookup", {})
+
+    service.run_function_calls.assert_awaited_once()
+    assert service._deferred_node_transition_tool_invocations == []
+
+
 def test_ultravox_requires_transition_context_aggregation():
     service = _make_service()
 

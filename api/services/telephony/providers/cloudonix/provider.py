@@ -1058,17 +1058,8 @@ class CloudonixProvider(TelephonyProvider):
         return destination.strip().lower().startswith("sip:")
 
     @staticmethod
-    def _conference_join_cxml(destination: str, conference_name: str, callback_url: str) -> str:
-        """CXML the destination leg runs once it answers: join the conference.
-
-        PSTN destinations are dialed as a number; SIP destinations are dialed as
-        a ``<Sip>`` noun. The destination is placed into ``conference_name`` so
-        the forked caller leg meets it there.
-        """
-        if CloudonixProvider._is_sip_destination(destination):
-            dial_target = f"<Sip>{destination}</Sip>"
-        else:
-            dial_target = f"<Number>{destination}</Number>"
+    def _conference_join_cxml(conference_name: str, callback_url: str) -> str:
+        """CXML the destination leg runs once it answers: join the conference."""
         return (
             '<?xml version="1.0" encoding="UTF-8"?>'
             "<Response>"
@@ -1119,8 +1110,7 @@ class CloudonixProvider(TelephonyProvider):
         data: Dict[str, Any] = {
             "destination": destination,
             "caller-id": from_number,
-            "cxml": self._conference_join_cxml(destination, conference_name, callback_url),
-            # "callback": callback_url,
+            "cxml": self._conference_join_cxml(conference_name, callback_url),
             "timeout": timeout,
         }
 

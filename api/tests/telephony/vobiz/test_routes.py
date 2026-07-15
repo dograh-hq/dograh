@@ -219,6 +219,71 @@ async def test_vobiz_verify_inbound_signature_accepts_v2():
 
 
 @pytest.mark.asyncio
+async def test_vobiz_inbound_signature_uses_configured_public_backend_url():
+    provider = _provider()
+    public_url = "https://voice.example.test/api/v1/telephony/inbound/run"
+    headers = _signed_headers(provider, url=public_url)
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.BACKEND_API_ENDPOINT",
+        "https://voice.example.test",
+    ):
+        is_valid = await provider.verify_inbound_signature(
+            "http://api:8000/api/v1/telephony/inbound/run",
+            {},
+            headers,
+        )
+
+    assert is_valid
+
+
+@pytest.mark.asyncio
+async def test_vobiz_inbound_signature_uses_forwarded_url_for_local_backend():
+    provider = _provider()
+    public_url = "https://voice.example.test/api/v1/telephony/inbound/run"
+    headers = {
+        **_signed_headers(provider, url=public_url),
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "voice.example.test",
+    }
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.BACKEND_API_ENDPOINT",
+        "http://localhost:8000",
+    ):
+        is_valid = await provider.verify_inbound_signature(
+            "http://api:8000/api/v1/telephony/inbound/run",
+            {},
+            headers,
+        )
+
+    assert is_valid
+
+
+@pytest.mark.asyncio
+async def test_vobiz_inbound_signature_uses_forwarded_url_for_private_backend():
+    provider = _provider()
+    public_url = "https://voice.example.test/api/v1/telephony/inbound/run"
+    headers = {
+        **_signed_headers(provider, url=public_url),
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "voice.example.test",
+    }
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.BACKEND_API_ENDPOINT",
+        "http://10.0.0.5:8000",
+    ):
+        is_valid = await provider.verify_inbound_signature(
+            "http://api:8000/api/v1/telephony/inbound/run",
+            {},
+            headers,
+        )
+
+    assert is_valid
+
+
+@pytest.mark.asyncio
 async def test_vobiz_verify_inbound_signature_rejects_missing_signature():
     provider = _provider()
 

@@ -14,6 +14,7 @@ import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 
+from api.constants import BACKEND_API_ENDPOINT
 from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -21,7 +22,7 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
-from api.utils.common import get_backend_endpoints
+from api.utils.common import get_backend_endpoints, is_local_or_private_url
 from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
@@ -461,6 +462,56 @@ class VobizProvider(TelephonyProvider):
         stored_auth_id = config_data.get("auth_id")
         return stored_auth_id == webhook_account_id
 
+    @staticmethod
+    def _signature_verification_url(url: str, headers: Dict[str, str]) -> str:
+        """Reconstruct the public URL Vobiz used to sign a callback.
+
+        A TLS-terminating proxy can expose the request to the API with an
+        internal ``http://`` origin even though Vobiz called and signed the
+        configured public ``https://`` URL.
+        """
+        parsed_url = urlparse(url)
+
+        if BACKEND_API_ENDPOINT and not is_local_or_private_url(BACKEND_API_ENDPOINT):
+            backend_url = BACKEND_API_ENDPOINT.rstrip("/")
+            if "://" not in backend_url:
+                backend_url = f"http://{backend_url}"
+
+            parsed_backend = urlparse(backend_url)
+            return urlunparse(
+                (
+                    parsed_backend.scheme,
+                    parsed_backend.netloc,
+                    parsed_url.path,
+                    "",
+                    parsed_url.query,
+                    "",
+                )
+            )
+
+        forwarded_proto = headers.get("x-forwarded-proto", "")
+        forwarded_host = headers.get("x-forwarded-host", "")
+        if forwarded_proto:
+            forwarded_proto = forwarded_proto.split(",", 1)[0].strip()
+        if forwarded_host:
+            forwarded_host = forwarded_host.split(",", 1)[0].strip()
+        else:
+            forwarded_host = headers.get("host", "")
+
+        if forwarded_proto and forwarded_host:
+            return urlunparse(
+                (
+                    forwarded_proto,
+                    forwarded_host,
+                    parsed_url.path,
+                    "",
+                    parsed_url.query,
+                    "",
+                )
+            )
+
+        return url
+
     async def verify_inbound_signature(
         self,
         url: str,
@@ -491,8 +542,9 @@ class VobizProvider(TelephonyProvider):
             logger.warning("Inbound Vobiz webhook missing X-Vobiz-Signature-V3/V2")
             return False
 
+        verification_url = self._signature_verification_url(url, normalized_headers)
         return await self.verify_webhook_signature(
-            url,
+            verification_url,
             webhook_data,
             signature,
             nonce,

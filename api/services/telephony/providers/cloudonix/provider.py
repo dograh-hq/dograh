@@ -1111,6 +1111,7 @@ class CloudonixProvider(TelephonyProvider):
             "destination": destination,
             "caller-id": from_number,
             "cxml": self._conference_join_cxml(conference_name, callback_url),
+            "callback": callback_url,
             "timeout": timeout,
         }
 

@@ -32,6 +32,8 @@ _CLOUDONIX_TRANSFER_FAILURE_STATUSES = {
     "cancel",
     "nocredit",
     "error",
+    "congestion",
+    "failed",
 }
 
 

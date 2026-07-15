@@ -1,6 +1,10 @@
 AZURE_MODELS = ["gpt-4.1-mini"]
 
-AZURE_REALTIME_MODELS = ["gpt-4o-realtime-preview"]
+AZURE_REALTIME_MODELS = [
+    "gpt-realtime",
+    "gpt-realtime-1.5",
+    "gpt-realtime-mini",
+]
 AZURE_REALTIME_VOICES = [
     "alloy",
     "ash",
@@ -12,6 +16,7 @@ AZURE_REALTIME_VOICES = [
     "verse",
 ]
 AZURE_REALTIME_API_VERSIONS = [
+    "v1",
     "2025-04-01-preview",
     "2024-10-01-preview",
     "2024-12-17",

@@ -12,6 +12,7 @@ Mirrors ``tuner/completion.py`` exactly:
 - call ``deliver(config, snapshot)``
 - collect results keyed by ``paygent_{node_id}``
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -38,8 +39,8 @@ def _build_snapshot(
         # snapshot value is never used to override it, preventing billing drift
         # if the log is stale or corrupted.
         session_id=str(workflow_run_id),
-        agent_id=raw.get("agent_id", ""),          # filled from node config below
-        customer_id=raw.get("customer_id", ""),    # filled from node config below
+        agent_id=raw.get("agent_id", ""),  # filled from node config below
+        customer_id=raw.get("customer_id", ""),  # filled from node config below
         is_realtime=raw.get("is_realtime", False),
         stt_provider=raw.get("stt_provider", ""),
         stt_model=raw.get("stt_model", ""),
@@ -90,7 +91,9 @@ async def run_completion(
             continue
 
         # ---- Build typed objects -------------------------------------------
-        snapshot = _build_snapshot(raw_snapshot, workflow_run_id=context.workflow_run_id)
+        snapshot = _build_snapshot(
+            raw_snapshot, workflow_run_id=context.workflow_run_id
+        )
         # Inject node-level credentials into the snapshot
         snapshot.agent_id = (node_data.paygent_agent_id or "").strip()
         snapshot.customer_id = (node_data.paygent_customer_id or "").strip()
@@ -102,7 +105,11 @@ async def run_completion(
             # Only fallback to pipeline-level llm usage if this is NOT a realtime pipeline.
             # In realtime pipelines, the collector properly segregates STS and LLM tokens;
             # falling back here would duplicate the STS tokens into the LLM bucket.
-            if snapshot.llm_prompt_tokens == 0 and snapshot.llm_completion_tokens == 0 and not snapshot.is_realtime:
+            if (
+                snapshot.llm_prompt_tokens == 0
+                and snapshot.llm_completion_tokens == 0
+                and not snapshot.is_realtime
+            ):
                 llm_providers: list[str] = []
                 llm_models: list[str] = []
                 for key, val in usage_info.get("llm", {}).items():
@@ -112,7 +119,9 @@ async def run_completion(
                         continue
                     snapshot.llm_prompt_tokens += val.get("prompt_tokens", 0)
                     snapshot.llm_completion_tokens += val.get("completion_tokens", 0)
-                    snapshot.llm_cached_tokens += val.get("cache_read_input_tokens", 0) + val.get("cache_creation_input_tokens", 0)
+                    snapshot.llm_cached_tokens += val.get(
+                        "cache_read_input_tokens", 0
+                    ) + val.get("cache_creation_input_tokens", 0)
                     parts = key.split("|||")
                     if len(parts) == 2:
                         llm_providers.append(parts[0])
@@ -153,7 +162,11 @@ async def run_completion(
                 # substitute total_duration_seconds — that would overbill wall-clock time
                 # (silence, hold, agent speech) as STT input.
         except Exception as exc:
-            logger.warning("[paygent] Failed to apply usage_info fallback for run {}: {}", context.workflow_run_id, exc)
+            logger.warning(
+                "[paygent] Failed to apply usage_info fallback for run {}: {}",
+                context.workflow_run_id,
+                exc,
+            )
 
         try:
             config = PaygentDeliveryConfig(

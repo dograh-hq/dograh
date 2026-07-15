@@ -1,9 +1,9 @@
 """Dograh subclass of pipecat's Azure OpenAI Realtime LLM service.
 
 Layers Dograh engine integration quirks (mute gating, TTSSpeakFrame greeting
-trigger, LLMMessagesAppendFrame handling, deferred tool calls) onto pipecat's
-AzureRealtimeLLMService, mirroring what DograhOpenAIRealtimeLLMService does
-for the standard OpenAI Realtime endpoint.
+trigger, LLMMessagesAppendFrame handling, workflow-control deferral) onto
+pipecat's AzureRealtimeLLMService, mirroring what
+DograhOpenAIRealtimeLLMService does for the standard OpenAI Realtime endpoint.
 """
 
 import json
@@ -40,7 +40,7 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
     - User-mute audio gating
     - TTSSpeakFrame as initial-response trigger
     - One-off LLMMessagesAppendFrame handling
-    - Deferred tool calls until bot finishes speaking
+    - Workflow-control calls deferred until bot finishes speaking
     - finalized=True on TranscriptionFrame for consistency
     """
 
@@ -49,7 +49,7 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
         self._user_is_muted: bool = False
         self._handled_initial_context: bool = False
         self._bot_is_speaking: bool = False
-        self._deferred_function_calls: list[FunctionCallFromLLM] = []
+        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -81,7 +81,7 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
             self._bot_is_speaking = True
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
-            await self._run_pending_function_calls()
+            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -247,18 +247,19 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
             )
         )
 
-    async def _run_pending_function_calls(self):
-        if not self._deferred_function_calls:
+    async def _run_pending_node_transition_function_calls(self):
+        if not self._deferred_node_transition_function_calls:
             return
-        function_calls = self._deferred_function_calls
-        self._deferred_function_calls = []
+        function_calls = self._deferred_node_transition_function_calls
+        self._deferred_node_transition_function_calls = []
         logger.debug(
-            f"{self}: executing {len(function_calls)} deferred function call(s) "
-            "after bot turn ended"
+            f"{self}: executing {len(function_calls)} deferred workflow-control "
+            "call(s) after bot turn ended"
         )
         await self.run_function_calls(function_calls)
 
     async def _handle_evt_function_call_arguments_done(self, evt):
+        """Run ordinary tools immediately and defer workflow-control calls."""
         try:
             args = json.loads(evt.arguments)
 
@@ -275,10 +276,14 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
                     )
                 ]
 
-                if self._bot_is_speaking:
-                    self._deferred_function_calls.extend(function_calls)
+                is_node_transition = self._function_is_node_transition(
+                    function_call_item.name
+                )
+                if self._bot_is_speaking and is_node_transition:
+                    self._deferred_node_transition_function_calls.extend(function_calls)
                     logger.debug(
-                        f"{self}: deferring function call {function_call_item.name} "
+                        f"{self}: deferring workflow-control call "
+                        f"{function_call_item.name} "
                         "until bot stops speaking"
                     )
                 else:

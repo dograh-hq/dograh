@@ -1,19 +1,17 @@
 """Dograh subclass of pipecat's Ultravox realtime LLM service.
 
-Ultravox is audio-native and realtime, but prompt and tool configuration is
-bound to call creation. Dograh therefore cannot lean on in-session updates or
-Gemini-style session resumption handles. This wrapper adapts Ultravox to the
-Dograh engine contract by:
+Ultravox is audio-native and realtime. Its native call stages allow a client
+tool result to atomically change the system prompt and tools while preserving
+the call's server-side conversation history. This wrapper adapts that model to
+the Dograh engine contract by:
 
 - deferring the first call creation until the engine queues the initial node
   opening via ``TTSSpeakFrame`` or ``LLMContextFrame``
-- marking the call for recreation when ``system_instruction`` changes across
-  node transitions, then rebuilding it on the follow-up ``LLMContextFrame``
-  so the transition tool result is present in ``initialMessages``
-- reconstructing Ultravox ``initialMessages`` from Dograh context when the
-  call must be recreated after a node transition
-- appending a transient resumptive user nudge to recreated ``initialMessages``
-  after tool-result transitions, without mutating Dograh's stored context
+- returning node-transition tool results with ``responseType="new-stage"`` so
+  the existing call keeps its complete audio-native history
+- updating the next stage's system prompt and selected tools without a
+  disconnect/reconnect cycle
+- deferring workflow-control tools until any active Ultravox response ends
 - handling Dograh-only frames such as user mute and idle append prompts
 - tagging user transcripts with ``finalized=True`` for downstream parity
 """
@@ -34,12 +32,7 @@ from pipecat.frames.frames import (
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
 )
-from pipecat.processors.aggregators import async_tool_messages
-from pipecat.processors.aggregators.llm_context import (
-    LLMContext,
-    LLMSpecificMessage,
-    is_given,
-)
+from pipecat.processors.aggregators.llm_context import LLMContext, is_given
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.services.settings import _NotGiven, assert_given
@@ -58,10 +51,6 @@ class DograhUltravoxOneShotInputParams(OneShotInputParams):
 
 
 _ULTRAVOX_MAX_TOOL_TIMEOUT_SECS = 40.0
-_RESUMPTION_USER_MESSAGE = (
-    "IMPORTANT: We are resuming an existing conversation. You are given previous turns ONLY for your reference. "
-    "Do not use that to frame your response. Follow your ORIGINAL INSTRUCTIONS ONLY."
-)
 
 
 class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
@@ -72,12 +61,19 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         self._context: LLMContext | None = None
         self._selected_tools = None
         self._user_is_muted: bool = False
-        self._call_system_instruction: str | None = None
-        self._reconnect_required: bool = False
         self._call_started: bool = False
-        self._has_connected_once: bool = False
-        self._pending_reconnect_system_instruction: str | None = None
-        self._pending_initial_messages: list[dict[str, Any]] | None = None
+        self._stage_update_required: bool = False
+        # Ultravox applies a stage update on the matching client tool result,
+        # so retain the provider invocation ID until that result reaches us via
+        # the context aggregator. Unlike Gemini, this ID is part of the wire
+        # protocol needed to update the existing call without reconnecting.
+        self._pending_node_transition_tool_call_ids: set[str] = set()
+        # A stage result can replace the active prompt and tools immediately.
+        # Hold transition invocations separately so ordinary tools can still
+        # run during speech while workflow control waits for response end.
+        self._deferred_node_transition_tool_invocations: list[
+            tuple[str, str, dict[str, Any]]
+        ] = []
         self._pending_user_text_messages: list[str] = []
 
     async def start(self, frame):
@@ -96,9 +92,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         if isinstance(frame, TTSSpeakFrame):
             if not self._socket:
                 await self._connect_call(
-                    system_instruction=self._current_system_instruction(),
                     greeting_text=frame.text,
-                    initial_messages=None,
                     agent_speaks_first=True,
                 )
             else:
@@ -116,18 +110,15 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         changed = await super(UltravoxRealtimeLLMService, self)._update_settings(delta)
         if "output_medium" in changed:
             await self._update_output_medium(assert_given(self._settings.output_medium))
-        if "system_instruction" in changed and self._has_connected_once:
-            # Mirror Gemini's "settings change means reconnect" intent, but
-            # defer the actual new-call creation until the subsequent
-            # LLMContextFrame arrives with the transition tool result. Ultravox
-            # cannot accept that historical tool result over a formal
-            # post-connect tool-response channel the way Gemini can.
-            self._reconnect_required = True
+        if "system_instruction" in changed and self._socket:
+            # The updated instruction is included in the native new-stage
+            # response when the transition tool result reaches _handle_context.
+            self._stage_update_required = True
         handled = {"output_medium", "system_instruction"}
         self._warn_unhandled_updated_settings(changed.keys() - handled)
         return changed
 
-    async def _disconnect(self, preserve_completed_tool_calls: bool = True):
+    async def _disconnect(self):
         self._disconnecting = True
         await self.stop_all_metrics()
         if self._socket:
@@ -136,10 +127,11 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         if self._receive_task:
             await self.cancel_task(self._receive_task, timeout=1.0)
             self._receive_task = None
-        if not preserve_completed_tool_calls:
-            self._completed_tool_calls = set()
+        self._completed_tool_calls = set()
         self._call_started = False
         self._started_placeholder_sent = set()
+        self._pending_node_transition_tool_call_ids = set()
+        self._deferred_node_transition_tool_invocations = []
         self._disconnecting = False
 
     async def _send_user_audio(self, frame):
@@ -149,39 +141,20 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
 
     async def _handle_context(self, context: LLMContext):
         self._context = context
-        system_instruction = self._current_system_instruction()
 
-        if self._socket and not self._reconnect_required:
-            await super()._handle_context(context)
+        if not self._socket:
+            await self._connect_call(
+                greeting_text=None,
+                agent_speaks_first=True,
+            )
             return
 
-        initial_messages, history_tool_call_ids = self._build_initial_messages(context)
-        if history_tool_call_ids:
-            self._completed_tool_calls.update(history_tool_call_ids)
-
-        if self._bot_responding:
-            self._pending_reconnect_system_instruction = system_instruction
-            self._pending_initial_messages = initial_messages
-            return
-
-        await self._reconnect_with_context(
-            system_instruction=system_instruction,
-            initial_messages=initial_messages,
-        )
-
-    async def _handle_response_end(self):
-        await super()._handle_response_end()
-        if self._pending_reconnect_system_instruction is None:
-            return
-
-        system_instruction = self._pending_reconnect_system_instruction
-        initial_messages = self._pending_initial_messages
-        self._pending_reconnect_system_instruction = None
-        self._pending_initial_messages = None
-        await self._reconnect_with_context(
-            system_instruction=system_instruction,
-            initial_messages=initial_messages,
-        )
+        current_tools = self._current_tools_schema(context)
+        if self._pending_node_transition_tool_call_ids and self._tools_changed(
+            current_tools
+        ):
+            self._stage_update_required = True
+        await super()._handle_context(context)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
         texts = [
@@ -199,9 +172,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         if not self._socket:
             self._pending_user_text_messages.extend(texts)
             await self._connect_call(
-                system_instruction=self._current_system_instruction(),
                 greeting_text=None,
-                initial_messages=None,
                 agent_speaks_first=False,
             )
             return
@@ -229,17 +200,95 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             finalized=True,
         )
 
+    def _requires_node_transition_context_aggregation(self) -> bool:
+        """Commit any received final user transcript before changing stages.
+
+        Ultravox preserves its own audio-native history across a stage change,
+        but Dograh's local context still needs the final transcript before the
+        transition handler updates the workflow node.
+        """
+        return True
+
+    async def _handle_tool_invocation(
+        self, tool_name: str, invocation_id: str, parameters: dict[str, Any]
+    ):
+        if self._function_is_node_transition(tool_name):
+            self._pending_node_transition_tool_call_ids.add(invocation_id)
+            if self._bot_responding:
+                self._deferred_node_transition_tool_invocations.append(
+                    (tool_name, invocation_id, parameters)
+                )
+                logger.debug(
+                    f"{self}: deferring workflow-control call {tool_name} "
+                    "until bot turn ends"
+                )
+                return
+        await super()._handle_tool_invocation(tool_name, invocation_id, parameters)
+
+    async def _handle_response_end(self):
+        """Close the current response before applying queued workflow control."""
+        await super()._handle_response_end()
+        await self._run_deferred_node_transition_tool_invocations()
+
+    async def _run_deferred_node_transition_tool_invocations(self):
+        if not self._deferred_node_transition_tool_invocations:
+            return
+
+        invocations = self._deferred_node_transition_tool_invocations
+        self._deferred_node_transition_tool_invocations = []
+        logger.debug(
+            f"{self}: executing {len(invocations)} deferred workflow-control "
+            "call(s) after bot turn ended"
+        )
+        for tool_name, invocation_id, parameters in invocations:
+            await super()._handle_tool_invocation(
+                tool_name, invocation_id, parameters
+            )
+
+    async def _send_tool_result(self, tool_call_id: str, result: str):
+        is_node_transition = tool_call_id in self._pending_node_transition_tool_call_ids
+        try:
+            if is_node_transition and self._stage_update_required:
+                await self._send_node_transition_stage_result(tool_call_id, result)
+            else:
+                await super()._send_tool_result(tool_call_id, result)
+        finally:
+            if is_node_transition:
+                self._pending_node_transition_tool_call_ids.discard(tool_call_id)
+
+    async def _send_node_transition_stage_result(self, tool_call_id: str, result: str):
+        """Apply node settings using Ultravox's native call-stage protocol."""
+        next_tools = self._current_tools_schema(self._context)
+        stage = {
+            "systemPrompt": self._current_system_instruction(),
+            "selectedTools": self._selected_tools_payload(next_tools),
+            # Keep the workflow handler's result as the tool-result message in
+            # the inherited conversation history for the next generation.
+            "toolResultText": result,
+        }
+        logger.debug(
+            f"{self}: updating Ultravox call stage for tool_call_id={tool_call_id} "
+            f"with {len(stage['selectedTools'])} selected tool(s)"
+        )
+        await self._send(
+            {
+                "type": "client_tool_result",
+                "invocationId": tool_call_id,
+                "result": json.dumps(stage, ensure_ascii=True, default=str),
+                "responseType": "new-stage",
+            }
+        )
+        self._selected_tools = next_tools
+        self._stage_update_required = False
+
     async def _connect_call(
         self,
         *,
-        system_instruction: str | None,
         greeting_text: str | None,
-        initial_messages: list[dict[str, Any]] | None,
         agent_speaks_first: bool,
     ):
         params = self._build_one_shot_params(
             greeting_text=greeting_text,
-            initial_messages=initial_messages,
             agent_speaks_first=agent_speaks_first,
         )
         self._params = params
@@ -265,9 +314,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             logger.info(f"Joining Ultravox Realtime call via URL: {join_url}")
             self._socket = await websocket_client.connect(join_url)
             self._receive_task = self.create_task(self._receive_messages())
-            self._call_system_instruction = system_instruction
             self._call_started = False
-            self._has_connected_once = True
         except Exception as e:
             logger.error(
                 f"{self}: Ultravox call creation/join failed "
@@ -365,40 +412,17 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         for pending_text in pending_texts:
             await self._send_user_text(pending_text)
 
-    async def _reconnect_with_context(
-        self,
-        *,
-        system_instruction: str | None,
-        initial_messages: list[dict[str, Any]] | None,
-    ):
-        call_initial_messages = self._initial_messages_for_call(initial_messages)
-        logger.debug(
-            f"{self}: reconnecting Ultravox call with initialMessages="
-            f"{json.dumps(call_initial_messages, ensure_ascii=True, default=str)}"
-        )
-        if self._socket:
-            await self._disconnect(preserve_completed_tool_calls=True)
-
-        await self._connect_call(
-            system_instruction=system_instruction,
-            greeting_text=None,
-            initial_messages=initial_messages,
-            agent_speaks_first=self._should_agent_speak_first(initial_messages),
-        )
-        self._reconnect_required = False
-
     def _build_one_shot_params(
         self,
         *,
         greeting_text: str | None,
-        initial_messages: list[dict[str, Any]] | None,
         agent_speaks_first: bool,
     ) -> DograhUltravoxOneShotInputParams:
         current_params = self._params
         extra = {
             key: value
             for key, value in current_params.extra.items()
-            if key not in {"firstSpeakerSettings", "initialMessages"}
+            if key != "firstSpeakerSettings"
         }
 
         if greeting_text is not None:
@@ -407,10 +431,6 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             extra["firstSpeakerSettings"] = {"agent": {}}
         else:
             extra["firstSpeakerSettings"] = {"user": {}}
-        call_initial_messages = self._initial_messages_for_call(initial_messages)
-        if call_initial_messages:
-            extra["initialMessages"] = call_initial_messages
-
         output_medium = self._settings.output_medium
         if isinstance(output_medium, _NotGiven):
             output_medium = current_params.output_medium
@@ -431,6 +451,14 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         if context is None or not is_given(context.tools):
             return None
         return context.tools
+
+    def _selected_tools_payload(self, tools: Any) -> list[dict[str, Any]]:
+        return self._to_selected_tools(tools) if tools else []
+
+    def _tools_changed(self, tools: Any) -> bool:
+        return self._selected_tools_payload(tools) != self._selected_tools_payload(
+            self._selected_tools
+        )
 
     def _to_selected_tools(self, tool: Any) -> list[dict[str, Any]]:
         selected_tools = super()._to_selected_tools(tool)
@@ -462,156 +490,6 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         timeout_secs = min(float(item.timeout_secs), _ULTRAVOX_MAX_TOOL_TIMEOUT_SECS)
         return f"{timeout_secs:g}s"
 
-    def _initial_messages_for_call(
-        self, initial_messages: list[dict[str, Any]] | None
-    ) -> list[dict[str, Any]] | None:
-        if not initial_messages:
-            return None
-        if not self._should_add_resumption_user_message(initial_messages):
-            return initial_messages
-
-        return [
-            *initial_messages,
-            {
-                "role": "MESSAGE_ROLE_USER",
-                "text": _RESUMPTION_USER_MESSAGE,
-            },
-        ]
-
-    def _build_initial_messages(
-        self, context: LLMContext
-    ) -> tuple[list[dict[str, Any]] | None, set[str]]:
-        initial_messages: list[dict[str, Any]] = []
-        tool_call_id_to_name: dict[str, str] = {}
-        completed_tool_call_ids: set[str] = set()
-
-        for message in context.get_messages():
-            if isinstance(message, LLMSpecificMessage):
-                continue
-
-            async_payload = async_tool_messages.parse_message(message)
-            if async_payload is not None:
-                if async_payload.kind == "intermediate":
-                    logger.error(
-                        f"{self}: Ultravox does not support streamed async tool results; "
-                        f"dropping intermediate result from initialMessages for "
-                        f"tool_call_id={async_payload.tool_call_id}."
-                    )
-                    continue
-                if async_payload.kind == "final":
-                    initial_message = self._build_ultravox_message(
-                        role="MESSAGE_ROLE_TOOL_RESULT",
-                        text=async_payload.result or "",
-                        invocation_id=async_payload.tool_call_id,
-                        tool_name=tool_call_id_to_name.get(async_payload.tool_call_id),
-                    )
-                    if initial_message is not None:
-                        initial_messages.append(initial_message)
-                    completed_tool_call_ids.add(async_payload.tool_call_id)
-                continue
-
-            role = message.get("role")
-            if role == "user":
-                initial_message = self._build_ultravox_message(
-                    role="MESSAGE_ROLE_USER",
-                    text=self._extract_text_content(message.get("content")),
-                )
-                if initial_message is not None:
-                    initial_messages.append(initial_message)
-            elif role == "assistant":
-                text = self._extract_text_content(message.get("content"))
-                initial_message = self._build_ultravox_message(
-                    role="MESSAGE_ROLE_AGENT",
-                    text=text,
-                )
-                if initial_message is not None:
-                    initial_messages.append(initial_message)
-
-                tool_calls = message.get("tool_calls")
-                if isinstance(tool_calls, list):
-                    for tool_call in tool_calls:
-                        if not isinstance(tool_call, dict):
-                            continue
-                        tool_id = tool_call.get("id")
-                        function = tool_call.get("function")
-                        tool_name = (
-                            function.get("name") if isinstance(function, dict) else None
-                        )
-                        if isinstance(tool_id, str) and isinstance(tool_name, str):
-                            tool_call_id_to_name[tool_id] = tool_name
-                            initial_message = self._build_ultravox_message(
-                                role="MESSAGE_ROLE_TOOL_CALL",
-                                text="",
-                                invocation_id=tool_id,
-                                tool_name=tool_name,
-                            )
-                            if initial_message is not None:
-                                initial_messages.append(initial_message)
-            elif (
-                role == "tool"
-                and message.get("content") != "IN_PROGRESS"
-                and message.get("content") != "CANCELLED"
-            ):
-                tool_call_id = message.get("tool_call_id")
-                initial_message = self._build_ultravox_message(
-                    role="MESSAGE_ROLE_TOOL_RESULT",
-                    text=self._stringify_tool_result(message.get("content")),
-                    invocation_id=tool_call_id
-                    if isinstance(tool_call_id, str)
-                    else None,
-                    tool_name=(
-                        tool_call_id_to_name.get(tool_call_id)
-                        if isinstance(tool_call_id, str)
-                        else None
-                    ),
-                )
-                if initial_message is not None:
-                    initial_messages.append(initial_message)
-                if isinstance(tool_call_id, str):
-                    completed_tool_call_ids.add(tool_call_id)
-
-        return (initial_messages or None), completed_tool_call_ids
-
-    @staticmethod
-    def _build_ultravox_message(
-        *,
-        role: str,
-        text: str | None,
-        invocation_id: str | None = None,
-        tool_name: str | None = None,
-    ) -> dict[str, Any] | None:
-        if text is None:
-            return None
-
-        message: dict[str, Any] = {
-            "role": role,
-            "text": text,
-        }
-        if invocation_id is not None:
-            message["invocationId"] = invocation_id
-        if tool_name is not None:
-            message["toolName"] = tool_name
-        return message
-
-    @staticmethod
-    def _should_agent_speak_first(
-        initial_messages: list[dict[str, Any]] | None,
-    ) -> bool:
-        if not initial_messages:
-            return True
-        return initial_messages[-1].get("role") in {
-            "MESSAGE_ROLE_USER",
-            "MESSAGE_ROLE_TOOL_RESULT",
-        }
-
-    @staticmethod
-    def _should_add_resumption_user_message(
-        initial_messages: list[dict[str, Any]] | None,
-    ) -> bool:
-        if not initial_messages:
-            return False
-        return initial_messages[-1].get("role") == "MESSAGE_ROLE_TOOL_RESULT"
-
     @staticmethod
     def _is_benign_websocket_close(exc: ConnectionClosed) -> bool:
         return any(
@@ -636,18 +514,3 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
                 parts.append(text)
             return "\n".join(parts) if parts else None
         return None
-
-    @staticmethod
-    def _stringify_tool_result(content: Any) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts: list[str] = []
-            for part in content:
-                if isinstance(part, dict):
-                    text = part.get("text")
-                    if isinstance(text, str):
-                        parts.append(text)
-            if parts:
-                return "".join(parts)
-        return json.dumps(content, ensure_ascii=True, default=str)

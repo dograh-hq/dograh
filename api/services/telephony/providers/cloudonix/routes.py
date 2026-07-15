@@ -79,7 +79,7 @@ async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
     original_call_sid = transfer_context.original_call_sid
     conference_name = transfer_context.conference_name
 
-    if (conferenceStatus == "participant-join"):
+    if conferenceStatus == "participant-join":
         event = TransferEvent(
             type=TransferEventType.DESTINATION_ANSWERED,
             transfer_id=transfer_id,
@@ -89,7 +89,7 @@ async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
             message="Great! The destination answered. Connecting you now.",
             status="success",
             action="destination_answered",
-        )     
+        )
     elif outboundCallStatus in _CLOUDONIX_TRANSFER_FAILURE_STATUSES:
         event = TransferEvent(
             type=TransferEventType.TRANSFER_FAILED,

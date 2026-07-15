@@ -10,6 +10,7 @@ Design mirrors ``api/services/integrations/tuner/collector.py`` exactly:
 - Build a serialisable snapshot in ``build_snapshot``
 - Return it from ``on_call_finished`` so it lands in ``workflow_run.logs``
 """
+
 from __future__ import annotations
 
 import time
@@ -43,15 +44,22 @@ def _detect_provider(name: str, fallback: str = "unknown") -> str:
     if "gemini" in clean_name:
         return "google"
     suffixes = [
-        "service", "multimodallive", "realtime",
-        "vertex", "llm", "tts", "stt", "helper", "transport"
+        "service",
+        "multimodallive",
+        "realtime",
+        "vertex",
+        "llm",
+        "tts",
+        "stt",
+        "helper",
+        "transport",
     ]
     changed = True
     while changed:
         changed = False
         for suffix in suffixes:
             if clean_name.endswith(suffix):
-                clean_name = clean_name[:-len(suffix)].rstrip("_").rstrip("-")
+                clean_name = clean_name[: -len(suffix)].rstrip("_").rstrip("-")
                 changed = True
                 break
     return clean_name or fallback
@@ -81,13 +89,13 @@ class _UsageAccumulator:
     call_end_abs_ns: int | None = None
     # STT: timestamp of when user started speaking; None when not speaking
     _user_started_speaking_ns: int | None = field(default=None, repr=False)
-    
+
     @property
     def total_duration_seconds(self) -> int:
         if self.call_end_abs_ns is None:
             return int((time.time_ns() - self.call_start_abs_ns) / 1_000_000_000)
         return int((self.call_end_abs_ns - self.call_start_abs_ns) / 1_000_000_000)
-        
+
     def get_stt_audio_seconds(self) -> float:
         """Return measured STT audio seconds accumulated from the pipeline.
 
@@ -109,7 +117,7 @@ class _UsageAccumulator:
         if not self._has_tts_metrics:
             self._has_tts_metrics = True
             self.tts_characters = 0  # Ignore manual count if metrics emit natively
-        
+
         # Extremely robust extraction
         val = 0
         if isinstance(data, (int, float)):
@@ -120,11 +128,13 @@ class _UsageAccumulator:
             val = getattr(data, "characters", 0) or 0
         elif isinstance(data, dict):
             val = data.get("value") or data.get("characters") or 0
-            
+
         try:
             self.tts_characters += int(val or 0)
         except Exception as exc:
-            logger.warning("[paygent] Failed to accumulate TTS characters (val={!r}): {}", val, exc)
+            logger.warning(
+                "[paygent] Failed to accumulate TTS characters (val={!r}): {}", val, exc
+            )
 
     def add_tts_manual(self, text: str) -> None:
         if not self._has_tts_metrics:
@@ -138,7 +148,9 @@ class _UsageAccumulator:
     def on_user_stopped_speaking(self) -> None:
         """Accumulate the completed utterance duration into stt_audio_seconds."""
         if self._user_started_speaking_ns is not None:
-            elapsed_s = (time.time_ns() - self._user_started_speaking_ns) / 1_000_000_000
+            elapsed_s = (
+                time.time_ns() - self._user_started_speaking_ns
+            ) / 1_000_000_000
             self.stt_audio_seconds += elapsed_s
             self._user_started_speaking_ns = None
 
@@ -162,9 +174,11 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
             return None
         for k in keys:
             if isinstance(obj, dict):
-                if k in obj: return obj[k]
+                if k in obj:
+                    return obj[k]
             else:
-                if hasattr(obj, k): return getattr(obj, k)
+                if hasattr(obj, k):
+                    return getattr(obj, k)
         return None
 
     def _get_list(obj, *keys):
@@ -202,20 +216,36 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
         return total
 
     prompt_details = _get_list(usage, "prompt_tokens_details", "promptTokensDetails")
-    response_details = _get_list(usage, "response_tokens_details", "responseTokensDetails")
-    tool_details = _get_list(usage, "tool_use_prompt_tokens_details", "toolUsePromptTokensDetails")
+    response_details = _get_list(
+        usage, "response_tokens_details", "responseTokensDetails"
+    )
+    tool_details = _get_list(
+        usage, "tool_use_prompt_tokens_details", "toolUsePromptTokensDetails"
+    )
     cache_details = _get_list(usage, "cache_tokens_details", "cacheTokensDetails")
 
     # input side: TEXT + DOCUMENT + AUDIO + IMAGE + VIDEO
-    text_in = _modality_token_count(prompt_details, "TEXT") + _modality_token_count(tool_details, "TEXT")
-    audio_in = _modality_token_count(prompt_details, "AUDIO") + _modality_token_count(tool_details, "AUDIO")
-    image_in = _modality_token_count(prompt_details, "IMAGE") + _modality_token_count(tool_details, "IMAGE")
-    video_in = _modality_token_count(prompt_details, "VIDEO") + _modality_token_count(tool_details, "VIDEO")
-    doc_as_text = _modality_token_count(prompt_details, "DOCUMENT") + _modality_token_count(tool_details, "DOCUMENT")
+    text_in = _modality_token_count(prompt_details, "TEXT") + _modality_token_count(
+        tool_details, "TEXT"
+    )
+    audio_in = _modality_token_count(prompt_details, "AUDIO") + _modality_token_count(
+        tool_details, "AUDIO"
+    )
+    image_in = _modality_token_count(prompt_details, "IMAGE") + _modality_token_count(
+        tool_details, "IMAGE"
+    )
+    video_in = _modality_token_count(prompt_details, "VIDEO") + _modality_token_count(
+        tool_details, "VIDEO"
+    )
+    doc_as_text = _modality_token_count(
+        prompt_details, "DOCUMENT"
+    ) + _modality_token_count(tool_details, "DOCUMENT")
     text_in += doc_as_text
 
     # fallback aggregate mapping
-    tutc = _optional_int(usage, "tool_use_prompt_token_count", "toolUsePromptTokenCount")
+    tutc = _optional_int(
+        usage, "tool_use_prompt_token_count", "toolUsePromptTokenCount"
+    )
     if tutc is not None and not tool_details:
         text_in += int(tutc)
 
@@ -224,8 +254,12 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
         text_in += int(ptc)
 
     # output side: TEXT + DOCUMENT + AUDIO + VIDEO + THINKING
-    text_out = _modality_token_count(response_details, "TEXT") + _modality_token_count(response_details, "DOCUMENT")
-    audio_out = _modality_token_count(response_details, "AUDIO") + _modality_token_count(response_details, "VIDEO")
+    text_out = _modality_token_count(response_details, "TEXT") + _modality_token_count(
+        response_details, "DOCUMENT"
+    )
+    audio_out = _modality_token_count(
+        response_details, "AUDIO"
+    ) + _modality_token_count(response_details, "VIDEO")
 
     rtc = _optional_int(usage, "response_token_count", "responseTokenCount")
     if text_out == 0 and audio_out == 0 and rtc is not None:
@@ -234,35 +268,55 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
 
     # Thinking / reasoning tokens (Gemini 2.5+ thinking models).
     # Emitted as a separate output modality so Paygent has full billing visibility.
-    thinking_tokens = _optional_int(
-        usage,
-        "thoughts_token_count", "thoughtsTokenCount",
-        "thinking_token_count", "thinkingTokenCount",
-    ) or 0
+    thinking_tokens = (
+        _optional_int(
+            usage,
+            "thoughts_token_count",
+            "thoughtsTokenCount",
+            "thinking_token_count",
+            "thinkingTokenCount",
+        )
+        or 0
+    )
 
     # Cache breakdowns
-    cached_text = _modality_token_count(cache_details, "TEXT") + _modality_token_count(cache_details, "DOCUMENT")
-    cached_audio = _modality_token_count(cache_details, "AUDIO") + _modality_token_count(cache_details, "VIDEO")
+    cached_text = _modality_token_count(cache_details, "TEXT") + _modality_token_count(
+        cache_details, "DOCUMENT"
+    )
+    cached_audio = _modality_token_count(
+        cache_details, "AUDIO"
+    ) + _modality_token_count(cache_details, "VIDEO")
     cached_image = _modality_token_count(cache_details, "IMAGE")
-    cached_legacy = _optional_int(usage, "cached_content_token_count", "cachedContentTokenCount")
+    cached_legacy = _optional_int(
+        usage, "cached_content_token_count", "cachedContentTokenCount"
+    )
 
     # Build response payload
     out = {"schemaVersion": 1}
 
     # Input Side
     inp = {}
-    if text_in > 0: inp["text"] = {"tokens": text_in}
-    if audio_in > 0: inp["audio"] = {"tokens": audio_in}
-    if image_in > 0: inp["image"] = {"tokens": image_in}
-    if video_in > 0: inp["video"] = {"tokens": video_in}
-    if inp: out["input"] = inp
+    if text_in > 0:
+        inp["text"] = {"tokens": text_in}
+    if audio_in > 0:
+        inp["audio"] = {"tokens": audio_in}
+    if image_in > 0:
+        inp["image"] = {"tokens": image_in}
+    if video_in > 0:
+        inp["video"] = {"tokens": video_in}
+    if inp:
+        out["input"] = inp
 
     # Output Side
     o = {}
-    if text_out > 0: o["text"] = {"tokens": text_out}
-    if audio_out > 0: o["audio"] = {"tokens": audio_out}
-    if thinking_tokens > 0: o["thinking"] = {"tokens": thinking_tokens}
-    if o: out["output"] = o
+    if text_out > 0:
+        o["text"] = {"tokens": text_out}
+    if audio_out > 0:
+        o["audio"] = {"tokens": audio_out}
+    if thinking_tokens > 0:
+        o["thinking"] = {"tokens": thinking_tokens}
+    if o:
+        out["output"] = o
 
     # Cached breakdown
     has_split = bool(cached_text or cached_audio or cached_image)
@@ -270,13 +324,16 @@ def _google_live_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
         out["cached"] = {"tokens": int(cached_legacy)}
     elif has_split:
         cd = {}
-        if cached_text > 0: cd["text"] = {"tokens": cached_text}
-        if cached_audio > 0: cd["audio"] = {"tokens": cached_audio}
-        if cached_image > 0: cd["image"] = {"tokens": cached_image}
-        if cd: out["cached"] = cd
+        if cached_text > 0:
+            cd["text"] = {"tokens": cached_text}
+        if cached_audio > 0:
+            cd["audio"] = {"tokens": cached_audio}
+        if cached_image > 0:
+            cd["image"] = {"tokens": cached_image}
+        if cd:
+            out["cached"] = cd
 
     return out
-
 
 
 def _openai_realtime_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, Any]:
@@ -292,9 +349,11 @@ def _openai_realtime_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, A
             return None
         for k in keys:
             if isinstance(obj, dict):
-                if k in obj: return obj[k]
+                if k in obj:
+                    return obj[k]
             else:
-                if hasattr(obj, k): return getattr(obj, k)
+                if hasattr(obj, k):
+                    return getattr(obj, k)
         return None
 
     total_in = int(_get_val(usage, "input_tokens", "inputTokens") or 0)
@@ -307,17 +366,29 @@ def _openai_realtime_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, A
     text_in = int(_get_val(in_details, "text_tokens", "textTokens") or 0)
     image_in = int(_get_val(in_details, "image_tokens", "imageTokens") or 0)
 
-    cached_total = int(_get_val(usage, "cached_tokens", "cachedTokens") or _get_val(in_details, "cached_tokens", "cachedTokens") or 0)
+    cached_total = int(
+        _get_val(usage, "cached_tokens", "cachedTokens")
+        or _get_val(in_details, "cached_tokens", "cachedTokens")
+        or 0
+    )
 
-    cached_details = _get_val(in_details, "cached_tokens_details", "cachedTokensDetails") or {}
+    cached_details = (
+        _get_val(in_details, "cached_tokens_details", "cachedTokensDetails") or {}
+    )
     cached_audio = int(_get_val(cached_details, "audio_tokens", "audioTokens") or 0)
     cached_text = int(_get_val(cached_details, "text_tokens", "textTokens") or 0)
     cached_image = int(_get_val(cached_details, "image_tokens", "imageTokens") or 0)
 
     if not (cached_audio or cached_text or cached_image):
-        cached_audio = int(_get_val(in_details, "cached_audio_tokens", "cachedAudioTokens") or 0)
-        cached_text = int(_get_val(in_details, "cached_text_tokens", "cachedTextTokens") or 0)
-        cached_image = int(_get_val(in_details, "cached_image_tokens", "cachedImageTokens") or 0)
+        cached_audio = int(
+            _get_val(in_details, "cached_audio_tokens", "cachedAudioTokens") or 0
+        )
+        cached_text = int(
+            _get_val(in_details, "cached_text_tokens", "cachedTextTokens") or 0
+        )
+        cached_image = int(
+            _get_val(in_details, "cached_image_tokens", "cachedImageTokens") or 0
+        )
 
     audio_out = int(_get_val(out_details, "audio_tokens", "audioTokens") or 0)
     text_out = int(_get_val(out_details, "text_tokens", "textTokens") or 0)
@@ -327,25 +398,36 @@ def _openai_realtime_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, A
 
     out = {"schemaVersion": 1}
     inp = {}
-    if text_in > 0: inp["text"] = {"tokens": text_in}
-    if audio_in > 0: inp["audio"] = {"tokens": audio_in}
-    if image_in > 0: inp["image"] = {"tokens": image_in}
-    if inp: out["input"] = inp
+    if text_in > 0:
+        inp["text"] = {"tokens": text_in}
+    if audio_in > 0:
+        inp["audio"] = {"tokens": audio_in}
+    if image_in > 0:
+        inp["image"] = {"tokens": image_in}
+    if inp:
+        out["input"] = inp
 
     o = {}
-    if text_out > 0: o["text"] = {"tokens": text_out}
-    if audio_out > 0: o["audio"] = {"tokens": audio_out}
-    if o: out["output"] = o
+    if text_out > 0:
+        o["text"] = {"tokens": text_out}
+    if audio_out > 0:
+        o["audio"] = {"tokens": audio_out}
+    if o:
+        out["output"] = o
 
     has_split = bool(cached_text or cached_audio or cached_image)
     if cached_total > 0 and not has_split:
         out["cached"] = {"tokens": int(cached_total)}
     elif has_split:
         cd = {}
-        if cached_text > 0: cd["text"] = {"tokens": cached_text}
-        if cached_audio > 0: cd["audio"] = {"tokens": cached_audio}
-        if cached_image > 0: cd["image"] = {"tokens": cached_image}
-        if cd: out["cached"] = cd
+        if cached_text > 0:
+            cd["text"] = {"tokens": cached_text}
+        if cached_audio > 0:
+            cd["audio"] = {"tokens": cached_audio}
+        if cached_image > 0:
+            cd["image"] = {"tokens": cached_image}
+        if cd:
+            out["cached"] = cd
 
     return out
 
@@ -359,14 +441,18 @@ def _merge_sts_metadata(existing: dict, new: dict) -> dict:
         n_val = new.get(key, {})
         if not e_val and not n_val:
             continue
-        
+
         merged_cat: dict = {}
 
         # Prefer per-modality merge when either side has per-modality detail.
         # Only use the flat aggregate{"tokens": N} form when neither side has
         # any per-modality breakdown at all (e.g. legacy schema).
-        e_has_modalities = any(m in e_val for m in ("text", "audio", "image", "video", "thinking"))
-        n_has_modalities = any(m in n_val for m in ("text", "audio", "image", "video", "thinking"))
+        e_has_modalities = any(
+            m in e_val for m in ("text", "audio", "image", "video", "thinking")
+        )
+        n_has_modalities = any(
+            m in n_val for m in ("text", "audio", "image", "video", "thinking")
+        )
 
         if e_has_modalities or n_has_modalities:
             for modality in ("text", "audio", "image", "video", "thinking"):
@@ -388,19 +474,24 @@ def _merge_sts_metadata(existing: dict, new: dict) -> dict:
 
         if merged_cat:
             out[key] = merged_cat
-            
+
     # retain any other keys, summing up numeric ones to keep metadata consistent
     for k, v in existing.items():
         if k not in ("schemaVersion", "input", "output", "cached"):
             out[k] = v
     for k, v in new.items():
         if k not in ("schemaVersion", "input", "output", "cached"):
-            if k in out and isinstance(out[k], (int, float)) and isinstance(v, (int, float)):
+            if (
+                k in out
+                and isinstance(out[k], (int, float))
+                and isinstance(v, (int, float))
+            ):
                 out[k] = out[k] + v
             else:
                 out[k] = v
-            
+
     return out
+
 
 class PaygentCollector(BaseObserver):
     """Pipecat observer that accumulates usage data for a single call.
@@ -514,37 +605,65 @@ class PaygentCollector(BaseObserver):
                         if is_sts_frame:
                             # Normalise the raw provider slug so that variants like
                             # "openai_realtime", "azure_realtime", etc. route correctly.
-                            raw_provider = (
-                                getattr(self, "_sts_provider", "") or getattr(self, "_llm_provider", "")
+                            raw_provider = getattr(
+                                self, "_sts_provider", ""
+                            ) or getattr(self, "_llm_provider", "")
+                            provider = (
+                                _detect_provider(raw_provider)
+                                if raw_provider
+                                else "unknown"
                             )
-                            provider = _detect_provider(raw_provider) if raw_provider else "unknown"
                             if provider not in ("grok", "ultravox"):
                                 usage = item.value
-                                raw_metadata = getattr(usage, "raw_usage_metadata", None)
+                                raw_metadata = getattr(
+                                    usage, "raw_usage_metadata", None
+                                )
                                 if raw_metadata:
                                     # OpenAI Realtime and Azure Realtime (azure→openai via _detect_provider)
                                     # share the same wire format.
                                     if provider in ("openai", "azure"):
-                                        new_meta = _openai_realtime_usage_to_sts_metadata(raw_metadata)
+                                        new_meta = (
+                                            _openai_realtime_usage_to_sts_metadata(
+                                                raw_metadata
+                                            )
+                                        )
                                     else:
-                                        new_meta = _google_live_usage_to_sts_metadata(raw_metadata)
+                                        new_meta = _google_live_usage_to_sts_metadata(
+                                            raw_metadata
+                                        )
                                 else:
-                                    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-                                    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
-                                    cached_tokens = (getattr(usage, "cache_read_input_tokens", 0) or getattr(usage, "cached_tokens", 0) or 0)
+                                    prompt_tokens = (
+                                        getattr(usage, "prompt_tokens", 0) or 0
+                                    )
+                                    completion_tokens = (
+                                        getattr(usage, "completion_tokens", 0) or 0
+                                    )
+                                    cached_tokens = (
+                                        getattr(usage, "cache_read_input_tokens", 0)
+                                        or getattr(usage, "cached_tokens", 0)
+                                        or 0
+                                    )
                                     new_meta = {"schemaVersion": 1}
                                     if prompt_tokens > 0:
-                                        new_meta.setdefault("input", {})["text"] = {"tokens": prompt_tokens}
+                                        new_meta.setdefault("input", {})["text"] = {
+                                            "tokens": prompt_tokens
+                                        }
                                     if completion_tokens > 0:
-                                        new_meta.setdefault("output", {})["text"] = {"tokens": completion_tokens}
+                                        new_meta.setdefault("output", {})["text"] = {
+                                            "tokens": completion_tokens
+                                        }
                                     if cached_tokens > 0:
                                         new_meta["cached"] = {"tokens": cached_tokens}
-                                    
+
                                     if hasattr(usage, "__dict__"):
                                         for k, v in vars(usage).items():
-                                            if not k.startswith("_") and v is not None and k not in new_meta:
+                                            if (
+                                                not k.startswith("_")
+                                                and v is not None
+                                                and k not in new_meta
+                                            ):
                                                 new_meta[k] = v
-                                
+
                                 self._acc.sts_usage_metadata = _merge_sts_metadata(
                                     self._acc.sts_usage_metadata or {}, new_meta
                                 )
@@ -579,5 +698,7 @@ class PaygentCollector(BaseObserver):
         except Exception as exc:
             logger.warning(
                 "[paygent] Unexpected error processing frame {!r} in collector: {}",
-                type(data.frame).__name__, exc, exc_info=True,
+                type(data.frame).__name__,
+                exc,
+                exc_info=True,
             )

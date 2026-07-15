@@ -288,10 +288,19 @@ class CustomToolManager:
 
                 # Create and register the handler
                 handler, timeout_secs = self._create_handler(tool, function_name)
+                # End-call and transfer-call tools are workflow-control
+                # boundaries even though they do not necessarily select another
+                # graph node. Give them the same ordering guarantees as an
+                # explicit node-transition function.
+                is_node_transition = tool.category in {
+                    ToolCategory.END_CALL.value,
+                    ToolCategory.TRANSFER_CALL.value,
+                }
                 self._engine.llm.register_function(
                     function_name,
                     handler,
                     timeout_secs=timeout_secs,
+                    is_node_transition=is_node_transition,
                 )
 
                 logger.debug(

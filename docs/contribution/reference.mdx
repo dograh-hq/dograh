@@ -53,6 +53,14 @@ cd ui && npm install && cd ..
 ```bash
 source <(bash scripts/dev_ports.sh)
 
+cat <<EOF
+Using ports:
+  - Postgres: 127.0.0.1:$POSTGRES_PORT
+  - Redis: 127.0.0.1:$REDIS_PORT
+  - MinIO S3: 127.0.0.1:$MINIO_PORT
+  - MinIO Console: 127.0.0.1:$MINIO_CONSOLE_PORT
+EOF
+
 docker compose -f docker-compose-local.yaml up -d
 ```
 

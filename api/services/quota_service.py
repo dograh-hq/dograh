@@ -7,6 +7,7 @@ across different endpoints (WebRTC signaling, telephony, public API triggers).
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from api.constants import DEPLOYMENT_MODE
@@ -24,6 +25,13 @@ from api.services.managed_model_services import (
 from api.services.mps_service_key_client import mps_service_key_client
 
 MINIMUM_DOGRAH_CREDITS_FOR_CALL = 0.10
+
+_MPS_UNREACHABLE_ERRORS = (
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+    httpx.ProxyError,
+)
 
 OSS_QUOTA_EXCEEDED_MESSAGE = (
     "You have exhausted your trial credits. "
@@ -74,6 +82,19 @@ def _insufficient_oss_quota_result() -> QuotaCheckResult:
         error_code="quota_exceeded",
         error_message=OSS_QUOTA_EXCEEDED_MESSAGE,
     )
+
+
+def _mps_unreachable_result(
+    operation: str,
+    error: httpx.RequestError,
+) -> QuotaCheckResult:
+    logger.warning(
+        "MPS unreachable during {}; allowing workflow run to proceed without "
+        "quota verification: {}",
+        operation,
+        error,
+    )
+    return QuotaCheckResult(has_quota=True)
 
 
 def _service_uses_dograh(service: Any) -> bool:
@@ -195,6 +216,8 @@ async def _authorize_hosted_workflow_run_start(
                 "workflow_id": workflow_id,
             },
         )
+    except _MPS_UNREACHABLE_ERRORS as e:
+        return _mps_unreachable_result("hosted run authorization", e)
     except Exception as e:
         logger.warning(
             "Failed to authorize workflow start with MPS for org {}: {}",
@@ -271,6 +294,8 @@ async def _authorize_oss_dograh_keys(
                 f"Dograh quota check passed for key ...{api_key[-8:]}: "
                 f"{remaining:.2f} credits remaining"
             )
+        except _MPS_UNREACHABLE_ERRORS as e:
+            return _mps_unreachable_result("OSS service-key quota check", e)
         except Exception as e:
             logger.error(f"Failed to check quota for Dograh key: {str(e)}")
             error_str = str(e)
@@ -318,6 +343,8 @@ async def _authorize_oss_managed_v2_correlation(
             workflow_run_id,
             response.get("correlation_id"),
         )
+    except _MPS_UNREACHABLE_ERRORS as e:
+        return _mps_unreachable_result("OSS correlation creation", e)
     except Exception as e:
         logger.error(
             "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
@@ -434,6 +461,10 @@ async def authorize_workflow_run_start(
                     error_message="Workflow not found",
                 )
 
+        # A DB read failure here is a "cannot verify" condition, not a
+        # definitive "not found": let it fall through to the outer handler so
+        # it fails closed. The None case below is a genuine missing row and keeps
+        # its specific code.
         workflow_owner = await db_client.get_user_by_id(workflow.user_id)
         if not workflow_owner:
             return QuotaCheckResult(
@@ -449,6 +480,9 @@ async def authorize_workflow_run_start(
         # the definition the run will actually use.
         workflow_configurations = workflow.workflow_configurations
         if workflow_run_id is not None:
+            # As with the owner lookup, a DB read failure falls through to the
+            # outer fail-closed handler; only a genuinely missing/mismatched run
+            # returns the specific code below.
             workflow_run = await db_client.get_workflow_run(
                 workflow_run_id, organization_id=organization_id
             )
@@ -499,5 +533,12 @@ async def authorize_workflow_run_start(
 
     except Exception as e:
         logger.error(f"Error during quota check: {str(e)}")
-        # On unexpected error, allow the call to proceed
-        return QuotaCheckResult(has_quota=True)
+        # Only an httpx transport failure raised while calling MPS is allowed to
+        # fail open, and those failures are handled at the MPS call sites above.
+        # Database, configuration, response-validation, and programming errors
+        # all reach this handler and fail closed.
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="quota_check_failed",
+            error_message="Could not verify Dograh credits. Please try again.",
+        )

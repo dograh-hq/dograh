@@ -1,6 +1,6 @@
 # Contributing to Dograh AI
 
-Welcome to Dograh AI! ❤️ Thank you for your interest in contributing to the future of open-source voice AI. ❤️
+Welcome to Dograh AI! ❤️ Thank you for your interest in contributing to the future of practical, production-grade voice AI. ❤️
 
 Dograh AI is a comprehensive voice agent platform that helps developers build, test, and deploy conversational AI systems with minimal setup. This guide will help you understand the project structure, set up your development environment, and start contributing effectively.
 

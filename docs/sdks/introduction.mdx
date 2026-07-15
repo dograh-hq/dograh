@@ -23,7 +23,7 @@ npm install @dograh/sdk
 
 ## Authenticate
 
-Generate an API key at [`/api-keys`](https://app.dograh.com/api-keys) (or `http://localhost:3010/api-keys` for self-hosted). See [API Keys](/configurations/api-keys) for details.
+Generate an API key at [`/api-keys`](https://app.dograh.com/api-keys) (or `http://localhost:3010/api-keys` for private deployments). See [API Keys](/configurations/api-keys) for details.
 
 Both SDKs read the API key from the `DOGRAH_API_KEY` environment variable by default, and the base URL from `DOGRAH_API_URL` (defaults to `http://localhost:8000`). You can also pass them explicitly.
 
@@ -47,7 +47,7 @@ const client = new DograhClient({
 </CodeGroup>
 
 <Note>
-For self-hosted deployments, swap `baseUrl` for your backend URL (e.g. `http://localhost:8000`).
+For private deployments, swap `baseUrl` for your backend URL (e.g. `http://localhost:8000`).
 </Note>
 
 ## Quick tour

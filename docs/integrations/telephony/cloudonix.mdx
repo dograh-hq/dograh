@@ -101,7 +101,7 @@ Cloudonix routes inbound calls per **Voice Application** — the webhook URL is 
      The Application URL is what Dograh's auto-push updates in Step 3 — you
      can leave it blank during creation and let the auto-push fill it in,
      or paste the URL above so the application is usable immediately.
-     Either works. Self-hosted Dograh deployments use their backend domain
+     Either works. Private deployments use their backend domain
      in place of `api.dograh.com`.
    </Note>
 
@@ -139,8 +139,8 @@ Cloudonix routes inbound calls per **Voice Application** — the webhook URL is 
      empty, shows a different URL, or Dograh surfaced a sync warning on
      save, the auto-push failed — most often because the Bearer Token,
      Domain ID, or Application Name in Dograh is incorrect. Paste the URL
-     into the field yourself, set the method to `POST`, and save. On
-     self-hosted Dograh, replace `api.dograh.com` with your backend domain.
+     into the field yourself, set the method to `POST`, and save. For
+     private Dograh deployments, replace `api.dograh.com` with your backend domain.
    </Note>
 
    <img

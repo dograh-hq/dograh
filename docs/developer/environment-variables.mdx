@@ -9,7 +9,7 @@ Core environment variables are centralized in `api/constants.py`. Variables mark
 
 Dograh supports two deployment modes, set via `DEPLOYMENT_MODE`:
 
-- **OSS**: The default mode. Designed for self-hosted deployments using [Docker Compose](/deployment/docker) — the fastest way to get Dograh running. Uses local JWT authentication and MinIO for storage.
+- **Local**: The default mode, designed for private deployments using [Docker Compose](/deployment/docker) — the fastest way to get Dograh running. Uses local JWT authentication and MinIO for storage.
 - **SaaS**: Intended for customised deployments outside of Docker. Authentication and API key management are handled through Dograh Managed Platform Services (MPS), allowing greater flexibility in how the platform is hosted and integrated.
 
 The relevant required variables for each mode are noted in the descriptions below.
@@ -21,7 +21,7 @@ The relevant required variables for each mode are noted in the descriptions belo
 | Variable | Default | Description |
 |---|---|---|
 | `ENVIRONMENT` | `local` | Runtime environment. Affects logging and behaviour. One of `local`, `production`, `test` |
-| `DEPLOYMENT_MODE` | `oss` | Deployment mode. Use `oss` for self-hosted |
+| `DEPLOYMENT_MODE` | `oss` | Deployment mode. Use `oss` for local/private deployments |
 | `AUTH_PROVIDER` | `local` | Authentication provider. `local` (default) uses the built-in email/password flow. Set to `stack` to delegate to Stack Auth for social login — see [Authentication](/deployment/authentication) for the full setup |
 
 ---
@@ -35,11 +35,11 @@ The relevant required variables for each mode are noted in the descriptions belo
 
 ---
 
-## Authentication (OSS)
+## Authentication (Local/Private)
 
 | Variable | Default | Description |
 |---|---|---|
-| `OSS_JWT_SECRET` | N/A | **Required for OSS deployments.** Secret used to sign JWT tokens. Must be set to a strong random value in production |
+| `OSS_JWT_SECRET` | N/A | **Required for local/private deployments.** Secret used to sign JWT tokens. Must be set to a strong random value in production |
 | `OSS_JWT_EXPIRY_HOURS` | `720` | JWT token lifetime in hours (default: 30 days) |
 | `ENABLE_SIGNUP` | `true` | Set to `false` to disable public signup on invite-only installs — `POST /api/v1/auth/signup` returns 403 and the login page hides the Sign up link |
 
@@ -71,23 +71,23 @@ Set these when `AUTH_PROVIDER=stack` to delegate sign-in to [Stack Auth](https:/
 | `BACKEND_API_ENDPOINT` | `PUBLIC_BASE_URL`, else `http://localhost:8000` | Public URL the backend builds webhook / callback / embed links from. Set explicitly only to override the value derived from `PUBLIC_BASE_URL` |
 | `UI_APP_URL` | `http://localhost:3010` | URL of the frontend application |
 | `MPS_API_URL` | `https://services.dograh.com` | Dograh Managed Platform Services URL |
-| `DOGRAH_MPS_SECRET_KEY` | `null` | **Required for non-OSS deployments.** Secret key for authenticating with MPS |
-| `CORS_ALLOWED_ORIGINS` | `null` | **Required for non-OSS deployments.** Comma-separated list of origins allowed to make credentialed cross-origin requests (e.g. `https://app.example.com,https://admin.example.com`). Ignored in OSS mode, which serves a permissive same-origin policy without credentials |
+| `DOGRAH_MPS_SECRET_KEY` | `null` | **Required for managed deployments.** Secret key for authenticating with MPS |
+| `CORS_ALLOWED_ORIGINS` | `null` | **Required for managed deployments.** Comma-separated list of origins allowed to make credentialed cross-origin requests (e.g. `https://app.example.com,https://admin.example.com`). Ignored in local/private mode, which serves a permissive same-origin policy without credentials |
 
 ---
 
 ## Storage
 
-Dograh uses **MinIO by default**, which is bundled with the self-hosted deployment and requires no external setup. Set `ENABLE_AWS_S3=true` to switch to AWS S3 — typically used for cloud or managed deployments where S3 is already part of the infrastructure.
+Dograh uses **MinIO by default**, which is bundled with local/private deployments and requires no external setup. Set `ENABLE_AWS_S3=true` to switch to AWS S3 — typically used for managed deployments where S3 is already part of the infrastructure.
 
-### MinIO (OSS default)
+### MinIO (Local/private default)
 
 | Variable | Default | Description |
 |---|---|---|
 | `MINIO_ENDPOINT` | `localhost:9000` | MinIO server host and port |
 | `MINIO_PUBLIC_ENDPOINT` | `PUBLIC_BASE_URL`, else `http://localhost:9000` | Publicly accessible MinIO URL for download links. Derives from `PUBLIC_BASE_URL`; set explicitly only for a separate object-storage origin |
-| `MINIO_ACCESS_KEY` | N/A | **Required for OSS deployments.** MinIO access key. Must be set to a secure value in production |
-| `MINIO_SECRET_KEY` | N/A | **Required for OSS deployments.** MinIO secret key. Must be set to a secure value in production |
+| `MINIO_ACCESS_KEY` | N/A | **Required for local/private deployments.** MinIO access key. Must be set to a secure value in production |
+| `MINIO_SECRET_KEY` | N/A | **Required for local/private deployments.** MinIO secret key. Must be set to a secure value in production |
 | `MINIO_BUCKET` | `voice-audio` | Bucket name for audio files |
 | `MINIO_SECURE` | `false` | Use HTTPS for MinIO connections |
 

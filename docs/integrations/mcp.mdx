@@ -9,10 +9,10 @@ Dograh exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io
 
 ## Prerequisites
 
-- A Dograh API key. Generate one at [`/api-keys`](https://app.dograh.com/api-keys) (or `http://localhost:3010/api-keys` for self-hosted). See [API Keys](/configurations/api-keys).
+- A Dograh API key. Generate one at [`/api-keys`](https://app.dograh.com/api-keys) (or `http://localhost:3010/api-keys` for private deployments). See [API Keys](/configurations/api-keys).
 - Your Dograh MCP endpoint:
   - Hosted: `https://app.dograh.com/api/v1/mcp/`
-  - Self-hosted: `<YOUR_BACKEND_URL>/api/v1/mcp/`
+  - Private: `<YOUR_BACKEND_URL>/api/v1/mcp/`
 
 The endpoint is also shown in **Platform Settings → MCP Server** inside the Dograh UI.
 
@@ -35,7 +35,7 @@ claude mcp add --transport http dograh https://app.dograh.com/api/v1/mcp/ \
   --header "X-API-Key: YOUR_API_KEY"
 ```
 
-Replace `YOUR_API_KEY` with the key you generated. For self-hosted deployments, swap the URL for your backend.
+Replace `YOUR_API_KEY` with the key you generated. For private deployments, swap the URL for your backend.
 
 Verify the server is connected:
 
@@ -53,7 +53,7 @@ url = "https://app.dograh.com/api/v1/mcp/"
 http_headers = { "X-API-Key" = "YOUR_API_KEY" }
 ```
 
-Replace `YOUR_API_KEY` with the key you generated. For self-hosted deployments, replace the URL with your backend MCP endpoint.
+Replace `YOUR_API_KEY` with the key you generated. For private deployments, replace the URL with your backend MCP endpoint.
 
 If you prefer to keep the API key out of `config.toml`, store it in an environment variable instead:
 

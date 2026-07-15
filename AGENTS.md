@@ -11,7 +11,7 @@ dograh/
 ├── scripts/          # Helper scripts for local development
 ├── docs/             # Mintlify documentation
 ├── pipecat/          # Pipecat framework (git submodule)
-├── docker-compose.yaml       # Production/OSS deployment
+├── docker-compose.yaml       # Production Docker deployment
 ├── docker-compose-local.yaml # Local development services
 ```
 

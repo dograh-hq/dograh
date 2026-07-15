@@ -3,7 +3,7 @@ title: "API Keys and Service Keys"
 description: "You can create API Keys to trigger Dograh Voice Agents and Service Keys to use with Inference Providers"
 ---
 
-The option to create the Keys are in https://app.dograh.com/api-keys if you are using hosted version, or http://localhost:3010/api-keys if you are using the self hosted version.
+The options to create keys are in https://app.dograh.com/api-keys for managed accounts, or http://localhost:3010/api-keys for private installations.
 
 ### API Keys
 API keys can be used to trigger a voice agent from an external system, like n8n or programatically from your other workflows. In order to generate that, you can go to `/api-keys` and create a new key. 
@@ -16,7 +16,7 @@ Please note that you must copy and keep the API key secretly, since this is the 
 Service Keys are the keys which you generate to be used in [Model Configurations](inference-providers). In order to generate that, you can go to `/api-keys` and create a new key. 
 
 <Note>
-You can use a Service Key created in Dograh Cloud (`https://app.dograh.com/api-keys`) in your self-hosted Dograh deployment. Create the Service Key from your Dograh Cloud account, then paste it into **Model Configurations** in your self-hosted instance to use Dograh-managed inference providers. You can purchase Dograh credits in Dograh Cloud; billing happens on the Cloud account that owns the Service Key.
+You can use a Service Key created in Dograh Cloud (`https://app.dograh.com/api-keys`) in your private Dograh deployment. Create the Service Key from your managed account, then paste it into **Model Configurations** in your private instance to use Dograh-managed inference providers. You can purchase Dograh credits in your managed account; billing happens on the account that owns the Service Key.
 </Note>
 
 ![Create a new Service Key](../images/service-keys.png)

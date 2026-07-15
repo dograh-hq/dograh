@@ -1,9 +1,9 @@
 ---
 title: "Authentication"
-description: "Configure how self-hosted Dograh authenticates users — the default local provider, or Stack Auth for social login"
+description: "Configure how Dograh authenticates users — the default local provider, or Stack Auth for social login"
 ---
 
-Self-hosted Dograh ships with a built-in **local** authentication provider (email + password, backed by a signed JWT). This is the default and needs no external service.
+Dograh ships with a built-in **local** authentication provider (email + password, backed by a signed JWT). This is the default and needs no external service.
 
 To offer social logins (Google, GitHub, and others), you can delegate sign-in to **[Stack Auth](https://stack-auth.com)**. Enabling it is a **runtime** configuration change — set a few environment variables and restart. The prebuilt `dograhai/dograh-api` and `dograhai/dograh-ui` images work as-is; you do **not** need to rebuild or build from source.
 

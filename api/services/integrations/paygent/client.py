@@ -5,13 +5,13 @@ coroutine used by the completion handler.  The individual tracker functions
 (session, STT, TTS, LLM, STS, indicator) mirror the exact shape of the
 Paygent REST API documented in ``paygent_sdk/voice_client.py``.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from loguru import logger
 from pydantic import BaseModel, field_validator
 
 _DEFAULT_BASE_URL = "https://cp-api.withpaygent.com"
@@ -169,7 +169,6 @@ async def deliver(
     errors: list[str] = []
 
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
-
         # 1. Initialize voice session ----------------------------------------
         try:
             await _post(
@@ -256,8 +255,14 @@ async def deliver(
             metadata = snapshot.sts_usage_metadata or {}
             # Only append connection minutes if we don't already have a rich token payload
             # (e.g. from OpenAI Realtime or Gemini Live)
-            if "connection" not in metadata and "prompt_tokens" not in metadata and "input" not in metadata:
-                metadata["connection"] = {"minutes": snapshot.total_duration_seconds / 60.0}
+            if (
+                "connection" not in metadata
+                and "prompt_tokens" not in metadata
+                and "input" not in metadata
+            ):
+                metadata["connection"] = {
+                    "minutes": snapshot.total_duration_seconds / 60.0
+                }
 
             try:
                 await _post(

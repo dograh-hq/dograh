@@ -120,7 +120,9 @@ class CloudonixConferenceStrategy(TransferStrategy):
             manager = await get_call_transfer_manager()
             await manager.remove_transfer_context(transfer_id)
         except Exception as e:
-            logger.error(f"[Cloudonix Transfer] Error cleaning up transfer context: {e}")
+            logger.error(
+                f"[Cloudonix Transfer] Error cleaning up transfer context: {e}"
+            )
 
 
 class CloudonixHangupStrategy(HangupStrategy):

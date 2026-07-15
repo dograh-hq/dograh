@@ -12,11 +12,11 @@ Lifecycle:
      integration framework, which persists it in ``workflow_run.logs`` under
      the key ``"paygent_snapshot"``.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from api.services.configuration.registry import ServiceProviders
 from api.services.integrations.base import (
     IntegrationRuntimeContext,
     IntegrationRuntimeSession,
@@ -48,12 +48,12 @@ def _resolve_model_labels(
         llm_provider = getattr(user_config.llm, "provider", "") or ""
         llm_model = getattr(user_config.llm, "model", "") or ""
         return (
-            "",              # stt_provider  (no separate STT in realtime)
-            "",              # stt_model
+            "",  # stt_provider  (no separate STT in realtime)
+            "",  # stt_model
             llm_provider,
             llm_model,
-            "",              # tts_provider  (no separate TTS in realtime)
-            "",              # tts_model
+            "",  # tts_provider  (no separate TTS in realtime)
+            "",  # tts_model
             realtime_provider,
             realtime_model,
         )
@@ -90,9 +90,7 @@ class PaygentRuntimeSession(IntegrationRuntimeSession):
         gathered_context: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Seal the snapshot and hand it to the framework for persistence."""
-        self._collector.set_call_disposition(
-            gathered_context.get("call_disposition")
-        )
+        self._collector.set_call_disposition(gathered_context.get("call_disposition"))
         snapshot = self._collector.build_snapshot()
         return {"paygent_snapshot": snapshot}
 
@@ -109,8 +107,7 @@ def create_runtime_sessions(
     paygent_nodes = [
         node
         for node in context.workflow_graph.nodes.values()
-        if node.node_type == "paygent"
-        and getattr(node.data, "paygent_enabled", True)
+        if node.node_type == "paygent" and getattr(node.data, "paygent_enabled", True)
     ]
     if not paygent_nodes:
         return []

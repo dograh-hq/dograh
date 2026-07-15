@@ -58,8 +58,10 @@ by Supabase and most non-AWS S3 servers).
    your fork). Set **Blueprint Path** to `deploy/render/render.yaml`.
 2. Fill in the object-storage values Render prompts for.
 3. After the first deploy, set **`PUBLIC_BASE_URL`** on `dograh-api` to its own
-   `*.onrender.com` URL — a Blueprint can't self-reference a service URL, and it's
-   needed for correct public links and inbound webhook signatures — then redeploy.
+   `*.onrender.com` URL, then redeploy. This is **required** — the browser
+   dashboard reads the API's URL from here, and if it's unset the SDK falls back
+   to `http://localhost:8000`, so browser API calls would hit your own machine
+   instead of the API. (It's also used for public links and webhook signatures.)
 4. Open the `dograh-ui` URL and sign in.
 
 ## Notes

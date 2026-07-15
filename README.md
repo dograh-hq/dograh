@@ -140,7 +140,7 @@ Refer [Local Setup](https://docs.dograh.com/contribution/setup)
 
 For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker).
 
-### One-Click Cloud Deploy
+### Cloud Deploy
 
 | Option | What you get | Voice calls |
 | --- | --- | --- |

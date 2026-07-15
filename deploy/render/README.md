@@ -48,9 +48,12 @@ by Supabase and most non-AWS S3 servers).
 ## One post-deploy step
 
 A Blueprint can't self-reference a service's public URL, so after the first
-deploy set **`PUBLIC_BASE_URL`** on `dograh-api` to its own `*.onrender.com` URL
-(needed for correct public links and inbound telephony webhook signatures), then
-redeploy. Optional for pure dashboard evaluation.
+deploy set **`PUBLIC_BASE_URL`** on `dograh-api` to its own `*.onrender.com` URL,
+then redeploy. This is **required, not optional** — the browser dashboard reads
+the API's public URL from here (`backend_api_endpoint`), and if it's unset the SDK
+falls back to `http://localhost:8000`, so every browser API call would hit the
+user's own machine instead of the API. It's also used for public links and inbound
+webhook signatures.
 
 ## Notes
 

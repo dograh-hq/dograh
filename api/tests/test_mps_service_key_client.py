@@ -261,6 +261,59 @@ async def test_ensure_billing_account_v2_uses_balance_endpoint(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_billing_pricing_uses_hosted_organization_auth(monkeypatch):
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            calls.append(("GET", url, headers))
+            return _Response(
+                200,
+                {
+                    "organization_id": 42,
+                    "platform_usage": {"price_per_minute": 0.01},
+                    "dograh_model": {"price_per_minute": 0.07},
+                },
+            )
+
+    monkeypatch.setattr(
+        "api.services.mps_service_key_client.httpx.AsyncClient", FakeAsyncClient
+    )
+    monkeypatch.setattr("api.services.mps_service_key_client.DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(
+        "api.services.mps_service_key_client.DOGRAH_MPS_SECRET_KEY", "mps-secret"
+    )
+
+    client = MPSServiceKeyClient()
+
+    assert await client.get_billing_pricing(42) == {
+        "organization_id": 42,
+        "platform_usage": {"price_per_minute": 0.01},
+        "dograh_model": {"price_per_minute": 0.07},
+    }
+    assert calls == [
+        (
+            "GET",
+            f"{client.base_url}/api/v1/billing/accounts/42/pricing",
+            {
+                "Content-Type": "application/json",
+                "X-Secret-Key": "mps-secret",
+                "X-Organization-Id": "42",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_get_credit_ledger_sends_page_and_limit(monkeypatch):
     calls = []
 

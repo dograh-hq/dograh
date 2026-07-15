@@ -15,6 +15,7 @@ import {
     getWorkflowApiV1WorkflowFetchWorkflowIdGet,
 } from "@/client/sdk.gen";
 import type {
+    ModelConfigurationPricingResponse,
     OrganizationAiModelConfigurationResponse,
     OrganizationAiModelConfigurationV2,
     WorkflowResponse,
@@ -42,6 +43,7 @@ import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import logger from "@/lib/logger";
+import { fetchModelConfigurationPricing } from "@/lib/modelConfigurationPricing";
 import {
     type AmbientNoiseConfiguration,
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
@@ -1202,6 +1204,7 @@ function WorkflowModelOverridesSection({
     onSave,
     modelConfigurationDefaults,
     organizationModelConfiguration,
+    modelConfigurationPricing,
     modelConfigurationLoading,
     modelConfigurationError,
 }: {
@@ -1210,6 +1213,7 @@ function WorkflowModelOverridesSection({
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
     modelConfigurationDefaults: ModelConfigurationDefaultsV2 | null;
     organizationModelConfiguration: OrganizationAiModelConfigurationResponse | null;
+    modelConfigurationPricing: ModelConfigurationPricingResponse | null;
     modelConfigurationLoading: boolean;
     modelConfigurationError: string | null;
 }) {
@@ -1311,6 +1315,7 @@ function WorkflowModelOverridesSection({
                                         ? null
                                         : organizationModelConfiguration.effective_configuration
                                 }
+                                pricing={modelConfigurationPricing}
                                 submitLabel="Save Model Override"
                                 onSave={saveV2Override}
                             />
@@ -1428,6 +1433,7 @@ function WorkflowSettingsInner({
     const [activeSection, setActiveSection] = useState("general");
     const [modelConfigurationDefaults, setModelConfigurationDefaults] = useState<ModelConfigurationDefaultsV2 | null>(null);
     const [organizationModelConfiguration, setOrganizationModelConfiguration] = useState<OrganizationAiModelConfigurationResponse | null>(null);
+    const [modelConfigurationPricing, setModelConfigurationPricing] = useState<ModelConfigurationPricingResponse | null>(null);
     const [modelConfigurationLoading, setModelConfigurationLoading] = useState(true);
     const [modelConfigurationError, setModelConfigurationError] = useState<string | null>(null);
     const hasFetchedModelConfiguration = useRef(false);
@@ -1484,9 +1490,10 @@ function WorkflowSettingsInner({
         const loadModelConfiguration = async () => {
             setModelConfigurationLoading(true);
             setModelConfigurationError(null);
-            const [defaultsResult, configurationResult] = await Promise.all([
+            const [defaultsResult, configurationResult, pricingResult] = await Promise.all([
                 getModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGet(),
                 getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get(),
+                fetchModelConfigurationPricing(),
             ]);
 
             if (defaultsResult.error) {
@@ -1502,6 +1509,7 @@ function WorkflowSettingsInner({
 
             setModelConfigurationDefaults(defaultsResult.data as ModelConfigurationDefaultsV2);
             setOrganizationModelConfiguration(configurationResult.data || null);
+            setModelConfigurationPricing(pricingResult);
             setModelConfigurationLoading(false);
         };
 
@@ -1566,6 +1574,7 @@ function WorkflowSettingsInner({
                                 onSave={saveWorkflowConfigurations}
                                 modelConfigurationDefaults={modelConfigurationDefaults}
                                 organizationModelConfiguration={organizationModelConfiguration}
+                                modelConfigurationPricing={modelConfigurationPricing}
                                 modelConfigurationLoading={modelConfigurationLoading}
                                 modelConfigurationError={modelConfigurationError}
                             />

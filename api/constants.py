@@ -55,6 +55,7 @@ CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]
 AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
+ENABLE_SIGNUP = os.getenv("ENABLE_SIGNUP", "true").lower() == "true"
 # Stack Auth public client config. These are safe to expose to the browser (the
 # publishable client key is public by design, and the project id is non-sensitive),
 # and are served to the UI at runtime via /api/v1/health so the frontend no longer

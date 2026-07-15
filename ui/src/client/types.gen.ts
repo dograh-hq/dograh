@@ -593,7 +593,9 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'azure_speech';
     } & AzureSpeechSttConfiguration) | ({
         provider: 'smallest';
-    } & SmallestAisttConfiguration);
+    } & SmallestAisttConfiguration) | ({
+        provider: 'elevenlabs';
+    } & ElevenlabsSttConfiguration);
     /**
      * Embeddings
      */
@@ -2227,6 +2229,38 @@ export type DuplicateTemplateRequest = {
 /**
  * ElevenLabs
  */
+export type ElevenlabsSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'elevenlabs';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * ElevenLabs realtime STT model.
+     */
+    model?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code for transcription. Use 'auto' to let ElevenLabs detect the language.
+     */
+    language?: string;
+    /**
+     * Base Url
+     *
+     * ElevenLabs API base URL. Override to use a Data Residency endpoint (e.g. https://api.eu.residency.elevenlabs.io) for GDPR / HIPAA / regional compliance.
+     */
+    base_url?: string;
+};
+
+/**
+ * ElevenLabs
+ */
 export type ElevenlabsTtsConfiguration = {
     /**
      * Provider
@@ -2884,6 +2918,10 @@ export type HealthResponse = {
      * Force Turn Relay
      */
     force_turn_relay: boolean;
+    /**
+     * Signup Enabled
+     */
+    signup_enabled: boolean;
     /**
      * Stack Project Id
      */
@@ -3667,6 +3705,46 @@ export type MiniMaxTtsConfiguration = {
      * MiniMax Group ID (found in your MiniMax dashboard under Account → Group).
      */
     group_id: string;
+};
+
+/**
+ * ModelConfigurationMetricPrice
+ */
+export type ModelConfigurationMetricPrice = {
+    /**
+     * Metric Code
+     */
+    metric_code: string;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Unit
+     */
+    unit: string;
+    /**
+     * Price Per Minute
+     */
+    price_per_minute: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Rounding Policy
+     */
+    rounding_policy: string;
+};
+
+/**
+ * ModelConfigurationPricingResponse
+ *
+ * MPS-owned effective prices relevant to model configuration choices.
+ */
+export type ModelConfigurationPricingResponse = {
+    platform_usage?: ModelConfigurationMetricPrice | null;
+    dograh_model?: ModelConfigurationMetricPrice | null;
 };
 
 /**
@@ -10823,6 +10901,45 @@ export type SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutRe
 };
 
 export type SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutResponse = SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutResponses[keyof SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutResponses];
+
+export type GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/model-configurations/v2/pricing';
+};
+
+export type GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetError = GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetErrors[keyof GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetErrors];
+
+export type GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ModelConfigurationPricingResponse;
+};
+
+export type GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetResponse = GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetResponses[keyof GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetResponses];
 
 export type PreviewModelConfigurationV2MigrationApiV1OrganizationsModelConfigurationsV2MigrationPreviewGetData = {
     body?: never;

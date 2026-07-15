@@ -7,7 +7,11 @@ metadata:
     {{- include "dograh.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
-  {{- if not .Values.autoscaling.web.enabled }}
+  {{- /* Omit spec.replicas only when the HPA object will actually render — matches
+         the gate in templates/web-hpa.yaml. If HPA is enabled but both metric
+         targets are null the HPA is suppressed, so we must keep the static
+         replica count here to avoid a Deployment with no owner. */ -}}
+  {{- if not (and .Values.autoscaling.web.enabled (or .Values.autoscaling.web.targetCPUUtilizationPercentage .Values.autoscaling.web.targetMemoryUtilizationPercentage)) }}
   replicas: {{ .Values.web.replicaCount }}
   {{- end }}
   selector:
@@ -24,10 +28,15 @@ spec:
       labels:
         {{- include "dograh.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: web
-      {{- with .Values.web.podAnnotations }}
       annotations:
+        # Roll pods when the ConfigMap changes (e.g. `helm upgrade --set
+        # config.enableSignup=false`). envFrom values are otherwise only read
+        # at pod startup, so a ConfigMap-only upgrade would leave running pods
+        # on the stale value until an unrelated restart.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.web.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "dograh.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}

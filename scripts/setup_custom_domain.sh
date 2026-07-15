@@ -22,6 +22,16 @@ cleanup() {
     if [[ -n "$BOOTSTRAP_LIB" ]]; then
         rm -f "$BOOTSTRAP_LIB"
     fi
+    # The script runs as root, so the files it touches in the install directory
+    # (.env rewrites, downloaded helper bundle, certs copied from Let's Encrypt)
+    # become root-owned, breaking later sudo-less git/edit operations. Hand the
+    # install back to the user who invoked sudo. SUDO_UID is unset when running
+    # as real root — nothing to restore then. Runs from the EXIT trap so a
+    # mid-setup failure also leaves ownership fixed.
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" && -n "${DOGRAH_DEPLOY_PROJECT_DIR:-}" && -d "$DOGRAH_DEPLOY_PROJECT_DIR" ]]; then
+        echo -e "${BLUE}Restoring ownership of $DOGRAH_DEPLOY_PROJECT_DIR to ${SUDO_USER:-uid $SUDO_UID}...${NC}"
+        chown -R "$SUDO_UID:$SUDO_GID" "$DOGRAH_DEPLOY_PROJECT_DIR" || true
+    fi
 }
 trap cleanup EXIT
 

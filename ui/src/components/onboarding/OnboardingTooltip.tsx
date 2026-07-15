@@ -1,92 +1,121 @@
 'use client';
 
+import { arrow, autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react-dom';
 import { X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { type TooltipKey, useOnboarding } from '@/context/OnboardingContext';
+
 interface OnboardingTooltipProps {
+    /** Onboarding flag this tooltip is keyed to. Visibility ("not seen yet")
+     * and dismissal (mark seen, including when the target itself is clicked)
+     * are derived from it, so call sites don't wire up the onboarding
+     * context themselves. */
+    tooltipKey: TooltipKey;
     targetRef: React.RefObject<HTMLElement | HTMLButtonElement | null>;
     title?: string;
     message: string;
-    onDismiss: () => void;
+    /** Extra gating beyond "not seen yet" (e.g. panel open, data loaded). */
+    enabled?: boolean;
     onNext?: () => void;
     showNext?: boolean;
-    isVisible: boolean;
 }
 
 export const OnboardingTooltip = ({
+    tooltipKey,
     targetRef,
-    title = "One more thing...",
+    title = 'One more thing...',
     message,
-    onDismiss,
+    enabled = true,
     onNext,
     showNext = true,
-    isVisible
 }: OnboardingTooltipProps) => {
-    const tooltipRef = useRef<HTMLDivElement>(null);
-    const [position, setPosition] = useState({ top: 0, left: 0 });
+    const { hasSeenTooltip, markTooltipSeen } = useOnboarding();
+    const arrowRef = useRef<HTMLDivElement>(null);
+    const messageId = useId();
     const [mounted, setMounted] = useState(false);
+
+    const isVisible = enabled && !hasSeenTooltip(tooltipKey);
+    const dismiss = useCallback(() => markTooltipSeen(tooltipKey), [markTooltipSeen, tooltipKey]);
+
+    const { refs, floatingStyles, middlewareData, placement, isPositioned, elements } = useFloating({
+        placement: 'bottom',
+        strategy: 'fixed',
+        open: isVisible,
+        // Tracks the target through scrolling (including nested overflow
+        // containers), resizes, and layout shifts.
+        whileElementsMounted: autoUpdate,
+        middleware: [
+            offset(8),
+            flip({ padding: 16 }),
+            shift({ padding: 16 }),
+            arrow({ element: arrowRef }),
+        ],
+    });
 
     useEffect(() => {
         setMounted(true);
         return () => setMounted(false);
     }, []);
 
+    // Adopt the target as the floating reference on every render: a ref prop
+    // can't trigger effects when its element mounts late or remounts, and
+    // setReference bails out when the element is unchanged.
     useEffect(() => {
-        if (!isVisible || !targetRef.current) return;
+        refs.setReference(targetRef.current);
+    });
 
-        const calculatePosition = () => {
-            if (!targetRef.current || !tooltipRef.current) return;
+    // While pointing at the target: pulsate it, link it to the message for
+    // screen readers, and treat a click on it as "seen".
+    useEffect(() => {
+        const target = elements.reference;
+        if (!isVisible || !(target instanceof HTMLElement)) return;
 
-            const targetRect = targetRef.current.getBoundingClientRect();
-            const tooltipRect = tooltipRef.current.getBoundingClientRect();
-
-            // Position tooltip below the target element with some offset for the arrow
-            const top = targetRect.bottom + 8; // 8px gap for arrow
-
-            // Center the tooltip horizontally relative to the target
-            let left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
-
-            // Ensure tooltip doesn't go off-screen
-            const padding = 16;
-            if (left < padding) {
-                left = padding;
-            } else if (left + tooltipRect.width > window.innerWidth - padding) {
-                left = window.innerWidth - tooltipRect.width - padding;
-            }
-
-            setPosition({ top, left });
-        };
-
-        // Small delay to ensure tooltip is rendered before calculating position
-        const timer = setTimeout(() => {
-            calculatePosition();
-        }, 10);
-
-        // Recalculate on window resize
-        window.addEventListener('resize', calculatePosition);
-        window.addEventListener('scroll', calculatePosition);
-
+        target.classList.add('onboarding-pulse');
+        target.setAttribute('aria-describedby', messageId);
+        target.addEventListener('click', dismiss);
         return () => {
-            clearTimeout(timer);
-            window.removeEventListener('resize', calculatePosition);
-            window.removeEventListener('scroll', calculatePosition);
+            target.classList.remove('onboarding-pulse');
+            target.removeAttribute('aria-describedby');
+            target.removeEventListener('click', dismiss);
         };
-    }, [isVisible, targetRef]);
+    }, [isVisible, elements.reference, dismiss, messageId]);
+
+    useEffect(() => {
+        if (!isVisible) return;
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') dismiss();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [isVisible, dismiss]);
 
     if (!mounted || !isVisible) return null;
 
+    // Actual side after flip(): 'bottom' (below target) or 'top' (above).
+    const side = placement.split('-')[0] === 'top' ? 'top' : 'bottom';
+
     const tooltipContent = (
         <div
-            ref={tooltipRef}
-            className="fixed z-[100] animate-in fade-in slide-in-from-top-2 duration-300"
-            style={{ top: `${position.top}px`, left: `${position.left}px` }}
+            ref={refs.setFloating}
+            className={`z-[100] animate-in fade-in duration-300 ${side === 'bottom' ? 'slide-in-from-top-2' : 'slide-in-from-bottom-2'}`}
+            style={{
+                ...floatingStyles,
+                // Avoid a flash at (0,0) before the first position resolves.
+                visibility: isPositioned ? 'visible' : 'hidden',
+            }}
         >
-            {/* Arrow pointing up */}
+            {/* Arrow pointing at the target; floating-ui keeps it aligned even
+                when the tooltip body is shifted to stay on-screen. */}
             <div
-                className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-blue-500 rotate-45"
+                ref={arrowRef}
+                className="absolute h-4 w-4 rotate-45 bg-blue-500"
                 style={{
-                    boxShadow: '-2px -2px 4px rgba(0, 0, 0, 0.1)'
+                    left: middlewareData.arrow?.x != null ? `${middlewareData.arrow.x}px` : undefined,
+                    ...(side === 'bottom' ? { top: '-8px' } : { bottom: '-8px' }),
+                    boxShadow: '-2px -2px 4px rgba(0, 0, 0, 0.1)',
                 }}
             />
 
@@ -94,7 +123,7 @@ export const OnboardingTooltip = ({
             <div className="relative bg-blue-500 text-white rounded-lg shadow-2xl p-6 max-w-sm">
                 {/* Close button */}
                 <button
-                    onClick={onDismiss}
+                    onClick={dismiss}
                     className="absolute top-2 right-2 p-1 hover:bg-blue-600 rounded-full transition-colors"
                     aria-label="Close tooltip"
                 >
@@ -105,14 +134,14 @@ export const OnboardingTooltip = ({
                 <h3 className="text-lg font-semibold mb-3">{title}</h3>
 
                 {/* Message */}
-                <p className="text-sm leading-relaxed mb-4 pr-4">
+                <p id={messageId} className="text-sm leading-relaxed mb-4 pr-4">
                     {message}
                 </p>
 
                 {/* Footer actions */}
                 <div className="flex items-center justify-end gap-3">
                     <button
-                        onClick={onDismiss}
+                        onClick={dismiss}
                         className="bg-white text-blue-500 px-4 py-1.5 rounded font-medium text-sm hover:bg-blue-50 transition-colors cursor-pointer"
                     >
                         Close
@@ -122,7 +151,7 @@ export const OnboardingTooltip = ({
                         <button
                             onClick={() => {
                                 onNext?.();
-                                onDismiss();
+                                dismiss();
                             }}
                             className="bg-white text-blue-500 px-4 py-1.5 rounded font-medium text-sm hover:bg-blue-50 transition-colors"
                         >

@@ -150,6 +150,45 @@
   animation: spin-slow 3s linear infinite;
 }
 
+/* Attention pulse applied by OnboardingTooltip to the element its arrow points
+   at; removed automatically when the tooltip is dismissed. Blue matches the
+   tooltip body so the ring and the callout read as one unit. Two shadow layers:
+   a constant outline so the target stays highlighted between pulses, plus an
+   expanding wave, with a slight breathing scale on top. */
+.onboarding-pulse {
+  animation: onboarding-pulse 1.5s ease-out infinite;
+}
+
+@keyframes onboarding-pulse {
+  0% {
+    box-shadow:
+      0 0 0 3px rgba(59, 130, 246, 0.75),
+      0 0 0 3px rgba(59, 130, 246, 0.6);
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.04);
+  }
+  70% {
+    box-shadow:
+      0 0 0 3px rgba(59, 130, 246, 0.75),
+      0 0 0 18px rgba(59, 130, 246, 0);
+    transform: scale(1);
+  }
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(59, 130, 246, 0.75),
+      0 0 0 18px rgba(59, 130, 246, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-pulse {
+    animation: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.6);
+  }
+}
+
 @layer components {
   /* CSS-only audio-waveform motif for the auth brand panel. A row of bars that
      breathe at staggered intervals, evoking live voice. Decorative only. */

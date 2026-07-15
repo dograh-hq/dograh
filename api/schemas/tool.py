@@ -266,10 +266,6 @@ class TransferCallConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_destination_source_config(self):
-        if self.destination_source == "static" and not self.destination.strip():
-            raise ValueError(
-                "config.destination is required when destination_source is static"
-            )
         if self.destination_source == "dynamic" and self.resolver is None:
             raise ValueError(
                 "config.resolver is required when destination_source is dynamic"

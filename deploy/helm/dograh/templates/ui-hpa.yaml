@@ -1,0 +1,34 @@
+{{- if and .Values.ui.enabled .Values.autoscaling.ui.enabled (or .Values.autoscaling.ui.targetCPUUtilizationPercentage .Values.autoscaling.ui.targetMemoryUtilizationPercentage) }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "dograh.ui.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "dograh.ui.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.ui.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.ui.maxReplicas }}
+  metrics:
+    {{- if .Values.autoscaling.ui.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.ui.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.ui.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.ui.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

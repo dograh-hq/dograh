@@ -17,9 +17,11 @@ def test_transfer_call_destination_accepts_provider_specific_literal():
     assert config.destination == "provider-specific-destination"
 
 
-def test_transfer_call_static_requires_destination():
-    with pytest.raises(ValueError, match="destination is required"):
-        TransferCallConfig(destination_source="static", destination="")
+def test_transfer_call_static_allows_empty_draft_destination():
+    config = TransferCallConfig(destination_source="static", destination="")
+
+    assert config.destination_source == "static"
+    assert config.destination == ""
 
 
 def test_transfer_call_dynamic_requires_resolver():

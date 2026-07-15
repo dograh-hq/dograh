@@ -485,17 +485,14 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.TELNYX.value:
-        # Telnyx STT is a REST API (POST /v2/ai/audio/transcriptions), not a
-        # streaming WebSocket. A full pipecat STTService integration requires
-        # batch transcription per utterance. Raised as a follow-up; for now
-        # the config is selectable but the service factory raises so the
-        # user gets a clear message instead of a silent no-op.
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Telnyx STT is not yet wired to a streaming pipecat service. "
-                "Please select a different STT provider. Telnyx TTS is available."
-            ),
+        from api.services.pipecat.telnyx_stt import TelnyxSTTService
+
+        return TelnyxSTTService(
+            api_key=user_config.stt.api_key,
+            transcription_engine=user_config.stt.model,
+            input_format=getattr(user_config.stt, "input_format", None) or "linear16",
+            sample_rate=audio_config.transport_in_sample_rate,
+            language=getattr(user_config.stt, "language", None) or "en",
         )
     else:
         raise HTTPException(
@@ -848,10 +845,10 @@ def create_tts_service(
 
         return TelnyxTTSService(
             api_key=user_config.tts.api_key,
-            voice=getattr(user_config.tts, "voice", None) or "Telnyx.NaturalHD.astra",
-            model=getattr(user_config.tts, "model", None) or "natural-hd",
-            language=getattr(user_config.tts, "language", None) or "en",
-            speed=getattr(user_config.tts, "speed", 1.0),
+            voice=user_config.tts.voice,
+            model=user_config.tts.model,
+            language=user_config.tts.language,
+            speed=user_config.tts.speed,
             sample_rate=audio_config.transport_out_sample_rate,
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],

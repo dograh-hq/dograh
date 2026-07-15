@@ -51,6 +51,7 @@ from api.services.configuration.options import (
     SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
+    TELNYX_STT_INPUT_FORMATS,
     TELNYX_STT_LANGUAGES,
     TELNYX_STT_MODELS,
     TELNYX_TTS_LANGUAGES,
@@ -1355,14 +1356,19 @@ class TelnyxSTTConfiguration(BaseSTTConfiguration):
     model_config = TELNYX_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.TELNYX] = ServiceProviders.TELNYX
     model: str = Field(
-        default="openai/whisper-large-v3-turbo",
-        description="Telnyx STT model.",
+        default="Telnyx",
+        description="Telnyx STT transcription engine (Telnyx, Deepgram, Google, Azure).",
         json_schema_extra={"examples": TELNYX_STT_MODELS, "allow_custom_input": True},
     )
     language: str = Field(
         default="en",
         description="ISO 639-1 language code.",
         json_schema_extra={"examples": TELNYX_STT_LANGUAGES, "allow_custom_input": True},
+    )
+    input_format: str = Field(
+        default="linear16",
+        description="Audio input format for the Telnyx STT WebSocket.",
+        json_schema_extra={"examples": TELNYX_STT_INPUT_FORMATS, "allow_custom_input": True},
     )
 
 

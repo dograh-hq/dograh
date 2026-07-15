@@ -5,11 +5,24 @@ TELNYX_TTS_VOICES = [
     "Telnyx.NaturalHD.atlas",
 ]
 
-# Telnyx TTS models
+# Telnyx TTS models (model_id component of the voice string)
 TELNYX_TTS_MODELS = ["natural-hd"]
 
-# Telnyx STT models
-TELNYX_STT_MODELS = ["openai/whisper-large-v3-turbo"]
+# Telnyx STT transcription engines (used as transcription_engine query param)
+TELNYX_STT_MODELS = ["Telnyx", "Deepgram", "Google", "Azure"]
+
+# Telnyx STT input formats (raw PCM is the pipecat default)
+TELNYX_STT_INPUT_FORMATS = [
+    "linear16",
+    "linear32",
+    "mulaw",
+    "alaw",
+    "mp3",
+    "wav",
+    "flac",
+    "webm",
+    "ogg",
+]
 
 # Common language codes
 TELNYX_TTS_LANGUAGES = [

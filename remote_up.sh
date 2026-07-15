@@ -102,7 +102,7 @@ else
 fi
 
 if [[ "$FOREGROUND" == "0" ]]; then
-    CMD+=(" -d")
+    CMD+=("-d")
 fi
 
 # Bash 3.2 on macOS treats "${empty_array[@]}" as unbound under `set -u`.

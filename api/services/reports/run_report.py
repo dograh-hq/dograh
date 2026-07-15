@@ -26,8 +26,23 @@ def _collect_extracted_variable_keys(runs: List[Any]) -> list[str]:
     return list(keys)
 
 
+async def _refresh_public_tokens(runs: List[Any]) -> None:
+    """Rotate/mint a valid public token for each run that has a downloadable
+    artifact, so the report's URLs point at fresh (unexpired) tokens rather than
+    stale or missing ones. Runs with no recording/transcript are skipped so we
+    don't mint public tokens for runs with nothing to expose.
+    """
+    for run in runs:
+        if run.recording_url or run.transcript_url:
+            run.public_access_token = await db_client.ensure_public_access_token(run.id)
+
+
 def build_run_report_csv(runs: List[Any]) -> io.StringIO:
-    """Build a CSV from completed workflow runs."""
+    """Build a CSV from completed workflow runs.
+
+    Callers should ``await _refresh_public_tokens(runs)`` first so the emitted
+    artifact URLs carry current (unexpired) tokens.
+    """
     extracted_var_keys = _collect_extracted_variable_keys(runs)
 
     output = io.StringIO()
@@ -96,6 +111,7 @@ async def generate_campaign_report_csv(
     runs = await db_client.get_completed_runs_for_report(
         campaign_id=campaign_id, start_date=start_date, end_date=end_date
     )
+    await _refresh_public_tokens(runs)
     return build_run_report_csv(runs), f"campaign_{campaign_id}_report.csv"
 
 
@@ -108,6 +124,7 @@ async def generate_workflow_report_csv(
     runs = await db_client.get_completed_runs_for_report(
         workflow_id=workflow_id, start_date=start_date, end_date=end_date
     )
+    await _refresh_public_tokens(runs)
     return build_run_report_csv(runs), f"workflow_{workflow_id}_report.csv"
 
 
@@ -127,5 +144,6 @@ async def generate_usage_runs_report_csv(
         end_date=end_date,
         filters=filters,
     )
+    await _refresh_public_tokens(runs)
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     return build_run_report_csv(runs), f"usage_runs_{timestamp}.csv"

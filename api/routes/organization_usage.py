@@ -410,18 +410,31 @@ async def get_usage_history(
 
         for run in runs:
             public_access_token = run.get("public_access_token")
+            has_user_recording = has_recording_track(run.get("extra"), "user")
+            has_bot_recording = has_recording_track(run.get("extra"), "bot")
+            # Refresh so the emitted URLs carry a current (unexpired) token,
+            # rotating/minting as needed; skip runs with nothing to download.
+            if (
+                run.get("recording_url")
+                or run.get("transcript_url")
+                or has_user_recording
+                or has_bot_recording
+            ):
+                public_access_token = await db_client.ensure_public_access_token(
+                    run["id"]
+                )
             run["transcript_public_url"] = artifact_url(
                 public_access_token, "transcript"
             )
             run["recording_public_url"] = artifact_url(public_access_token, "recording")
             run["user_recording_public_url"] = (
                 artifact_url(public_access_token, "user_recording")
-                if has_recording_track(run.get("extra"), "user")
+                if has_user_recording
                 else None
             )
             run["bot_recording_public_url"] = (
                 artifact_url(public_access_token, "bot_recording")
-                if has_recording_track(run.get("extra"), "bot")
+                if has_bot_recording
                 else None
             )
             run.pop("extra", None)

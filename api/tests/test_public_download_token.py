@@ -209,6 +209,44 @@ class TestPublicTokenLifecycle:
         assert revoked is False
         assert await db_session.get_workflow_run_by_public_token(token) is not None
 
+    async def test_refresh_public_tokens_rotates_for_runs_with_artifacts(
+        self, db_session, async_session, seeded_run
+    ):
+        """Report/list surfaces refresh an expired token so their URLs stay valid."""
+        from api.services.reports.run_report import _refresh_public_tokens
+
+        run = await async_session.get(WorkflowRunModel, seeded_run.run.id)
+        run.recording_url = "recordings/run-1.wav"
+        run.public_access_token = "legacy-token"
+        run.public_access_token_expires_at = datetime.now(UTC) - timedelta(days=1)
+        await async_session.flush()
+
+        await _refresh_public_tokens([run])
+
+        assert run.public_access_token != "legacy-token"
+        # The refreshed token must resolve at the freshness-enforcing lookup.
+        assert (
+            await db_session.get_workflow_run_by_public_token(run.public_access_token)
+            is not None
+        )
+
+    async def test_refresh_public_tokens_skips_runs_without_artifacts(
+        self, db_session, async_session, seeded_run
+    ):
+        """A run with nothing downloadable must not get a public token minted."""
+        from api.services.reports.run_report import _refresh_public_tokens
+
+        run = await async_session.get(WorkflowRunModel, seeded_run.run.id)
+        run.recording_url = None
+        run.transcript_url = None
+        run.public_access_token = None
+        run.public_access_token_expires_at = None
+        await async_session.flush()
+
+        await _refresh_public_tokens([run])
+
+        assert run.public_access_token is None
+
 
 # ---------------------------------------------------------------------------
 # Route wiring (no database)

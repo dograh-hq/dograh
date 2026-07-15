@@ -127,11 +127,11 @@ async def test_function_call_executes_immediately_when_bot_is_not_speaking():
     )
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_function_calls == []
+    assert service._deferred_node_transition_function_calls == []
 
 
 @pytest.mark.asyncio
-async def test_function_call_is_deferred_until_bot_stops_speaking():
+async def test_non_transition_function_call_runs_while_bot_is_speaking():
     service = _make_service()
     service._context = LLMContext()
     service.run_function_calls = AsyncMock()
@@ -142,10 +142,31 @@ async def test_function_call_is_deferred_until_bot_stops_speaking():
         SimpleNamespace(call_id="call-1", arguments='{"department":"sales"}')
     )
 
-    service.run_function_calls.assert_not_awaited()
-    assert len(service._deferred_function_calls) == 1
+    service.run_function_calls.assert_awaited_once()
+    assert service._deferred_node_transition_function_calls == []
 
-    await service._run_pending_function_calls()
+
+@pytest.mark.asyncio
+async def test_node_transition_function_call_is_deferred_until_bot_stops_speaking():
+    service = _make_service()
+    service._context = LLMContext()
+    service.run_function_calls = AsyncMock()
+    service._bot_is_speaking = True
+    service.register_function(
+        "customer_support",
+        AsyncMock(),
+        is_node_transition=True,
+    )
+    service._pending_function_calls["call-1"] = SimpleNamespace(name="customer_support")
+
+    await service._handle_evt_function_call_arguments_done(
+        SimpleNamespace(call_id="call-1", arguments='{"department":"sales"}')
+    )
+
+    service.run_function_calls.assert_not_awaited()
+    assert len(service._deferred_node_transition_function_calls) == 1
+
+    await service._run_pending_node_transition_function_calls()
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_function_calls == []
+    assert service._deferred_node_transition_function_calls == []

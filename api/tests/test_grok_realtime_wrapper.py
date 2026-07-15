@@ -130,7 +130,7 @@ async def test_messages_append_frame_sends_conversation_item():
 
 
 @pytest.mark.asyncio
-async def test_function_call_is_deferred_until_bot_stops_speaking():
+async def test_non_transition_function_call_runs_while_bot_is_speaking():
     service = _make_service()
     service._context = LLMContext()
     service.run_function_calls = AsyncMock()
@@ -145,13 +145,38 @@ async def test_function_call_is_deferred_until_bot_stops_speaking():
         )
     )
 
-    service.run_function_calls.assert_not_awaited()
-    assert len(service._deferred_function_calls) == 1
+    service.run_function_calls.assert_awaited_once()
+    assert service._deferred_node_transition_function_calls == []
 
-    await service._run_pending_function_calls()
+
+@pytest.mark.asyncio
+async def test_node_transition_function_call_waits_until_bot_stops_speaking():
+    service = _make_service()
+    service._context = LLMContext()
+    service.run_function_calls = AsyncMock()
+    service._bot_is_speaking = True
+    service.register_function(
+        "customer_support",
+        AsyncMock(),
+        is_node_transition=True,
+    )
+    service._pending_function_calls["call-1"] = SimpleNamespace(name="customer_support")
+
+    await service._handle_evt_function_call_arguments_done(
+        SimpleNamespace(
+            call_id="call-1",
+            name="customer_support",
+            arguments='{"department":"sales"}',
+        )
+    )
+
+    service.run_function_calls.assert_not_awaited()
+    assert len(service._deferred_node_transition_function_calls) == 1
+
+    await service._run_pending_node_transition_function_calls()
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_function_calls == []
+    assert service._deferred_node_transition_function_calls == []
 
 
 @pytest.mark.asyncio
@@ -190,3 +215,21 @@ def test_factory_creates_dograh_grok_realtime_service():
     )
 
     assert isinstance(service, DograhGrokRealtimeLLMService)
+    assert service._settings.session_properties.voice == "sal"
+    assert service._settings.session_properties.audio.input.transcription.model == (
+        "grok-transcribe"
+    )
+
+
+def test_grok_audio_config_preserves_transcription_when_filling_sample_rates():
+    service = _make_service()
+    service._settings.session_properties.audio = events.AudioConfiguration(
+        input=events.AudioInput(transcription=events.InputAudioTranscription())
+    )
+
+    service._ensure_audio_config(input_sample_rate=16000, output_sample_rate=24000)
+
+    audio = service._settings.session_properties.audio
+    assert audio.input.format.rate == 16000
+    assert audio.input.transcription.model == "grok-transcribe"
+    assert audio.output.format.rate == 24000

@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, call
 
@@ -13,7 +14,6 @@ from websockets.frames import Close
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import UltravoxRealtimeLLMConfiguration
 from api.services.pipecat.realtime.ultravox_realtime import (
-    _RESUMPTION_USER_MESSAGE,
     DograhUltravoxOneShotInputParams,
     DograhUltravoxRealtimeLLMService,
 )
@@ -100,50 +100,35 @@ async def test_initial_context_connects_without_replay():
     await service._handle_context(context)
 
     service._connect_call.assert_awaited_once()
-    assert service._connect_call.await_args.kwargs["initial_messages"] is None
+    assert service._connect_call.await_args.kwargs["greeting_text"] is None
     assert service._connect_call.await_args.kwargs["agent_speaks_first"] is True
 
 
 @pytest.mark.asyncio
-async def test_system_instruction_update_marks_reconnect_required():
+async def test_system_instruction_update_marks_stage_update_required():
     service = _make_service()
-    service._has_connected_once = True
+    service._socket = object()
 
     changed = await service._update_settings(
         DograhUltravoxRealtimeLLMService.Settings(system_instruction="new instruction")
     )
 
     assert "system_instruction" in changed
-    assert service._reconnect_required is True
+    assert service._stage_update_required is True
 
 
 @pytest.mark.asyncio
-async def test_system_instruction_change_reconnects_with_full_initial_messages():
+async def test_node_transition_updates_native_stage_without_reconnecting():
     service = _make_service()
     service._socket = object()
-    service._has_connected_once = True
-    service._call_system_instruction = "old instruction"
-    service._reconnect_required = True
+    service._send = AsyncMock()
+    service._connect_call = AsyncMock()
+    service._pending_node_transition_tool_call_ids.add("call-transition")
+    service._stage_update_required = True
     service._settings.system_instruction = "new instruction"
-    service._reconnect_with_context = AsyncMock()
 
     context = LLMContext(
         messages=[
-            {"role": "user", "content": "I want to hear the pricing."},
-            {
-                "role": "assistant",
-                "content": "Let me check that for you.",
-                "tool_calls": [
-                    {
-                        "id": "call-transition",
-                        "type": "function",
-                        "function": {
-                            "name": "transition_to_next_node",
-                            "arguments": '{"reason":"pricing requested"}',
-                        },
-                    }
-                ],
-            },
             {
                 "role": "tool",
                 "tool_call_id": "call-transition",
@@ -155,43 +140,28 @@ async def test_system_instruction_change_reconnects_with_full_initial_messages()
 
     await service._handle_context(context)
 
-    service._reconnect_with_context.assert_awaited_once()
-    initial_messages = service._reconnect_with_context.await_args.kwargs[
-        "initial_messages"
-    ]
-    assert initial_messages == [
-        {
-            "role": "MESSAGE_ROLE_USER",
-            "text": "I want to hear the pricing.",
-        },
-        {
-            "role": "MESSAGE_ROLE_AGENT",
-            "text": "Let me check that for you.",
-        },
-        {
-            "role": "MESSAGE_ROLE_TOOL_CALL",
-            "text": "",
-            "invocationId": "call-transition",
-            "toolName": "transition_to_next_node",
-        },
-        {
-            "role": "MESSAGE_ROLE_TOOL_RESULT",
-            "text": '{"status":"done"}',
-            "invocationId": "call-transition",
-            "toolName": "transition_to_next_node",
-        },
-    ]
+    service._connect_call.assert_not_awaited()
+    service._send.assert_awaited_once()
+    message = service._send.await_args.args[0]
+    assert message["type"] == "client_tool_result"
+    assert message["invocationId"] == "call-transition"
+    assert message["responseType"] == "new-stage"
+    stage = json.loads(message["result"])
+    assert stage["systemPrompt"] == "new instruction"
+    assert stage["toolResultText"] == '{"status":"done"}'
+    assert stage["selectedTools"][0]["temporaryTool"]["modelToolName"] == (
+        "transition_to_next_node"
+    )
     assert "call-transition" in service._completed_tool_calls
+    assert service._pending_node_transition_tool_call_ids == set()
+    assert service._stage_update_required is False
 
 
 @pytest.mark.asyncio
-async def test_tool_context_update_does_not_reconnect_when_system_instruction_is_unchanged():
+async def test_ordinary_tool_result_uses_standard_tool_response():
     service = _make_service()
     service._socket = object()
-    service._call_system_instruction = "same instruction"
-    service._settings.system_instruction = "same instruction"
-    service._reconnect_with_context = AsyncMock()
-    service._send_tool_result = AsyncMock()
+    service._send = AsyncMock()
 
     context = LLMContext(
         messages=[
@@ -206,11 +176,38 @@ async def test_tool_context_update_does_not_reconnect_when_system_instruction_is
 
     await service._handle_context(context)
 
-    service._reconnect_with_context.assert_not_awaited()
-    service._send_tool_result.assert_awaited_once_with(
-        "call-transition",
-        '{"status":"done"}',
+    service._send.assert_awaited_once_with(
+        {
+            "type": "client_tool_result",
+            "invocationId": "call-transition",
+            "result": '{"status":"done"}',
+        }
     )
+
+
+@pytest.mark.asyncio
+async def test_only_registered_node_transition_invocations_are_tracked():
+    service = _make_service()
+    service.run_function_calls = AsyncMock()
+    service.register_function(
+        "transition_to_next_node",
+        AsyncMock(),
+        is_node_transition=True,
+    )
+
+    await service._handle_tool_invocation(
+        "transition_to_next_node", "call-transition", {"reason": "pricing"}
+    )
+    await service._handle_tool_invocation("lookup_price", "call-lookup", {})
+
+    assert service._pending_node_transition_tool_call_ids == {"call-transition"}
+    assert service.run_function_calls.await_count == 2
+
+
+def test_ultravox_requires_transition_context_aggregation():
+    service = _make_service()
+
+    assert service._requires_node_transition_context_aggregation() is True
 
 
 @pytest.mark.asyncio
@@ -287,7 +284,6 @@ def test_build_one_shot_params_uses_explicit_greeting_text():
 
     params = service._build_one_shot_params(
         greeting_text="Welcome to Dograh",
-        initial_messages=None,
         agent_speaks_first=True,
     )
 
@@ -296,83 +292,16 @@ def test_build_one_shot_params_uses_explicit_greeting_text():
     }
 
 
-def test_build_one_shot_params_includes_initial_messages():
+def test_build_one_shot_params_uses_current_system_instruction():
     service = _make_service()
     service._settings.system_instruction = "Base instruction"
 
     params = service._build_one_shot_params(
         greeting_text=None,
-        initial_messages=[
-            {"role": "MESSAGE_ROLE_USER", "text": "User asked a question."},
-            {"role": "MESSAGE_ROLE_TOOL_RESULT", "text": '{"status":"done"}'},
-        ],
         agent_speaks_first=True,
     )
 
-    assert params.extra["initialMessages"] == [
-        {"role": "MESSAGE_ROLE_USER", "text": "User asked a question."},
-        {"role": "MESSAGE_ROLE_TOOL_RESULT", "text": '{"status":"done"}'},
-        {"role": "MESSAGE_ROLE_USER", "text": _RESUMPTION_USER_MESSAGE},
-    ]
     assert params.system_prompt == "Base instruction"
-
-
-def test_build_one_shot_params_without_tool_result_does_not_add_resumption_user_message():
-    service = _make_service()
-    service._settings.system_instruction = "Base instruction"
-
-    params = service._build_one_shot_params(
-        greeting_text=None,
-        initial_messages=[
-            {"role": "MESSAGE_ROLE_USER", "text": "User asked a question."},
-            {"role": "MESSAGE_ROLE_AGENT", "text": "Assistant replied."},
-        ],
-        agent_speaks_first=False,
-    )
-
-    assert params.system_prompt == "Base instruction"
-
-
-def test_should_agent_speak_first_when_history_ends_with_tool_result():
-    service = _make_service()
-
-    assert (
-        service._should_agent_speak_first(
-            [
-                {"role": "MESSAGE_ROLE_USER", "text": "Hello"},
-                {"role": "MESSAGE_ROLE_TOOL_RESULT", "text": '{"status":"done"}'},
-            ]
-        )
-        is True
-    )
-
-
-def test_should_not_force_agent_speaks_first_when_history_ends_with_agent():
-    service = _make_service()
-
-    assert (
-        service._should_agent_speak_first(
-            [{"role": "MESSAGE_ROLE_AGENT", "text": "How else can I help?"}]
-        )
-        is False
-    )
-
-
-def test_should_add_resumption_user_message_only_when_history_ends_with_tool_result():
-    service = _make_service()
-
-    assert (
-        service._should_add_resumption_user_message(
-            [{"role": "MESSAGE_ROLE_TOOL_RESULT", "text": '{"status":"done"}'}]
-        )
-        is True
-    )
-    assert (
-        service._should_add_resumption_user_message(
-            [{"role": "MESSAGE_ROLE_AGENT", "text": "Assistant replied."}]
-        )
-        is False
-    )
 
 
 def test_to_selected_tools_includes_registered_timeout():

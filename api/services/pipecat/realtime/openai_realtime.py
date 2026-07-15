@@ -3,8 +3,8 @@
 Layers Dograh engine integration quirks onto upstream-pristine
 :class:`OpenAIRealtimeLLMService`. Substantially smaller than the Gemini
 subclass because OpenAI Realtime supports runtime ``session.update`` for
-both ``system_instruction`` and tools — no reconnect/defer-tool-call
-machinery needed.
+both ``system_instruction`` and tools, so node changes do not require a
+reconnect.
 
 Adds:
 
@@ -13,6 +13,9 @@ Adds:
   flow kicks off the bot's first response.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
   like user-idle checks, without mutating Dograh's local ``LLMContext``.
+- **Workflow-control deferral** so node transitions, call termination, and
+  transfers wait for any current bot audio to finish while ordinary tools run
+  immediately.
 - **finalized=True on TranscriptionFrame** because every OpenAI
   transcription via the ``completed`` event is final by construction.
 """
@@ -53,10 +56,10 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         # LLMContextFrame arrives, so upstream's "first arrival means
         # self._context is None" check no longer works.
         self._handled_initial_context: bool = False
-        # Track bot speech locally so tool calls can be deferred until the bot
-        # has finished speaking, matching Dograh's Gemini Live behavior.
+        # Track bot speech locally so workflow-control calls can wait until the
+        # bot has finished speaking without delaying ordinary tools.
         self._bot_is_speaking: bool = False
-        self._deferred_function_calls: list[FunctionCallFromLLM] = []
+        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
 
     # ------------------------------------------------------------------
@@ -100,7 +103,7 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             self._bot_is_speaking = True
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
-            await self._run_pending_function_calls()
+            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -268,19 +271,19 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             )
         )
 
-    async def _run_pending_function_calls(self):
-        if not self._deferred_function_calls:
+    async def _run_pending_node_transition_function_calls(self):
+        if not self._deferred_node_transition_function_calls:
             return
-        function_calls = self._deferred_function_calls
-        self._deferred_function_calls = []
+        function_calls = self._deferred_node_transition_function_calls
+        self._deferred_node_transition_function_calls = []
         logger.debug(
-            f"{self}: executing {len(function_calls)} deferred function call(s) "
-            "after bot turn ended"
+            f"{self}: executing {len(function_calls)} deferred workflow-control "
+            "call(s) after bot turn ended"
         )
         await self.run_function_calls(function_calls)
 
     async def _handle_evt_function_call_arguments_done(self, evt):
-        """Process or defer tool calls until the bot finishes speaking."""
+        """Run ordinary tools immediately and defer workflow-control calls."""
         try:
             args = json.loads(evt.arguments)
 
@@ -297,10 +300,14 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
                     )
                 ]
 
-                if self._bot_is_speaking:
-                    self._deferred_function_calls.extend(function_calls)
+                is_node_transition = self._function_is_node_transition(
+                    function_call_item.name
+                )
+                if self._bot_is_speaking and is_node_transition:
+                    self._deferred_node_transition_function_calls.extend(function_calls)
                     logger.debug(
-                        f"{self}: deferring function call {function_call_item.name} "
+                        f"{self}: deferring workflow-control call "
+                        f"{function_call_item.name} "
                         "until bot stops speaking"
                     )
                 else:

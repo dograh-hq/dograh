@@ -11,8 +11,9 @@ Adds:
   flow kicks off the bot's first response.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
   like user-idle checks, without mutating Dograh's local ``LLMContext``.
-- **Function-call deferral** until the bot finishes speaking, to avoid racing
-  tool execution with the active audio turn.
+- **Workflow-control deferral** so node transitions, call termination, and
+  transfers wait for any current bot audio to finish while ordinary tools run
+  immediately.
 - **finalized=True on TranscriptionFrame** for parity with Dograh's other
   realtime providers.
 """
@@ -50,7 +51,7 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         self._user_is_muted: bool = False
         self._handled_initial_context: bool = False
         self._bot_is_speaking: bool = False
-        self._deferred_function_calls: list[FunctionCallFromLLM] = []
+        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -82,7 +83,7 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
             self._bot_is_speaking = True
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
-            await self._run_pending_function_calls()
+            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -251,19 +252,19 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
             )
         )
 
-    async def _run_pending_function_calls(self):
-        if not self._deferred_function_calls:
+    async def _run_pending_node_transition_function_calls(self):
+        if not self._deferred_node_transition_function_calls:
             return
-        function_calls = self._deferred_function_calls
-        self._deferred_function_calls = []
+        function_calls = self._deferred_node_transition_function_calls
+        self._deferred_node_transition_function_calls = []
         logger.debug(
-            f"{self}: executing {len(function_calls)} deferred function call(s) "
-            "after bot turn ended"
+            f"{self}: executing {len(function_calls)} deferred workflow-control "
+            "call(s) after bot turn ended"
         )
         await self.run_function_calls(function_calls)
 
     async def _handle_evt_function_call_arguments_done(self, evt):
-        """Process or defer tool calls until the bot finishes speaking."""
+        """Run ordinary tools immediately and defer workflow-control calls."""
         try:
             args = json.loads(evt.arguments)
 
@@ -281,10 +282,11 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
                     )
                 ]
 
-                if self._bot_is_speaking:
-                    self._deferred_function_calls.extend(function_calls)
+                is_node_transition = self._function_is_node_transition(function_name)
+                if self._bot_is_speaking and is_node_transition:
+                    self._deferred_node_transition_function_calls.extend(function_calls)
                     logger.debug(
-                        f"{self}: deferring function call {function_name} "
+                        f"{self}: deferring workflow-control call {function_name} "
                         "until bot stops speaking"
                     )
                 else:

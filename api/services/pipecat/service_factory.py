@@ -1029,14 +1029,28 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         from api.services.pipecat.realtime.grok_realtime import (
             DograhGrokRealtimeLLMService,
         )
-        from pipecat.services.xai.realtime.events import SessionProperties
+        from pipecat.services.xai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            InputAudioTranscription,
+            SessionProperties,
+        )
+
+        grok_voice = voice or "ara"
+        if grok_voice.lower() in {"ara", "rex", "sal", "eve", "leo"}:
+            grok_voice = grok_voice.lower()
 
         return DograhGrokRealtimeLLMService(
             api_key=api_key,
             settings=DograhGrokRealtimeLLMService.Settings(
                 model=model,
                 session_properties=SessionProperties(
-                    voice=voice or "Ara",
+                    voice=grok_voice,
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(),
+                        ),
+                    ),
                 ),
             ),
         )
@@ -1115,19 +1129,25 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 detail="Azure Realtime requires an endpoint.",
             )
         _validate_runtime_service_url(endpoint, "endpoint")
-        api_version = (
-            getattr(realtime_config, "api_version", None) or "2025-04-01-preview"
-        )
-        # Construct the Azure Realtime WebSocket URL
-        # https://<resource>.openai.azure.com/openai/realtime?api-version=<ver>&deployment=<model>
+        api_version = getattr(realtime_config, "api_version", None) or "v1"
         parsed_endpoint = urlparse(endpoint)
+        if api_version == "v1":
+            # Azure's GA Realtime API uses the deployment name as `model` and
+            # deliberately has no date-based api-version query parameter.
+            path = "/openai/v1/realtime"
+            query = urlencode({"model": model})
+        else:
+            # Preserve explicitly configured preview deployments while users
+            # migrate. Microsoft deprecated this protocol on April 30, 2026.
+            path = "/openai/realtime"
+            query = urlencode({"api-version": api_version, "deployment": model})
         wss_url = urlunparse(
             (
                 "wss",
                 parsed_endpoint.netloc,
-                "/openai/realtime",
+                path,
                 "",
-                urlencode({"api-version": api_version, "deployment": model}),
+                query,
                 "",
             )
         )

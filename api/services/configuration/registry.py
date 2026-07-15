@@ -621,7 +621,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 
 GROK_REALTIME_MODELS = ["grok-voice-think-fast-1.0"]
-GROK_REALTIME_VOICES = ["Ara", "Rex", "Sal", "Eve", "Leo"]
+GROK_REALTIME_VOICES = ["ara", "rex", "sal", "eve", "leo"]
 ULTRAVOX_REALTIME_MODELS = ["ultravox-v0.7", "fixie-ai/ultravox"]
 
 
@@ -638,7 +638,7 @@ class GrokRealtimeLLMConfiguration(BaseLLMConfiguration):
         },
     )
     voice: str = Field(
-        default="Ara",
+        default="ara",
         description="Voice the model speaks in.",
         json_schema_extra={
             "examples": GROK_REALTIME_VOICES,
@@ -756,7 +756,7 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
     model_config = AZURE_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE_REALTIME] = ServiceProviders.AZURE_REALTIME
     model: str = Field(
-        default="gpt-4o-realtime-preview",
+        default="gpt-realtime",
         description="Azure OpenAI realtime deployment name.",
         json_schema_extra={
             "examples": AZURE_REALTIME_MODELS,
@@ -775,8 +775,11 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
         },
     )
     api_version: str = Field(
-        default="2025-04-01-preview",
-        description="Azure OpenAI API version.",
+        default="v1",
+        description=(
+            "Azure OpenAI Realtime protocol version. Use 'v1' for the GA API; "
+            "date-based versions select the deprecated preview endpoint."
+        ),
         json_schema_extra={
             "examples": AZURE_REALTIME_API_VERSIONS,
         },

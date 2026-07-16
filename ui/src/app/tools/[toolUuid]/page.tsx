@@ -95,6 +95,7 @@ function extractContextVars(presetParams: PresetToolParameter[]): { initialConte
 
 function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
     const keys = path.split(".");
+    if (keys.some((key) => key === "__proto__" || key === "constructor" || key === "prototype")) return;
     let current = obj;
     for (let i = 0; i < keys.length - 1; i++) {
         const key = keys[i];
@@ -186,6 +187,27 @@ export default function ToolDetailPage() {
             redirectToLogin();
         }
     }, [loading, user, redirectToLogin]);
+
+    // Seed test-arg defaults for parameters that don't have a value yet, so
+    // required number/boolean fields aren't silently dropped if the user
+    // never touches their input.
+    useEffect(() => {
+        setTestArgValues((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            for (const p of parameters) {
+                if (p.name in next) continue;
+                if (p.type === "number") {
+                    next[p.name] = "0";
+                    changed = true;
+                } else if (p.type === "boolean") {
+                    next[p.name] = "true";
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [parameters]);
 
     const fetchTool = useCallback(async () => {
         if (loading || !user || !toolUuid) return;

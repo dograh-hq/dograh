@@ -233,9 +233,14 @@ async def test_tool(
     )
     duration_ms = max(0, round((time.perf_counter() - started_at) * 1000))
 
+    status = result.get("status", "error")
+    status_code = result.get("status_code")
+    if status_code is not None and status_code >= 400:
+        status = "error"
+
     return ToolTestResponse(
-        status=result.get("status", "error"),
-        status_code=result.get("status_code"),
+        status=status,
+        status_code=status_code,
         data=result.get("data"),
         error=result.get("error"),
         duration_ms=duration_ms,

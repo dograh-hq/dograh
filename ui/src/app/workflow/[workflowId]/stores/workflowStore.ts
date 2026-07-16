@@ -54,7 +54,7 @@ interface WorkflowActions {
   ) => void;
 
   // History management
-  pushToHistory: () => void;
+  commitDeletion: () => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -99,6 +99,30 @@ type WorkflowStore = WorkflowState & WorkflowActions;
 
 const MAX_HISTORY_SIZE = 50;
 
+const commitHistory = (
+  state: Pick<WorkflowState, 'history' | 'historyIndex'>,
+  snapshot: HistoryState
+): Pick<
+  WorkflowState,
+  'nodes' | 'edges' | 'workflowName' | 'history' | 'historyIndex' | 'isDirty'
+> => {
+  const history = [
+    ...state.history.slice(0, state.historyIndex + 1),
+    snapshot,
+  ];
+
+  if (history.length > MAX_HISTORY_SIZE) {
+    history.shift();
+  }
+
+  return {
+    ...snapshot,
+    history,
+    historyIndex: history.length - 1,
+    isDirty: true,
+  };
+};
+
 // Create the store
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   // Initial state
@@ -134,27 +158,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     });
   },
 
-  pushToHistory: () => {
-    const state = get();
-    const currentState: HistoryState = {
-      nodes: state.nodes,
-      edges: state.edges,
-      workflowName: state.workflowName,
-    };
-
-    // Remove any forward history if we're not at the end
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(currentState);
-
-    // Limit history size
-    if (newHistory.length > MAX_HISTORY_SIZE) {
-      newHistory.shift();
-    }
-
-    set({
-      history: newHistory,
-      historyIndex: newHistory.length - 1,
-    });
+  commitDeletion: () => {
+    set((state) =>
+      commitHistory(state, {
+        nodes: state.nodes,
+        edges: state.edges,
+        workflowName: state.workflowName,
+      })
+    );
   },
 
   undo: () => {
@@ -200,10 +211,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   setNodes: (nodes, changes) => {
     // Determine whether to push to history and set isDirty based on change types
     if (changes && changes.length > 0) {
-      // Check for add/remove changes (always push to history)
-      const hasAddRemoveChanges = changes.some(change =>
-        change.type === 'add' || change.type === 'remove'
-      );
+      const hasAddChanges = changes.some(change => change.type === 'add');
+      // React Flow emits edge and node removals separately. They are committed
+      // together from onDelete after both live-state updates have completed.
+      const hasRemoveChanges = changes.some(change => change.type === 'remove');
 
       // Check for position changes - only push to history when drag ENDS (dragging: false)
       // but still mark as dirty during dragging
@@ -214,11 +225,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         change.type === 'position' && change.dragging === true
       );
 
-      if (hasAddRemoveChanges || hasDragEndChanges) {
-        get().pushToHistory();
-        set({ nodes, isDirty: true });
-      } else if (isActiveDragging) {
-        // During active dragging, update nodes but don't push to history
+      if (hasAddChanges || hasDragEndChanges) {
+        set((state) =>
+          commitHistory(state, {
+            nodes,
+            edges: state.edges,
+            workflowName: state.workflowName,
+          })
+        );
+      } else if (hasRemoveChanges || isActiveDragging) {
+        // During active dragging or deletion, update nodes before committing.
         set({ nodes, isDirty: true });
       } else {
         // For selection changes or dimension updates, don't push to history or set dirty
@@ -231,49 +247,62 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   addNode: (node) => {
-    const state = get();
-    get().pushToHistory();
-    set({
-      nodes: [...state.nodes, node],
-      isDirty: true
+    set((state) => {
+      const nodes = [...state.nodes, node];
+      return commitHistory(state, {
+        nodes,
+        edges: state.edges,
+        workflowName: state.workflowName,
+      });
     });
   },
 
   updateNode: (nodeId, updates) => {
-    const state = get();
-    get().pushToHistory();
-    set({
-      nodes: state.nodes.map((node) =>
+    set((state) => {
+      const nodes = state.nodes.map((node) =>
         node.id === nodeId ? { ...node, ...updates } : node
-      ),
-      isDirty: true,
+      );
+      return commitHistory(state, {
+        nodes,
+        edges: state.edges,
+        workflowName: state.workflowName,
+      });
     });
   },
 
   deleteNode: (nodeId) => {
-    const state = get();
-    get().pushToHistory();
-    set({
-      nodes: state.nodes.filter((node) => node.id !== nodeId),
-      edges: state.edges.filter(
+    set((state) => {
+      const nodes = state.nodes.filter((node) => node.id !== nodeId);
+      const edges = state.edges.filter(
         (edge) => edge.source !== nodeId && edge.target !== nodeId
-      ),
-      isDirty: true,
+      );
+      return commitHistory(state, {
+        nodes,
+        edges,
+        workflowName: state.workflowName,
+      });
     });
   },
 
   setEdges: (edges, changes) => {
     // Determine whether to push to history and set isDirty based on change types
     if (changes && changes.length > 0) {
-      // Check if any changes are user-initiated (not just selections)
-      const hasDirtyChanges = changes.some(change =>
+      const hasImmediateHistoryChanges = changes.some(change =>
         change.type === 'add' ||
-        change.type === 'remove' ||
         change.type === 'replace'
       );
+      const hasRemoveChanges = changes.some(change => change.type === 'remove');
 
-      if (hasDirtyChanges) {
-        get().pushToHistory();
+      if (hasImmediateHistoryChanges) {
+        set((state) =>
+          commitHistory(state, {
+            nodes: state.nodes,
+            edges,
+            workflowName: state.workflowName,
+          })
+        );
+      } else if (hasRemoveChanges) {
+        // React Flow calls onDelete after all edge and node removals.
         set({ edges, isDirty: true });
       } else {
         // For selection changes, don't push to history
@@ -286,37 +315,48 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   addEdge: (edge) => {
-    const state = get();
-    get().pushToHistory();
-    set({
-      edges: [...state.edges, edge],
-      isDirty: true
+    set((state) => {
+      const edges = [...state.edges, edge];
+      return commitHistory(state, {
+        nodes: state.nodes,
+        edges,
+        workflowName: state.workflowName,
+      });
     });
   },
 
   updateEdge: (edgeId, updates) => {
-    const state = get();
-    get().pushToHistory();
-    set({
-      edges: state.edges.map((edge) =>
+    set((state) => {
+      const edges = state.edges.map((edge) =>
         edge.id === edgeId ? { ...edge, ...updates } : edge
-      ),
-      isDirty: true,
+      );
+      return commitHistory(state, {
+        nodes: state.nodes,
+        edges,
+        workflowName: state.workflowName,
+      });
     });
   },
 
   deleteEdge: (edgeId) => {
-    const state = get();
-    get().pushToHistory();
-    set({
-      edges: state.edges.filter((edge) => edge.id !== edgeId),
-      isDirty: true,
+    set((state) => {
+      const edges = state.edges.filter((edge) => edge.id !== edgeId);
+      return commitHistory(state, {
+        nodes: state.nodes,
+        edges,
+        workflowName: state.workflowName,
+      });
     });
   },
 
   setWorkflowName: (workflowName) => {
-    get().pushToHistory();
-    set({ workflowName, isDirty: true });
+    set((state) =>
+      commitHistory(state, {
+        nodes: state.nodes,
+        edges: state.edges,
+        workflowName,
+      })
+    );
   },
 
   setTemplateContextVariables: (templateContextVariables) => {

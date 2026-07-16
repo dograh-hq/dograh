@@ -626,18 +626,38 @@ class CloudonixProvider(TelephonyProvider):
                 )
                 return
 
+            logger.info(
+                f"Cloudonix agent-stream: inbound customParemeters "
+                f"{start.get("customParameters")}"
+            )
+
             start_context = start.get("context")
+            custom_parameters = start.get("customParameters")
+            builtin_context = {
+                "caller_number": start.get("from"),
+                "called_number": start.get("to"),
+                "direction": (
+                    "outbound" if start_context == "outbound-api" else "inbound"
+                ),
+                "cloudonix_context": start_context,
+            }
             await db_client.update_workflow_run(
                 run_id=workflow_run_id,
                 initial_context={
+                    # Flatten customParameters, but never let them overwrite a
+                    # built-in key even when the built-in's value is None.
                     key: value
                     for key, value in {
-                        "caller_number": start.get("from"),
-                        "called_number": start.get("to"),
-                        "direction": (
-                            "outbound" if start_context == "outbound-api" else "inbound"
-                        ),
-                        "cloudonix_context": start_context,
+                        **{
+                            k: v
+                            for k, v in (
+                                custom_parameters
+                                if isinstance(custom_parameters, dict)
+                                else {}
+                            ).items()
+                            if k not in builtin_context
+                        },
+                        **builtin_context,
                     }.items()
                     if value is not None
                 },
@@ -1059,7 +1079,7 @@ class CloudonixProvider(TelephonyProvider):
             "<Response>"
             "<Say>You have answered a transfer call. Connecting you now.</Say>"
             "<Dial>"
-            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join" holdMusic="false" beep="false">{conference_name}</Conference>'
+            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join" holdMusic="false">{conference_name}</Conference>'
             "</Dial>"
             "</Response>"
         )
@@ -1096,7 +1116,9 @@ class CloudonixProvider(TelephonyProvider):
         from_number = random.choice(self.from_numbers)
 
         backend_endpoint, _ = await get_backend_endpoints()
-        callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"
+        callback_url = (
+            f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"
+        )
 
         endpoint = f"{self.base_url}/calls/{self.domain_id}/application"
         data: Dict[str, Any] = {
@@ -1109,7 +1131,9 @@ class CloudonixProvider(TelephonyProvider):
 
         data.update(kwargs)
         headers = self._get_auth_headers()
-        masked_destination = f"***{destination[-4:]}" if len(destination) > 4 else "***"
+        masked_destination = (
+            f"***{destination[-4:]}" if len(destination) > 4 else "***"
+        )
         logger.info(
             f"[Cloudonix Transfer] Dialing {masked_destination} into conference "
             f"{conference_name} (transfer_id={transfer_id})"

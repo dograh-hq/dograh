@@ -61,6 +61,10 @@ spec:
           env:
             - name: WEB_PORT
               value: {{ .Values.web.port | quote }}
+            # Trust proxy headers from these peers so request.url reflects the
+            # original https scheme — see web.forwardedAllowIps in values.yaml.
+            - name: FORWARDED_ALLOW_IPS
+              value: {{ .Values.web.forwardedAllowIps | quote }}
             {{- include "dograh.dbEnv" . | nindent 12 }}
           # Distinct probes: readiness flips fast (drain), liveness is
           # slower (process aliveness).

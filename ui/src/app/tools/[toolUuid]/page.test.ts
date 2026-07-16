@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateSampleValue } from "./page";
+import { generateSampleValue } from "./testPanelHelpers";
 
 describe("generateSampleValue", () => {
     it("returns a sample string for type 'string'", () => {

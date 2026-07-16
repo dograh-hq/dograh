@@ -55,6 +55,7 @@ import {
     type TransferDestinationSource,
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
+import { generateSampleValue } from "./testPanelHelpers";
 
 function normalizeParameterType(value: string | null | undefined): ParameterType {
     switch (value) {
@@ -66,22 +67,6 @@ function normalizeParameterType(value: string | null | undefined): ParameterType
         default:
             return "string";
     }
-}
-
-const TYPE_SAMPLE_VALUES: Record<ParameterType, string> = {
-    string: "sample_text",
-    number: "5",
-    boolean: "true",
-    array: "[]",
-    object: "{}",
-};
-
-/**
- * Type-based sample value used to pre-fill test-panel inputs. No
- * name/description heuristic — explicit user choice to keep this simple.
- */
-export function generateSampleValue(type: ParameterType): string {
-    return TYPE_SAMPLE_VALUES[type];
 }
 
 function headersToRows(headers: Record<string, string> | undefined | null): KeyValueItem[] {
@@ -734,6 +719,26 @@ const response = await fetch("${url}", {
 const data = await response.json();`;
     };
 
+    const handleFillSampleValues = () => {
+        setTestArgValues((prev) => {
+            const next = { ...prev };
+            for (const p of parameters) {
+                next[p.name] = generateSampleValue(p.type);
+            }
+            return next;
+        });
+        setTestContextValues((prev) => {
+            const next = { ...prev };
+            for (const varName of contextVars.initialContext) {
+                next[`initial_context.${varName}`] = generateSampleValue("string");
+            }
+            for (const varName of contextVars.gatheredContext) {
+                next[`gathered_context.${varName}`] = generateSampleValue("string");
+            }
+            return next;
+        });
+    };
+
     const handleTestTool = async () => {
         if (!tool) return;
 
@@ -1077,9 +1082,21 @@ const data = await response.json();`;
                             <CardContent className="space-y-6">
                                 {/* Arguments */}
                                 <div className="space-y-3">
-                                    <div>
-                                        <p className="text-sm font-medium">Arguments</p>
-                                        <p className="text-xs text-muted-foreground">Values the model would provide at call time.</p>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium">Arguments</p>
+                                            <p className="text-xs text-muted-foreground">Values the model would provide at call time.</p>
+                                        </div>
+                                        {(parameters.length > 0 || hasContextVars) && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={handleFillSampleValues}
+                                            >
+                                                Fill sample values
+                                            </Button>
+                                        )}
                                     </div>
                                     {parameters.length > 0 ? (
                                         <div className="space-y-4">

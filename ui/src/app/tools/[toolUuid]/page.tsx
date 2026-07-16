@@ -85,7 +85,7 @@ function extractContextVars(presetParams: PresetToolParameter[]): { initialConte
     const initialContext = new Set<string>();
     const gatheredContext = new Set<string>();
     for (const p of presetParams) {
-        for (const match of (p.valueTemplate ?? "").matchAll(/\{\{(initial_context|gathered_context)\.([^}]+)\}\}/g)) {
+        for (const match of (p.valueTemplate ?? "").matchAll(/\{\{\s*(initial_context|gathered_context)\.([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}/g)) {
             if (match[1] === "initial_context") initialContext.add(match[2]);
             else gatheredContext.add(match[2]);
         }

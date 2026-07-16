@@ -55,7 +55,7 @@ import {
     type TransferDestinationSource,
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
-import { generateSampleValue } from "./testPanelHelpers";
+import { buildHttpToolTestSnapshot, generateSampleValue } from "./testPanelHelpers";
 
 function normalizeParameterType(value: string | null | undefined): ParameterType {
     switch (value) {
@@ -133,6 +133,7 @@ export default function ToolDetailPage() {
     const [jsonEditParam, setJsonEditParam] = useState<string | null>(null);
     const [jsonEditDraft, setJsonEditDraft] = useState("");
     const [jsonEditError, setJsonEditError] = useState<string | null>(null);
+    const [savedHttpTestSnapshot, setSavedHttpTestSnapshot] = useState<string | null>(null);
 
     // Common form state
     const [name, setName] = useState("");
@@ -334,29 +335,31 @@ export default function ToolDetailPage() {
             // Populate HTTP API specific fields
             const config = tool.definition?.config as HttpApiToolDefinition["config"] | undefined;
             if (config) {
-                setHttpMethod((config.method as HttpMethod) || "POST");
-                setUrl(config.url || "");
-                setCredentialUuid(config.credential_uuid || "");
-                setTimeoutMs(config.timeout_ms || 5000);
+                const loadedHttpMethod = (config.method as HttpMethod) || "POST";
+                const loadedUrl = config.url || "";
+                const loadedCredentialUuid = config.credential_uuid || "";
+                const loadedTimeoutMs = config.timeout_ms || 5000;
+                setHttpMethod(loadedHttpMethod);
+                setUrl(loadedUrl);
+                setCredentialUuid(loadedCredentialUuid);
+                setTimeoutMs(loadedTimeoutMs);
                 setCustomMessage(config.customMessage || "");
                 setCustomMessageType(config.customMessageType || "text");
                 setCustomMessageRecordingId(config.customMessageRecordingId || "");
 
                 // Convert headers object to array
-                if (config.headers) {
-                    setHeaders(
-                        Object.entries(config.headers).map(([key, value]) => ({
-                            key,
-                            value: value as string,
-                        }))
-                    );
-                } else {
-                    setHeaders([]);
-                }
+                const loadedHeaders = config.headers
+                    ? Object.entries(config.headers).map(([key, value]) => ({
+                        key,
+                        value: value as string,
+                    }))
+                    : [];
+                setHeaders(loadedHeaders);
 
                 // Load parameters
+                let loadedParameters: ToolParameter[] = [];
                 if (config.parameters && Array.isArray(config.parameters)) {
-                    const loadedParameters = config.parameters.map((p) => ({
+                    loadedParameters = config.parameters.map((p) => ({
                         name: p.name || "",
                         type: normalizeParameterType(p.type),
                         description: p.description || "",
@@ -378,18 +381,30 @@ export default function ToolDetailPage() {
                     setTestArgValues({});
                 }
 
+                let loadedPresetParameters: PresetToolParameter[] = [];
                 if (config.preset_parameters && Array.isArray(config.preset_parameters)) {
-                    setPresetParameters(
-                        config.preset_parameters.map((p) => ({
-                            name: p.name || "",
-                            type: normalizeParameterType(p.type),
-                            valueTemplate: p.value_template || "",
-                            required: p.required ?? true,
-                        }))
-                    );
+                    loadedPresetParameters = config.preset_parameters.map((p) => ({
+                        name: p.name || "",
+                        type: normalizeParameterType(p.type),
+                        valueTemplate: p.value_template || "",
+                        required: p.required ?? true,
+                    }));
+                    setPresetParameters(loadedPresetParameters);
                 } else {
                     setPresetParameters([]);
                 }
+
+                setSavedHttpTestSnapshot(
+                    buildHttpToolTestSnapshot({
+                        httpMethod: loadedHttpMethod,
+                        url: loadedUrl,
+                        credentialUuid: loadedCredentialUuid,
+                        headers: loadedHeaders,
+                        parameters: loadedParameters,
+                        presetParameters: loadedPresetParameters,
+                        timeoutMs: loadedTimeoutMs,
+                    })
+                );
             }
         }
     };
@@ -665,6 +680,19 @@ export default function ToolDetailPage() {
                 setTool(response.data);
                 setSaveSuccess(true);
                 setTimeout(() => setSaveSuccess(false), 3000);
+                if (tool.category === "http_api") {
+                    setSavedHttpTestSnapshot(
+                        buildHttpToolTestSnapshot({
+                            httpMethod,
+                            url,
+                            credentialUuid,
+                            headers,
+                            parameters,
+                            presetParameters,
+                            timeoutMs,
+                        })
+                    );
+                }
             }
         } catch (err) {
             setError("Failed to save tool");
@@ -896,6 +924,18 @@ const data = await response.json();`;
     const isBuiltinTool = tool.category === "calculator";
     const isMcpTool = tool.category === "mcp";
     const isHttpApiTool = tool.category === "http_api";
+    const hasUnsavedHttpChanges =
+        isHttpApiTool &&
+        savedHttpTestSnapshot !== null &&
+        buildHttpToolTestSnapshot({
+            httpMethod,
+            url,
+            credentialUuid,
+            headers,
+            parameters,
+            presetParameters,
+            timeoutMs,
+        }) !== savedHttpTestSnapshot;
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
     const contextVars = extractContextVars(presetParameters);
     const hasContextVars = contextVars.initialContext.length > 0 || contextVars.gatheredContext.length > 0;
@@ -1138,6 +1178,11 @@ const data = await response.json();`;
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
+                                {hasUnsavedHttpChanges && (
+                                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                        Unsaved changes — Test Tool runs the last saved configuration, not what&apos;s on screen. Save first to test your edits.
+                                    </div>
+                                )}
                                 {/* Arguments */}
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">

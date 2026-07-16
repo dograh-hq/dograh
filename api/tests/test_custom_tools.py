@@ -620,6 +620,52 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
 
     @pytest.mark.asyncio
+    async def test_get_request_serializes_object_and_array_query_params(self):
+        """Object/array-typed arguments must be JSON-stringified for GET query
+        params — httpx raises a TypeError if a dict/list is passed as-is."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid",
+            name="Search Users",
+            description="Search for users",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.example.com/users/search",
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+
+        arguments = {
+            "source": "voice",
+            "metadata": {"campaign": "spring"},
+            "tags": ["a", "b"],
+        }
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"users": []}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, arguments)
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["params"] == {
+                "source": "voice",
+                "metadata": '{"campaign": "spring"}',
+                "tags": '["a", "b"]',
+            }
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
     async def test_get_request_without_arguments_preserves_url_query_params(self):
         """Empty runtime args should not override query params already in the URL."""
         tool = MockToolModel(

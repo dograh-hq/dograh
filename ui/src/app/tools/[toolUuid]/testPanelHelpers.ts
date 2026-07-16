@@ -1,4 +1,4 @@
-import type { ParameterType } from "@/components/http";
+import type { HttpMethod, KeyValueItem, ParameterType, PresetToolParameter, ToolParameter } from "@/components/http";
 
 const TYPE_SAMPLE_VALUES: Record<ParameterType, string> = {
     string: "sample_text",
@@ -14,4 +14,24 @@ const TYPE_SAMPLE_VALUES: Record<ParameterType, string> = {
  */
 export function generateSampleValue(type: ParameterType): string {
     return TYPE_SAMPLE_VALUES[type];
+}
+
+export type HttpToolTestSnapshotFields = {
+    httpMethod: HttpMethod;
+    url: string;
+    credentialUuid: string;
+    headers: KeyValueItem[];
+    parameters: ToolParameter[];
+    presetParameters: PresetToolParameter[];
+    timeoutMs: number;
+};
+
+/**
+ * Canonical string for the HTTP API config fields that affect what "Test
+ * Tool" actually runs. Compared against the last-saved snapshot to detect
+ * unsaved changes, since Test Tool always runs the saved config, not the
+ * live form state.
+ */
+export function buildHttpToolTestSnapshot(fields: HttpToolTestSnapshotFields): string {
+    return JSON.stringify(fields);
 }

@@ -44,6 +44,7 @@ from api.services.tool_management import (
 from api.services.workflow.tools.custom_tool import (
     _resolve_preset_parameters,
     execute_http_tool,
+    serialize_query_params,
 )
 
 router = APIRouter(prefix="/tools")
@@ -269,8 +270,8 @@ async def test_tool(
     request_params = None
     if configured_method in ("POST", "PUT", "PATCH"):
         request_body = resolved_arguments or None
-    else:
-        request_params = resolved_arguments or None
+    elif resolved_arguments:
+        request_params = serialize_query_params(resolved_arguments)
 
     return ToolTestResponse(
         status=status,

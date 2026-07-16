@@ -21,6 +21,19 @@ TYPE_MAP = {
 }
 
 
+def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """JSON-stringify dict/list values so they're safe to pass as query params.
+
+    httpx (and query strings in general) only support primitive param values.
+    Object/array-typed tool arguments must be serialized before going out as
+    GET/DELETE query params, otherwise httpx raises a TypeError.
+    """
+    return {
+        k: json.dumps(v) if isinstance(v, (dict, list)) else v
+        for k, v in arguments.items()
+    }
+
+
 def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
     """Convert a ToolModel to an LLM function schema.
 
@@ -286,7 +299,7 @@ async def execute_http_tool(
     if method in ("POST", "PUT", "PATCH"):
         body = resolved_arguments
     elif method in ("GET", "DELETE") and resolved_arguments:
-        params = resolved_arguments
+        params = serialize_query_params(resolved_arguments)
 
     logger.info(
         f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): {method} {url}"

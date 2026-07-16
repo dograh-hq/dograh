@@ -79,6 +79,11 @@ type ToolTestResult = {
     data?: unknown;
     error?: string | null;
     duration_ms?: number;
+    hint?: string | null;
+    request_method?: string;
+    request_url?: string;
+    request_body?: Record<string, unknown> | null;
+    request_params?: Record<string, unknown> | null;
 };
 
 function extractContextVars(presetParams: PresetToolParameter[]): { initialContext: string[]; gatheredContext: string[] } {
@@ -1179,6 +1184,21 @@ const data = await response.json();`;
                                 {/* Result */}
                                 {testResult && (
                                     <div className="space-y-3 border-t pt-4">
+                                        {(testResult.request_method || testResult.request_url) && (
+                                            <div className="bg-muted rounded-lg p-3 font-mono text-xs space-y-1 overflow-auto">
+                                                <p className="font-medium text-foreground">
+                                                    {testResult.request_method} {testResult.request_url}
+                                                </p>
+                                                {testResult.request_body != null && (
+                                                    <pre className="whitespace-pre-wrap">Body: {JSON.stringify(testResult.request_body, null, 2)}</pre>
+                                                )}
+                                                {testResult.request_params != null && (
+                                                    <pre className="whitespace-pre-wrap">
+                                                        Query: {Object.entries(testResult.request_params).map(([k, v]) => `${k}=${v}`).join("  ")}
+                                                    </pre>
+                                                )}
+                                            </div>
+                                        )}
                                         <div className="flex items-center gap-3">
                                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
                                                 isTestSuccess
@@ -1197,6 +1217,11 @@ const data = await response.json();`;
                                                 </span>
                                             )}
                                         </div>
+                                        {testResult.hint && (
+                                            <div className="p-3 bg-amber-100 border border-amber-200 rounded text-amber-900 dark:bg-amber-900/20 dark:border-amber-900/40 dark:text-amber-400 text-sm">
+                                                {testResult.hint}
+                                            </div>
+                                        )}
                                         {testResult.error && (
                                             <div className="p-3 bg-destructive/10 border border-destructive/20 rounded text-destructive text-sm">
                                                 {testResult.error}

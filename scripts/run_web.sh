@@ -10,18 +10,14 @@ fi
 
 PORT="${WEB_PORT:-8000}"
 
-# --proxy-headers makes uvicorn honor X-Forwarded-Proto / X-Forwarded-For from
-# an upstream proxy (nginx, Traefik, ALB) so `request.url.scheme` reads back as
-# `https` inside the app — required for provider webhook signature checks that
-# hash the incoming URL.
-#
-# FORWARDED_ALLOW_IPS controls which peer IPs those headers are trusted from.
-# Default "*" trusts all peers, which is safe when the app is only reachable
-# via the proxy (the standard docker-compose and helm layouts). If uvicorn is
-# also directly reachable from an untrusted network, narrow this to the proxy
-# CIDR (e.g. FORWARDED_ALLOW_IPS="10.42.0.0/16") to prevent header spoofing.
-FORWARDED_ALLOW_IPS="${FORWARDED_ALLOW_IPS:-*}"
-
+# uvicorn enables proxy-header handling by default but only trusts
+# X-Forwarded-Proto / X-Forwarded-For from peers listed in the
+# FORWARDED_ALLOW_IPS env var (its built-in fallback when the
+# --forwarded-allow-ips flag is absent; defaults to 127.0.0.1). Behind a
+# reverse proxy that env var MUST be set, or request.url keeps the http
+# scheme and providers that sign their webhook URL (Vobiz, Twilio, Plivo)
+# fail signature validation. Each deployment declares it where its config
+# lives: docker-compose in the api service environment, helm via
+# web.forwardedAllowIps in values.yaml.
 cd "$BASE_DIR"
-exec uvicorn api.app:app --host 0.0.0.0 --port "$PORT" --workers 1 \
-  --proxy-headers --forwarded-allow-ips="$FORWARDED_ALLOW_IPS"
+exec uvicorn api.app:app --host 0.0.0.0 --port "$PORT" --workers 1

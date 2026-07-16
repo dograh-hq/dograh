@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Code, ExternalLink, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Code, ExternalLink, Loader2, Pencil, Save } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -1189,13 +1189,28 @@ const data = await response.json();`;
                                                             onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
                                                         />
                                                     ) : p.type === "object" || p.type === "array" ? (
-                                                        <Textarea
-                                                            id={`arg-${p.name}`}
-                                                            value={testArgValues[p.name] ?? (p.type === "array" ? "[]" : "{}")}
-                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                                                            rows={3}
-                                                            className="font-mono text-sm"
-                                                        />
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openJsonEditModal(p.name)}
+                                                                className="flex-1 h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-left font-mono truncate shadow-sm hover:bg-accent"
+                                                            >
+                                                                {!testArgValues[p.name] || testArgValues[p.name] === (p.type === "array" ? "[]" : "{}") ? (
+                                                                    <span className="text-muted-foreground">Empty</span>
+                                                                ) : (
+                                                                    testArgValues[p.name]
+                                                                )}
+                                                            </button>
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="icon"
+                                                                onClick={() => openJsonEditModal(p.name)}
+                                                                aria-label={`Edit ${p.name}`}
+                                                            >
+                                                                <Pencil className="w-4 h-4" />
+                                                            </Button>
+                                                        </div>
                                                     ) : (
                                                         <Input
                                                             id={`arg-${p.name}`}
@@ -1367,6 +1382,44 @@ const data = await response.json();`;
                     </DialogHeader>
                     <div className="bg-muted rounded-lg p-4 font-mono text-sm overflow-auto max-h-96">
                         <pre>{getCodeSnippet()}</pre>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* JSON Param Edit Modal (object/array test arguments) */}
+            <Dialog open={jsonEditParam !== null} onOpenChange={(open) => { if (!open) closeJsonEditModal(); }}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Edit {jsonEditParam}</DialogTitle>
+                        <DialogDescription>
+                            Edit the JSON value sent for this parameter when testing.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <textarea
+                        value={jsonEditDraft}
+                        onChange={(e) => handleJsonEditDraftChange(e.target.value)}
+                        rows={12}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono shadow-sm resize-y"
+                        spellCheck={false}
+                    />
+                    {jsonEditError && (
+                        <p className="text-sm text-destructive">{jsonEditError}</p>
+                    )}
+                    <div className="flex justify-end gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleFormatJson}
+                            disabled={jsonEditDraft.length === 0}
+                        >
+                            Format JSON
+                        </Button>
+                        <Button type="button" variant="outline" onClick={closeJsonEditModal}>
+                            Cancel
+                        </Button>
+                        <Button type="button" onClick={handleSaveJsonEdit} disabled={jsonEditError !== null}>
+                            Save
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>

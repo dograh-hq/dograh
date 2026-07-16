@@ -10,14 +10,9 @@ fi
 
 PORT="${WEB_PORT:-8000}"
 
-# uvicorn enables proxy-header handling by default but only trusts
-# X-Forwarded-Proto / X-Forwarded-For from peers listed in the
-# FORWARDED_ALLOW_IPS env var (its built-in fallback when the
-# --forwarded-allow-ips flag is absent; defaults to 127.0.0.1). Behind a
-# reverse proxy that env var MUST be set, or request.url keeps the http
-# scheme and providers that sign their webhook URL (Vobiz, Twilio, Plivo)
-# fail signature validation. Each deployment declares it where its config
-# lives: docker-compose in the api service environment, helm via
-# web.forwardedAllowIps in values.yaml.
+# uvicorn trusts X-Forwarded-Proto / X-Forwarded-For only from peers listed
+# in the FORWARDED_ALLOW_IPS env var (default 127.0.0.1). Behind a reverse
+# proxy it must be set (compose: api service env, helm: web.forwardedAllowIps)
+# or request.url stays http:// and URL-signed webhook validation fails.
 cd "$BASE_DIR"
 exec uvicorn api.app:app --host 0.0.0.0 --port "$PORT" --workers 1

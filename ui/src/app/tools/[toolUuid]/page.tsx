@@ -745,16 +745,19 @@ const data = await response.json();`;
     const openJsonEditModal = (paramName: string) => {
         const current = testArgValues[paramName] ?? "";
         let draft = current;
+        let error: string | null = null;
         try {
             draft = JSON.stringify(JSON.parse(current), null, 2);
-        } catch {
-            // current isn't valid JSON yet (freshly seeded "{}"/"[]" or a
-            // partial edit) — show as-is, let the modal's live validation
-            // guide the user.
+        } catch (err) {
+            // current isn't valid JSON yet (empty/untouched, or a partial
+            // edit) — show as-is and surface the same error the live
+            // textarea validation would, so Save starts out correctly
+            // disabled instead of silently no-op-ing.
+            error = err instanceof Error ? err.message : "Invalid JSON";
         }
         setJsonEditParam(paramName);
         setJsonEditDraft(draft);
-        setJsonEditError(null);
+        setJsonEditError(error);
     };
 
     const closeJsonEditModal = () => {

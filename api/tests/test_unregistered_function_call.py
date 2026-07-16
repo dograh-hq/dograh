@@ -4,6 +4,7 @@ import pytest
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
+    FunctionCallsFromLLMInfoFrame,
     FunctionCallsStartedFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
@@ -46,6 +47,7 @@ class TestUnregisteredFunctionCall:
             expected_down_frames=[
                 LLMServiceMetadataFrame,
                 LLMFullResponseStartFrame,
+                FunctionCallsFromLLMInfoFrame,
                 UserTurnInferenceCompletedFrame,
                 FunctionCallsStartedFrame,
                 LLMFullResponseEndFrame,

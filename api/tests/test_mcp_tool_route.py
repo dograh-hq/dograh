@@ -31,6 +31,8 @@ from api.routes.tool import (
     _populate_discovered_tools,
     refresh_mcp_tools,
     router,
+)
+from api.routes.tool import (
     test_tool as test_tool_route,
 )
 from api.services.workflow.tools.mcp_tool import (
@@ -488,7 +490,9 @@ async def test_tool_rejects_non_http_api_tool(monkeypatch):
     import api.routes.tool as tool_route
 
     monkeypatch.setattr(
-        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=_mcp_tool_model())
+        tool_route.db_client,
+        "get_tool_by_uuid",
+        AsyncMock(return_value=_mcp_tool_model()),
     )
 
     with pytest.raises(HTTPException) as ei:

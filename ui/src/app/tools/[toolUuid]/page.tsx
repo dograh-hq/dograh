@@ -196,7 +196,7 @@ export default function ToolDetailPage() {
             const next = { ...prev };
             let changed = false;
             for (const p of parameters) {
-                if (p.name in next) continue;
+                if (!p.required || p.name in next) continue;
                 if (p.type === "number") {
                     next[p.name] = "0";
                     changed = true;

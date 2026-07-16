@@ -93,6 +93,20 @@ function extractContextVars(presetParams: PresetToolParameter[]): { initialConte
     return { initialContext: [...initialContext], gatheredContext: [...gatheredContext] };
 }
 
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
+    const keys = path.split(".");
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i];
+        const next = current[key];
+        if (typeof next !== "object" || next === null || Array.isArray(next)) {
+            current[key] = {};
+        }
+        current = current[key] as Record<string, unknown>;
+    }
+    current[keys[keys.length - 1]] = value;
+}
+
 export default function ToolDetailPage() {
     const { toolUuid } = useParams<{ toolUuid: string }>();
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -703,8 +717,8 @@ const data = await response.json();`;
             const gathered_context: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(testContextValues)) {
                 if (!value) continue;
-                if (key.startsWith("initial_context.")) initial_context[key.slice("initial_context.".length)] = value;
-                else if (key.startsWith("gathered_context.")) gathered_context[key.slice("gathered_context.".length)] = value;
+                if (key.startsWith("initial_context.")) setNestedValue(initial_context, key.slice("initial_context.".length), value);
+                else if (key.startsWith("gathered_context.")) setNestedValue(gathered_context, key.slice("gathered_context.".length), value);
             }
 
             const accessToken = await getAccessToken();
@@ -775,10 +789,19 @@ const data = await response.json();`;
     const isTransferCallTool = tool.category === "transfer_call";
     const isBuiltinTool = tool.category === "calculator";
     const isMcpTool = tool.category === "mcp";
-    const isHttpApiTool = !isEndCallTool && !isTransferCallTool && !isBuiltinTool && !isMcpTool;
+    const isHttpApiTool = tool.category === "http_api";
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
     const contextVars = extractContextVars(presetParameters);
     const hasContextVars = contextVars.initialContext.length > 0 || contextVars.gatheredContext.length > 0;
+    const isTestSuccess =
+        testResult?.status === "success" &&
+        (testResult.status_code == null ||
+            (testResult.status_code >= 200 && testResult.status_code < 300));
+    const testResultBadgeLabel = isTestSuccess
+        ? "success"
+        : testResult?.status === "success"
+            ? "failed"
+            : "error";
 
     return (
         <div className="min-h-screen">
@@ -1136,12 +1159,12 @@ const data = await response.json();`;
                                     <div className="space-y-3 border-t pt-4">
                                         <div className="flex items-center gap-3">
                                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                                                testResult.status === "success"
+                                                isTestSuccess
                                                     ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                                                     : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                                             }`}>
-                                                <span>{testResult.status === "success" ? "✓" : "✗"}</span>
-                                                {testResult.status}
+                                                <span>{isTestSuccess ? "✓" : "✗"}</span>
+                                                {testResultBadgeLabel}
                                             </span>
                                             {testResult.status_code != null && (
                                                 <span className="text-sm text-muted-foreground">HTTP {testResult.status_code}</span>

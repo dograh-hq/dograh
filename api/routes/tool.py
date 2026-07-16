@@ -41,7 +41,10 @@ from api.services.tool_management import (
 from api.services.tool_management import (
     populate_discovered_tools as _populate_discovered_tools,
 )
-from api.services.workflow.tools.custom_tool import execute_http_tool
+from api.services.workflow.tools.custom_tool import (
+    _resolve_preset_parameters,
+    execute_http_tool,
+)
 
 router = APIRouter(prefix="/tools")
 
@@ -246,15 +249,28 @@ async def test_tool(
 
     hint = _hint_for_status_code(status_code, configured_method)
 
+    # Mirror execute_http_tool's own merge: model-provided arguments plus
+    # any preset parameters resolved from context. This is what actually
+    # went out over the wire, not just the model-provided arguments —
+    # preset params (e.g. {{initial_context.foo}}) are invisible to the
+    # model but still part of the real request body/params.
+    try:
+        preset_arguments = _resolve_preset_parameters(
+            tool_config, request.initial_context, request.gathered_context
+        )
+    except ValueError:
+        preset_arguments = {}
+    resolved_arguments = {**request.arguments, **preset_arguments}
+
     # Mirror execute_http_tool's own branch: POST/PUT/PATCH send the
     # resolved arguments as a JSON body; GET/DELETE send them as query
     # params. Never both.
     request_body = None
     request_params = None
     if configured_method in ("POST", "PUT", "PATCH"):
-        request_body = request.arguments or None
+        request_body = resolved_arguments or None
     else:
-        request_params = request.arguments or None
+        request_params = resolved_arguments or None
 
     return ToolTestResponse(
         status=status,

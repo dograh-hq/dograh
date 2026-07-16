@@ -512,6 +512,49 @@ async def test_tool_test_sets_request_body_for_post_method(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_tool_test_request_body_includes_resolved_preset_parameters(
+    monkeypatch,
+):
+    """The Request preview must reflect what actually went out over the
+    wire, not just the model-provided arguments — preset params resolved
+    from initial_context/gathered_context are invisible to the model but
+    are still merged into the real request body/params by
+    execute_http_tool."""
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="POST")
+    tool.definition["config"]["preset_parameters"] = [
+        {
+            "name": "source",
+            "type": "string",
+            "value_template": "{{initial_context.metadata.channel}}",
+            "required": True,
+        }
+    ]
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={"status": "success", "status_code": 200, "data": {"ok": True}}
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http",
+        request=ToolTestRequest(
+            arguments={"name": "Ada"},
+            initial_context={"metadata": {"channel": "web_widget"}},
+        ),
+        user=_fake_user(),
+    )
+
+    assert resp.request_body == {"name": "Ada", "source": "web_widget"}
+
+
+@pytest.mark.asyncio
 async def test_tool_test_no_arguments_leaves_body_and_params_none(monkeypatch):
     import api.routes.tool as tool_route
 

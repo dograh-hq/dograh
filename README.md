@@ -177,9 +177,7 @@ We love contributions! Dograh AI is 100% open source and we intend to keep it th
 
 ## ⭐ Star History
 
-<a href="https://star-history.com/#dograh-hq/dograh&Date">
-  <img src="https://api.star-history.com/svg?repos=dograh-hq/dograh&type=Date" alt="Dograh star history" width="80%">
-</a>
+<img src="docs/images/star-history.png" alt="Dograh star history" width="80%">
 
 ## 📄 License
 

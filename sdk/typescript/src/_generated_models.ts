@@ -809,6 +809,11 @@ export interface components {
              * @description LLM-only guidance; omitted from the UI.
              */
             llm_hint?: string | null;
+            /**
+             * Docs Url
+             * @description Documentation URL shown in the node editor.
+             */
+            docs_url?: string | null;
             category: components["schemas"]["NodeCategory"];
             /** Icon */
             icon: string;

@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.42.0 (2026-07-15)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(tts): add xAI as a Voice (TTS) provider by @xTararAisx in https://github.com/dograh-hq/dograh/pull/476
+* feat(auth): gate OSS signup behind ENABLE_SIGNUP flag by @prabhatlepton in https://github.com/dograh-hq/dograh/pull/514
+* feat: show model pricing in configuration UI by @a6kme in https://github.com/dograh-hq/dograh/pull/528
+* feat: add ElevenLabs realtime STT provider support (#512) by @mqasim41 in https://github.com/dograh-hq/dograh/pull/522
+* feat(helm): add HPA for arq-worker + ui, ship a lean k3s prod example by @prabhatlepton in https://github.com/dograh-hq/dograh/pull/516
+### Bug Fixes
+* fix: gate OSS email/password auth endpoints outside local auth mode by @a6kme in https://github.com/dograh-hq/dograh/pull/500
+* fix: forward billing-v2 protocol on textchat KB retrieval and node su… by @a6kme in https://github.com/dograh-hq/dograh/pull/503
+* fix: fix agent stream contract with cloudonix by @a6kme in https://github.com/dograh-hq/dograh/pull/504
+* fix(auth): allow invited org members to start workflow runs by @KomalSrinivasan in https://github.com/dograh-hq/dograh/pull/509
+* fix: increase concurrency limit an handle it across all call paths by @a6kme in https://github.com/dograh-hq/dograh/pull/508
+* fix: fix org scoped access for resources by @a6kme in https://github.com/dograh-hq/dograh/pull/517
+* fix: fix realtime event ordering by @a6kme in https://github.com/dograh-hq/dograh/pull/534
+* fix(quota): fail closed when quota verification errors (#331) by @amaanJvd in https://github.com/dograh-hq/dograh/pull/523
+* fix: fix speech to speech model transitions by @a6kme in https://github.com/dograh-hq/dograh/pull/545
+### Documentation
+* docs: add video-embedded getting-started pages for API Trigger, Webhook, Telephony, Tools & KB by @rushilbh27 in https://github.com/dograh-hq/dograh/pull/535
+### Other Changes
+* Feat/enhanced timestamped transcript by @chewwbaka in https://github.com/dograh-hq/dograh/pull/501
+* Add MiniMax M3 model option by @octo-patch in https://github.com/dograh-hq/dograh/pull/513
+* Feat/dybamic transfer by @chewwbaka in https://github.com/dograh-hq/dograh/pull/521
+* Paygent integration new with revert pipecat/realtime changes by @nihal0514 in https://github.com/dograh-hq/dograh/pull/539
+* Cloudonix Transfer Feature by @greenfieldtech-nirs in https://github.com/dograh-hq/dograh/pull/542
+* Improve outbound dialing error handling by @greenfieldtech-nirs in https://github.com/dograh-hq/dograh/pull/544
+
+## New Contributors
+* @KomalSrinivasan made their first contribution in https://github.com/dograh-hq/dograh/pull/509
+* @prabhatlepton made their first contribution in https://github.com/dograh-hq/dograh/pull/514
+* @amaanJvd made their first contribution in https://github.com/dograh-hq/dograh/pull/523
+* @nihal0514 made their first contribution in https://github.com/dograh-hq/dograh/pull/539
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.41.0...dograh-v1.42.0
+
 ## 1.41.0 (2026-07-06)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

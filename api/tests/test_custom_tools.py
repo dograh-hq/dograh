@@ -1415,6 +1415,7 @@ class TestCustomToolManagerUnit:
             # Verify handler was registered
             assert "api_call" in registered_handlers
             assert registered_kwargs["api_call"]["timeout_secs"] == pytest.approx(5)
+            assert registered_kwargs["api_call"]["is_node_transition"] is False
 
         # Now test that the handler works
         handler = registered_handlers["api_call"]
@@ -1444,6 +1445,41 @@ class TestCustomToolManagerUnit:
 
             # Verify result was returned
             assert result_received["status"] == "success"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("category", ["end_call", "transfer_call"])
+    async def test_register_handlers_marks_call_control_tools_as_node_transitions(
+        self, category
+    ):
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        mock_engine = Mock()
+        mock_engine._get_organization_id = AsyncMock(return_value=1)
+        mock_engine.llm.register_function = Mock()
+        manager = CustomToolManager(mock_engine)
+        tool = MockToolModel(
+            tool_uuid=f"{category}-uuid",
+            name=category.replace("_", " "),
+            description=f"Perform {category}",
+            category=category,
+            definition={
+                "schema_version": 1,
+                "type": category,
+                "config": {},
+            },
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.db_client.get_tools_by_uuids",
+            new=AsyncMock(return_value=[tool]),
+        ):
+            await manager.register_handlers([tool.tool_uuid])
+
+        mock_engine.llm.register_function.assert_called_once()
+        assert (
+            mock_engine.llm.register_function.call_args.kwargs["is_node_transition"]
+            is True
+        )
 
     @pytest.mark.asyncio
     async def test_transfer_call_renders_destination_from_initial_context(self):

@@ -134,6 +134,21 @@ def test_gemini_live_service_classes_use_dograh_gemini_adapter_class():
     )
 
 
+def test_vertex_live_inherits_dograh_node_transition_lifecycle():
+    assert (
+        DograhGeminiLiveVertexLLMService._requires_node_transition_context_aggregation
+        is DograhGeminiLiveLLMService._requires_node_transition_context_aggregation
+    )
+    assert (
+        DograhGeminiLiveVertexLLMService._run_or_defer_function_calls
+        is DograhGeminiLiveLLMService._run_or_defer_function_calls
+    )
+    assert (
+        DograhGeminiLiveVertexLLMService._reconnect_for_node_transition
+        is DograhGeminiLiveLLMService._reconnect_for_node_transition
+    )
+
+
 def test_gemini_live_config_accepts_json_schema_tools():
     function_schema = FunctionSchema(
         name="customer_lookup",

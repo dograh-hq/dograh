@@ -336,6 +336,18 @@ def test_tuner_cost_rate_fields_use_typed_renderer_options():
     )
 
 
+@pytest.mark.parametrize(
+    ("spec_name", "expected_docs_url"),
+    [
+        ("paygent", "https://docs.dograh.com/integrations/paygent"),
+        ("tuner", "https://docs.dograh.com/integrations/tuner"),
+    ],
+)
+def test_integration_node_docs_url(spec_name: str, expected_docs_url: str):
+    spec = next(spec for spec in all_specs() if spec.name == spec_name)
+    assert spec.docs_url == expected_docs_url
+
+
 def test_property_renderer_options_reject_unknown_hints():
     with pytest.raises(ValidationError):
         PropertyRendererOptions.model_validate({"layout": {"width": "half"}})
@@ -352,6 +364,7 @@ def test_property_renderer_options_reject_unknown_hints():
 _UI_ONLY_KEYS = frozenset(
     {
         "display_name",
+        "docs_url",
         "icon",
         "category",
         "version",

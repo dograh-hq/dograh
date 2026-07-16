@@ -158,6 +158,16 @@ web:
   replicaCount: 2
   port: 8000
 
+  # Peers uvicorn trusts X-Forwarded-Proto / X-Forwarded-For from (exported
+  # as FORWARDED_ALLOW_IPS). The ingress proxy reaches the pod from a
+  # pod-network IP — not loopback — so uvicorn's 127.0.0.1 default ignores
+  # the headers, request.url reads back as http://, and telephony providers
+  # that sign their webhook URL (Vobiz, Twilio, Plivo) fail signature
+  # validation. "*" trusts every peer, which is fine while only the ingress
+  # can reach the pod; narrow to your proxy/pod CIDR (e.g. "10.42.0.0/16")
+  # if the pod is reachable from untrusted networks.
+  forwardedAllowIps: "*"
+
   # Long-lived signaling WebSockets keep per-connection state in process
   # memory (api/routes/webrtc_signaling.py). A naive pod restart drops every
   # in-flight call. The two settings below give the gateway time to stop

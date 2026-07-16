@@ -182,6 +182,7 @@ class TestPipecatEngineToolCalls:
 
         # Assert that the context was updated with END_CALL_SYSTEM_PROMPT
         assert llm._settings.system_instruction == END_CALL_SYSTEM_PROMPT
+        assert llm._functions["end_call"].is_node_transition is True
 
     @pytest.mark.asyncio
     async def test_parallel_builtin_and_transition_calls_through_engine_1(

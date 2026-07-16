@@ -726,3 +726,336 @@ async def test_authorize_workflow_run_denies_run_bound_to_other_workflow(monkeyp
     assert result.has_quota is False
     assert result.error_code == "workflow_run_not_found"
     get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_config_resolution_error(
+    monkeypatch,
+):
+    """A config-resolution bug must deny the run, not fail open (issue #331)."""
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(side_effect=RuntimeError("configuration resolution bug")),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_user_lookup_error(monkeypatch):
+    """A DB read failure on the owner lookup is a 'cannot verify' → denied."""
+    get_config = AsyncMock()
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_user_by_id",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+    get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_run_lookup_error(monkeypatch):
+    """A DB read failure on the run lookup is a 'cannot verify' → denied."""
+    get_config = AsyncMock()
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+    get_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_opens_when_hosted_mps_is_unreachable(
+    monkeypatch,
+):
+    request = httpx.Request(
+        "POST",
+        "https://services.dograh.com/api/v1/billing/accounts/42/run-authorization",
+    )
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_byok_config()),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_workflow_run_start",
+        AsyncMock(
+            side_effect=httpx.ConnectError("connection refused", request=request)
+        ),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is True
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_hosted_mps_http_error(
+    monkeypatch,
+):
+    request = httpx.Request(
+        "POST",
+        "https://services.dograh.com/api/v1/billing/accounts/42/run-authorization",
+    )
+    response = httpx.Response(503, request=request)
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_byok_config()),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_workflow_run_start",
+        AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "MPS unavailable",
+                request=request,
+                response=response,
+            )
+        ),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_invalid_mps_url(monkeypatch):
+    request = httpx.Request("POST", "ftp://services.dograh.com/run-authorization")
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_byok_config()),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_workflow_run_start",
+        AsyncMock(
+            side_effect=httpx.UnsupportedProtocol(
+                "Unsupported protocol ftp://",
+                request=request,
+            )
+        ),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_opens_when_oss_quota_mps_is_unreachable(
+    monkeypatch,
+):
+    request = httpx.Request(
+        "GET",
+        "https://services.dograh.com/api/v1/service-keys/usage/self",
+    )
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_dograh_config()),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "check_service_key_usage",
+        AsyncMock(side_effect=httpx.ConnectTimeout("timed out", request=request)),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is True
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_on_oss_quota_mps_http_error(
+    monkeypatch,
+):
+    request = httpx.Request(
+        "GET",
+        "https://services.dograh.com/api/v1/service-keys/usage/self",
+    )
+    response = httpx.Response(503, request=request)
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_dograh_config()),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "check_service_key_usage",
+        AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "MPS unavailable",
+                request=request,
+                response=response,
+            )
+        ),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_opens_when_oss_correlation_mps_is_unreachable(
+    monkeypatch,
+):
+    request = httpx.Request(
+        "POST",
+        "https://services.dograh.com/api/v1/service-keys/correlation-id/self",
+    )
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run()),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_dograh_config(managed_service_version=2)),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "check_service_key_usage",
+        AsyncMock(return_value={"remaining_credits": 25.0}),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "create_correlation_id",
+        AsyncMock(
+            side_effect=httpx.ConnectError("connection refused", request=request)
+        ),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is True
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_fails_closed_when_storing_oss_correlation(
+    monkeypatch,
+):
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run()),
+    )
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        AsyncMock(return_value=_dograh_config(managed_service_version=2)),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "check_service_key_usage",
+        AsyncMock(return_value={"remaining_credits": 25.0}),
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "create_correlation_id",
+        AsyncMock(return_value={"correlation_id": "oss-corr-123"}),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        organization_id=42,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"

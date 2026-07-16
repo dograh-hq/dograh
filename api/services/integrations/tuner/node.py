@@ -36,6 +36,7 @@ _COST_RATE_RENDERER_OPTIONS = PropertyRendererOptions(
         "Tuner is a post-call observability export. It does not participate in the "
         "conversation graph and should not be connected to other nodes."
     ),
+    docs_url="https://docs.dograh.com/integrations/tuner",
     category=NodeCategory.integration,
     icon="Activity",
     examples=[

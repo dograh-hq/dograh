@@ -517,4 +517,9 @@ class ToolTestResponse(BaseModel):
     status_code: Optional[int] = None
     data: Optional[Any] = None
     error: Optional[str] = None
+    hint: Optional[str] = None
+    request_method: str
+    request_url: str
+    request_body: Optional[Dict[str, Any]] = None
+    request_params: Optional[Dict[str, Any]] = None
     duration_ms: int

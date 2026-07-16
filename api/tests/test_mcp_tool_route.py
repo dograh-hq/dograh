@@ -27,6 +27,7 @@ from api.routes.tool import (
     McpToolConfig,
     McpToolDefinition,
     ToolTestRequest,
+    ToolTestResponse,
     UpdateToolRequest,
     _populate_discovered_tools,
     refresh_mcp_tools,
@@ -567,3 +568,38 @@ async def test_refresh_not_found_is_404(monkeypatch):
     with pytest.raises(HTTPException) as ei:
         await refresh_mcp_tools("nope", user=_fake_user())
     assert ei.value.status_code == 404
+
+
+def test_tool_test_response_has_hint_and_request_fields():
+    """ToolTestResponse must carry hint + request_method/url/body/params
+    so the frontend can show what was sent and why it may have failed."""
+    resp = ToolTestResponse(
+        status="error",
+        status_code=405,
+        data=None,
+        error="Method Not Allowed",
+        duration_ms=12,
+        hint="HTTP 405 Method Not Allowed — the endpoint rejected the configured method (POST).",
+        request_method="POST",
+        request_url="https://example.com/thing",
+        request_body={"a": 1},
+        request_params=None,
+    )
+    assert resp.hint.startswith("HTTP 405")
+    assert resp.request_method == "POST"
+    assert resp.request_url == "https://example.com/thing"
+    assert resp.request_body == {"a": 1}
+    assert resp.request_params is None
+
+
+def test_tool_test_response_request_fields_default_to_none_or_required():
+    """hint/request_body/request_params are optional; request_method/url are required."""
+    resp = ToolTestResponse(
+        status="success",
+        duration_ms=5,
+        request_method="GET",
+        request_url="https://example.com/thing",
+    )
+    assert resp.hint is None
+    assert resp.request_body is None
+    assert resp.request_params is None

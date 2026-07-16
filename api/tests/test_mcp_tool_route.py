@@ -495,7 +495,9 @@ async def test_tool_test_sets_request_body_for_post_method(monkeypatch):
     monkeypatch.setattr(
         tool_route,
         "execute_http_tool",
-        AsyncMock(return_value={"status": "success", "status_code": 200, "data": {"id": 1}}),
+        AsyncMock(
+            return_value={"status": "success", "status_code": 200, "data": {"id": 1}}
+        ),
     )
 
     resp = await call_test_tool_route(
@@ -549,7 +551,9 @@ async def test_tool_test_no_arguments_leaves_body_and_params_none(monkeypatch):
         (503, "HTTP 503"),
     ],
 )
-async def test_tool_test_hint_for_status_code(monkeypatch, status_code, expected_snippet):
+async def test_tool_test_hint_for_status_code(
+    monkeypatch, status_code, expected_snippet
+):
     import api.routes.tool as tool_route
 
     tool = _http_tool_model(method="POST")
@@ -559,7 +563,13 @@ async def test_tool_test_hint_for_status_code(monkeypatch, status_code, expected
     monkeypatch.setattr(
         tool_route,
         "execute_http_tool",
-        AsyncMock(return_value={"status": "error", "status_code": status_code, "error": "boom"}),
+        AsyncMock(
+            return_value={
+                "status": "error",
+                "status_code": status_code,
+                "error": "boom",
+            }
+        ),
     )
 
     resp = await call_test_tool_route(
@@ -602,7 +612,9 @@ async def test_tool_test_no_hint_for_uncovered_status_code(monkeypatch):
     monkeypatch.setattr(
         tool_route,
         "execute_http_tool",
-        AsyncMock(return_value={"status": "error", "status_code": 418, "error": "teapot"}),
+        AsyncMock(
+            return_value={"status": "error", "status_code": 418, "error": "teapot"}
+        ),
     )
 
     resp = await call_test_tool_route(

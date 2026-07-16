@@ -4,7 +4,7 @@
 >
 > 💡 **提示**:本文档由社区共同维护。如果您发现翻译不准确,或与英文版本存在出入,欢迎随时提交 PR!
 
-**开源、可自托管的 Vapi 与 Retell 替代方案** —— 通过拖拽式工作流编辑器构建生产级语音智能体,2 分钟内即可上线一个能用的语音机器人。
+**开源、可自托管的 Vapi 与 Retell 替代方案** —— 使用可视化工作流构建器搭建生产级语音智能体,几分钟内完成测试,并让 AI 编码助手通过 MCP 帮你设计和编辑。
 
 <p align="center">
   <a href="https://app.dograh.com">
@@ -104,31 +104,40 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 1. 在浏览器中打开 [http://localhost:3010](http://localhost:3010)。
 2. 选择 **Inbound(呼入)** 或 **Outbound(外呼)**,为机器人命名(例如 _销售线索筛选_),再用 5-10 个词描述用途(例如 _筛选保险表单中的购买意向_)。
-3. 点击 **Web Call**,直接和你的机器人对话。
+3. 点击 **Test Agent**。
+4. 使用 **Test Audio** 在浏览器中和智能体语音对话,或使用 **Test Chat** 通过文本快速迭代。在 Test Chat 中,你可以编辑或重放用户消息,Dograh 会从该位置重新生成智能体回复和节点流转。
 
 > 🔑 **无需 API Key。** Dograh 自带一套自动生成的密钥,以及内置的 LLM / TTS / STT 栈。你可以随时接入自己的 LLM、TTS、STT 或电信服务商(如 Twilio、Vonage、Telnyx)。
 
+## 使用 MCP 构建智能体
+
+Dograh 内置 MCP 服务器,因此编码智能体可以直接在你的 Dograh 工作区中操作。
+
+连接 Codex、Claude Code、Cursor 或任何 MCP 客户端后,可以查看现有智能体、搜索 Dograh 文档、获取节点 schema、创建新工作流,并通过自然语言保存草稿修改。
+
+让编码智能体构建语音智能体时,请分享一份面向该用例的简短脚本,而不是只给一行提示。脚本最好包含智能体 persona、通话流程、规则、异议处理、成功标准,以及可选的示例对话。
+
+请参见 [MCP 指南](https://docs.dograh.com/integrations/mcp) 来连接你的助手。
+
 ## 功能特性
 
-### 语音能力
+### 语音智能体构建器
 
-- 电信集成:内置 Twilio、Vonage、Vobiz、Cloudonix 等(其他厂商也易于扩展),支持转接到人工坐席
-- 语言:支持英语(可扩展到其他语言)
-- 自定义模型:可接入自己的 TTS / STT 模型
-- 实时处理:低延迟语音交互
+- 可视化工作流构建器,支持 start 节点、agent 节点、全局指令、工具、跳转和结束通话结果
+- Test Agent 面板内置 **Test Audio** 用于浏览器语音测试,并提供 **Test Chat** 用于快速提示词迭代
+- 面向生产工作流的 QA 节点、知识库、webhook、嵌入和工具调用
+
+### 语音与电信
+
+- 内置 Twilio、Vonage、Telnyx、Plivo、Vobiz、Cloudonix 和 Asterisk ARI 等电信集成
+- 在支持的电信服务商上,可通过通话转接实现人工接管
+- 可接入自己的 LLM、TTS、STT 和电信服务商;通话产物可存储在内置 MinIO 或 AWS / S3 兼容存储中
 
 ### 开发者体验
 
-- 零配置启动:自动生成 API Key,即开即用
-- 基于 Python:基于 Python 构建,便于二次开发
-- Docker 优先:容器化部署,环境一致
-- 模块化架构:按需替换各个组件
-
-### 测试与质量
-
-- **测试模式**:在发布前端到端试跑你的智能体,既不会产生真实通话,也不会影响生产数据
-- **面板内 Web 通话**:在搭建过程中直接和机器人对话,无需配置任何电信服务
-- **QA 节点**:内置的工作流节点,可分析其他节点中提示词的质量
+- 一条命令即可完成自托管 Docker 部署
+- Python 后端和模块化 provider 架构,便于定制
+- Python 和 Node SDK,用于以编程方式创建智能体并发起外呼
 
 ## 部署方式
 
@@ -138,7 +147,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ### 自托管部署
 
-如需了解远程服务器部署及 HTTPS 配置的详细步骤,请参见我们的 [Docker 部署指南](https://docs.dograh.com/deployment/docker)。
+如需了解远程服务器部署及 HTTPS 配置的详细步骤,请参见我们的 [Docker 部署指南](https://docs.dograh.com/deployment/docker#option-2-remote-server-deployment)。
 
 ### 云端版本
 
@@ -172,9 +181,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ## ⭐ Star 历史
 
-<a href="https://star-history.com/#dograh-hq/dograh&Date">
-  <img src="https://api.star-history.com/svg?repos=dograh-hq/dograh&type=Date" alt="Dograh 的 Star 历史" width="80%">
-</a>
+<img src="docs/images/star-history.png" alt="Dograh star history" width="80%">
 
 ## 📄 许可协议
 
@@ -188,7 +195,7 @@ Dograh AI 基于 [BSD 2-Clause 协议](LICENSE)开源 —— 与构建 Dograh AI
 <br><br><br>
 
   <p align="center">
-    <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ 给我们一个 Star</a> |
+    <a href="https://github.com/dograh-hq/dograh">⭐ 给我们一个 Star</a> |
     <a href="https://app.dograh.com">☁️ 试用云端版本</a> |
     <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">💬 加入 Slack</a>
   </p>

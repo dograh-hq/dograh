@@ -1,6 +1,6 @@
 # Dograh AI
 
-**The open-source, self-hostable alternative to Vapi & Retell** — build production voice agents with a drag-and-drop workflow builder. From zero to a working bot in under 2 minutes.
+**The open-source, self-hostable alternative to Vapi & Retell** — build production voice agents with a visual workflow builder, test them in minutes, and let AI coding assistants help design and edit them through MCP.
 
 <p align="center">
   <a href="https://app.dograh.com">
@@ -104,31 +104,43 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 1. Open [http://localhost:3010](http://localhost:3010) in your browser.
 2. Pick **Inbound** or **Outbound**, name your bot (e.g. _Lead Qualification_), and describe the use case in 5–10 words (e.g. _Screen insurance form submissions for purchase intent_).
-3. Click **Web Call** — you're talking to your bot.
+3. Click **Test Agent**.
+4. Use **Test Audio** to talk to your agent in the browser, or **Test Chat** to iterate faster in text. In Test Chat, you can edit or replay user turns and Dograh will regenerate the agent's replies and node transitions from that point.
 
 > 🔑 **No API keys needed.** Dograh ships with auto-generated keys and its own LLM / TTS / STT stack. Connect your own keys for LLM, TTS, STT, or Telephony (e.g. Twilio, Vonage, Telnyx) anytime.
 
+## Build Agents with MCP
+
+Dograh ships with an MCP server, so coding agents can work directly inside your Dograh workspace.
+
+Connect Codex, Claude Code, Cursor, or any MCP client to inspect existing agents, search Dograh docs, fetch node schemas, create new workflows, and save draft edits from natural language.
+
+When asking your coding agent to build a voice agent, share a short script for
+the use case instead of only a one-line prompt. Include the agent persona, call
+flow, rules, objection handling, success criteria, and a sample conversation if
+you have one.
+
+See the [MCP guide](https://docs.dograh.com/integrations/mcp) to connect your assistant.
+
 ## Features
 
-### Voice Capabilities
+### Voice Agent Builder
 
-- Telephony: Built-in telephony integration like Twilio, Vonage, Vobiz, Cloudonix (easily add others), with support for transferring calls to human agents
-- Languages: English support (expandable to other languages)
-- Custom Models: Bring your own TTS/STT models
-- Real-time Processing: Low-latency voice interactions
+- Visual workflow builder with start nodes, agent nodes, global instructions, tools, transitions, and end-call outcomes
+- Test Agent panel with **Test Audio** for browser voice testing and **Test Chat** for fast prompt iteration
+- QA node, knowledge bases, webhooks, embeds, and tool calling for production workflows
+
+### Voice & Telephony
+
+- Built-in telephony integrations including Twilio, Vonage, Telnyx, Plivo, Vobiz, Cloudonix, and Asterisk ARI
+- Human handoff with call transfer on supported telephony providers
+- Bring your own LLM, TTS, STT, and telephony providers; store artifacts in bundled MinIO or AWS/S3-compatible storage
 
 ### Developer Experience
 
-- Zero Config Start: Auto-generated API keys for instant testing
-- Python-Based: Built on Python for easy customization
-- Docker-First: Containerized for consistent deployments
-- Modular Architecture: Swap components as needed
-
-### Testing & Quality
-
-- **Test Mode**: Try your agent end-to-end before publishing, with no production calls or data affected
-- **In-Dashboard Web Calls**: Talk to your bot directly while building — no telephony setup required
-- **QA Node**: A built-in workflow node that analyzes prompt quality across your other nodes
+- One-command Docker setup for self-hosting
+- Python backend and modular provider architecture for customization
+- Python and Node SDKs for programmatic agent creation and outbound calls
 
 ## Deployment Options
 
@@ -138,7 +150,7 @@ Refer [Local Setup](https://docs.dograh.com/contribution/setup)
 
 ### Self-Hosted Deployment
 
-For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker).
+For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker#option-2-remote-server-deployment).
 
 ### Cloud Version
 
@@ -191,7 +203,7 @@ Founded by YC alumni and exit founders committed to keeping voice AI open and ac
 <br><br><br>
 
   <p align="center">
-    <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ Star us on GitHub</a> |
+    <a href="https://github.com/dograh-hq/dograh">⭐ Star us on GitHub</a> |
     <a href="https://app.dograh.com">☁️ Try Cloud Version</a> |
     <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">💬 Join Slack</a>
   </p>

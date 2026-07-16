@@ -130,6 +130,9 @@ export default function ToolDetailPage() {
     const [testResult, setTestResult] = useState<ToolTestResult | null>(null);
     const [isTesting, setIsTesting] = useState(false);
     const [testError, setTestError] = useState<string | null>(null);
+    const [jsonEditParam, setJsonEditParam] = useState<string | null>(null);
+    const [jsonEditDraft, setJsonEditDraft] = useState("");
+    const [jsonEditError, setJsonEditError] = useState<string | null>(null);
 
     // Common form state
     const [name, setName] = useState("");
@@ -737,6 +740,58 @@ const data = await response.json();`;
             }
             return next;
         });
+    };
+
+    const openJsonEditModal = (paramName: string) => {
+        const current = testArgValues[paramName] ?? "";
+        let draft = current;
+        try {
+            draft = JSON.stringify(JSON.parse(current), null, 2);
+        } catch {
+            // current isn't valid JSON yet (freshly seeded "{}"/"[]" or a
+            // partial edit) — show as-is, let the modal's live validation
+            // guide the user.
+        }
+        setJsonEditParam(paramName);
+        setJsonEditDraft(draft);
+        setJsonEditError(null);
+    };
+
+    const closeJsonEditModal = () => {
+        setJsonEditParam(null);
+        setJsonEditDraft("");
+        setJsonEditError(null);
+    };
+
+    const handleJsonEditDraftChange = (value: string) => {
+        setJsonEditDraft(value);
+        try {
+            JSON.parse(value);
+            setJsonEditError(null);
+        } catch (err) {
+            setJsonEditError(err instanceof Error ? err.message : "Invalid JSON");
+        }
+    };
+
+    const handleFormatJson = () => {
+        try {
+            const parsed = JSON.parse(jsonEditDraft);
+            setJsonEditDraft(JSON.stringify(parsed, null, 2));
+            setJsonEditError(null);
+        } catch (err) {
+            setJsonEditError(err instanceof Error ? err.message : "Invalid JSON");
+        }
+    };
+
+    const handleSaveJsonEdit = () => {
+        if (jsonEditParam === null) return;
+        try {
+            const parsed = JSON.parse(jsonEditDraft);
+            setTestArgValues((prev) => ({ ...prev, [jsonEditParam]: JSON.stringify(parsed) }));
+            closeJsonEditModal();
+        } catch {
+            // Save is disabled while invalid — this is a safety net only.
+        }
     };
 
     const handleTestTool = async () => {

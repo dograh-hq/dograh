@@ -33,7 +33,7 @@ from api.routes.tool import (
     router,
 )
 from api.routes.tool import (
-    test_tool as test_tool_route,
+    test_tool as call_test_tool_route,
 )
 from api.services.workflow.tools.mcp_tool import (
     validate_mcp_definition,
@@ -455,7 +455,7 @@ async def test_tool_executes_http_api_tool_with_context(monkeypatch):
     )
     monkeypatch.setattr(tool_route, "execute_http_tool", executor)
 
-    resp = await test_tool_route(
+    resp = await call_test_tool_route(
         "tu-http",
         request=ToolTestRequest(
             arguments={"query": "cart"},
@@ -496,7 +496,9 @@ async def test_tool_rejects_non_http_api_tool(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as ei:
-        await test_tool_route("tu-mcp", request=ToolTestRequest(), user=_fake_user())
+        await call_test_tool_route(
+            "tu-mcp", request=ToolTestRequest(), user=_fake_user()
+        )
 
     assert ei.value.status_code == 400
 

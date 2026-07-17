@@ -871,7 +871,10 @@ def create_llm_service_from_provider(
     Also used by create_llm_service which extracts these from user_config.
     """
     logger.info(f"Creating LLM service: provider={provider}, model={model}")
-    if provider == ServiceProviders.OPENAI.value:
+    if provider in (
+        ServiceProviders.OPENAI.value,
+        ServiceProviders.ATLASCLOUD.value,
+    ):
         kwargs = {}
         if base_url:
             _validate_runtime_service_url(base_url, "base_url")
@@ -1181,7 +1184,10 @@ def create_llm_service(user_config, correlation_id: str | None = None):
     api_key = user_config.llm.api_key
 
     kwargs = {}
-    if provider == ServiceProviders.OPENAI.value:
+    if provider in (
+        ServiceProviders.OPENAI.value,
+        ServiceProviders.ATLASCLOUD.value,
+    ):
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs["base_url"] = user_config.llm.base_url

@@ -17,13 +17,17 @@ After Start Call completes, the conversation moves to the next node - typically 
 
 ## Fields
 
-**Node Name**
+**Name**
 
-A short label that identifies this node in the canvas and in call logs. This is not the agent's spoken name. The agent's spoken persona and name belong in the Greeting Text or the Prompt.
+Short identifier shown in the canvas and call logs. Has no runtime effect on what the agent says.
+
+**Greeting Type**
+
+Whether the greeting is spoken via TTS from text or played from a pre-recorded audio file. Defaults to "Text (TTS)".
 
 **Greeting Text**
 
-An optional fixed line played via text-to-speech the moment the call connects, before the AI's conversational turn begins. Use it for a consistent opening line.
+Optional fixed line spoken via TTS the moment the call connects, before the AI's conversational turn begins. Supports `{{template_variables}}`. Leave empty to skip the greeting and let the Prompt handle the opening.
 
 For example:
 
@@ -31,15 +35,13 @@ For example:
 Hi {{initial_context.debtor_name}}, this is Alex from Apex Recovery Solutions.
 ```
 
-Leave this empty if you want the agent to open the call freely based on the Prompt instead.
-
 <Note>
-You can also set Greeting Type to "Pre-recorded Audio" and attach a recording file instead of typing text. See [Pre-recorded Audio](/voice-agent/pre-recorded-audio) for setup steps.
+See [Pre-recorded Audio](/voice-agent/pre-recorded-audio) to use a recording file instead of TTS text.
 </Note>
 
-**Prompt**
+**Prompt** (required)
 
-System instructions for the AI's opening conversational turn. This runs after the Greeting Text (if set). Reference `initial_context` variables with `{{initial_context.field_name}}` syntax.
+System instructions for the AI's opening conversational turn. Runs after Greeting Text (if set). Supports `{{initial_context.field_name}}` and variables from Pre-Call Data Fetch.
 
 For example:
 
@@ -53,9 +55,33 @@ If they say wrong number, move to End Call.
 If a variable referenced in Greeting Text or Prompt is missing from the API request payload, the agent speaks the raw placeholder out loud - for example, "Hi `{{initial_context.debtor_name}}`" - instead of the caller's name. Test with a complete payload before publishing.
 </Warning>
 
+**Allow Interruption**
+
+When on, the caller can interrupt the agent mid-utterance. Off by default on Start Call.
+
+**Add Global Prompt**
+
+When on and a Global Node exists, the Global Prompt is prepended to this node's Prompt at runtime. On by default.
+
 **Delayed Start**
 
-When enabled, the agent waits a configurable number of seconds before speaking after the call connects. Useful for outbound calls where the called party needs a moment before hearing the opening line. Default is off. Duration can be set between 0.1 and 10 seconds.
+When on, the agent waits before speaking after the call connects. Useful for outbound calls where the called party needs a moment to settle. Duration can be set between 0.1 and 10 seconds.
+
+**Enable Variable Extraction**
+
+When on, an LLM extraction pass runs after this node's turn to capture structured data from the conversation into `gathered_context`.
+
+**Tools**
+
+Functions the agent can call during the opening turn. Add via the "HTTP & Tools" tab (HTTP API and built-in tools) or the "MCP" tab (MCP server tools).
+
+**Knowledge Base Documents**
+
+Documents the agent can reference during this step. Attach via "Manage Documents."
+
+**Pre-Call Data Fetch**
+
+When on, Dograh makes a POST request to an external API before the call starts and merges the JSON response into the call context as template variables.
 
 ## Outgoing edges
 

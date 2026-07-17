@@ -15,9 +15,9 @@ This means QA does not affect call behavior. It only measures it.
 
 Add QA Node anywhere on the canvas. It does not need to connect to other nodes - most builders place it off to the side to make clear it is a standalone evaluator. The node runs automatically for every eligible call once the workflow is published.
 
-## Configuring the QA System Prompt
+## Configuring the System Prompt
 
-The core configuration is a single **QA System Prompt**: instructions to the reviewer LLM that describe how to evaluate each call. The LLM reads the transcript and returns a structured JSON result.
+The core configuration is a single **System Prompt**: instructions to the reviewer LLM that describe how to evaluate each call. The LLM reads the transcript and returns a structured JSON result.
 
 The default prompt already covers common quality dimensions out of the box:
 
@@ -26,7 +26,7 @@ The default prompt already covers common quality dimensions out of the box:
 - **Overall sentiment**: positive, neutral, or negative
 - **Summary**: 1-2 sentence description of the call segment
 
-You can replace the default prompt with your own instructions when you need domain-specific evaluation. Write the prompt as instructions to the QA reviewer LLM, and specify the JSON structure you want it to return.
+You can replace the default System Prompt with your own instructions when you need domain-specific evaluation. Write the prompt as instructions to the QA reviewer LLM, and specify the JSON structure you want it to return.
 
 For compliance use cases, for example:
 
@@ -48,10 +48,11 @@ Be specific about what counts as a pass or a valid score. Include the exact beha
 
 | Setting | Default | What it does |
 |---------|---------|--------------|
-| QA Enabled | On | Toggle to disable QA without removing the node |
-| Min Call Duration | 15s | Calls shorter than this are skipped |
-| Voicemail Calls | Off | When off, voicemail calls are skipped |
-| Sample Rate | 100% | Run QA on a percentage of calls rather than all of them |
+| Enabled | On | Toggle to disable QA without removing the node |
+| Use Workflow's LLM | Off | When on, uses the same LLM configured for the workflow instead of the default QA model |
+| Minimum Call Duration (seconds) | 15 | Calls shorter than this are skipped |
+| Include Voicemail Calls | Off | When off, voicemail calls are skipped |
+| Sample Rate (%) | 100 | Run QA on a percentage of calls rather than all of them |
 
 ## Viewing QA Results
 
@@ -65,9 +66,9 @@ Open a run and scroll to the **QA Analysis** section. The result shows the full 
 
 **Connecting QA Node to other nodes.** QA has no edges. Drawing a connection from QA to another node is not possible - edges will snap back when you try.
 
-**Writing a vague QA System Prompt.** "Was the agent good?" produces unhelpful scores. Define specific, observable behaviors and the exact JSON fields you want back.
+**Writing a vague System Prompt.** "Was the agent good?" produces unhelpful scores. Define specific, observable behaviors and the exact JSON fields you want back.
 
-**Not specifying output format.** The LLM follows your instructions, but if you do not specify a return format, the output may be inconsistent across calls. Always describe the exact JSON structure in the prompt.
+**Not specifying output format.** The LLM follows your instructions, but if you do not specify a return format, the output may be inconsistent across calls. Always describe the exact JSON structure in the System Prompt.
 
 ## Next Steps
 

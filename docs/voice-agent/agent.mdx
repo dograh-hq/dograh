@@ -15,11 +15,19 @@ The instructions for how the agent should behave at this step. Be explicit about
 
 **Tools**
 
-External functions the agent can call during this step - for example, looking up account balances or updating a CRM record. Add tools in the Tools tab of the node settings.
+External functions the agent can call during this step - for example, looking up account balances or updating a CRM record. Add tools via the "HTTP & Tools" or "MCP" tabs in the node settings panel.
 
-**Knowledge Base**
+**Allow Interruption**
 
-Documents the agent can reference when answering questions. Attach knowledge base files in the KB tab.
+When on, the caller can interrupt the agent mid-utterance.
+
+**Add Global Prompt**
+
+When on and a Global Node exists, the Global Prompt is prepended to this node's Prompt at runtime. On by default.
+
+**Knowledge Base Documents**
+
+Files the agent can reference when answering questions - product guides, FAQs, policies. Attach them via the "Manage Documents" button in the node settings panel.
 
 ## Configuring edges
 

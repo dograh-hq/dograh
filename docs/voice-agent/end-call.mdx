@@ -7,11 +7,15 @@ End Call is the terminal node in a workflow. It fires right before Dograh termin
 
 ## When it runs
 
-End Call executes after all conversation logic is complete. The agent delivers its Final Message, then the call drops.
+End Call executes after all conversation logic is complete. The agent delivers its closing message, then the call drops.
 
-You can have multiple End Call nodes in one workflow, each reached by a different edge condition. For example, one for a successful outcome and one for a wrong-number path. Each can have its own distinct Final Message.
+You can have multiple End Call nodes in one workflow, each reached by a different edge condition. For example, one for a successful outcome and one for a wrong-number path. Each can have its own distinct Prompt.
 
 ## Fields
+
+**Name**
+
+Short identifier shown in the canvas and call logs. Use names that describe the ending context, for example "Successful close" or "Polite decline".
 
 **Prompt**
 
@@ -32,6 +36,18 @@ You can reference `gathered_context` variables here to pull in specific details 
 The caller committed to {{gathered_context.payment_option_chosen}}.
 Confirm this amount and thank them before ending the call.
 ```
+
+**Allow Interruption**
+
+When on, the caller can interrupt the agent mid-utterance.
+
+**Add Global Prompt**
+
+When on and a Global Node exists, the Global Prompt is prepended to this node's Prompt at runtime. On by default.
+
+**Enable Variable Extraction**
+
+When on, an LLM extraction pass runs after this node's turn to capture structured data from the conversation into `gathered_context`.
 
 ## Common mistakes
 

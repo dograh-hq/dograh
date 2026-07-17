@@ -269,7 +269,7 @@ async def test_tool(
     request_body = None
     request_params = None
     if configured_method in ("POST", "PUT", "PATCH"):
-        request_body = resolved_arguments or None
+        request_body = resolved_arguments  # keep {} so preview matches wire request
     elif resolved_arguments:
         request_params = serialize_query_params(resolved_arguments)
 

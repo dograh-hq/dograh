@@ -33,5 +33,11 @@ export type HttpToolTestSnapshotFields = {
  * live form state.
  */
 export function buildHttpToolTestSnapshot(fields: HttpToolTestSnapshotFields): string {
-    return JSON.stringify(fields);
+    // Normalize headers to a deduped key→value map (last key wins), matching
+    // the shape the save request sends. Raw KeyValueItem[] with duplicate keys
+    // would produce a snapshot that diverges from the saved state.
+    const normalizedHeaders = Object.fromEntries(
+        fields.headers.filter((h) => h.key).map((h) => [h.key, h.value])
+    );
+    return JSON.stringify({ ...fields, headers: normalizedHeaders });
 }

@@ -51,7 +51,7 @@ class TunnelURLProvider:
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    metrics_url, timeout=aiohttp.ClientTimeout(total=5)
+                    metrics_url, timeout=aiohttp.ClientTimeout(total=1)
                 ) as response:
                     if response.status != 200:
                         logger.warning(

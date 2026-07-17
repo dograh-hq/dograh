@@ -190,12 +190,10 @@ export async function impersonateAsSuperadmin(params: {
   // destination.
   // ---------------------------------------------------------------------------------
 
-  // Determine the base URL that should handle the impersonation cookie. If we are on
-  // superadmin.dograh.com we want to switch to app.dograh.com. For any other domain
-  // (e.g. localhost, staging, or already on the app) we just keep the same origin.
-  const appBaseUrl = window.location.origin.includes('superadmin.')
-    ? window.location.origin.replace('superadmin.', 'app.')
-    : window.location.origin;
+  // Determine the base URL that should handle the impersonation cookie. Configured
+  // via NEXT_PUBLIC_APP_URL (e.g. https://app.dograh.com); falls back to the current
+  // origin (e.g. localhost, staging, or already on the app).
+  const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
 
   const finalRedirect = redirectPath ?? '/workflow';
 

@@ -2,6 +2,66 @@
 title: "End Call"
 description: "You can use End Call node to configure how the Agent says its final message right before the call is terminated"
 ---
+
 <Note>
 You should have only one End Call node per Voice Agent.
 </Note>
+
+End Call is the final node in every workflow. It fires right before Dograh terminates the connection, giving your agent one last chance to speak. Every path through your workflow should eventually route here.
+
+## When it runs
+
+End Call executes after all conversation logic is complete. The agent delivers its Final Message, then the call drops.
+
+Multiple Agent Nodes can route into a single End Call node. You do not need separate End Call nodes for different call outcomes - handle variation in the Final Message prompt instead.
+
+## Fields
+
+**Final Message**
+
+A prompt that controls what your agent says before the call ends. You can make this conditional by describing different outcomes in the prompt.
+
+For example:
+
+```
+If the caller committed to a payment, confirm the arrangement: the
+exact amount and expected processing time. If no commitment was made,
+thank them for their time and let them know they can call back to
+discuss options. Always close professionally.
+```
+
+You can reference `gathered_context` variables in this prompt to pull in specific details from the conversation:
+
+```
+The caller committed to {{gathered_context.payment_option_chosen}}.
+Confirm this amount and thank them before ending the call.
+```
+
+## Common mistakes
+
+**Leaving the Final Message empty.** An empty Final Message means the agent says nothing before the line drops. The caller experiences an abrupt silence.
+
+**Creating multiple End Call nodes.** Each workflow supports exactly one. Route all paths to the same End Call node, and use the Final Message prompt to handle variation by outcome.
+
+**Agent Nodes that never route to End Call.** Any node without a downstream path to End Call leaves calls in an unresolvable state. Check your canvas for nodes with no outgoing connection to End Call before publishing.
+
+<Warning>
+If an Agent Node has no route to End Call, calls that reach that node may drop without a closing message. Review your full canvas before publishing the workflow.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="QA Node" href="/voice-agent/qa">
+    Automatically evaluate calls after they end.
+  </Card>
+  <Card title="Webhook Node" href="/voice-agent/webhook">
+    Sync call outcomes to your CRM or external systems.
+  </Card>
+  <Card title="Agent Node" href="/voice-agent/agent">
+    Configure the conversation logic that routes into End Call.
+  </Card>
+  <Card title="Context and Variables" href="/core-concepts/context-and-variables">
+    Reference gathered_context variables in your Final Message prompt.
+  </Card>
+</CardGroup>

@@ -5,10 +5,59 @@ description: "QA node allows you to run post-call quality analysis on your Voice
 
 The QA node lets you define quality analysis criteria that are automatically evaluated after each call ends. Use it to score agent performance, check compliance, or extract structured insights from conversations.
 
+## When it runs
+
+QA Node runs post-call only. It is not part of the live call flow - it reads the completed transcript after the conversation ends. It has no edges and cannot connect to any other node in the workflow.
+
+This means QA does not affect call behavior. It only measures it.
+
+## Where it sits on the canvas
+
+Add QA Node anywhere on the canvas. It does not need to connect to other nodes - most builders place it off to the side to make clear it is a standalone evaluator. The node runs automatically for every call once the workflow is published.
+
 ### Creating a QA Node
 
 You can add a QA node to your workflow from the Voice Agent Builder. Once added, configure the analysis criteria that you want to evaluate for each call.
 
+Write each criterion as a specific, evaluable question or instruction for the LLM:
+
+- "Did the agent confirm the caller's identity before discussing account details? Score: Pass or Fail."
+- "Did the agent present all three payment options - full amount, settlement, and payment plan - before accepting a decision? Score: Pass or Fail."
+- "Rate the agent's tone on a scale of 1 to 5. A 5 means consistently calm and professional throughout."
+
+You can add multiple criteria. Each runs independently on the same transcript and generates its own result.
+
+<Tip>
+Vague criteria produce inconsistent scores. Specify exactly what counts as a pass - include the behavior you expect to see, not just the general category.
+</Tip>
+
 ### Viewing QA Results
 
 After a call completes, the QA analysis runs automatically. You can view the results on the **Run Detail** page for each individual run.
+
+Open a run and scroll to the **QA Analysis** section. Each criterion shows its result - a pass/fail flag, a score, or a text response depending on how you wrote the criterion.
+
+## Common mistakes
+
+**Expecting QA to affect the live call.** QA Node is read-only at runtime. It evaluates what happened; it does not change what happens.
+
+**Connecting QA Node to other nodes.** QA has no edges. Drawing a connection from QA to another node is not possible - edges will snap back when you try.
+
+**Writing criteria that are too broad.** "Did the agent do a good job?" produces unhelpful scores. Tie each criterion to a specific, observable behavior you can verify against the transcript.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Node" href="/voice-agent/agent">
+    Configure the conversation logic that QA evaluates.
+  </Card>
+  <Card title="Webhook Node" href="/voice-agent/webhook">
+    Send call outcomes to external systems after the call ends.
+  </Card>
+  <Card title="Context and Variables" href="/core-concepts/context-and-variables">
+    Learn how gathered_context is built during the call.
+  </Card>
+  <Card title="End Call Node" href="/voice-agent/end-call">
+    Configure the final message before the call drops.
+  </Card>
+</CardGroup>

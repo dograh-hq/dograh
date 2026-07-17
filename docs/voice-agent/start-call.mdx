@@ -2,6 +2,71 @@
 title: "Start Call"
 description: "You can use Start Call node to Start the call and configure how Agent greets the user when the conversation starts."
 ---
+
 <Note>
 You should have only one Start Call node per Voice Agent.
 </Note>
+
+Start Call is the entry point for every conversation. It fires the moment a call connects and controls the first thing your agent says. Every workflow must have exactly one.
+
+## When it runs
+
+Start Call executes before any Agent Node. No other node can precede it in the call flow.
+
+After Start Call completes, the conversation moves to the next node - typically your first Agent Node. If the caller hangs up immediately or reaches a wrong-number condition, Start Call can route directly to End Call instead.
+
+## Fields
+
+**Agent Name**
+
+The name your agent introduces itself as. This is separate from the workflow name shown in the dashboard. Keep it consistent with the persona defined in your [Global Node](/voice-agent/global).
+
+**Greeting Prompt**
+
+A prompt that controls what your agent says when the call begins. You can reference `initial_context` variables here using `{{initial_context.field_name}}` syntax.
+
+For example:
+
+```
+You are Alex, calling on behalf of Apex Recovery Solutions regarding
+an outstanding balance owed to FreshCart. Greet the caller by name:
+{{initial_context.debtor_name}}. Ask if this is a good time to talk.
+```
+
+<Warning>
+If a variable referenced in the Greeting Prompt is missing from the API request payload, the agent will speak the raw template placeholder out loud - for example, "Hello `{{initial_context.debtor_name}}`" - instead of the caller's name. Test with a complete payload before publishing.
+</Warning>
+
+## Outgoing edges
+
+Start Call supports two outgoing edges:
+
+| Edge | When to use |
+|------|-------------|
+| Call continues | The caller is responsive - route to your first Agent Node |
+| Wrong number or early hangup | The caller hangs up immediately or says they have the wrong number - route to End Call |
+
+## Common mistakes
+
+**Leaving Greeting Prompt empty.** An empty greeting means your agent says nothing at the start. The caller hears silence.
+
+**Using a different name in Agent Name versus Global Node.** The Agent Name field controls what the LLM introduces itself as. A mismatch with your Global Node persona produces inconsistent self-introductions.
+
+**Adding a second Start Call node.** Each workflow has one entry point. A second Start Call node will throw an error.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Node" href="/voice-agent/agent">
+    Build the core conversation logic that follows the greeting.
+  </Card>
+  <Card title="Global Node" href="/voice-agent/global">
+    Set persona and tone rules that apply across all nodes.
+  </Card>
+  <Card title="Context and Variables" href="/core-concepts/context-and-variables">
+    Learn how initial_context variables flow through a call.
+  </Card>
+  <Card title="End Call Node" href="/voice-agent/end-call">
+    Configure the agent's final message before the call drops.
+  </Card>
+</CardGroup>

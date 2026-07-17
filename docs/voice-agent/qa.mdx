@@ -21,7 +21,7 @@ The core configuration is a single **QA System Prompt**: instructions to the rev
 
 The default prompt already covers common quality dimensions out of the box:
 
-- **Tags**: named issues detected in the transcript (dead air, user frustration, agent in loop, user suspects AI, and others)
+- **Tags**: named issues detected in the transcript. The default tag set includes `DEAD_AIR`, `USER_FRUSTRATED`, `ASSISTANT_IN_LOOP`, `ASSISTANT_REPLY_IMPROPER`, `USER_NOT_UNDERSTANDING`, `HEARING_ISSUES`, `UNCLEAR_CONVERSATION`, `USER_REQUESTING_FEATURE`, `ASSISTANT_LACKS_EMPATHY`, and `USER_DETECTS_AI`
 - **Call quality score**: 1-10 rating
 - **Overall sentiment**: positive, neutral, or negative
 - **Summary**: 1-2 sentence description of the call segment

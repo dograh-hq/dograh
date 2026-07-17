@@ -13,9 +13,9 @@ You can have multiple End Call nodes in one workflow, each reached by a differen
 
 ## Fields
 
-**Final Message**
+**Prompt**
 
-A prompt that controls what your agent says before the call ends. You can make this conditional by describing different outcomes in the prompt.
+System instructions for what the agent says before the call ends. You can make this conditional by describing different outcomes in the prompt.
 
 For example:
 
@@ -26,7 +26,7 @@ thank them for their time and let them know they can call back to
 discuss options. Always close professionally.
 ```
 
-You can reference `gathered_context` variables in this prompt to pull in specific details from the conversation:
+You can reference `gathered_context` variables here to pull in specific details from the conversation:
 
 ```
 The caller committed to {{gathered_context.payment_option_chosen}}.
@@ -35,9 +35,9 @@ Confirm this amount and thank them before ending the call.
 
 ## Common mistakes
 
-**Leaving the Final Message empty.** An empty Final Message means the agent says nothing before the line drops. The caller experiences an abrupt silence.
+**Leaving the Prompt empty.** An empty Prompt means the agent says nothing before the line drops. The caller experiences an abrupt silence.
 
-**Routing all paths into one End Call when outcomes need different messages.** Multiple End Call nodes are supported. If a wrong-number path and a successful-commitment path need different closing lines, use two End Call nodes with distinct Final Messages rather than cramming both into one prompt.
+**Routing all paths into one End Call when outcomes need different closing lines.** Multiple End Call nodes are supported. If a wrong-number path and a successful-commitment path need different closing lines, use two End Call nodes with distinct Prompts rather than cramming both into one.
 
 **Agent Nodes that never route to End Call.** Any node without a downstream path to End Call leaves calls in an unresolvable state.
 
@@ -58,6 +58,6 @@ Check every Agent Node for a path to End Call before publishing. Nodes with no d
     Configure the conversation logic that routes into End Call.
   </Card>
   <Card title="Context and Variables" href="/core-concepts/context-and-variables">
-    Reference `gathered_context` variables in your Final Message prompt.
+    Reference `gathered_context` variables in your End Call prompt.
   </Card>
 </CardGroup>

@@ -59,12 +59,24 @@ When enabled, the agent waits a configurable number of seconds before speaking a
 
 ## Outgoing edges
 
-Start Call supports two outgoing edges:
+Start Call can have multiple outgoing edges, each with a user-defined label and a condition written in plain language. The LLM reads the conversation and picks the edge whose condition best matches.
 
-| Edge | When to use |
-|------|-------------|
-| Call continues | The caller is responsive - route to your first Agent Node |
-| Wrong number or early hangup | The caller hangs up immediately or says they have the wrong number - route to End Call |
+Each edge needs two things:
+
+- **Label:** a short name shown on the canvas (you define this)
+- **Condition:** the instruction that tells the LLM when to take this edge
+
+A typical Start Call has two edges:
+
+```
+Label: "caller confirmed"
+Condition: "The caller confirmed they are the right person and are ready to continue."
+
+Label: "wrong number"
+Condition: "The caller says this is the wrong number, asks not to be called, or refuses to confirm their identity."
+```
+
+You can add more edges if the opening turn needs to branch further.
 
 ## Common mistakes
 

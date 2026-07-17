@@ -137,13 +137,6 @@
         "icon": "code",
         "groups": [
           {
-            "group": "Contribution",
-            "pages": [
-              "contribution/setup",
-              "contribution/reference"
-            ]
-          },
-          {
             "group": "Guides",
             "pages": [
               "developer/workflow-schema",
@@ -325,23 +318,5 @@
   },
   "api": {
     "openapi": "api-reference/openapi.json"
-  },
-  "redirects": [
-    {
-      "source": "/contribution/introduction",
-      "destination": "/contribution/setup"
-    },
-    {
-      "source": "/contribution/devcontainer",
-      "destination": "/contribution/reference"
-    },
-    {
-      "source": "/contribution/host-managed-setup",
-      "destination": "/contribution/reference"
-    },
-    {
-      "source": "/contribution/fork-workflow",
-      "destination": "/contribution/reference"
-    }
-  ]
+  }
 }

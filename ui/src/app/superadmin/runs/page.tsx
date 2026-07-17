@@ -493,7 +493,7 @@ export default function RunsPage() {
                                                                                 {
                                                                                     field: 'extra.run_id',
                                                                                     op: '==',
-                                                                                    value: run.id,
+                                                                                    value: `"${run.id}"`,
                                                                                 },
                                                                             ],
                                                                             field: '',

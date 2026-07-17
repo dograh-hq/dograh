@@ -5532,6 +5532,8 @@ export type TelephonyConfigurationCreateRequest = {
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
     } & TelnyxConfigurationRequest) | ({
+        provider: 'three_cx';
+    } & ThreeCxConfigurationRequest) | ({
         provider: 'twilio';
     } & TwilioConfigurationRequest) | ({
         provider: 'vobiz';
@@ -5641,6 +5643,7 @@ export type TelephonyConfigurationResponse = {
     cloudonix?: CloudonixConfigurationResponse | null;
     ari?: AriConfigurationResponse | null;
     telnyx?: TelnyxConfigurationResponse | null;
+    three_cx?: ThreeCxConfigurationResponse | null;
 };
 
 /**
@@ -5665,6 +5668,8 @@ export type TelephonyConfigurationUpdateRequest = {
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
     } & TelnyxConfigurationRequest) | ({
+        provider: 'three_cx';
+    } & ThreeCxConfigurationRequest) | ({
         provider: 'twilio';
     } & TwilioConfigurationRequest) | ({
         provider: 'vobiz';
@@ -5803,6 +5808,135 @@ export type TelnyxConfigurationResponse = {
      * Webhook Public Key
      */
     webhook_public_key?: string | null;
+    /**
+     * From Numbers
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * ThreeCxConfigurationRequest
+ *
+ * Request schema for a 3CX trunk fronted by an Asterisk ARA instance.
+ *
+ * The provider owns two distinct credential groups:
+ *
+ * * **Asterisk side** (``ari_endpoint``, ``app_name``, ``app_password``,
+ * ``ws_client_name``) — how Dograh's REST + externalMedia loop talks to
+ * the bridging Asterisk box at call time. Identical in role to the ARI
+ * provider.
+ * * **3CX side** (``sip_domain``, ``extension``, ``sip_password``,
+ * ``strip_prefix``) — the upstream PBX peer credentials. Dograh never
+ * speaks SIP itself; these are consumed at save time by
+ * ``preprocess_credentials_on_save`` to provision the matching PJSIP
+ * endpoint/aor/auth/registration rows on the Asterisk ARA Postgres.
+ */
+export type ThreeCxConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'three_cx';
+    /**
+     * Ari Endpoint
+     *
+     * ARI base URL of the bridging Asterisk (e.g., http://asterisk:8088)
+     */
+    ari_endpoint: string;
+    /**
+     * App Name
+     *
+     * Stasis application name registered in Asterisk
+     */
+    app_name: string;
+    /**
+     * App Password
+     *
+     * ARI user password
+     */
+    app_password: string;
+    /**
+     * Ws Client Name
+     *
+     * websocket_client.conf connection name for externalMedia
+     */
+    ws_client_name?: string;
+    /**
+     * Sip Domain
+     *
+     * 3CX SIP host/domain (e.g., 1156.3cx.cloud)
+     */
+    sip_domain: string;
+    /**
+     * Extension
+     *
+     * 3CX extension number (e.g., 12611)
+     */
+    extension: string;
+    /**
+     * Sip Password
+     *
+     * SIP auth password for the extension
+     */
+    sip_password: string;
+    /**
+     * Strip Prefix
+     *
+     * Optional regex stripped from outbound destinations before the call hits the trunk. Italian deployments typically use '^\+39'.
+     */
+    strip_prefix?: string;
+    /**
+     * From Numbers
+     *
+     * E.164 numbers permitted as caller-id for outbound calls
+     */
+    from_numbers?: Array<string>;
+};
+
+/**
+ * ThreeCxConfigurationResponse
+ *
+ * Response schema for a 3CX configuration.
+ *
+ * ``app_password`` and ``sip_password`` are masked by the org route layer
+ * before serialization — see ``ProviderUIField.sensitive`` in __init__.py.
+ */
+export type ThreeCxConfigurationResponse = {
+    /**
+     * Provider
+     */
+    provider?: 'three_cx';
+    /**
+     * Ari Endpoint
+     */
+    ari_endpoint: string;
+    /**
+     * App Name
+     */
+    app_name: string;
+    /**
+     * App Password
+     */
+    app_password: string;
+    /**
+     * Ws Client Name
+     */
+    ws_client_name?: string;
+    /**
+     * Sip Domain
+     */
+    sip_domain: string;
+    /**
+     * Extension
+     */
+    extension: string;
+    /**
+     * Sip Password
+     */
+    sip_password: string;
+    /**
+     * Strip Prefix
+     */
+    strip_prefix?: string;
     /**
      * From Numbers
      */
@@ -7473,6 +7607,38 @@ export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPo
 export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors];
 
 export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostData = {
+    body?: never;
+    path: {
+        /**
+         * Transfer Id
+         */
+        transfer_id: string;
+    };
+    query?: never;
+    url: '/api/v1/telephony/cloudonix/transfer-result/{transfer_id}';
+};
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostError = HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostErrors[keyof HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostErrors];
+
+export type HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostResponses = {
     /**
      * Successful Response
      */
@@ -11682,6 +11848,8 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData 
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
     } & TelnyxConfigurationRequest) | ({
+        provider: 'three_cx';
+    } & ThreeCxConfigurationRequest) | ({
         provider: 'twilio';
     } & TwilioConfigurationRequest) | ({
         provider: 'vobiz';

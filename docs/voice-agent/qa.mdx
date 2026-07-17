@@ -3,7 +3,7 @@ title: "QA"
 description: "QA node allows you to run post-call quality analysis on your Voice Agent runs"
 ---
 
-The QA node runs an LLM quality review on the call transcript after each conversation ends. Use it to score agent performance, flag compliance issues, and surface patterns across calls — without listening to recordings manually.
+The QA node runs an LLM quality review on the call transcript after each conversation ends. Use it to score agent performance, flag compliance issues, and surface patterns across calls, without listening to recordings manually.
 
 ## When it runs
 
@@ -17,7 +17,7 @@ Add QA Node anywhere on the canvas. It does not need to connect to other nodes -
 
 ## Configuring the QA System Prompt
 
-The core configuration is a single **QA System Prompt** — instructions to the reviewer LLM that describe how to evaluate each call. The LLM reads the transcript and returns a structured JSON result.
+The core configuration is a single **QA System Prompt**: instructions to the reviewer LLM that describe how to evaluate each call. The LLM reads the transcript and returns a structured JSON result.
 
 The default prompt already covers common quality dimensions out of the box:
 

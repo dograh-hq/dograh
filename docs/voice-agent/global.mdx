@@ -24,7 +24,7 @@ Avoid putting step-specific logic here. Instructions like "offer the settlement 
 
 ## How it works
 
-Global Node does not run as a separate step in the call. It has no edges and cannot be connected to other nodes. Its content is silently appended to each Agent Node prompt where "Add Global Prompt" is enabled.
+Global Node does not run as a separate step in the call. It has no edges and cannot be connected to other nodes. Its content is silently prepended to each Agent Node prompt where "Add Global Prompt" is enabled.
 
 The LLM sees one combined prompt: the global content first, followed by the node-specific instructions. The caller never notices the seam.
 

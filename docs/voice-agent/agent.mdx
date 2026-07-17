@@ -37,6 +37,29 @@ Write edge conditions as specifically as possible:
 If the agent keeps routing to the wrong edge, make the condition more specific. Conditions like "user responds" or "conversation ends" are too broad and will route unpredictably.
 </Tip>
 
+## Extracting variables
+
+Agent Node can extract structured data from the conversation after the node completes. Enable this in the node settings under "Enable Variable Extraction."
+
+Once enabled, configure two things:
+
+- **Extraction Prompt:** overall instructions telling the LLM how to approach the extraction.
+- **Variables to Extract:** a list of variables, each with a name, a data type (`string`, `number`, `boolean`), and a per-variable hint describing what to capture.
+
+For example:
+
+```
+Extraction Prompt:
+Extract the payment outcome from this debt collection call.
+
+Variables:
+- amount_user_will_pay (string): Amount the user said they will pay.
+- payment_method (string): How they said they will pay, e.g. card, bank transfer.
+- sentiment (string): User tone: cooperative, hesitant, angry, refused.
+```
+
+Each extracted value is stored in `gathered_context` and can be referenced in downstream nodes and webhook payloads as `{{gathered_context.variable_name}}`.
+
 ## Using multiple Agent Nodes
 
 Break complex conversations into phases. Each Agent Node handles one part of the flow. A debt collection workflow, for example, might chain three Agent Nodes: identity verification, offer presentation, and objection handling.

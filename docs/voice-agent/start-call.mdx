@@ -17,25 +17,45 @@ After Start Call completes, the conversation moves to the next node - typically 
 
 ## Fields
 
-**Agent Name**
+**Node Name**
 
-The name your agent introduces itself as. This is separate from the workflow name shown in the dashboard. Keep it consistent with the persona defined in your [Global Node](/voice-agent/global).
+A short label that identifies this node in the canvas and in call logs. This is not the agent's spoken name. The agent's spoken persona and name belong in the Greeting Text or the Prompt.
 
-**Greeting Prompt**
+**Greeting Text**
 
-A prompt that controls what your agent says when the call begins. You can reference `initial_context` variables here using `{{initial_context.field_name}}` syntax.
+An optional fixed line played via text-to-speech the moment the call connects, before the AI's conversational turn begins. Use it for a consistent opening line.
 
 For example:
 
 ```
-You are Alex, calling on behalf of Apex Recovery Solutions regarding
-an outstanding balance owed to FreshCart. Greet the caller by name:
-{{initial_context.debtor_name}}. Ask if this is a good time to talk.
+Hi {{initial_context.debtor_name}}, this is Alex from Apex Recovery Solutions.
+```
+
+Leave this empty if you want the agent to open the call freely based on the Prompt instead.
+
+<Note>
+You can also set Greeting Type to "Pre-recorded Audio" and attach a recording file instead of typing text. See [Pre-recorded Audio](/voice-agent/pre-recorded-audio) for setup steps.
+</Note>
+
+**Prompt**
+
+System instructions for the AI's opening conversational turn. This runs after the Greeting Text (if set). Reference `initial_context` variables with `{{initial_context.field_name}}` syntax.
+
+For example:
+
+```
+After greeting the caller, confirm you are speaking with
+{{initial_context.debtor_name}}. If they confirm, move to Debt Disclosure.
+If they say wrong number, move to End Call.
 ```
 
 <Warning>
-If a variable referenced in the Greeting Prompt is missing from the API request payload, the agent will speak the raw template placeholder out loud - for example, "Hello `{{initial_context.debtor_name}}`" - instead of the caller's name. Test with a complete payload before publishing.
+If a variable referenced in Greeting Text or Prompt is missing from the API request payload, the agent speaks the raw placeholder out loud - for example, "Hi `{{initial_context.debtor_name}}`" - instead of the caller's name. Test with a complete payload before publishing.
 </Warning>
+
+**Delayed Start**
+
+When enabled, the agent waits a configurable number of seconds before speaking after the call connects. Useful for outbound calls where the called party needs a moment before hearing the opening line. Default is off. Duration can be set between 0.1 and 10 seconds.
 
 ## Outgoing edges
 
@@ -50,7 +70,7 @@ Start Call supports two outgoing edges:
 
 **Leaving Greeting Prompt empty.** An empty greeting means your agent says nothing at the start. The caller hears silence.
 
-**Using a different name in Agent Name versus Global Node.** The Agent Name field controls what the LLM introduces itself as. A mismatch with your Global Node persona produces inconsistent self-introductions.
+**Confusing Node Name with the agent's spoken name.** Node Name is a canvas label for your own reference. The name the agent introduces itself as comes from the Greeting Text or Prompt content, or the persona you define in the [Global Node](/voice-agent/global).
 
 **Adding a second Start Call node.** Each workflow has one entry point. A second Start Call node will throw an error.
 

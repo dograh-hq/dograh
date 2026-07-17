@@ -3,17 +3,13 @@ title: "End Call"
 description: "You can use End Call node to configure how the Agent says its final message right before the call is terminated"
 ---
 
-<Note>
-You should have only one End Call node per Voice Agent.
-</Note>
-
-End Call is the final node in every workflow. It fires right before Dograh terminates the connection, giving your agent one last chance to speak. Every path through your workflow should eventually route here.
+End Call is the terminal node in a workflow. It fires right before Dograh terminates the connection, giving your agent one last chance to speak. Every path through your workflow must eventually reach an End Call node.
 
 ## When it runs
 
 End Call executes after all conversation logic is complete. The agent delivers its Final Message, then the call drops.
 
-Multiple Agent Nodes can route into a single End Call node. You do not need separate End Call nodes for different call outcomes - handle variation in the Final Message prompt instead.
+You can have multiple End Call nodes in one workflow, each reached by a different edge condition. For example, one for a successful outcome and one for a wrong-number path. Each can have its own distinct Final Message.
 
 ## Fields
 
@@ -41,7 +37,7 @@ Confirm this amount and thank them before ending the call.
 
 **Leaving the Final Message empty.** An empty Final Message means the agent says nothing before the line drops. The caller experiences an abrupt silence.
 
-**Creating multiple End Call nodes.** Each workflow supports exactly one. Route all paths to the same End Call node, and use the Final Message prompt to handle variation by outcome.
+**Routing all paths into one End Call when outcomes need different messages.** Multiple End Call nodes are supported. If a wrong-number path and a successful-commitment path need different closing lines, use two End Call nodes with distinct Final Messages rather than cramming both into one prompt.
 
 **Agent Nodes that never route to End Call.** Any node without a downstream path to End Call leaves calls in an unresolvable state.
 

@@ -555,7 +555,7 @@ async def test_tool_test_request_body_includes_resolved_preset_parameters(
 
 
 @pytest.mark.asyncio
-async def test_tool_test_no_arguments_leaves_body_and_params_none(monkeypatch):
+async def test_tool_test_no_arguments_post_shows_empty_body(monkeypatch):
     import api.routes.tool as tool_route
 
     tool = _http_tool_model(method="POST")
@@ -572,7 +572,9 @@ async def test_tool_test_no_arguments_leaves_body_and_params_none(monkeypatch):
         "tu-http", request=ToolTestRequest(), user=_fake_user()
     )
 
-    assert resp.request_body is None
+    # POST with no arguments sends json={} over the wire; preview must show {}
+    # so callers can distinguish an absent body from an empty one.
+    assert resp.request_body == {}
     assert resp.request_params is None
 
 

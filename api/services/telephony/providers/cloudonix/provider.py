@@ -626,11 +626,6 @@ class CloudonixProvider(TelephonyProvider):
                 )
                 return
 
-            logger.info(
-                f"Cloudonix agent-stream: inbound customParemeters "
-                f"{start.get("customParameters")}"
-            )
-
             start_context = start.get("context")
             custom_parameters = start.get("customParameters")
             builtin_context = {

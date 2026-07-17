@@ -43,10 +43,10 @@ Confirm this amount and thank them before ending the call.
 
 **Creating multiple End Call nodes.** Each workflow supports exactly one. Route all paths to the same End Call node, and use the Final Message prompt to handle variation by outcome.
 
-**Agent Nodes that never route to End Call.** Any node without a downstream path to End Call leaves calls in an unresolvable state. Check your canvas for nodes with no outgoing connection to End Call before publishing.
+**Agent Nodes that never route to End Call.** Any node without a downstream path to End Call leaves calls in an unresolvable state.
 
 <Warning>
-If an Agent Node has no route to End Call, calls that reach that node may drop without a closing message. Review your full canvas before publishing the workflow.
+Check every Agent Node for a path to End Call before publishing. Nodes with no downstream connection to End Call will drop the call without a closing message.
 </Warning>
 
 ## Next Steps
@@ -62,6 +62,6 @@ If an Agent Node has no route to End Call, calls that reach that node may drop w
     Configure the conversation logic that routes into End Call.
   </Card>
   <Card title="Context and Variables" href="/core-concepts/context-and-variables">
-    Reference gathered_context variables in your Final Message prompt.
+    Reference `gathered_context` variables in your Final Message prompt.
   </Card>
 </CardGroup>

@@ -1009,6 +1009,13 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             SessionProperties,
         )
 
+        # Pin the transcription language when configured. Without it the model
+        # auto-detects per utterance, which misfires on short/noisy telephony
+        # audio (e.g. Portuguese transcribed as English or Chinese).
+        transcription_kwargs = {}
+        if language:
+            transcription_kwargs["language"] = language
+
         return DograhOpenAIRealtimeLLMService(
             api_key=api_key,
             settings=DograhOpenAIRealtimeLLMService.Settings(
@@ -1016,7 +1023,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 session_properties=SessionProperties(
                     audio=AudioConfiguration(
                         input=AudioInput(
-                            transcription=InputAudioTranscription(),
+                            transcription=InputAudioTranscription(
+                                **transcription_kwargs
+                            ),
                         ),
                         output=AudioOutput(
                             voice=voice or "alloy",

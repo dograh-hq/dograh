@@ -584,6 +584,20 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
 
 
 OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
+# ISO 639-1 codes accepted by the Realtime API's input_audio_transcription.
+# Not exhaustive — the field allows custom input.
+OPENAI_REALTIME_LANGUAGES = [
+    "en",
+    "es",
+    "pt",
+    "fr",
+    "de",
+    "it",
+    "hi",
+    "ja",
+    "ko",
+    "zh",
+]
 OPENAI_REALTIME_VOICES = [
     "alloy",
     "ash",
@@ -615,6 +629,17 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         description="Voice the model speaks in.",
         json_schema_extra={
             "examples": OPENAI_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    language: str | None = Field(
+        default=None,
+        description=(
+            "ISO 639-1 language code for input audio transcription (e.g. 'pt', 'es'). "
+            "Improves transcription accuracy and latency. Leave unset to auto-detect."
+        ),
+        json_schema_extra={
+            "examples": OPENAI_REALTIME_LANGUAGES,
             "allow_custom_input": True,
         },
     )

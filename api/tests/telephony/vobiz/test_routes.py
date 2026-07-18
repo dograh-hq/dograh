@@ -272,7 +272,7 @@ async def test_vobiz_configure_inbound_updates_application_and_attaches_number()
     assert session.requests == [
         (
             "POST",
-            "https://api.vobiz.ai/api/v1/account/MA123/numbers/"
+            "https://api.vobiz.ai/api/v1/Account/MA123/numbers/"
             "%2B15551230002/application",
             {"application_id": "12345678901234567"},
         ),
@@ -304,15 +304,42 @@ async def test_vobiz_configure_inbound_does_not_update_application_when_attach_f
         )
 
     assert not result.ok
-    assert result.message == "Vobiz API 409: number already assigned"
+    assert result.message == (
+        "Vobiz indicates that this phone number is already attached to an "
+        "application. To enable inbound calls in Dograh, review the phone number "
+        "configuration in Vobiz and ensure that the number is attached to the "
+        "Application ID configured in Dograh (12345678901234567)."
+    )
     assert session.requests == [
         (
             "POST",
-            "https://api.vobiz.ai/api/v1/account/MA123/numbers/"
+            "https://api.vobiz.ai/api/v1/Account/MA123/numbers/"
             "%2B15551230002/application",
             {"application_id": "12345678901234567"},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_vobiz_configure_inbound_explains_missing_number_or_application():
+    provider = _provider(application_id="12345678901234567")
+    session = _StubSession([_StubResponse(404, "not found")])
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await provider.configure_inbound(
+            "+15551230002",
+            "https://voice.example.test/api/v1/telephony/inbound/run",
+        )
+
+    assert not result.ok
+    assert result.message == (
+        "Vobiz could not find this phone number or the configured Application ID. "
+        "Confirm that the number belongs to this Vobiz account and that Application "
+        "ID 12345678901234567 exists."
+    )
 
 
 @pytest.mark.asyncio
@@ -330,7 +357,29 @@ async def test_vobiz_configure_inbound_detaches_number_without_clearing_applicat
     assert session.requests == [
         (
             "DELETE",
-            "https://api.vobiz.ai/api/v1/account/MA123/numbers/"
+            "https://api.vobiz.ai/api/v1/Account/MA123/numbers/"
+            "%2B15551230002/application",
+            None,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vobiz_configure_inbound_treats_missing_detach_as_success():
+    provider = _provider(application_id="12345678901234567")
+    session = _StubSession([_StubResponse(404, "number has no application")])
+
+    with patch(
+        "api.services.telephony.providers.vobiz.provider.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await provider.configure_inbound("+15551230002", None)
+
+    assert result.ok
+    assert session.requests == [
+        (
+            "DELETE",
+            "https://api.vobiz.ai/api/v1/Account/MA123/numbers/"
             "%2B15551230002/application",
             None,
         )

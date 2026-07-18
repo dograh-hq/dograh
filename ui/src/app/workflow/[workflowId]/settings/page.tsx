@@ -647,6 +647,11 @@ function GeneralSection({
                         </Select>
                         <p className="text-xs text-muted-foreground">
                             {selectedTurnStartStrategy?.description}
+                            {turnStartStrategy === "provisional_vad" && (
+                                <span className="ml-2 inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                    Experimental
+                                </span>
+                            )}
                         </p>
                     </div>
                     {turnStartStrategy === "min_words" && (

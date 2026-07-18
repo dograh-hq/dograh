@@ -5939,6 +5939,88 @@ export type ToolResponse = {
 };
 
 /**
+ * ToolTestRequest
+ *
+ * Request body for testing an HTTP API tool outside a live call.
+ */
+export type ToolTestRequest = {
+    /**
+     * Llm Params
+     *
+     * Values for parameters normally supplied by the model.
+     */
+    llm_params?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Preset Params
+     *
+     * Resolved values for parameters normally supplied from presets.
+     */
+    preset_params?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ToolTestResponse
+ *
+ * Result of testing an HTTP API tool.
+ */
+export type ToolTestResponse = {
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Status Code
+     */
+    status_code?: number | null;
+    /**
+     * Data
+     */
+    data?: unknown | null;
+    /**
+     * Error
+     */
+    error?: string | null;
+    /**
+     * Hint
+     */
+    hint?: string | null;
+    /**
+     * Request Method
+     */
+    request_method: string;
+    /**
+     * Request Url
+     */
+    request_url: string;
+    /**
+     * Request Headers
+     */
+    request_headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Request Body
+     */
+    request_body?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Request Params
+     */
+    request_params?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Duration Ms
+     */
+    duration_ms: number;
+};
+
+/**
  * TransferCallConfig
  *
  * Configuration for Transfer Call tools.
@@ -10663,6 +10745,50 @@ export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses = {
 };
 
 export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponse = RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses[keyof RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses];
+
+export type TestToolApiV1ToolsToolUuidTestPostData = {
+    body: ToolTestRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Tool Uuid
+         */
+        tool_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{tool_uuid}/test';
+};
+
+export type TestToolApiV1ToolsToolUuidTestPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestToolApiV1ToolsToolUuidTestPostError = TestToolApiV1ToolsToolUuidTestPostErrors[keyof TestToolApiV1ToolsToolUuidTestPostErrors];
+
+export type TestToolApiV1ToolsToolUuidTestPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolTestResponse;
+};
+
+export type TestToolApiV1ToolsToolUuidTestPostResponse = TestToolApiV1ToolsToolUuidTestPostResponses[keyof TestToolApiV1ToolsToolUuidTestPostResponses];
 
 export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostData = {
     body?: never;

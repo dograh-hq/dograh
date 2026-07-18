@@ -26,9 +26,15 @@ from api.routes.tool import (
     CreateToolRequest,
     McpToolConfig,
     McpToolDefinition,
+    ToolTestRequest,
+    ToolTestResponse,
     UpdateToolRequest,
     _populate_discovered_tools,
     refresh_mcp_tools,
+    router,
+)
+from api.routes.tool import (
+    test_tool as call_test_tool_route,
 )
 from api.services.workflow.tools.mcp_tool import (
     validate_mcp_definition,
@@ -420,6 +426,314 @@ def _mcp_tool_model(org_id=1):
     return t
 
 
+def _http_tool_model(method="GET"):
+    t = MagicMock()
+    t.tool_uuid = "tu-http"
+    t.name = "Mock HTTP"
+    t.category = "http_api"
+    t.definition = {
+        "schema_version": 1,
+        "type": "http_api",
+        "config": {"method": method, "url": "https://example.com/search"},
+    }
+    return t
+
+
+@pytest.mark.asyncio
+async def test_tool_executes_http_api_tool_with_llm_and_preset_params(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model()
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    executor = AsyncMock(
+        return_value={
+            "status": "success",
+            "status_code": 200,
+            "data": {"ok": True},
+        }
+    )
+    monkeypatch.setattr(tool_route, "execute_http_tool", executor)
+
+    resp = await call_test_tool_route(
+        "tu-http",
+        request=ToolTestRequest(
+            llm_params={"query": "cart"},
+            preset_params={
+                "customer_id": "c_123",
+                "sentiment": "cooperative",
+            },
+        ),
+        user=_fake_user(),
+    )
+
+    assert resp.status == "success"
+    assert resp.status_code == 200
+    assert resp.data == {"ok": True}
+    assert resp.error is None
+    executor.assert_awaited_once_with(
+        tool,
+        {"query": "cart"},
+        preset_params={
+            "customer_id": "c_123",
+            "sentiment": "cooperative",
+        },
+        organization_id=1,
+        include_request_headers=True,
+    )
+    assert resp.hint is None
+    assert resp.request_method == "GET"
+    assert resp.request_url == "https://example.com/search"
+    assert resp.request_headers == {}
+    assert resp.request_body is None
+    assert resp.request_params == {
+        "query": "cart",
+        "customer_id": "c_123",
+        "sentiment": "cooperative",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tool_test_sets_request_body_for_post_method(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="POST")
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={"status": "success", "status_code": 200, "data": {"id": 1}}
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http",
+        request=ToolTestRequest(llm_params={"name": "Ada"}),
+        user=_fake_user(),
+    )
+
+    assert resp.request_method == "POST"
+    assert resp.request_body == {"name": "Ada"}
+    assert resp.request_params is None
+
+
+@pytest.mark.asyncio
+async def test_tool_test_returns_masked_effective_request_headers(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="POST")
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={
+                "status": "success",
+                "status_code": 200,
+                "data": {"ok": True},
+                "request_headers": {
+                    "X-Tenant": "acme",
+                    "Authorization": "****************oken",
+                },
+            }
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http", request=ToolTestRequest(), user=_fake_user()
+    )
+
+    assert resp.request_headers == {
+        "X-Tenant": "acme",
+        "Authorization": "****************oken",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tool_test_request_body_includes_resolved_preset_parameters(
+    monkeypatch,
+):
+    """The Request preview includes direct preset values alongside LLM values."""
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="POST")
+    tool.definition["config"]["preset_parameters"] = [
+        {
+            "name": "source",
+            "type": "string",
+            "value_template": "{{initial_context.metadata.channel}}",
+            "required": True,
+        }
+    ]
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={"status": "success", "status_code": 200, "data": {"ok": True}}
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http",
+        request=ToolTestRequest(
+            llm_params={"name": "Ada"},
+            preset_params={"source": "web_widget"},
+        ),
+        user=_fake_user(),
+    )
+
+    assert resp.request_body == {"name": "Ada", "source": "web_widget"}
+
+
+@pytest.mark.asyncio
+async def test_tool_test_no_arguments_post_shows_empty_body(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="POST")
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(return_value={"status": "success", "status_code": 200, "data": None}),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http", request=ToolTestRequest(), user=_fake_user()
+    )
+
+    # POST with no arguments sends json={} over the wire; preview must show {}
+    # so callers can distinguish an absent body from an empty one.
+    assert resp.request_body == {}
+    assert resp.request_params is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status_code,expected_snippet",
+    [
+        (400, "HTTP 400 Bad Request"),
+        (401, "HTTP 401 Unauthorized"),
+        (403, "HTTP 403 Forbidden"),
+        (404, "HTTP 404 Not Found"),
+        (405, "HTTP 405 Method Not Allowed"),
+        (408, "HTTP 408 Request Timeout"),
+        (409, "HTTP 409 Conflict"),
+        (415, "HTTP 415 Unsupported Media Type"),
+        (422, "HTTP 422 Unprocessable Entity"),
+        (429, "HTTP 429 Too Many Requests"),
+        (500, "HTTP 500"),
+        (503, "HTTP 503"),
+    ],
+)
+async def test_tool_test_hint_for_status_code(
+    monkeypatch, status_code, expected_snippet
+):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="POST")
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={
+                "status": "error",
+                "status_code": status_code,
+                "error": "boom",
+            }
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http", request=ToolTestRequest(llm_params={"a": 1}), user=_fake_user()
+    )
+
+    assert resp.hint is not None
+    assert resp.hint.startswith(expected_snippet)
+
+
+@pytest.mark.asyncio
+async def test_tool_test_no_hint_on_success(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="GET")
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(return_value={"status": "success", "status_code": 200, "data": {}}),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http", request=ToolTestRequest(), user=_fake_user()
+    )
+
+    assert resp.hint is None
+
+
+@pytest.mark.asyncio
+async def test_tool_test_no_hint_for_uncovered_status_code(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="GET")
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={"status": "error", "status_code": 418, "error": "teapot"}
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http", request=ToolTestRequest(), user=_fake_user()
+    )
+
+    assert resp.hint is None
+
+
+def test_tool_test_route_is_registered():
+    assert any(
+        route.path == "/tools/{tool_uuid}/test" and "POST" in route.methods
+        for route in router.routes
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_rejects_non_http_api_tool(monkeypatch):
+    import api.routes.tool as tool_route
+
+    monkeypatch.setattr(
+        tool_route.db_client,
+        "get_tool_by_uuid",
+        AsyncMock(return_value=_mcp_tool_model()),
+    )
+
+    with pytest.raises(HTTPException) as ei:
+        await call_test_tool_route(
+            "tu-mcp", request=ToolTestRequest(), user=_fake_user()
+        )
+
+    assert ei.value.status_code == 400
+
+
 @pytest.mark.asyncio
 async def test_refresh_success(monkeypatch):
     import api.services.tool_management as tool_svc
@@ -484,3 +798,41 @@ async def test_refresh_not_found_is_404(monkeypatch):
     with pytest.raises(HTTPException) as ei:
         await refresh_mcp_tools("nope", user=_fake_user())
     assert ei.value.status_code == 404
+
+
+def test_tool_test_response_has_hint_and_request_fields():
+    """ToolTestResponse must carry hint + request_method/url/body/params
+    so the frontend can show what was sent and why it may have failed."""
+    resp = ToolTestResponse(
+        status="error",
+        status_code=405,
+        data=None,
+        error="Method Not Allowed",
+        duration_ms=12,
+        hint="HTTP 405 Method Not Allowed — the endpoint rejected the configured method (POST).",
+        request_method="POST",
+        request_url="https://example.com/thing",
+        request_headers={"Authorization": "********oken"},
+        request_body={"a": 1},
+        request_params=None,
+    )
+    assert resp.hint.startswith("HTTP 405")
+    assert resp.request_method == "POST"
+    assert resp.request_url == "https://example.com/thing"
+    assert resp.request_headers == {"Authorization": "********oken"}
+    assert resp.request_body == {"a": 1}
+    assert resp.request_params is None
+
+
+def test_tool_test_response_request_fields_default_to_none_or_required():
+    """hint/request_body/request_params are optional; request_method/url are required."""
+    resp = ToolTestResponse(
+        status="success",
+        duration_ms=5,
+        request_method="GET",
+        request_url="https://example.com/thing",
+    )
+    assert resp.hint is None
+    assert resp.request_headers == {}
+    assert resp.request_body is None
+    assert resp.request_params is None

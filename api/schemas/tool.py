@@ -491,3 +491,32 @@ class McpRefreshResponse(BaseModel):
     tool_uuid: str
     discovered_tools: list = Field(default_factory=list)
     error: Optional[str] = None
+
+
+class ToolTestRequest(BaseModel):
+    """Request body for testing an HTTP API tool outside a live call."""
+
+    llm_params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Values for parameters normally supplied by the model.",
+    )
+    preset_params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Resolved values for parameters normally supplied from presets.",
+    )
+
+
+class ToolTestResponse(BaseModel):
+    """Result of testing an HTTP API tool."""
+
+    status: str
+    status_code: Optional[int] = None
+    data: Optional[Any] = None
+    error: Optional[str] = None
+    hint: Optional[str] = None
+    request_method: str
+    request_url: str
+    request_headers: Dict[str, str] = Field(default_factory=dict)
+    request_body: Optional[Dict[str, Any]] = None
+    request_params: Optional[Dict[str, Any]] = None
+    duration_ms: int

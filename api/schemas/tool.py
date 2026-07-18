@@ -496,17 +496,13 @@ class McpRefreshResponse(BaseModel):
 class ToolTestRequest(BaseModel):
     """Request body for testing an HTTP API tool outside a live call."""
 
-    arguments: Dict[str, Any] = Field(
+    llm_params: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Arguments to send as model-provided tool parameters.",
+        description="Values for parameters normally supplied by the model.",
     )
-    initial_context: Dict[str, Any] = Field(
+    preset_params: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Initial context variables available to preset parameters.",
-    )
-    gathered_context: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Gathered context variables available to preset parameters.",
+        description="Resolved values for parameters normally supplied from presets.",
     )
 
 
@@ -520,6 +516,7 @@ class ToolTestResponse(BaseModel):
     hint: Optional[str] = None
     request_method: str
     request_url: str
+    request_headers: Dict[str, str] = Field(default_factory=dict)
     request_body: Optional[Dict[str, Any]] = None
     request_params: Optional[Dict[str, Any]] = None
     duration_ms: int

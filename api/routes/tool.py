@@ -42,7 +42,6 @@ from api.services.tool_management import (
     populate_discovered_tools as _populate_discovered_tools,
 )
 from api.services.workflow.tools.custom_tool import (
-    _resolve_preset_parameters,
     execute_http_tool,
     serialize_query_params,
 )
@@ -211,7 +210,7 @@ async def test_tool(
     request: ToolTestRequest,
     user: UserModel = Depends(get_user),
 ) -> ToolTestResponse:
-    """Execute an HTTP API tool with sample arguments and context."""
+    """Execute an HTTP API tool with sample LLM and preset parameters."""
     if not user.selected_organization_id:
         raise HTTPException(
             status_code=400, detail="No organization selected for the user"
@@ -236,10 +235,10 @@ async def test_tool(
     started_at = time.perf_counter()
     result = await execute_http_tool(
         tool,
-        request.arguments,
-        call_context_vars=request.initial_context,
-        gathered_context_vars=request.gathered_context,
+        request.llm_params,
+        preset_params=request.preset_params,
         organization_id=user.selected_organization_id,
+        include_request_headers=True,
     )
     duration_ms = max(0, round((time.perf_counter() - started_at) * 1000))
 
@@ -250,18 +249,9 @@ async def test_tool(
 
     hint = _hint_for_status_code(status_code, configured_method)
 
-    # Mirror execute_http_tool's own merge: model-provided arguments plus
-    # any preset parameters resolved from context. This is what actually
-    # went out over the wire, not just the model-provided arguments —
-    # preset params (e.g. {{initial_context.foo}}) are invisible to the
-    # model but still part of the real request body/params.
-    try:
-        preset_arguments = _resolve_preset_parameters(
-            tool_config, request.initial_context, request.gathered_context
-        )
-    except ValueError:
-        preset_arguments = {}
-    resolved_arguments = {**request.arguments, **preset_arguments}
+    # Preset values take precedence over model-supplied values, matching live
+    # execution after configured preset templates have been resolved.
+    resolved_arguments = {**request.llm_params, **request.preset_params}
 
     # Mirror execute_http_tool's own branch: POST/PUT/PATCH send the
     # resolved arguments as a JSON body; GET/DELETE send them as query
@@ -282,6 +272,7 @@ async def test_tool(
         hint=hint,
         request_method=configured_method,
         request_url=configured_url,
+        request_headers=result.get("request_headers", {}),
         request_body=request_body,
         request_params=request_params,
     )

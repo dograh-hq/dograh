@@ -440,7 +440,7 @@ def _http_tool_model(method="GET"):
 
 
 @pytest.mark.asyncio
-async def test_tool_executes_http_api_tool_with_context(monkeypatch):
+async def test_tool_executes_http_api_tool_with_llm_and_preset_params(monkeypatch):
     import api.routes.tool as tool_route
 
     tool = _http_tool_model()
@@ -459,9 +459,11 @@ async def test_tool_executes_http_api_tool_with_context(monkeypatch):
     resp = await call_test_tool_route(
         "tu-http",
         request=ToolTestRequest(
-            arguments={"query": "cart"},
-            initial_context={"customer_id": "c_123"},
-            gathered_context={"sentiment": "cooperative"},
+            llm_params={"query": "cart"},
+            preset_params={
+                "customer_id": "c_123",
+                "sentiment": "cooperative",
+            },
         ),
         user=_fake_user(),
     )
@@ -473,15 +475,23 @@ async def test_tool_executes_http_api_tool_with_context(monkeypatch):
     executor.assert_awaited_once_with(
         tool,
         {"query": "cart"},
-        call_context_vars={"customer_id": "c_123"},
-        gathered_context_vars={"sentiment": "cooperative"},
+        preset_params={
+            "customer_id": "c_123",
+            "sentiment": "cooperative",
+        },
         organization_id=1,
+        include_request_headers=True,
     )
     assert resp.hint is None
     assert resp.request_method == "GET"
     assert resp.request_url == "https://example.com/search"
+    assert resp.request_headers == {}
     assert resp.request_body is None
-    assert resp.request_params == {"query": "cart"}
+    assert resp.request_params == {
+        "query": "cart",
+        "customer_id": "c_123",
+        "sentiment": "cooperative",
+    }
 
 
 @pytest.mark.asyncio
@@ -502,7 +512,7 @@ async def test_tool_test_sets_request_body_for_post_method(monkeypatch):
 
     resp = await call_test_tool_route(
         "tu-http",
-        request=ToolTestRequest(arguments={"name": "Ada"}),
+        request=ToolTestRequest(llm_params={"name": "Ada"}),
         user=_fake_user(),
     )
 
@@ -512,14 +522,44 @@ async def test_tool_test_sets_request_body_for_post_method(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_tool_test_returns_masked_effective_request_headers(monkeypatch):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method="POST")
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={
+                "status": "success",
+                "status_code": 200,
+                "data": {"ok": True},
+                "request_headers": {
+                    "X-Tenant": "acme",
+                    "Authorization": "****************oken",
+                },
+            }
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http", request=ToolTestRequest(), user=_fake_user()
+    )
+
+    assert resp.request_headers == {
+        "X-Tenant": "acme",
+        "Authorization": "****************oken",
+    }
+
+
+@pytest.mark.asyncio
 async def test_tool_test_request_body_includes_resolved_preset_parameters(
     monkeypatch,
 ):
-    """The Request preview must reflect what actually went out over the
-    wire, not just the model-provided arguments — preset params resolved
-    from initial_context/gathered_context are invisible to the model but
-    are still merged into the real request body/params by
-    execute_http_tool."""
+    """The Request preview includes direct preset values alongside LLM values."""
     import api.routes.tool as tool_route
 
     tool = _http_tool_model(method="POST")
@@ -545,8 +585,8 @@ async def test_tool_test_request_body_includes_resolved_preset_parameters(
     resp = await call_test_tool_route(
         "tu-http",
         request=ToolTestRequest(
-            arguments={"name": "Ada"},
-            initial_context={"metadata": {"channel": "web_widget"}},
+            llm_params={"name": "Ada"},
+            preset_params={"source": "web_widget"},
         ),
         user=_fake_user(),
     )
@@ -618,7 +658,7 @@ async def test_tool_test_hint_for_status_code(
     )
 
     resp = await call_test_tool_route(
-        "tu-http", request=ToolTestRequest(arguments={"a": 1}), user=_fake_user()
+        "tu-http", request=ToolTestRequest(llm_params={"a": 1}), user=_fake_user()
     )
 
     assert resp.hint is not None
@@ -772,12 +812,14 @@ def test_tool_test_response_has_hint_and_request_fields():
         hint="HTTP 405 Method Not Allowed — the endpoint rejected the configured method (POST).",
         request_method="POST",
         request_url="https://example.com/thing",
+        request_headers={"Authorization": "********oken"},
         request_body={"a": 1},
         request_params=None,
     )
     assert resp.hint.startswith("HTTP 405")
     assert resp.request_method == "POST"
     assert resp.request_url == "https://example.com/thing"
+    assert resp.request_headers == {"Authorization": "********oken"}
     assert resp.request_body == {"a": 1}
     assert resp.request_params is None
 
@@ -791,5 +833,6 @@ def test_tool_test_response_request_fields_default_to_none_or_required():
         request_url="https://example.com/thing",
     )
     assert resp.hint is None
+    assert resp.request_headers == {}
     assert resp.request_body is None
     assert resp.request_params is None

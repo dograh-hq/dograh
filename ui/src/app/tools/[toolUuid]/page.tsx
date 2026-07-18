@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Code, ExternalLink, Loader2, Pencil, Save } from "lucide-react";
+import { ArrowLeft, Code, ExternalLink, FlaskConical, Loader2, Save } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
@@ -54,8 +55,14 @@ import {
     type ToolCategory,
     type TransferDestinationSource,
 } from "../config";
-import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
-import { buildHttpToolTestSnapshot, generateSampleValue } from "./testPanelHelpers";
+import {
+    buildHttpToolTestSnapshot,
+    BuiltinToolConfig,
+    EndCallToolConfig,
+    HttpApiToolConfig,
+    HttpToolTestDialog,
+    TransferCallToolConfig,
+} from "./components";
 
 function normalizeParameterType(value: string | null | undefined): ParameterType {
     switch (value) {
@@ -74,46 +81,6 @@ function headersToRows(headers: Record<string, string> | undefined | null): KeyV
     return Object.entries(headers).map(([key, value]) => ({ key, value }));
 }
 
-type ToolTestResult = {
-    status?: string;
-    status_code?: number | null;
-    data?: unknown;
-    error?: string | null;
-    duration_ms?: number;
-    hint?: string | null;
-    request_method?: string;
-    request_url?: string;
-    request_body?: Record<string, unknown> | null;
-    request_params?: Record<string, unknown> | null;
-};
-
-function extractContextVars(presetParams: PresetToolParameter[]): { initialContext: string[]; gatheredContext: string[] } {
-    const initialContext = new Set<string>();
-    const gatheredContext = new Set<string>();
-    for (const p of presetParams) {
-        for (const match of (p.valueTemplate ?? "").matchAll(/\{\{\s*(initial_context|gathered_context)\.([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}/g)) {
-            if (match[1] === "initial_context") initialContext.add(match[2]);
-            else gatheredContext.add(match[2]);
-        }
-    }
-    return { initialContext: [...initialContext], gatheredContext: [...gatheredContext] };
-}
-
-function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-    const keys = path.split(".");
-    if (keys.some((key) => key === "__proto__" || key === "constructor" || key === "prototype")) return;
-    let current = obj;
-    for (let i = 0; i < keys.length - 1; i++) {
-        const key = keys[i];
-        const next = current[key];
-        if (typeof next !== "object" || next === null || Array.isArray(next)) {
-            current[key] = {};
-        }
-        current = current[key] as Record<string, unknown>;
-    }
-    current[keys[keys.length - 1]] = value;
-}
-
 export default function ToolDetailPage() {
     const { toolUuid } = useParams<{ toolUuid: string }>();
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -125,14 +92,7 @@ export default function ToolDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [showCodeDialog, setShowCodeDialog] = useState(false);
-    const [testArgValues, setTestArgValues] = useState<Record<string, string>>({});
-    const [testContextValues, setTestContextValues] = useState<Record<string, string>>({});
-    const [testResult, setTestResult] = useState<ToolTestResult | null>(null);
-    const [isTesting, setIsTesting] = useState(false);
-    const [testError, setTestError] = useState<string | null>(null);
-    const [jsonEditParam, setJsonEditParam] = useState<string | null>(null);
-    const [jsonEditDraft, setJsonEditDraft] = useState("");
-    const [jsonEditError, setJsonEditError] = useState<string | null>(null);
+    const [showTestDialog, setShowTestDialog] = useState(false);
     const [savedHttpTestSnapshot, setSavedHttpTestSnapshot] = useState<string | null>(null);
 
     // Common form state
@@ -197,27 +157,6 @@ export default function ToolDetailPage() {
             redirectToLogin();
         }
     }, [loading, user, redirectToLogin]);
-
-    // Seed test-arg defaults for parameters that don't have a value yet, so
-    // required number/boolean fields aren't silently dropped if the user
-    // never touches their input.
-    useEffect(() => {
-        setTestArgValues((prev) => {
-            const next = { ...prev };
-            let changed = false;
-            for (const p of parameters) {
-                if (!p.required || p.name in next) continue;
-                if (p.type === "number") {
-                    next[p.name] = "0";
-                    changed = true;
-                } else if (p.type === "boolean") {
-                    next[p.name] = "true";
-                    changed = true;
-                }
-            }
-            return changed ? next : prev;
-        });
-    }, [parameters]);
 
     const fetchTool = useCallback(async () => {
         if (loading || !user || !toolUuid) return;
@@ -339,13 +278,16 @@ export default function ToolDetailPage() {
                 const loadedUrl = config.url || "";
                 const loadedCredentialUuid = config.credential_uuid || "";
                 const loadedTimeoutMs = config.timeout_ms || 5000;
+                const loadedCustomMessage = config.customMessage || "";
+                const loadedCustomMessageType = config.customMessageType || "text";
+                const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
                 setTimeoutMs(loadedTimeoutMs);
-                setCustomMessage(config.customMessage || "");
-                setCustomMessageType(config.customMessageType || "text");
-                setCustomMessageRecordingId(config.customMessageRecordingId || "");
+                setCustomMessage(loadedCustomMessage);
+                setCustomMessageType(loadedCustomMessageType);
+                setCustomMessageRecordingId(loadedCustomMessageRecordingId);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -366,19 +308,8 @@ export default function ToolDetailPage() {
                         required: p.required ?? true,
                     }));
                     setParameters(loadedParameters);
-                    const defaults: Record<string, string> = {};
-                    for (const p of loadedParameters) {
-                        if (!p.name) continue;
-                        if (p.type === "number") defaults[p.name] = "0";
-                        else if (p.type === "boolean") defaults[p.name] = "true";
-                        else if (p.type === "object") defaults[p.name] = "{}";
-                        else if (p.type === "array") defaults[p.name] = "[]";
-                        else defaults[p.name] = "";
-                    }
-                    setTestArgValues(defaults);
                 } else {
                     setParameters([]);
-                    setTestArgValues({});
                 }
 
                 let loadedPresetParameters: PresetToolParameter[] = [];
@@ -396,6 +327,8 @@ export default function ToolDetailPage() {
 
                 setSavedHttpTestSnapshot(
                     buildHttpToolTestSnapshot({
+                        name: tool.name,
+                        description: tool.description || "",
                         httpMethod: loadedHttpMethod,
                         url: loadedUrl,
                         credentialUuid: loadedCredentialUuid,
@@ -403,6 +336,9 @@ export default function ToolDetailPage() {
                         parameters: loadedParameters,
                         presetParameters: loadedPresetParameters,
                         timeoutMs: loadedTimeoutMs,
+                        customMessage: loadedCustomMessage,
+                        customMessageType: loadedCustomMessageType,
+                        customMessageRecordingId: loadedCustomMessageRecordingId,
                     })
                 );
             }
@@ -683,6 +619,8 @@ export default function ToolDetailPage() {
                 if (tool.category === "http_api") {
                     setSavedHttpTestSnapshot(
                         buildHttpToolTestSnapshot({
+                            name,
+                            description,
                             httpMethod,
                             url,
                             credentialUuid,
@@ -690,6 +628,9 @@ export default function ToolDetailPage() {
                             parameters,
                             presetParameters,
                             timeoutMs,
+                            customMessage,
+                            customMessageType,
+                            customMessageRecordingId,
                         })
                     );
                 }
@@ -750,135 +691,6 @@ const response = await fetch("${url}", {
 const data = await response.json();`;
     };
 
-    const handleFillSampleValues = () => {
-        setTestArgValues((prev) => {
-            const next = { ...prev };
-            for (const p of parameters) {
-                next[p.name] = generateSampleValue(p.type);
-            }
-            return next;
-        });
-        setTestContextValues((prev) => {
-            const next = { ...prev };
-            for (const varName of contextVars.initialContext) {
-                next[`initial_context.${varName}`] = generateSampleValue("string");
-            }
-            for (const varName of contextVars.gatheredContext) {
-                next[`gathered_context.${varName}`] = generateSampleValue("string");
-            }
-            return next;
-        });
-    };
-
-    const openJsonEditModal = (paramName: string) => {
-        const current = testArgValues[paramName] ?? "";
-        let draft = current;
-        let error: string | null = null;
-        try {
-            draft = JSON.stringify(JSON.parse(current), null, 2);
-        } catch (err) {
-            // current isn't valid JSON yet (empty/untouched, or a partial
-            // edit) — show as-is and surface the same error the live
-            // textarea validation would, so Save starts out correctly
-            // disabled instead of silently no-op-ing.
-            error = err instanceof Error ? err.message : "Invalid JSON";
-        }
-        setJsonEditParam(paramName);
-        setJsonEditDraft(draft);
-        setJsonEditError(error);
-    };
-
-    const closeJsonEditModal = () => {
-        setJsonEditParam(null);
-        setJsonEditDraft("");
-        setJsonEditError(null);
-    };
-
-    const handleJsonEditDraftChange = (value: string) => {
-        setJsonEditDraft(value);
-        try {
-            JSON.parse(value);
-            setJsonEditError(null);
-        } catch (err) {
-            setJsonEditError(err instanceof Error ? err.message : "Invalid JSON");
-        }
-    };
-
-    const handleFormatJson = () => {
-        try {
-            const parsed = JSON.parse(jsonEditDraft);
-            setJsonEditDraft(JSON.stringify(parsed, null, 2));
-            setJsonEditError(null);
-        } catch (err) {
-            setJsonEditError(err instanceof Error ? err.message : "Invalid JSON");
-        }
-    };
-
-    const handleSaveJsonEdit = () => {
-        if (jsonEditParam === null) return;
-        try {
-            const parsed = JSON.parse(jsonEditDraft);
-            setTestArgValues((prev) => ({ ...prev, [jsonEditParam]: JSON.stringify(parsed) }));
-            closeJsonEditModal();
-        } catch {
-            // Save is disabled while invalid — this is a safety net only.
-        }
-    };
-
-    const handleTestTool = async () => {
-        if (!tool) return;
-
-        try {
-            setIsTesting(true);
-            setTestError(null);
-            setTestResult(null);
-
-            const args: Record<string, unknown> = {};
-            for (const p of parameters) {
-                const raw = testArgValues[p.name];
-                if (raw === undefined || raw === "") continue;
-                if (p.type === "number") args[p.name] = Number(raw);
-                else if (p.type === "boolean") args[p.name] = raw === "true";
-                else if (p.type === "object" || p.type === "array") {
-                    try { args[p.name] = JSON.parse(raw); }
-                    catch { throw new Error(`${p.name}: invalid JSON`); }
-                } else {
-                    args[p.name] = raw;
-                }
-            }
-
-            const initial_context: Record<string, unknown> = {};
-            const gathered_context: Record<string, unknown> = {};
-            for (const [key, value] of Object.entries(testContextValues)) {
-                if (!value) continue;
-                if (key.startsWith("initial_context.")) setNestedValue(initial_context, key.slice("initial_context.".length), value);
-                else if (key.startsWith("gathered_context.")) setNestedValue(gathered_context, key.slice("gathered_context.".length), value);
-            }
-
-            const accessToken = await getAccessToken();
-            const response = await fetch(`/api/v1/tools/${toolUuid}/test`, {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ arguments: args, initial_context, gathered_context }),
-            });
-
-            const payload = await response.json();
-            if (!response.ok) {
-                setTestError(detailFromError(payload, "Failed to test tool"));
-                return;
-            }
-
-            setTestResult(payload);
-        } catch (err) {
-            setTestError(err instanceof Error ? err.message : "Failed to test tool");
-        } finally {
-            setIsTesting(false);
-        }
-    };
-
     if (loading || !user) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -926,28 +738,22 @@ const data = await response.json();`;
     const isHttpApiTool = tool.category === "http_api";
     const hasUnsavedHttpChanges =
         isHttpApiTool &&
-        savedHttpTestSnapshot !== null &&
-        buildHttpToolTestSnapshot({
-            httpMethod,
-            url,
-            credentialUuid,
-            headers,
-            parameters,
-            presetParameters,
-            timeoutMs,
-        }) !== savedHttpTestSnapshot;
+        (savedHttpTestSnapshot === null ||
+            buildHttpToolTestSnapshot({
+                name,
+                description,
+                httpMethod,
+                url,
+                credentialUuid,
+                headers,
+                parameters,
+                presetParameters,
+                timeoutMs,
+                customMessage,
+                customMessageType,
+                customMessageRecordingId,
+            }) !== savedHttpTestSnapshot);
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
-    const contextVars = extractContextVars(presetParameters);
-    const hasContextVars = contextVars.initialContext.length > 0 || contextVars.gatheredContext.length > 0;
-    const isTestSuccess =
-        testResult?.status === "success" &&
-        (testResult.status_code == null ||
-            (testResult.status_code >= 200 && testResult.status_code < 300));
-    const testResultBadgeLabel = isTestSuccess
-        ? "success"
-        : testResult?.status === "success"
-            ? "failed"
-            : "error";
 
     return (
         <div className="min-h-screen">
@@ -1170,223 +976,15 @@ const data = await response.json();`;
                     )}
 
                     {isHttpApiTool && (
-                        <Card className="mt-6">
-                            <CardHeader>
-                                <CardTitle>Test Tool</CardTitle>
-                                <CardDescription>
-                                    Run the saved configuration against the real endpoint. Save changes before testing.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-6">
-                                {hasUnsavedHttpChanges && (
-                                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                                        Unsaved changes — Test Tool runs the last saved configuration, not what&apos;s on screen. Save first to test your edits.
-                                    </div>
-                                )}
-                                {/* Arguments */}
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="text-sm font-medium">Arguments</p>
-                                            <p className="text-xs text-muted-foreground">Values the model would provide at call time.</p>
-                                        </div>
-                                        {(parameters.length > 0 || hasContextVars) && (
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={handleFillSampleValues}
-                                            >
-                                                Fill sample values
-                                            </Button>
-                                        )}
-                                    </div>
-                                    {parameters.length > 0 ? (
-                                        <div className="space-y-4">
-                                            {parameters.map((p) => (
-                                                <div key={p.name} className="space-y-1.5">
-                                                    <div className="flex items-center gap-2">
-                                                        <Label htmlFor={`arg-${p.name}`} className="text-sm font-mono">
-                                                            {p.name}
-                                                        </Label>
-                                                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                                                            {p.type}
-                                                        </span>
-                                                        {p.required && (
-                                                            <span className="text-xs text-destructive">required</span>
-                                                        )}
-                                                    </div>
-                                                    {p.description && (
-                                                        <p className="text-xs text-muted-foreground">{p.description}</p>
-                                                    )}
-                                                    {p.type === "boolean" ? (
-                                                        <select
-                                                            id={`arg-${p.name}`}
-                                                            value={testArgValues[p.name] ?? "true"}
-                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                                                            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-                                                        >
-                                                            <option value="true">true</option>
-                                                            <option value="false">false</option>
-                                                        </select>
-                                                    ) : p.type === "number" ? (
-                                                        <Input
-                                                            id={`arg-${p.name}`}
-                                                            type="number"
-                                                            value={testArgValues[p.name] ?? "0"}
-                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                                                        />
-                                                    ) : p.type === "object" || p.type === "array" ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => openJsonEditModal(p.name)}
-                                                                className="flex-1 h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-left font-mono truncate shadow-sm hover:bg-accent"
-                                                            >
-                                                                {!testArgValues[p.name] || testArgValues[p.name] === (p.type === "array" ? "[]" : "{}") ? (
-                                                                    <span className="text-muted-foreground">Empty</span>
-                                                                ) : (
-                                                                    testArgValues[p.name]
-                                                                )}
-                                                            </button>
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="icon"
-                                                                onClick={() => openJsonEditModal(p.name)}
-                                                                aria-label={`Edit ${p.name}`}
-                                                            >
-                                                                <Pencil className="w-4 h-4" />
-                                                            </Button>
-                                                        </div>
-                                                    ) : (
-                                                        <Input
-                                                            id={`arg-${p.name}`}
-                                                            value={testArgValues[p.name] ?? ""}
-                                                            onChange={(e) => setTestArgValues((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                                                            placeholder={`Enter ${p.name}`}
-                                                        />
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-sm text-muted-foreground">No parameters — tool will be called with no arguments.</p>
-                                    )}
-                                </div>
-
-                                {/* Context Variables (only shown if preset params use them) */}
-                                {hasContextVars && (
-                                    <div className="space-y-3 border-t pt-4">
-                                        <div>
-                                            <p className="text-sm font-medium">Context Variables</p>
-                                            <p className="text-xs text-muted-foreground">Values for preset parameter templates (e.g. {"{{"}<span>initial_context.phone_number</span>{"}}"}).</p>
-                                        </div>
-                                        <div className="space-y-3">
-                                            {contextVars.initialContext.map((varName) => (
-                                                <div key={`ic-${varName}`} className="space-y-1">
-                                                    <Label className="text-xs font-mono text-muted-foreground">
-                                                        initial_context.<span className="text-foreground">{varName}</span>
-                                                    </Label>
-                                                    <Input
-                                                        value={testContextValues[`initial_context.${varName}`] ?? ""}
-                                                        onChange={(e) => setTestContextValues((prev) => ({ ...prev, [`initial_context.${varName}`]: e.target.value }))}
-                                                        placeholder={varName}
-                                                    />
-                                                </div>
-                                            ))}
-                                            {contextVars.gatheredContext.map((varName) => (
-                                                <div key={`gc-${varName}`} className="space-y-1">
-                                                    <Label className="text-xs font-mono text-muted-foreground">
-                                                        gathered_context.<span className="text-foreground">{varName}</span>
-                                                    </Label>
-                                                    <Input
-                                                        value={testContextValues[`gathered_context.${varName}`] ?? ""}
-                                                        onChange={(e) => setTestContextValues((prev) => ({ ...prev, [`gathered_context.${varName}`]: e.target.value }))}
-                                                        placeholder={varName}
-                                                    />
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Run button */}
-                                <div className="flex justify-end">
-                                    <Button onClick={handleTestTool} disabled={isTesting}>
-                                        {isTesting ? (
-                                            <>
-                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                Testing...
-                                            </>
-                                        ) : (
-                                            "Test Tool"
-                                        )}
-                                    </Button>
-                                </div>
-
-                                {/* Errors */}
-                                {testError && (
-                                    <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
-                                        {testError}
-                                    </div>
-                                )}
-
-                                {/* Result */}
-                                {testResult && (
-                                    <div className="space-y-3 border-t pt-4">
-                                        {(testResult.request_method || testResult.request_url) && (
-                                            <div className="bg-muted rounded-lg p-3 font-mono text-xs space-y-1 overflow-auto">
-                                                <p className="font-medium text-foreground">
-                                                    {testResult.request_method} {testResult.request_url}
-                                                </p>
-                                                {testResult.request_body != null && (
-                                                    <pre className="whitespace-pre-wrap">Body: {JSON.stringify(testResult.request_body, null, 2)}</pre>
-                                                )}
-                                                {testResult.request_params != null && (
-                                                    <pre className="whitespace-pre-wrap">
-                                                        Query: {Object.entries(testResult.request_params).map(([k, v]) => `${k}=${v}`).join("  ")}
-                                                    </pre>
-                                                )}
-                                            </div>
-                                        )}
-                                        <div className="flex items-center gap-3">
-                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                                                isTestSuccess
-                                                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                                                    : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                                            }`}>
-                                                <span>{isTestSuccess ? "✓" : "✗"}</span>
-                                                {testResultBadgeLabel}
-                                            </span>
-                                            {testResult.status_code != null && (
-                                                <span className="text-sm text-muted-foreground">HTTP {testResult.status_code}</span>
-                                            )}
-                                            {testResult.duration_ms !== undefined && (
-                                                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">
-                                                    {testResult.duration_ms}ms
-                                                </span>
-                                            )}
-                                        </div>
-                                        {testResult.hint && (
-                                            <div className="p-3 bg-amber-100 border border-amber-200 rounded text-amber-900 dark:bg-amber-900/20 dark:border-amber-900/40 dark:text-amber-400 text-sm">
-                                                {testResult.hint}
-                                            </div>
-                                        )}
-                                        {testResult.error && (
-                                            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded text-destructive text-sm">
-                                                {testResult.error}
-                                            </div>
-                                        )}
-                                        {testResult.data != null && (
-                                            <div className="bg-muted rounded-lg p-4 font-mono text-sm overflow-auto max-h-80">
-                                                <pre>{JSON.stringify(testResult.data, null, 2)}</pre>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
+                        <HttpToolTestDialog
+                            open={showTestDialog}
+                            onOpenChange={setShowTestDialog}
+                            toolUuid={toolUuid}
+                            httpMethod={httpMethod}
+                            url={url}
+                            parameters={parameters}
+                            presetParameters={presetParameters}
+                        />
                     )}
 
                     {error && (
@@ -1401,7 +999,34 @@ const data = await response.json();`;
                         </div>
                     )}
 
-                    <div className="flex justify-end mt-6">
+                    <div className="flex justify-end gap-2 mt-6">
+                        {isHttpApiTool && (
+                            hasUnsavedHttpChanges ? (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <span className="inline-flex" tabIndex={0}>
+                                            <Button type="button" variant="outline" disabled>
+                                                <FlaskConical className="w-4 h-4 mr-2" />
+                                                Test Tool
+                                            </Button>
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                        Save the tool before testing.
+                                    </TooltipContent>
+                                </Tooltip>
+                            ) : (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setShowTestDialog(true)}
+                                    disabled={isSaving}
+                                >
+                                    <FlaskConical className="w-4 h-4 mr-2" />
+                                    Test Tool
+                                </Button>
+                            )
+                        )}
                         <Button onClick={handleSave} disabled={isSaving}>
                             {isSaving ? (
                                 <>
@@ -1434,43 +1059,6 @@ const data = await response.json();`;
                 </DialogContent>
             </Dialog>
 
-            {/* JSON Param Edit Modal (object/array test arguments) */}
-            <Dialog open={jsonEditParam !== null} onOpenChange={(open) => { if (!open) closeJsonEditModal(); }}>
-                <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>Edit {jsonEditParam}</DialogTitle>
-                        <DialogDescription>
-                            Edit the JSON value sent for this parameter when testing.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <textarea
-                        value={jsonEditDraft}
-                        onChange={(e) => handleJsonEditDraftChange(e.target.value)}
-                        rows={12}
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono shadow-sm resize-y"
-                        spellCheck={false}
-                    />
-                    {jsonEditError && (
-                        <p className="text-sm text-destructive">{jsonEditError}</p>
-                    )}
-                    <div className="flex justify-end gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={handleFormatJson}
-                            disabled={jsonEditDraft.length === 0}
-                        >
-                            Format JSON
-                        </Button>
-                        <Button type="button" variant="outline" onClick={closeJsonEditModal}>
-                            Cancel
-                        </Button>
-                        <Button type="button" onClick={handleSaveJsonEdit} disabled={jsonEditError !== null}>
-                            Save
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

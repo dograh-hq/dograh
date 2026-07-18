@@ -27,6 +27,7 @@ from api.routes.turn_credentials import (
     TurnCredentialsResponse,
     generate_turn_credentials,
 )
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 router = APIRouter(prefix="/public/embed")
 
@@ -304,6 +305,12 @@ async def initialize_embed_session(
 
     # Create workflow run
     try:
+        workflow = await db_client.get_workflow(
+            embed_token.workflow_id, organization_id=embed_token.organization_id
+        )
+        if not workflow:
+            raise ValueError("Workflow not found")
+        run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
         workflow_run = await db_client.create_workflow_run(
             name=f"Embed Run - {datetime.now(UTC).isoformat()}",
             workflow_id=embed_token.workflow_id,
@@ -314,6 +321,7 @@ async def initialize_embed_session(
                 **(init_request.context_variables or {}),
                 "provider": WorkflowRunMode.SMALLWEBRTC.value,
             },
+            definition_id=run_inputs.definition_id,
         )
     except Exception as e:
         logger.error(f"Failed to create workflow run: {e}")

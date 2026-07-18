@@ -574,21 +574,25 @@ class TestRunDefinitionBinding:
             workflow_definition=GRAPH_V2,
         )
 
+        versions = await db_session.get_workflow_versions(workflow.id)
+        published = next(v for v in versions if v.status == "published")
+
         # Create a run (simulating campaign dispatch)
         run = await db_session.create_workflow_run(
             name="Campaign Run",
             workflow_id=workflow.id,
             mode="webrtc",
             user_id=user.id,
+            definition_id=published.id,
         )
 
-        # Run should be bound to the published V1, not the draft V2
-        versions = await db_session.get_workflow_versions(workflow.id)
-        published = next(v for v in versions if v.status == "published")
+        # Run should be bound to the caller-selected published V1.
         assert run.definition_id == published.id
 
-    async def test_test_run_uses_draft_if_exists(self, db_session, workflow_with_v1):
-        """A test/phone call should use the draft version for pre-publish testing."""
+    async def test_run_uses_caller_supplied_draft_definition(
+        self, db_session, workflow_with_v1
+    ):
+        """Test/phone callers bind drafts before creating the run."""
         workflow, user = workflow_with_v1
 
         draft = await db_session.save_workflow_draft(
@@ -602,15 +606,15 @@ class TestRunDefinitionBinding:
             workflow_id=workflow.id,
             mode="webrtc",  # test mode
             user_id=user.id,
-            use_draft=True,
+            definition_id=draft.id,
         )
 
         assert run.definition_id == draft.id
 
-    async def test_run_initial_context_merges_with_template_context(
+    async def test_run_initial_context_is_stored_as_provided(
         self, db_session, workflow_with_v1
     ):
-        """Explicit run context should augment template context, not replace it."""
+        """Template context merging is handled before calling the DB client."""
         workflow, user = workflow_with_v1
         await db_session.save_workflow_draft(
             workflow_id=workflow.id,
@@ -634,6 +638,5 @@ class TestRunDefinitionBinding:
 
         assert run.initial_context == {
             "company_name": "Override Co",
-            "default_only": "kept",
             "provider": "smallwebrtc",
         }

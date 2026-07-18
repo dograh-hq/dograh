@@ -36,6 +36,7 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 # Redis key pattern and TTL for channel-to-run mapping
 _CHANNEL_KEY_PREFIX = "ari:channel:"
@@ -593,6 +594,18 @@ class ARIConnection:
 
             # 3. Create workflow run
             call_id = channel_id
+            workflow = await db_client.get_workflow(
+                inbound_workflow_id, organization_id=self.organization_id
+            )
+            if not workflow:
+                logger.error(
+                    f"[ARI org={self.organization_id}] Workflow "
+                    f"{inbound_workflow_id} not found"
+                )
+                await call_concurrency.release_slot(concurrency_slot)
+                await self._delete_channel(channel_id)
+                return
+            run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
                 workflow_id=inbound_workflow_id,
@@ -610,6 +623,7 @@ class ARIConnection:
                     "call_id": call_id,
                 },
                 organization_id=self.organization_id,
+                definition_id=run_inputs.definition_id,
             )
             await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
 

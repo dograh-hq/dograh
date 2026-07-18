@@ -10,7 +10,6 @@ from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_cl
 from api.db.models import (
     OrganizationModel,
     UserModel,
-    WorkflowDefinitionModel,
     WorkflowModel,
     WorkflowRunModel,
 )
@@ -33,8 +32,8 @@ class WorkflowRunClient(BaseDBClient):
         logs: dict = None,
         campaign_id: int = None,
         queued_run_id: int = None,
-        use_draft: bool = False,
         organization_id: int | None = None,
+        definition_id: int | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             workflow_query = (
@@ -54,56 +53,15 @@ class WorkflowRunClient(BaseDBClient):
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
-            # Resolve which definition to bind to this run
-            target_def = None
-
-            if use_draft:
-                # For test calls: prefer draft if it exists, fall back to published
-                draft_result = await session.execute(
-                    select(WorkflowDefinitionModel).where(
-                        WorkflowDefinitionModel.workflow_id == workflow.id,
-                        WorkflowDefinitionModel.status == "draft",
-                    )
-                )
-                target_def = draft_result.scalars().first()
-
-            if target_def is None:
-                # Use the published version via released_definition_id (preferred)
-                # or fall back to is_current for backward compatibility
-                if workflow.released_definition_id:
-                    target_def = await session.get(
-                        WorkflowDefinitionModel, workflow.released_definition_id
-                    )
-                else:
-                    pub_result = await session.execute(
-                        select(WorkflowDefinitionModel).where(
-                            WorkflowDefinitionModel.workflow_id == workflow.id,
-                            WorkflowDefinitionModel.is_current == True,
-                        )
-                    )
-                    target_def = pub_result.scalars().first()
-
             # Get the current storage backend based on ENABLE_AWS_S3 flag
             current_backend = StorageBackend.get_current_backend()
-
-            # Use initial_context from the version if available, else from workflow
-            default_context = (
-                target_def.template_context_variables
-                if target_def and target_def.template_context_variables
-                else workflow.template_context_variables
-            )
-
-            merged_initial_context = {
-                **(default_context or {}),
-                **(initial_context or {}),
-            }
 
             new_run = WorkflowRunModel(
                 name=name,
                 workflow=workflow,
                 mode=mode,
-                definition_id=target_def.id if target_def else None,
-                initial_context=merged_initial_context,
+                definition_id=definition_id,
+                initial_context=initial_context or {},
                 gathered_context=gathered_context or {},
                 logs=logs or {},
                 campaign_id=campaign_id,

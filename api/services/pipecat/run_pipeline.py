@@ -377,7 +377,9 @@ async def _run_pipeline_telephony_impl(
             workflow_run_id,
             # Attribution only — scoping is driven by organization_id below.
             workflow.user_id,
+            call_context_vars={"call_id": call_id},
             audio_config=audio_config,
+
             workflow_run=workflow_run,
             resolved_user_config=user_config,
             organization_id=organization_id,
@@ -918,6 +920,7 @@ async def _run_pipeline_impl(
         max_duration_end_task_callback=engine.create_max_duration_callback(),
         generation_started_callback=engine.create_generation_started_callback(),
         llm_text_frame_callback=engine.handle_llm_text_frame,
+        dtmf_callback=engine.handle_dtmf_event,
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()

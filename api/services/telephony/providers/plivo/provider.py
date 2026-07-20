@@ -242,17 +242,7 @@ class PlivoProvider(TelephonyProvider):
     ) -> str:
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
 
-        if enable_dtmf:
-            # Wrap the Stream in GetInput to capture DTMF. Plivo allows Stream to run in the background.
-            dtmf_callback_url = f"{backend_endpoint}/api/v1/telephony/plivo/dtmf-callback/{workflow_run_id}"
-            return f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <GetInput action="{dtmf_callback_url}" method="POST" inputType="dtmf" redirect="false">
-        <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}</Stream>
-    </GetInput>
-</Response>"""
-        else:
-            return f"""<?xml version="1.0" encoding="UTF-8"?>
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}</Stream>
 </Response>"""

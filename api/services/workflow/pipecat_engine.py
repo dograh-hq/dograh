@@ -237,6 +237,21 @@ class PipecatEngine:
         except Exception as e:
             logger.error(f"Error in DTMF listener: {e}")
 
+    async def handle_dtmf_event(self, digit: str):
+        """Handle a DTMF digit directly from the pipeline."""
+        logger.info(f"Pipeline received DTMF digit {digit} directly from frame")
+        if self.task and self.context:
+            dtmf_message = {
+                "role": "system",
+                "content": f"The caller pressed the keypad digit: {digit}"
+            }
+            self.context.add_message(dtmf_message)
+            frame = LLMMessagesAppendFrame(
+                messages=[dtmf_message],
+                run_llm=True
+            )
+            await self.task.queue_frame(frame)
+
     async def _update_llm_context(self, system_prompt: str, functions: list[dict]):
         """Update LLM settings with the composed system prompt and tool list."""
 

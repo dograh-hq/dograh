@@ -135,14 +135,41 @@ async def handle_plivo_ring_callback(
     return await _handle_plivo_status_callback(workflow_run_id, request)
 
 
-@router.post("/plivo/transfer-xml/{conference_name}", include_in_schema=False)
-async def handle_plivo_transfer_xml(conference_name: str, request: Request):
+@router.post("/plivo/transfer-xml/{conference_name}/{transfer_id}", include_in_schema=False)
+async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, request: Request):
     """
     Handle answer webhook from Plivo for transfer calls (destination/bleg).
-    Returns Plivo XML to put the destination into the conference room.
+    Returns Plivo XML to put the destination into the conference room, and
+    publishes DESTINATION_ANSWERED so Dograh knows the call connected.
     """
-    # Plivo calls this endpoint when the destination answers.
-    # We drop them into the conference room.
+    form_data = await request.form()
+    data = dict(form_data)
+    call_uuid = data.get("CallUUID", "")
+
+    logger.info(
+        f"Plivo transfer answered (transfer_id={transfer_id}): "
+        f"CallUUID={call_uuid} - Bridging into conference {conference_name}"
+    )
+
+    call_transfer_manager = await get_call_transfer_manager()
+    transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
+    original_call_sid = transfer_context.original_call_sid if transfer_context else ""
+
+    # Publish DESTINATION_ANSWERED — this unblocks the hold music
+    # and triggers pipeline teardown so the original caller joins the conference
+    transfer_event = TransferEvent(
+        type=TransferEventType.DESTINATION_ANSWERED,
+        transfer_id=transfer_id,
+        original_call_sid=original_call_sid,
+        transfer_call_sid=call_uuid,
+        conference_name=conference_name,
+        status="success",
+        action="destination_answered",
+        message="Destination answered — bridging into conference.",
+    )
+    await call_transfer_manager.publish_transfer_event(transfer_event)
+
+    # Return XML to drop the destination leg into the conference
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Speak>You have answered a transfer call. Connecting you now.</Speak>

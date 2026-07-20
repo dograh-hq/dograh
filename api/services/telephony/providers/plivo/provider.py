@@ -576,7 +576,7 @@ class PlivoProvider(TelephonyProvider):
         backend_endpoint, _ = await get_backend_endpoints()
 
         answer_url = (
-            f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}"
+            f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}/{transfer_id}"
         )
         hangup_url = (
             f"{backend_endpoint}/api/v1/telephony/plivo/transfer-result/{transfer_id}"

@@ -746,6 +746,7 @@ class CustomToolManager:
                         transfer_id=transfer_id,
                         conference_name=conference_name,
                         timeout=timeout_seconds,
+                        original_call_sid=original_call_sid,
                     )
                 except Exception as e:
                     logger.error(f"Transfer provider failed: {e}")

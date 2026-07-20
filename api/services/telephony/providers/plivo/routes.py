@@ -185,7 +185,30 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
 
     call_transfer_manager = await get_call_transfer_manager()
     transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
-    original_call_sid = transfer_context.original_call_sid if transfer_context else ""
+    if not transfer_context:
+        return HTMLResponse(content='<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>', media_type="application/xml")
+
+    workflow_run_id = transfer_context.workflow_run_id
+    from api.db import db_client
+    from api.services.telephony.factory import get_telephony_provider_for_run
+    import aiohttp
+    from api.utils.common import get_backend_endpoints
+
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    if not workflow_run:
+        return HTMLResponse(content='<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>', media_type="application/xml")
+
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    provider = await get_telephony_provider_for_run(workflow_run, workflow.organization_id)
+
+    is_valid = await provider.verify_inbound_signature(
+        str(request.url), data, dict(request.headers)
+    )
+    if not is_valid:
+        logger.warning(f"Invalid Plivo signature for transfer XML {transfer_id}")
+        return HTMLResponse(content='<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>', media_type="application/xml")
+
+    original_call_sid = transfer_context.original_call_sid
 
     # Only publish the event and trigger the bridge if THIS is the destination (bleg) picking up.
     # We do this to prevent infinite loops when the original caller (aleg) is redirected here.
@@ -205,18 +228,8 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
         await call_transfer_manager.publish_transfer_event(transfer_event)
 
         # Trigger Plivo API to redirect the original caller (aleg) into this conference.
-        workflow_run_id = transfer_context.workflow_run_id if transfer_context else None
         if workflow_run_id and original_call_sid:
-            from api.db import db_client
-            from api.services.telephony.factory import get_telephony_provider_for_run
-            import aiohttp
-            from api.utils.common import get_backend_endpoints
-
-            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-            if workflow_run:
-                workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-                provider = await get_telephony_provider_for_run(workflow_run, workflow.organization_id)
-                if hasattr(provider, "auth_id") and hasattr(provider, "auth_token"):
+            if hasattr(provider, "auth_id") and hasattr(provider, "auth_token"):
                     backend_endpoint, _ = await get_backend_endpoints()
                     # Add ?leg=aleg so we know it's the original caller and don't loop
                     aleg_answer_url = f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}/{transfer_id}?leg=aleg"
@@ -286,8 +299,29 @@ async def handle_plivo_transfer_result(transfer_id: str, request: Request):
 
     call_transfer_manager = await get_call_transfer_manager()
     transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
-    original_call_sid = transfer_context.original_call_sid if transfer_context else ""
-    conference_name = transfer_context.conference_name if transfer_context else None
+    if not transfer_context:
+        return {"status": "error", "reason": "invalid_transfer_id"}
+
+    workflow_run_id = transfer_context.workflow_run_id
+    from api.db import db_client
+    from api.services.telephony.factory import get_telephony_provider_for_run
+    
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    if not workflow_run:
+        return {"status": "error", "reason": "invalid_run"}
+        
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    provider = await get_telephony_provider_for_run(workflow_run, workflow.organization_id)
+
+    is_valid = await provider.verify_inbound_signature(
+        str(request.url), data, dict(request.headers)
+    )
+    if not is_valid:
+        logger.warning(f"Invalid Plivo signature for transfer result {transfer_id}")
+        return {"status": "error", "reason": "invalid_signature"}
+
+    original_call_sid = transfer_context.original_call_sid
+    conference_name = transfer_context.conference_name
 
     # StartStream / ringing — not a final state, wait for more events
     if event in ("StartStream", "Initiated", "Ringing"):
@@ -377,6 +411,24 @@ async def handle_plivo_transfer_answered(transfer_id: str, request: Request):
     transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
     if not transfer_context:
         logger.warning(f"No transfer context found for {transfer_id}")
+        return {"status": "error"}
+
+    workflow_run_id = transfer_context.workflow_run_id
+    from api.db import db_client
+    from api.services.telephony.factory import get_telephony_provider_for_run
+    
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    if not workflow_run:
+        return {"status": "error"}
+        
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    provider = await get_telephony_provider_for_run(workflow_run, workflow.organization_id)
+
+    is_valid = await provider.verify_inbound_signature(
+        str(request.url), data, dict(request.headers)
+    )
+    if not is_valid:
+        logger.warning(f"Invalid Plivo signature for transfer answered {transfer_id}")
         return {"status": "error"}
 
     original_call_sid = transfer_context.original_call_sid

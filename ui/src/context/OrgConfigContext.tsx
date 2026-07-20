@@ -6,6 +6,7 @@ import { client } from '@/client/client.gen';
 import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getPreferencesApiV1OrganizationsPreferencesGet, getUserConfigurationsApiV1UserConfigurationsUserGet } from '@/client/sdk.gen';
 import type { OrganizationContextResponse, OrganizationPreferences, UserConfigurationRequestResponseSchema } from '@/client/types.gen';
 import { setupAuthInterceptor } from '@/lib/apiClient';
+import { detailFromError } from '@/lib/apiError';
 import type { AuthUser } from '@/lib/auth';
 import { useAuth } from '@/lib/auth';
 
@@ -110,6 +111,10 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
                 getUserConfigurationsApiV1UserConfigurationsUserGet(),
                 getPreferencesApiV1OrganizationsPreferencesGet(),
             ]);
+
+            if (preferencesResponse.error) {
+                throw new Error(detailFromError(preferencesResponse.error, 'Failed to load organization preferences'));
+            }
 
             if (orgContextResponse.data) {
                 setOrgContext(orgContextResponse.data);

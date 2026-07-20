@@ -25,6 +25,10 @@ export interface ContextDestinationRoute {
     destination: string;
 }
 
+export interface ContextDestinationRouteRow extends ContextDestinationRoute {
+    id: string;
+}
+
 export interface ContextDestinationMappingConfig {
     context_path: string;
     routes: ContextDestinationRoute[];

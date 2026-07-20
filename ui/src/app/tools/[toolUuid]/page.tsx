@@ -45,7 +45,7 @@ import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 import {
-    type ContextDestinationRoute,
+    type ContextDestinationRouteRow,
     createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     type EndCallMessageType,
@@ -143,7 +143,7 @@ export default function ToolDetailPage() {
     const [transferPresetParameters, setTransferPresetParameters] = useState<PresetToolParameter[]>([]);
     const [transferContextMappingPath, setTransferContextMappingPath] = useState("");
     const [transferContextDestinationRoutes, setTransferContextDestinationRoutes] =
-        useState<ContextDestinationRoute[]>([]);
+        useState<ContextDestinationRouteRow[]>([]);
     const [transferFallbackDestination, setTransferFallbackDestination] = useState("");
 
     // HTTP API form state - custom message type
@@ -245,7 +245,12 @@ export default function ToolDetailPage() {
                     })),
                 );
                 setTransferContextMappingPath(config.context_mapping?.context_path || "");
-                setTransferContextDestinationRoutes(config.context_mapping?.routes || []);
+                setTransferContextDestinationRoutes(
+                    (config.context_mapping?.routes || []).map((route) => ({
+                        ...route,
+                        id: crypto.randomUUID(),
+                    }))
+                );
                 setTransferFallbackDestination(
                     config.context_mapping?.fallback_destination || ""
                 );

@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useOrgConfig } from "@/context/OrgConfigContext";
 import { useUserConfig } from "@/context/UserConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
@@ -94,7 +93,6 @@ function getTimezoneValue(tz: ITimezoneOption | string): string {
 export function OrganizationPreferencesSection() {
   const { user, loading: authLoading } = useAuth();
   const { refreshConfig } = useUserConfig();
-  const { refreshConfig: refreshOrgConfig } = useOrgConfig();
   const timezoneSelectId = useId();
   const hasFetched = useRef(false);
 
@@ -180,7 +178,6 @@ export function OrganizationPreferencesSection() {
       });
       setTimezone(result.data.timezone || emptyPreferences.timezone || "UTC");
       await refreshConfig();
-      await refreshOrgConfig();
       toast.success("Preferences saved");
     } catch {
       toast.error("Failed to save preferences");

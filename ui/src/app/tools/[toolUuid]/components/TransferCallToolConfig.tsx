@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
-    type ContextDestinationRoute,
+    type ContextDestinationRouteRow,
     type EndCallMessageType,
     type TransferDestinationSource,
 } from "../../config";
@@ -63,8 +63,8 @@ export interface TransferCallToolConfigProps {
     externalPbxRoutingEnabled: boolean;
     contextMappingPath: string;
     onContextMappingPathChange: (path: string) => void;
-    contextDestinationRoutes: ContextDestinationRoute[];
-    onContextDestinationRoutesChange: (routes: ContextDestinationRoute[]) => void;
+    contextDestinationRoutes: ContextDestinationRouteRow[];
+    onContextDestinationRoutesChange: (routes: ContextDestinationRouteRow[]) => void;
     fallbackDestination: string;
     onFallbackDestinationChange: (destination: string) => void;
 }
@@ -396,20 +396,24 @@ export function TransferCallToolConfig({
                                             size="sm"
                                             onClick={() => onContextDestinationRoutesChange([
                                                 ...contextDestinationRoutes,
-                                                { context_value: "", destination: "" },
+                                                {
+                                                    id: crypto.randomUUID(),
+                                                    context_value: "",
+                                                    destination: "",
+                                                },
                                             ])}
                                         >
                                             <Plus className="mr-1 h-4 w-4" /> Add mapping
                                         </Button>
                                     </div>
                                     {contextDestinationRoutes.map((route, index) => (
-                                        <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                                        <div key={route.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
                                             <Input
                                                 aria-label={`Context value ${index + 1}`}
                                                 value={route.context_value}
                                                 onChange={(event) => onContextDestinationRoutesChange(
-                                                    contextDestinationRoutes.map((item, itemIndex) =>
-                                                        itemIndex === index
+                                                    contextDestinationRoutes.map((item) =>
+                                                        item.id === route.id
                                                             ? { ...item, context_value: event.target.value }
                                                             : item
                                                     )
@@ -420,8 +424,8 @@ export function TransferCallToolConfig({
                                                 aria-label={`PBX destination ${index + 1}`}
                                                 value={route.destination}
                                                 onChange={(event) => onContextDestinationRoutesChange(
-                                                    contextDestinationRoutes.map((item, itemIndex) =>
-                                                        itemIndex === index
+                                                    contextDestinationRoutes.map((item) =>
+                                                        item.id === route.id
                                                             ? { ...item, destination: event.target.value }
                                                             : item
                                                     )
@@ -434,7 +438,7 @@ export function TransferCallToolConfig({
                                                 size="icon"
                                                 aria-label={`Remove mapping ${index + 1}`}
                                                 onClick={() => onContextDestinationRoutesChange(
-                                                    contextDestinationRoutes.filter((_, itemIndex) => itemIndex !== index)
+                                                    contextDestinationRoutes.filter((item) => item.id !== route.id)
                                                 )}
                                             >
                                                 <Trash2 className="h-4 w-4" />

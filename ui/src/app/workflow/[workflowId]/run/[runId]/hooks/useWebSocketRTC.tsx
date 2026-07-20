@@ -452,6 +452,18 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             break;
                         }
 
+                        case 'rtf-user-dtmf': {
+                            const digits = message.payload.text;
+                            setFeedbackMessages(prev => [...prev, {
+                                id: `dtmf-${Date.now()}`,
+                                type: 'user-dtmf',
+                                text: digits,
+                                timestamp: new Date().toISOString(),
+                                final: true,
+                            }]);
+                            break;
+                        }
+
                         case 'rtf-bot-text': {
                             // TTS text comes as sentences/phrases, concatenate with space
                             setFeedbackMessages(prev => {

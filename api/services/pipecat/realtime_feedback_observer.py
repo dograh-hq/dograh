@@ -32,6 +32,8 @@ from api.services.pipecat.realtime_feedback_events import (
     build_pipeline_error_event,
     build_ttfb_metric_event,
     build_user_transcription_event,
+    build_user_dtmf_event,
+    DTMFLogFrame,
 )
 
 if TYPE_CHECKING:
@@ -196,6 +198,11 @@ class RealtimeFeedbackObserver(BaseObserver):
                 await self._send_message(message)
             else:
                 await self._send_ws(message)
+        # Handle DTMF input
+        elif isinstance(frame, DTMFLogFrame):
+            event = build_user_dtmf_event(digits=frame.digits, timestamp=self._now_iso())
+            await self._append_to_buffer(event)
+            await self._send_ws(event)
         # Handle function call in progress
         elif (
             isinstance(frame, FunctionCallInProgressFrame)

@@ -40,6 +40,7 @@ from loguru import logger
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.mcp_tool_session import McpToolSession
+from api.services.pipecat.realtime_feedback_events import DTMFLogFrame
 from api.services.workflow.pipecat_engine_context_composer import (
     compose_functions_for_node,
     compose_system_prompt_for_node,
@@ -287,6 +288,7 @@ class PipecatEngine:
         logger.info(f"Flushing DTMF buffer to LLM: {digits}")
         
         if self.task and self.context:
+            await self.task.queue_frame(DTMFLogFrame(digits=digits))
             await self.task.queue_frame(UserStoppedSpeakingFrame())
             dtmf_message = {
                 "role": "system",

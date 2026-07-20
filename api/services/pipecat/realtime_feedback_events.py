@@ -3,6 +3,12 @@
 from typing import Any
 
 from pipecat.utils.enums import RealtimeFeedbackType
+from pipecat.frames.frames import SystemFrame
+from dataclasses import dataclass
+
+@dataclass
+class DTMFLogFrame(SystemFrame):
+    digits: str
 
 
 def build_node_transition_event(
@@ -46,6 +52,14 @@ def build_user_transcription_event(
     return {
         "type": RealtimeFeedbackType.USER_TRANSCRIPTION.value,
         "payload": payload,
+    }
+
+
+def build_user_dtmf_event(digits: str, timestamp: str | None = None) -> dict[str, Any]:
+    return {
+        "type": "rtf-user-dtmf",
+        "payload": {"text": digits},
+        "timestamp": timestamp,
     }
 
 

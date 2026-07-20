@@ -449,7 +449,7 @@ function GeneralSection({
                     <div>
                         <h3 className="text-sm font-medium">Keypad DTMF Input</h3>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                            Allow the caller to use their phone keypad (DTMF) to input numbers during the call.
+                            Allows callers to enter digits via their phone keypad. Multi-digit inputs like PINs are automatically buffered and submitted when the caller presses # or stops typing for 3 seconds.
                         </p>
                     </div>
                     <div className="flex items-center justify-between">

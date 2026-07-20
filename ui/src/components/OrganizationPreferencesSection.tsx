@@ -13,6 +13,8 @@ import type { OrganizationPreferences } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useOrgConfig } from "@/context/OrgConfigContext";
 import { useUserConfig } from "@/context/UserConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
@@ -20,6 +22,7 @@ import { useAuth } from "@/lib/auth";
 const emptyPreferences: OrganizationPreferences = {
   test_phone_number: "",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  external_pbx_integrations_enabled: false,
 };
 
 const timezoneSelectStyles = {
@@ -91,6 +94,7 @@ function getTimezoneValue(tz: ITimezoneOption | string): string {
 export function OrganizationPreferencesSection() {
   const { user, loading: authLoading } = useAuth();
   const { refreshConfig } = useUserConfig();
+  const { refreshConfig: refreshOrgConfig } = useOrgConfig();
   const timezoneSelectId = useId();
   const hasFetched = useRef(false);
 
@@ -130,6 +134,8 @@ export function OrganizationPreferencesSection() {
       setPreferences({
         test_phone_number: nextPreferences.test_phone_number || "",
         timezone: nextPreferences.timezone || emptyPreferences.timezone,
+        external_pbx_integrations_enabled:
+          nextPreferences.external_pbx_integrations_enabled ?? false,
       });
       setTimezone(
         nextPreferences.timezone || emptyPreferences.timezone || "UTC",
@@ -151,6 +157,8 @@ export function OrganizationPreferencesSection() {
             body: {
               test_phone_number: preferences.test_phone_number || null,
               timezone: getTimezoneValue(timezone),
+              external_pbx_integrations_enabled:
+                preferences.external_pbx_integrations_enabled ?? false,
             },
           },
         );
@@ -167,9 +175,12 @@ export function OrganizationPreferencesSection() {
       setPreferences({
         test_phone_number: result.data.test_phone_number || "",
         timezone: result.data.timezone || emptyPreferences.timezone,
+        external_pbx_integrations_enabled:
+          result.data.external_pbx_integrations_enabled ?? false,
       });
       setTimezone(result.data.timezone || emptyPreferences.timezone || "UTC");
       await refreshConfig();
+      await refreshOrgConfig();
       toast.success("Preferences saved");
     } catch {
       toast.error("Failed to save preferences");
@@ -211,6 +222,28 @@ export function OrganizationPreferencesSection() {
             styles={timezoneSelectStyles}
           />
         </div>
+      </div>
+      <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+        <div className="space-y-1">
+          <Label htmlFor="settings-external-pbx-integrations">
+            External PBX integrations
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Show and enable advanced external-PBX configuration for Asterisk,
+            transfer tools, and workflows. Existing configuration is preserved
+            when this is disabled.
+          </p>
+        </div>
+        <Switch
+          id="settings-external-pbx-integrations"
+          checked={preferences.external_pbx_integrations_enabled ?? false}
+          onCheckedChange={(checked) =>
+            setPreferences({
+              ...preferences,
+              external_pbx_integrations_enabled: checked,
+            })
+          }
+        />
       </div>
       <Button type="submit" disabled={saving}>
         <Save className="mr-2 h-4 w-4" />

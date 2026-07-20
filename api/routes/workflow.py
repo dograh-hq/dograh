@@ -41,6 +41,7 @@ from api.services.configuration.resolve import (
     resolve_effective_config,
 )
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.posthog_client import capture_event
 from api.services.reports import generate_workflow_report_csv
 from api.services.storage import storage_fs
@@ -1050,6 +1051,41 @@ async def update_workflow(
             if request.workflow_configurations is not None
             else None
         )
+        if workflow_configurations is not None and not (
+            await external_pbx_integrations_enabled(user.selected_organization_id)
+        ):
+            existing_workflow = await db_client.get_workflow(
+                workflow_id, organization_id=user.selected_organization_id
+            )
+            if existing_workflow is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Workflow with id {workflow_id} not found"
+                )
+            existing_draft = await db_client.get_draft_version(workflow_id)
+            existing_configs = (
+                existing_draft.workflow_configurations
+                if existing_draft
+                else existing_workflow.released_definition.workflow_configurations
+            )
+            existing_mappings = (existing_configs or {}).get(
+                "external_pbx_field_mappings", []
+            )
+            incoming_mappings = workflow_configurations.get(
+                "external_pbx_field_mappings", existing_mappings
+            )
+            if incoming_mappings != existing_mappings:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "External PBX integrations are disabled for this organization. "
+                        "Enable them in Platform Settings before changing field "
+                        "mappings."
+                    ),
+                )
+            if existing_mappings:
+                workflow_configurations["external_pbx_field_mappings"] = (
+                    existing_mappings
+                )
         if workflow_configurations and workflow_configurations.get(
             WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
         ):

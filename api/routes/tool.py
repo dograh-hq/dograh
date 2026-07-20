@@ -33,6 +33,7 @@ from api.services.tool_management import (
     build_tool_response,
     create_tool_for_user,
     refresh_mcp_tool_for_user,
+    validate_external_pbx_tool_definition,
     validate_tool_credential_references,
 )
 from api.services.tool_management import (
@@ -223,6 +224,18 @@ async def update_tool(
     if request.definition:
         definition = request.definition.model_dump()
         try:
+            existing_tool = await db_client.get_tool_by_uuid(
+                tool_uuid,
+                user.selected_organization_id,
+                include_archived=True,
+            )
+            await validate_external_pbx_tool_definition(
+                definition,
+                organization_id=user.selected_organization_id,
+                existing_definition=(
+                    existing_tool.definition if existing_tool else None
+                ),
+            )
             await validate_tool_credential_references(
                 definition,
                 organization_id=user.selected_organization_id,

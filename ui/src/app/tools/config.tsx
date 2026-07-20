@@ -18,7 +18,18 @@ import type {
 export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";
 
 export type EndCallMessageType = "none" | "custom" | "audio";
-export type TransferDestinationSource = "static" | "dynamic";
+export type TransferDestinationSource = "static" | "dynamic" | "context_mapping";
+
+export interface ContextDestinationRoute {
+    context_value: string;
+    destination: string;
+}
+
+export interface ContextDestinationMappingConfig {
+    context_path: string;
+    routes: ContextDestinationRoute[];
+    fallback_destination?: string | null;
+}
 
 export interface TransferResolverConfig {
     type: "http";
@@ -34,6 +45,7 @@ export interface TransferResolverConfig {
 export interface ExtendedTransferCallConfig extends TransferCallConfig {
     destination_source?: TransferDestinationSource;
     resolver?: TransferResolverConfig | null;
+    context_mapping?: ContextDestinationMappingConfig | null;
 }
 
 export interface ToolCategoryConfig {

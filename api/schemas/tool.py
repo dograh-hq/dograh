@@ -223,12 +223,67 @@ class HttpTransferResolverConfig(BaseModel):
         return v
 
 
+class ContextDestinationRoute(BaseModel):
+    """Map one gathered-context value to an external-PBX destination."""
+
+    context_value: str = Field(min_length=1, max_length=255)
+    destination: str = Field(min_length=1, max_length=255)
+
+    @field_validator("context_value", "destination")
+    @classmethod
+    def strip_non_empty(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("mapping values cannot be blank")
+        return stripped
+
+
+class ContextDestinationMappingConfig(BaseModel):
+    """Resolve an external-PBX destination from gathered context."""
+
+    context_path: str = Field(
+        min_length=1,
+        max_length=255,
+        description=(
+            "Gathered-context path or extracted-variable name used for routing."
+        ),
+    )
+    routes: List[ContextDestinationRoute] = Field(min_length=1, max_length=100)
+    fallback_destination: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Optional provider-native fallback destination.",
+    )
+
+    @field_validator("context_path")
+    @classmethod
+    def strip_context_path(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("fallback_destination")
+    @classmethod
+    def normalize_fallback(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def validate_unique_values(self):
+        values = [route.context_value.casefold() for route in self.routes]
+        if len(values) != len(set(values)):
+            raise ValueError("context mapping values must be unique")
+        return self
+
+
 class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
-    destination_source: Literal["static", "dynamic"] = Field(
+    destination_source: Literal["static", "dynamic", "context_mapping"] = Field(
         default="static",
-        description="Whether transfer destination is static/template or resolved by HTTP.",
+        description=(
+            "Whether the destination is static/template, resolved by HTTP, or "
+            "mapped from gathered context to an external-PBX destination."
+        ),
     )
     destination: str = Field(
         default="",
@@ -263,12 +318,24 @@ class TransferCallConfig(BaseModel):
         default=None,
         description="Optional resolver that determines transfer routing at call time.",
     )
+    context_mapping: Optional[ContextDestinationMappingConfig] = Field(
+        default=None,
+        description="Optional gathered-context to external-PBX destination mapping.",
+    )
 
     @model_validator(mode="after")
     def validate_destination_source_config(self):
         if self.destination_source == "dynamic" and self.resolver is None:
             raise ValueError(
                 "config.resolver is required when destination_source is dynamic"
+            )
+        if (
+            self.destination_source == "context_mapping"
+            and self.context_mapping is None
+        ):
+            raise ValueError(
+                "config.context_mapping is required when destination_source is "
+                "context_mapping"
             )
         return self
 

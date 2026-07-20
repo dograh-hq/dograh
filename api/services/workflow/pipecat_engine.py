@@ -517,11 +517,11 @@ class PipecatEngine:
         Awaits any background extractions still running from previous nodes,
         then runs the current node's extraction inline so callers that need the
         freshest extracted variables before acting can rely on them -- e.g.
-        end_call_with_reason before disposing the call, or an upstream-PBX
-        transfer that maps extracted variables into the VICIdial update_lead
+        end_call_with_reason before disposing the call, or an external-PBX
+        transfer that maps extracted variables into a provider lead update
         call before handing the customer off.
 
-        Idempotent: only the first call does work. The upstream-PBX transfer
+        Idempotent: only the first call does work. The external-PBX transfer
         runs this just before forwarding update_lead, so the subsequent
         end_call_with_reason would otherwise re-extract the same terminal state.
         """
@@ -787,6 +787,20 @@ class PipecatEngine:
             if call_disposition not in call_tags:
                 call_tags.append(call_disposition)
             self._gathered_context["call_tags"] = call_tags
+
+        # Hangup strategies run while serializing the terminal frame. Persist
+        # the final extracted values first so external-PBX adapters can apply
+        # workflow lead-field mappings before terminating the customer leg.
+        try:
+            await db_client.update_workflow_run(
+                run_id=self._workflow_run_id,
+                gathered_context=self._gathered_context,
+            )
+        except Exception as exc:
+            # Call teardown must never be held hostage by an enrichment write.
+            logger.warning(
+                f"Could not persist final gathered context before hangup: {exc}"
+            )
 
         logger.debug(
             f"Finishing run with reason: {reason}, disposition: {call_disposition} "

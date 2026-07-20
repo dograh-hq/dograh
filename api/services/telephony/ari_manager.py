@@ -30,8 +30,10 @@ from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
 )
+from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.providers.ari.external_pbx import create_adapter
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
@@ -56,6 +58,7 @@ class ARIConnection:
         app_name: str,
         app_password: str,
         ws_client_name: str = "",
+        external_pbx_config: Optional[dict] = None,
     ):
         self.organization_id = organization_id
         self.telephony_configuration_id = telephony_configuration_id
@@ -63,6 +66,8 @@ class ARIConnection:
         self.app_name = app_name
         self.app_password = app_password
         self.ws_client_name = ws_client_name
+        self.external_pbx_config = external_pbx_config
+        self.external_pbx_adapter = create_adapter(external_pbx_config)
 
         self._ws: Optional[websockets.ClientConnection] = None
         self._task: Optional[asyncio.Task] = None
@@ -287,7 +292,7 @@ class ARIConnection:
         channel_state = channel.get("state", "unknown")
 
         # Log all events for each channel
-        logger.debug(
+        logger.trace(
             f"[ARI EVENT org={self.organization_id}] {event_type}: channel={channel_id}, state={channel_state}"
         )
 
@@ -413,7 +418,7 @@ class ARIConnection:
             )
 
         else:
-            logger.debug(
+            logger.trace(
                 f"[ARI org={self.organization_id}] Event: {event_type} "
                 f"channel={channel_id}"
             )
@@ -428,9 +433,9 @@ class ARIConnection:
             async with session.request(method, url, auth=auth, **kwargs) as response:
                 response_text = await response.text()
                 if response.status not in (200, 201, 204):
-                    logger.error(
+                    logger.warning(
                         f"[ARI org={self.organization_id}] REST API error: "
-                        f"{method} {path} -> {response.status}: {response_text}"
+                        f"{method} {path} {kwargs} -> {response.status}: {response_text}"
                     )
                     return {}
                 if response_text:
@@ -451,82 +456,33 @@ class ARIConnection:
         )
         return (result or {}).get("value", "") or ""
 
-    async def _capture_upstream_pbx(
+    async def _capture_external_pbx_call(
         self, channel_id: str, channel_name: str = ""
     ) -> Optional[dict]:
-        """Capture upstream-PBX identity from the inbound SIP headers.
-
-        The customer's real call leg lives on the upstream PBX, not on dograh, so
-        dograh drives hangup/transfer via the upstream's API using a captured
-        handle. Two providers are supported:
-          * FreeSWITCH — bridges in with ``X-PBX-*`` headers; the handle is the
-            channel UUID (``X-PBX-UUID``), driven over ESL (uuid_kill/transfer).
-          * VICIdial — patches in with ``X-VICIDIAL-*`` headers; the handle is the
-            callerid + remote-agent user, driven over ``ra_call_control``.
-        Returns None for non-upstream (direct) calls.
-        """
+        """Capture adapter-defined identity from inbound SIP headers."""
+        if self.external_pbx_adapter is None:
+            return None
         # PJSIP_HEADER() only works on a PJSIP channel; on any other technology
         # (Local, WebSocket, etc.) Asterisk returns a 500 ("This function
         # requires a PJSIP channel"). Non-PJSIP legs carry no SIP headers to
         # capture anyway, so skip the reads quietly instead of spamming errors.
         if not channel_name.startswith("PJSIP/"):
             logger.debug(
-                f"[ARI org={self.organization_id}] Skipping upstream_pbx capture "
+                f"[ARI org={self.organization_id}] Skipping external PBX capture "
                 f"for non-PJSIP channel {channel_id} ({channel_name or 'unknown'})"
             )
             return None
 
-        # FreeSWITCH: X-PBX-Provider marks the call; X-PBX-UUID is the ESL handle.
-        if (
-            await self._get_channel_var(channel_id, "PJSIP_HEADER(read,X-PBX-Provider)")
-        ) == "freeswitch":
-            upstream = {
-                "provider": "freeswitch",
-                "uuid": await self._get_channel_var(
-                    channel_id, "PJSIP_HEADER(read,X-PBX-UUID)"
-                ),
-                "lead_id": await self._get_channel_var(
-                    channel_id, "PJSIP_HEADER(read,X-PBX-Lead-ID)"
-                ),
-                "campaign_id": await self._get_channel_var(
-                    channel_id, "PJSIP_HEADER(read,X-PBX-Campaign)"
-                ),
-            }
-            logger.info(
-                f"[ARI org={self.organization_id}] Captured upstream_pbx for channel "
-                f"{channel_id}: {upstream}"
-            )
-            return upstream
+        async def read_header(name: str) -> str:
+            return await self._get_channel_var(channel_id, f"PJSIP_HEADER(read,{name})")
 
-        # VICIdial: X-VICIDIAL-callerid + user is the ra_call_control handle.
-        callerid = await self._get_channel_var(
-            channel_id, "PJSIP_HEADER(read,X-VICIDIAL-callerid)"
-        )
-        if not callerid:
-            return None
-        upstream = {
-            "provider": "vicidial",
-            "callerid": callerid,
-            "agent_user": await self._get_channel_var(
-                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-user)"
-            ),
-            "lead_id": await self._get_channel_var(
-                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-lead_id)"
-            ),
-            "campaign_id": await self._get_channel_var(
-                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-campaign_id)"
-            ),
-            # The in-group the call arrived on, so a transfer can bounce it back
-            # to the same queue via INGROUPTRANSFER (destination "ingroup:source").
-            "ingroup_id": await self._get_channel_var(
-                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-ingroup_id)"
-            ),
-        }
-        logger.info(
-            f"[ARI org={self.organization_id}] Captured upstream_pbx for channel "
-            f"{channel_id}: {upstream}"
-        )
-        return upstream
+        identity = await self.external_pbx_adapter.capture_call_identity(read_header)
+        if identity:
+            logger.info(
+                f"[ARI org={self.organization_id}] Captured "
+                f"{self.external_pbx_adapter.type} call identity for channel {channel_id} identity: {identity}"
+            )
+        return identity
 
     async def _create_external_media(
         self,
@@ -677,10 +633,8 @@ class ARIConnection:
 
             # 3. Create workflow run
             call_id = channel_id
-            # Capture the upstream-PBX (VICIdial) identity off the SIP headers so
-            # the hangup/transfer strategies can drive VICIdial's API. The
-            # customer's real leg lives on VICIdial; this is the handle for it.
-            upstream_pbx = await self._capture_upstream_pbx(
+            # Capture the configured external PBX identity from SIP headers.
+            external_pbx_call = await self._capture_external_pbx_call(
                 channel_id, channel.get("name", "")
             )
             workflow_run = await db_client.create_workflow_run(
@@ -695,7 +649,7 @@ class ARIConnection:
                     "direction": "inbound",
                     "provider": "ari",
                     "telephony_configuration_id": self.telephony_configuration_id,
-                    "upstream_pbx": upstream_pbx,
+                    "external_pbx_call": external_pbx_call,
                 },
                 gathered_context={
                     "call_id": call_id,
@@ -1242,6 +1196,7 @@ class ARIManager:
             app_name = config["app_name"]
             app_password = config["app_password"]
             ws_client_name = config["ws_client_name"]
+            external_pbx_config = config.get("external_pbx")
 
             conn = ARIConnection(
                 org_id,
@@ -1250,6 +1205,7 @@ class ARIManager:
                 app_name,
                 app_password,
                 ws_client_name,
+                external_pbx_config,
             )
             key = conn.connection_key
 
@@ -1274,6 +1230,7 @@ class ARIManager:
                     or existing.app_name != app_name
                     or existing.app_password != app_password
                     or existing.ws_client_name != ws_client_name
+                    or existing.external_pbx_config != external_pbx_config
                 ):
                     logger.info(
                         f"[ARI Manager] Config {telephony_configuration_id} "
@@ -1311,6 +1268,11 @@ class ARIManager:
             app_name = credentials.get("app_name")
             app_password = credentials.get("app_password")
             ws_client_name = credentials.get("ws_client_name", "")
+            external_pbx = credentials.get("external_pbx")
+            if external_pbx and not await external_pbx_integrations_enabled(
+                row.organization_id
+            ):
+                external_pbx = None
 
             if not all([ari_endpoint, app_name, app_password]):
                 logger.warning(
@@ -1333,6 +1295,7 @@ class ARIManager:
                     "app_name": app_name,
                     "app_password": app_password,
                     "ws_client_name": ws_client_name,
+                    "external_pbx": external_pbx,
                 }
             )
 

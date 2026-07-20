@@ -207,24 +207,6 @@ services:
       # from this value and nginx load-balances across them with least_conn.
       FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
 
-      # VICIdial call control. When an inbound call is patched in from VICIdial
-      # over the SIP trunk, the customer's real leg lives THERE, not on dograh's
-      # Asterisk — so the AI's hangup/transfer is driven via VICIdial's agent API
-      # (api/services/telephony/upstream_pbx.py). VICIdial runs on a SEPARATE
-      # server: point these at its reachable agent API (the api container reaches
-      # it over normal egress). Leave VICIDIAL_API_URL unset to disable.
-      VICIDIAL_API_URL: "${VICIDIAL_API_URL:-}"
-      VICIDIAL_API_USER: "${VICIDIAL_API_USER:-}"
-      VICIDIAL_API_PASS: "${VICIDIAL_API_PASS:-}"
-      VICIDIAL_API_SOURCE: "${VICIDIAL_API_SOURCE:-dograh}"
-      # VICIdial non-agent API (update_lead, e.g. tagging address3=MEDICAID=Y
-      # before a transfer). Separate endpoint (non_agent_api.php) and creds from
-      # the agent API above. Leave VICIDIAL_NON_AGENT_API_URL unset to disable.
-      VICIDIAL_NON_AGENT_API_URL: "${VICIDIAL_NON_AGENT_API_URL:-}"
-      VICIDIAL_NON_AGENT_API_USER: "${VICIDIAL_NON_AGENT_API_USER:-}"
-      VICIDIAL_NON_AGENT_API_PASS: "${VICIDIAL_NON_AGENT_API_PASS:-}"
-      VICIDIAL_NON_AGENT_API_SOURCE: "${VICIDIAL_NON_AGENT_API_SOURCE:-dograh}"
-
       # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
       # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches
       # uvicorn from a Docker-network IP (not loopback), but uvicorn trusts only

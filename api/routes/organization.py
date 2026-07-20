@@ -1,4 +1,5 @@
-from typing import List, Optional
+from copy import deepcopy
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
@@ -74,6 +75,7 @@ from api.services.organization_context import (
     get_organization_context,
 )
 from api.services.organization_preferences import (
+    external_pbx_integrations_enabled,
     get_organization_preferences,
     upsert_organization_preferences,
 )
@@ -101,12 +103,22 @@ def _sensitive_fields(provider_name: str) -> List[str]:
 
 def _mask_sensitive(provider_name: str, value: dict) -> dict:
     """Return a copy of ``value`` with sensitive fields masked for display."""
-    out = dict(value)
+    out = deepcopy(value)
     for field_name in _sensitive_fields(provider_name):
-        v = out.get(field_name)
+        v = _get_nested_field(out, field_name)
         if v:
-            out[field_name] = mask_key(v)
+            _set_nested_field(out, field_name, mask_key(str(v)))
     return out
+
+
+class TelephonyProviderUIOption(BaseModel):
+    value: str
+    label: str
+
+
+class TelephonyProviderUICondition(BaseModel):
+    field: str
+    equals: Any
 
 
 class TelephonyProviderUIField(BaseModel):
@@ -119,6 +131,9 @@ class TelephonyProviderUIField(BaseModel):
     sensitive: bool
     description: Optional[str] = None
     placeholder: Optional[str] = None
+    options: Optional[List[TelephonyProviderUIOption]] = None
+    visible_when: Optional[TelephonyProviderUICondition] = None
+    section: Optional[str] = None
 
 
 class TelephonyProviderMetadata(BaseModel):
@@ -184,6 +199,9 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
+    external_pbx_enabled = await external_pbx_integrations_enabled(
+        user.selected_organization_id
+    )
     providers = []
     for spec in telephony_registry.all_specs():
         if spec.ui_metadata is None:
@@ -201,8 +219,30 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
                         sensitive=f.sensitive,
                         description=f.description,
                         placeholder=f.placeholder,
+                        options=(
+                            [
+                                {"value": option.value, "label": option.label}
+                                for option in f.options
+                            ]
+                            if f.options
+                            else None
+                        ),
+                        visible_when=(
+                            {
+                                "field": f.visible_when.field,
+                                "equals": f.visible_when.equals,
+                            }
+                            if f.visible_when
+                            else None
+                        ),
+                        section=f.section,
                     )
                     for f in spec.ui_metadata.fields
+                    if not f.feature_gate
+                    or (
+                        f.feature_gate == "external_pbx_integrations"
+                        and external_pbx_enabled
+                    )
                 ],
                 docs_url=spec.ui_metadata.docs_url,
             )
@@ -511,9 +551,59 @@ async def save_model_configuration_preferences_legacy(
 def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):
     """If the client re-submitted a masked sensitive field, restore the original."""
     for field_name in _sensitive_fields(provider):
-        v = request_dict.get(field_name)
-        if v and is_mask_of(v, existing.get(field_name, "")):
-            request_dict[field_name] = existing[field_name]
+        v = _get_nested_field(request_dict, field_name)
+        existing_value = _get_nested_field(existing, field_name)
+        if v and is_mask_of(v, existing_value or ""):
+            _set_nested_field(request_dict, field_name, existing_value)
+
+
+def _get_nested_field(value: dict, dotted_path: str):
+    current = value
+    for part in dotted_path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _set_nested_field(value: dict, dotted_path: str, field_value) -> None:
+    current = value
+    parts = dotted_path.split(".")
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = field_value
+
+
+async def _enforce_external_pbx_feature(
+    organization_id: int,
+    provider: str,
+    credentials: dict,
+    *,
+    existing_credentials: Optional[dict] = None,
+) -> None:
+    if provider != "ari":
+        return
+    if await external_pbx_integrations_enabled(organization_id):
+        return
+    requested_external_pbx = credentials.get("external_pbx")
+    existing_external_pbx = (existing_credentials or {}).get("external_pbx")
+    if not requested_external_pbx and not existing_external_pbx:
+        return
+    # Disabling the feature hides and disables the integration, but does not
+    # destroy saved credentials. Allow only an unchanged masked round-trip.
+    if requested_external_pbx == existing_external_pbx:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "External PBX integrations are disabled for this organization. "
+            "Enable them in Platform Settings before changing this configuration."
+        ),
+    )
 
 
 def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
@@ -612,6 +702,9 @@ async def create_telephony_configuration(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     credentials = _credentials_from_payload(request.config)
+    await _enforce_external_pbx_feature(
+        user.selected_organization_id, request.config.provider, credentials
+    )
     credentials = await _run_preprocess_hook(request.config.provider, credentials)
 
     try:
@@ -693,6 +786,12 @@ async def update_telephony_configuration(
         credentials = _credentials_from_payload(request.config)
         preserve_masked_fields(
             existing.provider, credentials, existing.credentials or {}
+        )
+        await _enforce_external_pbx_feature(
+            user.selected_organization_id,
+            existing.provider,
+            credentials,
+            existing_credentials=existing.credentials or {},
         )
         credentials = await _run_preprocess_hook(existing.provider, credentials)
 

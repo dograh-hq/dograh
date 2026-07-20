@@ -24,6 +24,7 @@ from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
 from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
@@ -609,6 +610,18 @@ class CustomToolManager:
                     )
                     return
 
+                external_pbx_call = (
+                    getattr(workflow_run, "initial_context", None) or {}
+                ).get("external_pbx_call")
+                # Compatibility for calls that started before the migration.
+                external_pbx_call = external_pbx_call or (
+                    getattr(workflow_run, "initial_context", None) or {}
+                ).get("upstream_pbx")
+                if external_pbx_call:
+                    # Context-to-in-group and lead-field mappings must see the
+                    # final conversation-derived values.
+                    await self._engine.perform_final_variable_extraction()
+
                 resolver = config.get("resolver") if isinstance(config, dict) else None
                 is_dynamic_transfer = config.get(
                     "destination_source", "static"
@@ -661,6 +674,26 @@ class CustomToolManager:
                     )
                     return
 
+                if (
+                    resolved_transfer.source == "context_mapping"
+                    and not external_pbx_call
+                ):
+                    clear_transfer_setup_mute_state()
+                    await self._handle_transfer_result(
+                        {
+                            "status": "failed",
+                            "message": (
+                                "This call did not arrive through the configured "
+                                "external PBX."
+                            ),
+                            "action": "transfer_failed",
+                            "reason": "external_pbx_call_required",
+                        },
+                        function_call_params,
+                        properties,
+                    )
+                    return
+
                 # Validate destination phone number
                 if not destination or not destination.strip():
                     validation_error_result = {
@@ -674,6 +707,10 @@ class CustomToolManager:
                         validation_error_result, function_call_params, properties
                     )
                     return
+
+                provider = await get_telephony_provider_for_run(
+                    workflow_run, organization_id
+                )
 
                 if resolved_transfer.message:
                     await self._engine.task.queue_frame(
@@ -689,95 +726,52 @@ class CustomToolManager:
                     if played:
                         self._engine._queued_speech_mute_state = "waiting"
 
-                # Upstream-PBX (VICIdial) call: the customer's real leg lives on
-                # the upstream PBX, so transfer it via the upstream API
-                # (ra_call_control EXTENSIONTRANSFER / INGROUPTRANSFER) instead of
-                # dograh's ARI bridge-swap, which assumes dograh owns both legs.
-                upstream = (getattr(workflow_run, "initial_context", None) or {}).get(
-                    "upstream_pbx"
-                )
-                if upstream:
-                    from api.services.telephony.upstream_pbx import (
-                        collect_update_lead_fields,
-                        route_upstream_after_call,
-                        update_upstream_lead,
-                    )
-
-                    # Extract variables right before the transfer so any
-                    # X-VICI-UPDATE-LEAD_* values reflect the final conversation
-                    # state, then forward them to the upstream PBX's update_lead
-                    # BEFORE handing the customer off. This lets a workflow plumb
-                    # arbitrary, conversation-derived fields into the VICIdial
-                    # lead. Best-effort: never blocks the transfer.
-                    await self._engine.perform_final_variable_extraction()
-                    update_fields = collect_update_lead_fields(
-                        self._engine._gathered_context
-                    )
-                    logger.info(
-                        f"[transfer] update_lead fields from extracted "
-                        f"variables: {update_fields}"
-                    )
-                    if update_fields:
-                        await update_upstream_lead(upstream, update_fields)
-
-                    # Hardcoded address3 routing (see route_upstream_after_call):
-                    # "Y"/"N" transfer the customer into in-group
-                    # dograhtest1/dograhtest2; anything else hangs the customer up
-                    # instead of transferring. The resolved destination is
-                    # intentionally ignored for upstream calls.
-                    action, ok = await route_upstream_after_call(
-                        upstream, update_fields
-                    )
-                    if action == "transfer":
-                        # Mark the run so the end-of-call hangup does NOT also hang
-                        # up the now-transferred customer (see ARIHangupStrategy).
-                        await db_client.update_workflow_run(
-                            run_id=self._engine._workflow_run_id,
-                            gathered_context={"upstream_transferred": True},
+                if external_pbx_call:
+                    workflow_configurations = (
+                        await db_client.get_workflow_run_configurations(
+                            self._engine._workflow_run_id, organization_id
                         )
-                        await function_call_params.result_callback(
-                            {
-                                "status": "success" if ok else "failed",
-                                "action": "upstream_transfer",
-                                "message": (
-                                    "Transferring your call now."
-                                    if ok
-                                    else "I'm sorry, I couldn't complete the transfer."
-                                ),
-                            },
-                            properties=properties,
-                        )
-                        if ok:
-                            # Give the upstream PBX time to redirect the customer
-                            # out of the conference toward the in-group BEFORE we
-                            # drop dograh's own leg -- otherwise the teardown races
-                            # the redirect and cancels the customer's call (it
-                            # never rings).
+                    )
+                    field_updates = resolve_external_pbx_field_mappings(
+                        self._engine._gathered_context,
+                        workflow_configurations.get("external_pbx_field_mappings", []),
+                    )
+                    external_result = await provider.transfer_external_pbx_call(
+                        identity=external_pbx_call,
+                        destination=destination,
+                        field_updates=field_updates,
+                    )
+                    if external_result is not None:
+                        clear_transfer_setup_mute_state()
+                        if external_result.get("status") == "success":
+                            self._engine._gathered_context[
+                                "external_pbx_transferred"
+                            ] = True
+                            await db_client.update_workflow_run(
+                                run_id=self._engine._workflow_run_id,
+                                gathered_context={"external_pbx_transferred": True},
+                            )
+                            await function_call_params.result_callback(
+                                external_result, properties=properties
+                            )
+                            # Let VICIdial redirect the customer out of its
+                            # conference before Dograh tears down the local leg.
                             await asyncio.sleep(4)
-                    else:
-                        # address3 wasn't Y/N: route_upstream_after_call already
-                        # hung up the customer leg. Leave upstream_transferred
-                        # unset so the end-of-call teardown re-confirms the hangup
-                        # (a no-op if it already succeeded, a retry if it didn't).
-                        await function_call_params.result_callback(
-                            {
-                                "status": "success",
-                                "action": "upstream_hangup",
-                                "message": "Ending the call now.",
-                            },
-                            properties=properties,
-                        )
-                    # Tear down dograh's own legs; the customer leg has already
-                    # been handled on the upstream PBX side.
-                    await self._engine.end_call_with_reason(
-                        EndTaskReason.END_CALL_TOOL_REASON.value,
-                        abort_immediately=True,
-                    )
-                    return
+                            await self._engine.end_call_with_reason(
+                                EndTaskReason.END_CALL_TOOL_REASON.value,
+                                abort_immediately=True,
+                            )
+                        else:
+                            await self._handle_transfer_result(
+                                {
+                                    **external_result,
+                                    "action": "transfer_failed",
+                                },
+                                function_call_params,
+                                properties,
+                            )
+                        return
 
-                provider = await get_telephony_provider_for_run(
-                    workflow_run, organization_id
-                )
                 if not provider.supports_transfers() or not provider.validate_config():
                     validation_error_result = {
                         "status": "failed",

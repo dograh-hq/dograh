@@ -2,11 +2,6 @@
 # Overrides docker-compose.yaml to build api and ui images from local source
 # instead of pulling them from a registry. Remove this file to revert to
 # pulling prebuilt images.
-#
-# NOTE: VICIdial now runs on a SEPARATE server, so there is no shared pbx-net —
-# the api container reaches VICIdial's agent API over normal egress (set
-# VICIDIAL_API_URL in .env). If setup_remote.sh regenerates this file it only
-# restores the build blocks below, which is exactly what we want.
 services:
   api:
     build:

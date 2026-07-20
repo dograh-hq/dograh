@@ -24,6 +24,7 @@ from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
 from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
@@ -609,22 +610,22 @@ class CustomToolManager:
                     )
                     return
 
+                external_pbx_call = (
+                    getattr(workflow_run, "initial_context", None) or {}
+                ).get("external_pbx_call")
+                # Compatibility for calls that started before the migration.
+                external_pbx_call = external_pbx_call or (
+                    getattr(workflow_run, "initial_context", None) or {}
+                ).get("upstream_pbx")
+                if external_pbx_call:
+                    # Context-to-in-group and lead-field mappings must see the
+                    # final conversation-derived values.
+                    await self._engine.perform_final_variable_extraction()
+
                 resolver = config.get("resolver") if isinstance(config, dict) else None
                 is_dynamic_transfer = config.get(
                     "destination_source", "static"
                 ) == "dynamic" and isinstance(resolver, dict)
-                resolver_phase_muted = False
-
-                def clear_transfer_setup_mute_state() -> None:
-                    nonlocal resolver_phase_muted
-                    if resolver_phase_muted:
-                        self._engine.set_mute_pipeline(False)
-                        resolver_phase_muted = False
-                    self._engine._queued_speech_mute_state = "idle"
-
-                if is_dynamic_transfer:
-                    self._engine.set_mute_pipeline(True)
-                    resolver_phase_muted = True
 
                 if is_dynamic_transfer and resolver.get("wait_message"):
                     await self._engine.task.queue_frame(
@@ -634,7 +635,6 @@ class CustomToolManager:
                             persist_to_logs=True,
                         )
                     )
-                    self._engine._queued_speech_mute_state = "waiting"
 
                 try:
                     resolved_transfer = await resolve_transfer_config(
@@ -649,7 +649,6 @@ class CustomToolManager:
                     destination = resolved_transfer.destination
                     timeout_seconds = resolved_transfer.timeout_seconds
                 except TransferResolutionError as e:
-                    clear_transfer_setup_mute_state()
                     validation_error_result = {
                         "status": "failed",
                         "message": "I'm sorry, but I couldn't find a valid destination for this transfer.",
@@ -661,6 +660,25 @@ class CustomToolManager:
                     )
                     return
 
+                if (
+                    resolved_transfer.source == "context_mapping"
+                    and not external_pbx_call
+                ):
+                    await self._handle_transfer_result(
+                        {
+                            "status": "failed",
+                            "message": (
+                                "This call did not arrive through the configured "
+                                "external PBX."
+                            ),
+                            "action": "transfer_failed",
+                            "reason": "external_pbx_call_required",
+                        },
+                        function_call_params,
+                        properties,
+                    )
+                    return
+
                 # Validate destination phone number
                 if not destination or not destination.strip():
                     validation_error_result = {
@@ -669,11 +687,14 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "no_destination",
                     }
-                    clear_transfer_setup_mute_state()
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
                     return
+
+                provider = await get_telephony_provider_for_run(
+                    workflow_run, organization_id
+                )
 
                 if resolved_transfer.message:
                     await self._engine.task.queue_frame(
@@ -683,15 +704,54 @@ class CustomToolManager:
                             persist_to_logs=True,
                         )
                     )
-                    self._engine._queued_speech_mute_state = "waiting"
                 else:
-                    played = await self._play_config_message(config)
-                    if played:
-                        self._engine._queued_speech_mute_state = "waiting"
+                    await self._play_config_message(config)
 
-                provider = await get_telephony_provider_for_run(
-                    workflow_run, organization_id
-                )
+                if external_pbx_call:
+                    workflow_configurations = (
+                        await db_client.get_workflow_run_configurations(
+                            self._engine._workflow_run_id, organization_id
+                        )
+                    )
+                    field_updates = resolve_external_pbx_field_mappings(
+                        self._engine._gathered_context,
+                        workflow_configurations.get("external_pbx_field_mappings", []),
+                    )
+                    external_result = await provider.transfer_external_pbx_call(
+                        identity=external_pbx_call,
+                        destination=destination,
+                        field_updates=field_updates,
+                    )
+                    if external_result is not None:
+                        if external_result.get("status") == "success":
+                            self._engine._gathered_context[
+                                "external_pbx_transferred"
+                            ] = True
+                            await db_client.update_workflow_run(
+                                run_id=self._engine._workflow_run_id,
+                                gathered_context={"external_pbx_transferred": True},
+                            )
+                            await function_call_params.result_callback(
+                                external_result, properties=properties
+                            )
+                            # Let VICIdial redirect the customer out of its
+                            # conference before Dograh tears down the local leg.
+                            await asyncio.sleep(4)
+                            await self._engine.end_call_with_reason(
+                                EndTaskReason.END_CALL_TOOL_REASON.value,
+                                abort_immediately=True,
+                            )
+                        else:
+                            await self._handle_transfer_result(
+                                {
+                                    **external_result,
+                                    "action": "transfer_failed",
+                                },
+                                function_call_params,
+                                properties,
+                            )
+                        return
+
                 if not provider.supports_transfers() or not provider.validate_config():
                     validation_error_result = {
                         "status": "failed",
@@ -699,7 +759,6 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "provider_does_not_support_transfer",
                     }
-                    clear_transfer_setup_mute_state()
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
@@ -751,7 +810,6 @@ class CustomToolManager:
                 except Exception as e:
                     logger.error(f"Transfer provider failed: {e}")
                     self._engine.set_mute_pipeline(False)
-                    self._engine._queued_speech_mute_state = "idle"
                     await call_transfer_manager.remove_transfer_context(transfer_id)
                     provider_error_result = {
                         "status": "failed",
@@ -851,7 +909,6 @@ class CustomToolManager:
                     f"Transfer call tool '{function_name}' execution failed: {e}"
                 )
                 self._engine.set_mute_pipeline(False)
-                self._engine._queued_speech_mute_state = "idle"
 
                 # Handle generic exception with user-friendly message
                 exception_result = {

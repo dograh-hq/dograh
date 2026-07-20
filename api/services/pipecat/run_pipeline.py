@@ -95,6 +95,9 @@ from pipecat.turns.user_start import (
     MinWordsUserTurnStartStrategy,
     ProvisionalVADUserTurnStartStrategy,
 )
+from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+    TranscriptionUserTurnStartStrategy,
+)
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
     VADUserTurnStartStrategy,
 )
@@ -162,7 +165,7 @@ def _create_non_realtime_user_turn_start_strategies(
         return [
             ProvisionalVADUserTurnStartStrategy(
                 pause_secs=_resolve_provisional_vad_pause_secs(run_configs)
-            )
+            ),
         ]
 
     if uses_external_turns:
@@ -172,7 +175,7 @@ def _create_non_realtime_user_turn_start_strategies(
         # confirms a real turn.
         return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
 
-    return [VADUserTurnStartStrategy()]
+    return [TranscriptionUserTurnStartStrategy(), VADUserTurnStartStrategy()]
 
 
 def _create_non_realtime_user_turn_stop_strategies(

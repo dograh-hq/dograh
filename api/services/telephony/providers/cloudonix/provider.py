@@ -627,17 +627,32 @@ class CloudonixProvider(TelephonyProvider):
                 return
 
             start_context = start.get("context")
+            custom_parameters = start.get("customParameters")
+            builtin_context = {
+                "caller_number": start.get("from"),
+                "called_number": start.get("to"),
+                "direction": (
+                    "outbound" if start_context == "outbound-api" else "inbound"
+                ),
+                "cloudonix_context": start_context,
+            }
             await db_client.update_workflow_run(
                 run_id=workflow_run_id,
                 initial_context={
+                    # Flatten customParameters, but never let them overwrite a
+                    # built-in key even when the built-in's value is None.
                     key: value
                     for key, value in {
-                        "caller_number": start.get("from"),
-                        "called_number": start.get("to"),
-                        "direction": (
-                            "outbound" if start_context == "outbound-api" else "inbound"
-                        ),
-                        "cloudonix_context": start_context,
+                        **{
+                            k: v
+                            for k, v in (
+                                custom_parameters
+                                if isinstance(custom_parameters, dict)
+                                else {}
+                            ).items()
+                            if k not in builtin_context
+                        },
+                        **builtin_context,
                     }.items()
                     if value is not None
                 },
@@ -1059,7 +1074,7 @@ class CloudonixProvider(TelephonyProvider):
             "<Response>"
             "<Say>You have answered a transfer call. Connecting you now.</Say>"
             "<Dial>"
-            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join" holdMusic="false" beep="false">{conference_name}</Conference>'
+            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join" holdMusic="false">{conference_name}</Conference>'
             "</Dial>"
             "</Response>"
         )

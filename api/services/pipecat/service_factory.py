@@ -227,7 +227,6 @@ def create_stt_service(
         # Other models than flux
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
-        logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
             api_key=user_config.stt.api_key,
             settings=DeepgramSTTSettings(
@@ -1009,6 +1008,13 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             SessionProperties,
         )
 
+        # Pin the transcription language when configured. Without it the model
+        # auto-detects per utterance, which misfires on short/noisy telephony
+        # audio (e.g. Portuguese transcribed as English or Chinese).
+        transcription_kwargs = {}
+        if language:
+            transcription_kwargs["language"] = language
+
         return DograhOpenAIRealtimeLLMService(
             api_key=api_key,
             settings=DograhOpenAIRealtimeLLMService.Settings(
@@ -1016,7 +1022,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 session_properties=SessionProperties(
                     audio=AudioConfiguration(
                         input=AudioInput(
-                            transcription=InputAudioTranscription(),
+                            transcription=InputAudioTranscription(
+                                **transcription_kwargs
+                            ),
                         ),
                         output=AudioOutput(
                             voice=voice or "alloy",

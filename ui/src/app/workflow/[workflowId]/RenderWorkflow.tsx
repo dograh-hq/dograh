@@ -117,6 +117,7 @@ function RenderWorkflow({
         onConnect,
         onEdgesChange,
         onNodesChange,
+        onDelete,
     } = useWorkflowState({
         initialWorkflowName,
         workflowId,
@@ -514,6 +515,7 @@ function RenderWorkflow({
                                 edges={edges}
                                 onNodesChange={onNodesChange}
                                 onEdgesChange={onEdgesChange}
+                                onDelete={onDelete}
                                 nodeTypes={nodeTypes}
                                 edgeTypes={edgeTypes}
                                 onConnect={isViewingHistoricalVersion ? undefined : onConnect}

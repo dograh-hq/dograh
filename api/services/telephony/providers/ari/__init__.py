@@ -4,8 +4,10 @@ from typing import Any, Dict
 
 from api.services.telephony.registry import (
     ProviderSpec,
+    ProviderUICondition,
     ProviderUIField,
     ProviderUIMetadata,
+    ProviderUIOption,
     register,
 )
 
@@ -20,6 +22,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "ari_endpoint": value.get("ari_endpoint"),
         "app_name": value.get("app_name"),
         "app_password": value.get("app_password"),
+        "external_pbx": value.get("external_pbx"),
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -57,6 +60,92 @@ _UI_METADATA = ProviderUIMetadata(
             label="From Extensions",
             type="string-array",
             description="SIP extensions/numbers for outbound calls",
+        ),
+        ProviderUIField(
+            name="external_pbx.type",
+            label="External PBX Type",
+            type="select",
+            required=False,
+            description=(
+                "Enable PBX-specific call control for calls patched into Dograh "
+                "through this Asterisk configuration."
+            ),
+            options=[ProviderUIOption(value="vicidial", label="VICIdial")],
+            section="External PBX",
+            feature_gate="external_pbx_integrations",
+        ),
+        ProviderUIField(
+            name="external_pbx.agent_api.url",
+            label="Agent API URL",
+            type="text",
+            description="Full VICIdial remote-agent API URL, ending in agc/api.php",
+            placeholder="https://vici.example.com/agc/api.php",
+            visible_when=ProviderUICondition(
+                field="external_pbx.type", equals="vicidial"
+            ),
+            section="External PBX",
+            feature_gate="external_pbx_integrations",
+        ),
+        ProviderUIField(
+            name="external_pbx.agent_api.username",
+            label="Agent API User",
+            type="text",
+            sensitive=True,
+            visible_when=ProviderUICondition(
+                field="external_pbx.type", equals="vicidial"
+            ),
+            section="External PBX",
+            feature_gate="external_pbx_integrations",
+        ),
+        ProviderUIField(
+            name="external_pbx.agent_api.password",
+            label="Agent API Password",
+            type="password",
+            sensitive=True,
+            visible_when=ProviderUICondition(
+                field="external_pbx.type", equals="vicidial"
+            ),
+            section="External PBX",
+            feature_gate="external_pbx_integrations",
+        ),
+        ProviderUIField(
+            name="external_pbx.non_agent_api.url",
+            label="Non-Agent API URL",
+            type="text",
+            required=False,
+            description=(
+                "Optional. Required only when a workflow updates VICIdial lead fields."
+            ),
+            placeholder="https://vici.example.com/vicidial/non_agent_api.php",
+            visible_when=ProviderUICondition(
+                field="external_pbx.type", equals="vicidial"
+            ),
+            section="External PBX",
+            feature_gate="external_pbx_integrations",
+        ),
+        ProviderUIField(
+            name="external_pbx.non_agent_api.username",
+            label="Non-Agent API User",
+            type="text",
+            required=False,
+            sensitive=True,
+            visible_when=ProviderUICondition(
+                field="external_pbx.type", equals="vicidial"
+            ),
+            section="External PBX",
+            feature_gate="external_pbx_integrations",
+        ),
+        ProviderUIField(
+            name="external_pbx.non_agent_api.password",
+            label="Non-Agent API Password",
+            type="password",
+            required=False,
+            sensitive=True,
+            visible_when=ProviderUICondition(
+                field="external_pbx.type", equals="vicidial"
+            ),
+            section="External PBX",
+            feature_gate="external_pbx_integrations",
         ),
     ],
 )

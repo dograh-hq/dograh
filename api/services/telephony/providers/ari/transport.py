@@ -11,6 +11,7 @@ from api.services.pipecat.audio_mixer import build_audio_out_mixer
 from api.services.pipecat.transport_params import realtime_param_overrides
 from api.services.telephony.factory import load_credentials_for_transport
 
+from .external_pbx import create_adapter
 from .serializers import AsteriskFrameSerializer
 from .strategies import ARIBridgeSwapStrategy, ARIHangupStrategy
 
@@ -47,7 +48,9 @@ async def create_transport(
         app_name=app_name,
         app_password=app_password,
         transfer_strategy=ARIBridgeSwapStrategy(),
-        hangup_strategy=ARIHangupStrategy(),
+        hangup_strategy=ARIHangupStrategy(
+            external_pbx_adapter=create_adapter(config.get("external_pbx"))
+        ),
         params=AsteriskFrameSerializer.InputParams(
             asterisk_sample_rate=audio_config.transport_in_sample_rate,
             sample_rate=audio_config.pipeline_sample_rate,

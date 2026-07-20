@@ -136,6 +136,7 @@ export const useWorkflowState = ({
         templateContextVariables,
         workflowConfigurations,
         initializeWorkflow,
+        commitDeletion,
         setNodes,
         setEdges,
         setWorkflowName,
@@ -493,6 +494,10 @@ export const useWorkflowState = ({
         [setNodes],
     );
 
+    const onDelete = useCallback(() => {
+        commitDeletion();
+    }, [commitDeletion]);
+
     const onRun = async (mode: string) => {
         if (!user?.id) return;
         const workflowRunName = `WR-${getRandomId()}`;
@@ -639,6 +644,7 @@ export const useWorkflowState = ({
         onConnect,
         onEdgesChange,
         onNodesChange,
+        onDelete,
         onRun,
         saveTemplateContextVariables,
         saveWorkflowConfigurations,

@@ -42,6 +42,16 @@ async def upsert_organization_preferences(
     return preferences
 
 
+async def external_pbx_integrations_enabled(
+    organization_id: int | None,
+    db=None,
+) -> bool:
+    """Return whether the organization opted into external-PBX integrations."""
+
+    preferences = await get_organization_preferences(organization_id, db=db)
+    return preferences.external_pbx_integrations_enabled
+
+
 async def _get_configuration(db, organization_id: int, key: str):
     row = db.get_configuration(organization_id, key)
     if isawaitable(row):

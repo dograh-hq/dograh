@@ -544,7 +544,100 @@ class PlivoProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        raise NotImplementedError("Plivo provider does not support call transfers")
+        """
+        Initiate a call transfer via Plivo.
+
+        1. Dials the destination (bleg) with answer_url → conference XML, and
+           hangup_url → /plivo/transfer-result/{transfer_id} so Dograh is
+           notified when the destination answers or fails via Redis pub/sub.
+        2. Redirects the original caller (aleg) into the same conference via
+           Plivo's Transfer API so both legs are bridged together.
+
+        Args:
+            destination: The destination phone number (E.164 format)
+            transfer_id: Unique identifier for tracking this transfer
+            conference_name: Name of the conference to join both legs into
+            timeout: Transfer timeout in seconds
+            **kwargs: May include original_call_sid for the aleg redirect
+
+        Returns:
+            Dict containing transfer result information
+
+        Raises:
+            ValueError: If provider configuration is invalid
+            Exception: If Plivo API call fails
+        """
+        if not self.validate_config():
+            raise ValueError("Plivo provider not properly configured")
+
+        from_number = random.choice(self.from_numbers)
+        logger.info(f"Selected phone number {from_number} for transfer call")
+
+        backend_endpoint, _ = await get_backend_endpoints()
+
+        answer_url = (
+            f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}/{transfer_id}"
+        )
+        hangup_url = (
+            f"{backend_endpoint}/api/v1/telephony/plivo/transfer-result/{transfer_id}"
+        )
+
+        endpoint = f"{self.base_url}/Call/"
+        data = {
+            "to": destination,
+            "from": from_number.lstrip("+"),
+            "answer_url": answer_url,
+            "answer_method": "POST",
+            "hangup_url": hangup_url,
+            "hangup_method": "POST",
+            "ring_url": hangup_url,
+            "ring_method": "POST",
+            "ring_timeout": timeout,
+        }
+
+        try:
+            logger.debug(f"Transfer call data (bleg): {data}")
+
+            async with aiohttp.ClientSession() as session:
+                auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
+
+                # Step 1: Dial the destination (bleg)
+                async with session.post(endpoint, json=data, auth=auth) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+
+                    logger.info(f"Plivo transfer bleg API response: {response_status}")
+                    logger.debug(f"Plivo transfer bleg response body: {response_text}")
+
+                    if response_status not in [200, 201]:
+                        error_msg = (
+                            f"Plivo API call failed with status "
+                            f"{response_status}: {response_text}"
+                        )
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+
+                    try:
+                        response_data = json.loads(response_text)
+                    except Exception as e:
+                        logger.error(f"Failed to parse Plivo transfer response JSON: {e}")
+                        raise Exception(f"Failed to parse transfer response: {e}")
+
+                    request_uuid = response_data.get("request_uuid")
+                    logger.info(f"Transfer bleg initiated: {request_uuid}")
+
+                return {
+                    "call_sid": request_uuid,
+                    "status": "queued",
+                    "provider": self.PROVIDER_NAME,
+                    "from_number": from_number,
+                    "to_number": destination,
+                    "raw_response": response_data,
+                }
+
+        except Exception as e:
+            logger.error(f"Error initiating Plivo transfer call: {e}")
+            raise
 
     def supports_transfers(self) -> bool:
-        return False
+        return True

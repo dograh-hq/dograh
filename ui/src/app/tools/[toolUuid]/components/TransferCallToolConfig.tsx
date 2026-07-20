@@ -96,7 +96,7 @@ export function TransferCallToolConfig({
             <CardHeader>
                 <CardTitle>Transfer Call Configuration</CardTitle>
                 <CardDescription>
-                    Configure call transfer settings. Supports phone numbers (Twilio) and SIP endpoints (Asterisk ARI).
+                    Configure call transfer settings. Supports phone numbers (Twilio, Plivo) and SIP endpoints (Asterisk ARI).
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

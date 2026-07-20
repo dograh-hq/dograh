@@ -400,6 +400,7 @@ async def run_pipeline_smallwebrtc(
     call_context_vars: dict = {},
     user_provider_id: str | None = None,
     organization_id: int | None = None,
+    dtmf_queue: asyncio.Queue | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections."""
     # Register before any async setup so deploy drains see calls that are still
@@ -414,6 +415,7 @@ async def run_pipeline_smallwebrtc(
             call_context_vars=call_context_vars,
             user_provider_id=user_provider_id,
             organization_id=organization_id,
+            dtmf_queue=dtmf_queue,
         )
     finally:
         try:
@@ -430,6 +432,7 @@ async def _run_pipeline_smallwebrtc_impl(
     call_context_vars: dict = {},
     user_provider_id: str | None = None,
     organization_id: int | None = None,
+    dtmf_queue: asyncio.Queue | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections"""
     logger.debug(
@@ -503,6 +506,7 @@ async def _run_pipeline_smallwebrtc_impl(
         workflow_run=workflow_run,
         resolved_user_config=user_config,
         organization_id=organization_id,
+        dtmf_queue=dtmf_queue,
     )
 
 
@@ -551,6 +555,7 @@ async def _run_pipeline_impl(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    dtmf_queue: asyncio.Queue | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -1125,6 +1130,20 @@ async def _run_pipeline_impl(
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
 
+    dtmf_listener_task = None
+    if dtmf_queue is not None:
+        async def _dtmf_queue_listener():
+            try:
+                while True:
+                    digit = await dtmf_queue.get()
+                    if digit is None:
+                        break
+                    await engine.handle_dtmf_event(digit)
+            except asyncio.CancelledError:
+                pass
+
+        dtmf_listener_task = asyncio.create_task(_dtmf_queue_listener())
+
     try:
         # Run the pipeline
         await run_pipeline_worker(task)
@@ -1132,6 +1151,8 @@ async def _run_pipeline_impl(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        if dtmf_listener_task:
+            dtmf_listener_task.cancel()
         # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),

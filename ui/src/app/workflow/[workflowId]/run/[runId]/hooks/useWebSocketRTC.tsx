@@ -809,6 +809,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         cleanupConnection({ graceful: true, status: 'idle', delayPeerClose: true });
     };
 
+    const sendDtmfDigit = useCallback((digit: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'dtmf', payload: { digit } }));
+        }
+    }, []);
+
     // Cleanup on unmount
     useEffect(() => {
         return () => {
@@ -844,5 +850,6 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         initialContext,
         getAudioInputDevices,
         feedbackMessages,
+        sendDtmfDigit,
     };
 };

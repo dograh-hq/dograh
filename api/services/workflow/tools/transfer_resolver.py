@@ -356,7 +356,7 @@ async def resolve_transfer_config(
         logger.info(
             "Transfer destination resolved from context mapping "
             f"context_path={resolved.metadata.get('context_path')} "
-            f"resolved={resolved}"
+            f"source={resolved.source} destination={resolved.destination}"
         )
         return resolved
 

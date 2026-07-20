@@ -536,18 +536,6 @@ async def get_model_configuration_preferences_legacy(
     return await get_preferences(user=user)
 
 
-@router.put(
-    "/model-configurations/preferences",
-    response_model=OrganizationPreferences,
-    include_in_schema=False,
-)
-async def save_model_configuration_preferences_legacy(
-    request: OrganizationPreferences,
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
-    return await save_preferences(request=request, user=user)
-
-
 def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):
     """If the client re-submitted a masked sensitive field, restore the original."""
     for field_name in _sensitive_fields(provider):

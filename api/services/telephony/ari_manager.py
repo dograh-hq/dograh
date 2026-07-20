@@ -439,7 +439,9 @@ class ARIConnection:
         )
         return (result or {}).get("value", "") or ""
 
-    async def _capture_upstream_pbx(self, channel_id: str) -> Optional[dict]:
+    async def _capture_upstream_pbx(
+        self, channel_id: str, channel_name: str = ""
+    ) -> Optional[dict]:
         """Capture upstream-PBX identity from the inbound SIP headers.
 
         The customer's real call leg lives on the upstream PBX, not on dograh, so
@@ -451,6 +453,17 @@ class ARIConnection:
             callerid + remote-agent user, driven over ``ra_call_control``.
         Returns None for non-upstream (direct) calls.
         """
+        # PJSIP_HEADER() only works on a PJSIP channel; on any other technology
+        # (Local, WebSocket, etc.) Asterisk returns a 500 ("This function
+        # requires a PJSIP channel"). Non-PJSIP legs carry no SIP headers to
+        # capture anyway, so skip the reads quietly instead of spamming errors.
+        if not channel_name.startswith("PJSIP/"):
+            logger.debug(
+                f"[ARI org={self.organization_id}] Skipping upstream_pbx capture "
+                f"for non-PJSIP channel {channel_id} ({channel_name or 'unknown'})"
+            )
+            return None
+
         # FreeSWITCH: X-PBX-Provider marks the call; X-PBX-UUID is the ESL handle.
         if (
             await self._get_channel_var(
@@ -492,6 +505,11 @@ class ARIConnection:
             ),
             "campaign_id": await self._get_channel_var(
                 channel_id, "PJSIP_HEADER(read,X-VICIDIAL-campaign_id)"
+            ),
+            # The in-group the call arrived on, so a transfer can bounce it back
+            # to the same queue via INGROUPTRANSFER (destination "ingroup:source").
+            "ingroup_id": await self._get_channel_var(
+                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-ingroup_id)"
             ),
         }
         logger.info(
@@ -637,7 +655,9 @@ class ARIConnection:
             # Capture the upstream-PBX (VICIdial) identity off the SIP headers so
             # the hangup/transfer strategies can drive VICIdial's API. The
             # customer's real leg lives on VICIdial; this is the handle for it.
-            upstream_pbx = await self._capture_upstream_pbx(channel_id)
+            upstream_pbx = await self._capture_upstream_pbx(
+                channel_id, channel.get("name", "")
+            )
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
                 workflow_id=inbound_workflow_id,

@@ -99,6 +99,10 @@ class PipecatEngine:
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
+        # True once a final (synchronous) extraction has run, so the end-of-call
+        # and upstream-transfer paths don't redundantly re-extract the same
+        # terminal state.
+        self._final_extraction_done: bool = False
 
         # Will be set later in initialize() when we have
         # access to _context
@@ -504,6 +508,29 @@ class PipecatEngine:
                 f"Incomplete: {incomplete}"
             )
 
+    async def perform_final_variable_extraction(self) -> None:
+        """Flush in-flight + current-node variable extraction synchronously.
+
+        Awaits any background extractions still running from previous nodes,
+        then runs the current node's extraction inline so callers that need the
+        freshest extracted variables before acting can rely on them -- e.g.
+        end_call_with_reason before disposing the call, or an upstream-PBX
+        transfer that maps extracted variables into the VICIdial update_lead
+        call before handing the customer off.
+
+        Idempotent: only the first call does work. The upstream-PBX transfer
+        runs this just before forwarding update_lead, so the subsequent
+        end_call_with_reason would otherwise re-extract the same terminal state.
+        """
+        if self._final_extraction_done:
+            logger.debug("Final variable extraction already performed; skipping")
+            return
+        self._final_extraction_done = True
+        await self._await_pending_extractions()
+        await self._perform_variable_extraction_if_needed(
+            self._current_node, run_in_background=False
+        )
+
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
         # Set OTel span name for tracing
@@ -739,13 +766,8 @@ class PipecatEngine:
             EndTaskReason.PIPELINE_ERROR.value,
             EndTaskReason.VOICEMAIL_DETECTED.value,
         ):
-            # Await any in-flight background extractions from previous nodes
-            await self._await_pending_extractions()
-
-            # Perform final variable extraction synchronously before ending
-            await self._perform_variable_extraction_if_needed(
-                self._current_node, run_in_background=False
-            )
+            # Flush in-flight + current-node extractions synchronously before ending
+            await self.perform_final_variable_extraction()
 
         frame_to_push = (
             CancelFrame(reason=reason) if abort_immediately else EndFrame(reason=reason)

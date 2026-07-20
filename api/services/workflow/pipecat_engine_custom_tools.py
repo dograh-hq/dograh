@@ -561,38 +561,81 @@ class CustomToolManager:
                 upstream = (workflow_run.initial_context or {}).get("upstream_pbx")
                 if upstream:
                     from api.services.telephony.upstream_pbx import (
-                        transfer_upstream_call,
+                        collect_update_lead_fields,
+                        route_upstream_after_call,
+                        update_upstream_lead,
                     )
 
+                    # Play the transfer message first so its TTS overlaps the
+                    # extraction latency below.
                     await self._play_config_message(config)
-                    ok = await transfer_upstream_call(upstream, destination)
-                    # Mark the run so the end-of-call hangup does NOT also hang up
-                    # the now-transferred customer (see ARIHangupStrategy).
-                    await db_client.update_workflow_run(
-                        run_id=self._engine._workflow_run_id,
-                        gathered_context={"upstream_transferred": True},
+
+                    # Extract variables right before the transfer so any
+                    # X-VICI-UPDATE-LEAD_* values reflect the final conversation
+                    # state, then forward them to the upstream PBX's update_lead
+                    # BEFORE handing the customer off. This lets a workflow plumb
+                    # arbitrary, conversation-derived fields into the VICIdial
+                    # lead. Best-effort: never blocks the transfer.
+                    await self._engine.perform_final_variable_extraction()
+                    update_fields = collect_update_lead_fields(
+                        self._engine._gathered_context
                     )
-                    await function_call_params.result_callback(
-                        {
-                            "status": "success" if ok else "failed",
-                            "action": "upstream_transfer",
-                            "message": (
-                                "Transferring your call now."
-                                if ok
-                                else "I'm sorry, I couldn't complete the transfer."
-                            ),
-                        },
-                        properties=properties,
+                    logger.info(
+                        f"[transfer] update_lead fields from extracted "
+                        f"variables: {update_fields}"
                     )
-                    if ok:
-                        # Give the upstream PBX time to redirect the customer out
-                        # of the conference toward the destination BEFORE we drop
-                        # dograh's own leg -- otherwise the teardown races the
-                        # redirect and cancels the customer's call to the
-                        # destination (it never rings).
-                        await asyncio.sleep(4)
-                    # Tear down dograh's own legs; the customer has moved to the
-                    # upstream PBX side.
+                    if update_fields:
+                        await update_upstream_lead(upstream, update_fields)
+
+                    # Hardcoded address3 routing (see route_upstream_after_call):
+                    # "Y"/"N" transfer the customer into in-group
+                    # dograhtest1/dograhtest2; anything else hangs the customer up
+                    # instead of transferring. The destination configured on the
+                    # transfer node is intentionally ignored for upstream calls.
+                    action, ok = await route_upstream_after_call(
+                        upstream, update_fields
+                    )
+                    if action == "transfer":
+                        # Mark the run so the end-of-call hangup does NOT also hang
+                        # up the now-transferred customer (see ARIHangupStrategy).
+                        await db_client.update_workflow_run(
+                            run_id=self._engine._workflow_run_id,
+                            gathered_context={"upstream_transferred": True},
+                        )
+                        await function_call_params.result_callback(
+                            {
+                                "status": "success" if ok else "failed",
+                                "action": "upstream_transfer",
+                                "message": (
+                                    "Transferring your call now."
+                                    if ok
+                                    else "I'm sorry, I couldn't complete the transfer."
+                                ),
+                            },
+                            properties=properties,
+                        )
+                        if ok:
+                            # Give the upstream PBX time to redirect the customer
+                            # out of the conference toward the in-group BEFORE we
+                            # drop dograh's own leg -- otherwise the teardown races
+                            # the redirect and cancels the customer's call (it
+                            # never rings).
+                            await asyncio.sleep(4)
+                    else:
+                        # address3 wasn't Y/N: route_upstream_after_call already
+                        # hung up the customer leg. Leave upstream_transferred
+                        # unset so the end-of-call teardown re-confirms the hangup
+                        # (a no-op if it already succeeded, a retry if it didn't).
+                        await function_call_params.result_callback(
+                            {
+                                "status": "success",
+                                "action": "upstream_hangup",
+                                "message": "Ending the call now.",
+                            },
+                            properties=properties,
+                        )
+                    # Tear down dograh's own legs; the customer leg has already
+                    # been handled on the upstream PBX side.
                     await self._engine.end_call_with_reason(
                         EndTaskReason.END_CALL_TOOL_REASON.value,
                         abort_immediately=True,

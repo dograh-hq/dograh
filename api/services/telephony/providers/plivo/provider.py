@@ -626,40 +626,6 @@ class PlivoProvider(TelephonyProvider):
                     request_uuid = response_data.get("request_uuid")
                     logger.info(f"Transfer bleg initiated: {request_uuid}")
 
-                # Step 2: Redirect the original caller (aleg) into the same conference
-                original_call_uuid = kwargs.get("original_call_sid")
-                if original_call_uuid:
-                    logger.info(
-                        f"Redirecting original caller (aleg) {original_call_uuid} "
-                        f"into conference {conference_name}"
-                    )
-                    transfer_endpoint = f"{self.base_url}/Call/{original_call_uuid}/"
-                    transfer_data = {
-                        "legs": "aleg",
-                        "aleg_url": answer_url,
-                        "aleg_method": "POST",
-                    }
-                    async with session.post(
-                        transfer_endpoint, json=transfer_data, auth=auth
-                    ) as t_response:
-                        t_status = t_response.status
-                        t_text = await t_response.text()
-                        if t_status in [200, 201, 202]:
-                            logger.info(
-                                f"Original caller (aleg) redirected into conference: "
-                                f"status={t_status}"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to redirect original caller aleg: "
-                                f"status={t_status} body={t_text}"
-                            )
-                else:
-                    logger.warning(
-                        "No original_call_sid passed to transfer_call — "
-                        "aleg will not be bridged automatically"
-                    )
-
                 return {
                     "call_sid": request_uuid,
                     "status": "queued",

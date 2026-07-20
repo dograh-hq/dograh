@@ -145,9 +145,10 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
     form_data = await request.form()
     data = dict(form_data)
     call_uuid = data.get("CallUUID", "")
+    leg_type = request.query_params.get("leg", "bleg")
 
     logger.info(
-        f"Plivo transfer answered (transfer_id={transfer_id}): "
+        f"Plivo transfer answered (transfer_id={transfer_id}, leg={leg_type}): "
         f"CallUUID={call_uuid} - Bridging into conference {conference_name}"
     )
 
@@ -155,21 +156,66 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
     transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
     original_call_sid = transfer_context.original_call_sid if transfer_context else ""
 
-    # Publish DESTINATION_ANSWERED — this unblocks the hold music
-    # and triggers pipeline teardown so the original caller joins the conference
-    transfer_event = TransferEvent(
-        type=TransferEventType.DESTINATION_ANSWERED,
-        transfer_id=transfer_id,
-        original_call_sid=original_call_sid,
-        transfer_call_sid=call_uuid,
-        conference_name=conference_name,
-        status="success",
-        action="destination_answered",
-        message="Destination answered — bridging into conference.",
-    )
-    await call_transfer_manager.publish_transfer_event(transfer_event)
+    # Only publish the event and trigger the bridge if THIS is the destination (bleg) picking up.
+    # We do this to prevent infinite loops when the original caller (aleg) is redirected here.
+    if leg_type != "aleg":
+        # Publish DESTINATION_ANSWERED — this unblocks the hold music
+        # and triggers pipeline teardown.
+        transfer_event = TransferEvent(
+            type=TransferEventType.DESTINATION_ANSWERED,
+            transfer_id=transfer_id,
+            original_call_sid=original_call_sid,
+            transfer_call_sid=call_uuid,
+            conference_name=conference_name,
+            status="success",
+            action="destination_answered",
+            message="Destination answered — bridging into conference.",
+        )
+        await call_transfer_manager.publish_transfer_event(transfer_event)
 
-    # Return XML to drop the destination leg into the conference
+        # Trigger Plivo API to redirect the original caller (aleg) into this conference.
+        workflow_run_id = transfer_context.workflow_run_id if transfer_context else None
+        if workflow_run_id and original_call_sid:
+            from api.db import db_client
+            from api.services.telephony.factory import get_telephony_provider_for_run
+            import aiohttp
+            from api.utils.common import get_backend_endpoints
+
+            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+            if workflow_run:
+                workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+                provider = await get_telephony_provider_for_run(workflow_run, workflow.organization_id)
+                if hasattr(provider, "auth_id") and hasattr(provider, "auth_token"):
+                    backend_endpoint, _ = await get_backend_endpoints()
+                    # Add ?leg=aleg so we know it's the original caller and don't loop
+                    aleg_answer_url = f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}/{transfer_id}?leg=aleg"
+                    
+                    transfer_endpoint = f"{provider.base_url}/Call/{original_call_sid}/"
+                    transfer_data = {
+                        "aleg_url": aleg_answer_url,
+                        "aleg_method": "POST",
+                    }
+                    logger.info(f"Triggering Plivo Transfer API to bridge original caller: {original_call_sid} into conference {conference_name}")
+                    
+                    # Fire and forget the bridge request so we can return XML to the bleg immediately
+                    async def _bridge_aleg():
+                        try:
+                            async with aiohttp.ClientSession() as session:
+                                auth = aiohttp.BasicAuth(provider.auth_id, provider.auth_token)
+                                async with session.post(transfer_endpoint, json=transfer_data, auth=auth) as t_response:
+                                    t_status = t_response.status
+                                    t_text = await t_response.text()
+                                    if t_status in [200, 201, 202]:
+                                        logger.info(f"Original caller bridged into conference: status={t_status}")
+                                    else:
+                                        logger.error(f"Failed to bridge original caller: status={t_status} body={t_text}")
+                        except Exception as e:
+                            logger.error(f"Error bridging original caller: {e}")
+                    
+                    import asyncio
+                    asyncio.create_task(_bridge_aleg())
+
+    # Return XML to drop the leg into the conference
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Speak>You have answered a transfer call. Connecting you now.</Speak>

@@ -210,23 +210,7 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
 
     original_call_sid = transfer_context.original_call_sid
 
-    # Only publish the event and trigger the bridge if THIS is the destination (bleg) picking up.
-    # We do this to prevent infinite loops when the original caller (aleg) is redirected here.
     if leg_type != "aleg":
-        # Publish DESTINATION_ANSWERED — this unblocks the hold music
-        # and triggers pipeline teardown.
-        transfer_event = TransferEvent(
-            type=TransferEventType.DESTINATION_ANSWERED,
-            transfer_id=transfer_id,
-            original_call_sid=original_call_sid,
-            transfer_call_sid=call_uuid,
-            conference_name=conference_name,
-            status="success",
-            action="destination_answered",
-            message="Destination answered — bridging into conference.",
-        )
-        await call_transfer_manager.publish_transfer_event(transfer_event)
-
         # Trigger Plivo API to redirect the original caller (aleg) into this conference.
         if workflow_run_id and original_call_sid:
             if hasattr(provider, "auth_id") and hasattr(provider, "auth_token"):
@@ -252,8 +236,31 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
                                     t_text = await t_response.text()
                                     if t_status in [200, 201, 202]:
                                         logger.info(f"Original caller bridged into conference: status={t_status}")
+                                        transfer_event = TransferEvent(
+                                            type=TransferEventType.DESTINATION_ANSWERED,
+                                            transfer_id=transfer_id,
+                                            original_call_sid=original_call_sid,
+                                            transfer_call_sid=call_uuid,
+                                            conference_name=conference_name,
+                                            status="success",
+                                            action="destination_answered",
+                                            message="Destination answered — bridging into conference.",
+                                        )
+                                        await call_transfer_manager.publish_transfer_event(transfer_event)
                                     else:
                                         logger.error(f"Failed to bridge original caller: status={t_status} body={t_text}")
+                                        transfer_event = TransferEvent(
+                                            type=TransferEventType.TRANSFER_FAILED,
+                                            transfer_id=transfer_id,
+                                            original_call_sid=original_call_sid,
+                                            transfer_call_sid=call_uuid,
+                                            conference_name=conference_name,
+                                            status="transfer_failed",
+                                            action="transfer_failed",
+                                            reason="bridge_failed",
+                                            message="Failed to bridge original caller into conference.",
+                                        )
+                                        await call_transfer_manager.publish_transfer_event(transfer_event)
                                         
                                 # Explicitly stop the stream so Plivo is forced to execute the transfer XML immediately
                                 stop_stream_endpoint = f"{provider.base_url}/Call/{original_call_sid}/Stream/"
@@ -335,7 +342,7 @@ async def handle_plivo_transfer_result(transfer_id: str, request: Request):
     # Plivo fires HangupCause="" while the call is live; the call being
     # answered is signalled by HangupCause being absent on the ring callback.
     # We detect "answered" by checking HangupCause USER_BUSY / NO_ANSWER / NORMAL_CLEARING.
-    if hangup_cause in ("", "USER_BUSY"):
+    if hangup_cause == "USER_BUSY":
         # USER_BUSY means busy — treat as failed
         if hangup_cause == "USER_BUSY":
             transfer_event = TransferEvent(
@@ -386,65 +393,5 @@ async def handle_plivo_transfer_result(transfer_id: str, request: Request):
             end_call=True,
         )
 
-    await call_transfer_manager.publish_transfer_event(transfer_event)
-    return {"status": "completed"}
-
-
-@router.post("/plivo/transfer-answered/{transfer_id}", include_in_schema=False)
-async def handle_plivo_transfer_answered(transfer_id: str, request: Request):
-    """
-    Called from the transfer-xml endpoint context when Plivo's destination
-    leg answers. This bridges the original caller (aleg) into the conference
-    and publishes DESTINATION_ANSWERED to unblock the waiting transfer handler.
-    """
-    form_data = await request.form()
-    data = dict(form_data)
-    call_uuid = data.get("CallUUID", "")
-    conference_name_from_form = data.get("ConferenceName", "")
-
-    logger.info(
-        f"Plivo transfer answered (transfer_id={transfer_id}): "
-        f"CallUUID={call_uuid}"
-    )
-
-    call_transfer_manager = await get_call_transfer_manager()
-    transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
-    if not transfer_context:
-        logger.warning(f"No transfer context found for {transfer_id}")
-        return {"status": "error"}
-
-    workflow_run_id = transfer_context.workflow_run_id
-    from api.db import db_client
-    from api.services.telephony.factory import get_telephony_provider_for_run
-    
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        return {"status": "error"}
-        
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    provider = await get_telephony_provider_for_run(workflow_run, workflow.organization_id)
-
-    is_valid = await provider.verify_inbound_signature(
-        str(request.url), data, dict(request.headers)
-    )
-    if not is_valid:
-        logger.warning(f"Invalid Plivo signature for transfer answered {transfer_id}")
-        return {"status": "error"}
-
-    original_call_sid = transfer_context.original_call_sid
-    conference_name = transfer_context.conference_name or conference_name_from_form
-
-    # Publish DESTINATION_ANSWERED — this unblocks the hold music
-    # and triggers pipeline teardown in pipecat_engine_custom_tools.py
-    transfer_event = TransferEvent(
-        type=TransferEventType.DESTINATION_ANSWERED,
-        transfer_id=transfer_id,
-        original_call_sid=original_call_sid,
-        transfer_call_sid=call_uuid,
-        conference_name=conference_name,
-        status="success",
-        action="destination_answered",
-        message="Destination answered — bridging into conference.",
-    )
     await call_transfer_manager.publish_transfer_event(transfer_event)
     return {"status": "success"}

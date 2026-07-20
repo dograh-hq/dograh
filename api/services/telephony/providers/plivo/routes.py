@@ -270,6 +270,18 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
                                     logger.info(f"Plivo Stop Stream API called: status={s_status} body={s_text}")
                         except Exception as e:
                             logger.error(f"Error bridging original caller: {e}")
+                            transfer_event = TransferEvent(
+                                type=TransferEventType.TRANSFER_FAILED,
+                                transfer_id=transfer_id,
+                                original_call_sid=original_call_sid,
+                                transfer_call_sid=call_uuid,
+                                conference_name=conference_name,
+                                status="transfer_failed",
+                                action="transfer_failed",
+                                reason="bridge_failed",
+                                message=f"Failed to bridge original caller into conference due to exception: {e}",
+                            )
+                            await call_transfer_manager.publish_transfer_event(transfer_event)
                     
                     import asyncio
                     asyncio.create_task(_bridge_aleg())

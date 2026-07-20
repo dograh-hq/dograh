@@ -907,6 +907,9 @@ class CustomToolManager:
                 properties=response_properties,
             )
 
+            import asyncio
+            await asyncio.sleep(2.0)
+
             # End pipeline - providers complete bridge swap/conference join as final transfer leg
             await self._engine.end_call_with_reason(
                 EndTaskReason.TRANSFER_CALL.value, abort_immediately=False

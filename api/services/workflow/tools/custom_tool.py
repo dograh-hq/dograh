@@ -8,6 +8,7 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 
@@ -19,6 +20,19 @@ TYPE_MAP = {
     "object": "object",
     "array": "array",
 }
+
+
+def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """JSON-stringify dict/list values so they're safe to pass as query params.
+
+    httpx (and query strings in general) only support primitive param values.
+    Object/array-typed tool arguments must be serialized before going out as
+    GET/DELETE query params, otherwise httpx raises a TypeError.
+    """
+    return {
+        k: json.dumps(v) if isinstance(v, (dict, list)) else v
+        for k, v in arguments.items()
+    }
 
 
 def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
@@ -224,7 +238,9 @@ async def execute_http_tool(
     arguments: Dict[str, Any],
     call_context_vars: Optional[Dict[str, Any]] = None,
     gathered_context_vars: Optional[Dict[str, Any]] = None,
+    preset_params: Optional[Dict[str, Any]] = None,
     organization_id: Optional[int] = None,
+    include_request_headers: bool = False,
 ) -> Dict[str, Any]:
     """Execute an HTTP API tool.
 
@@ -233,7 +249,11 @@ async def execute_http_tool(
         arguments: Arguments passed by the LLM (parameter name -> value)
         call_context_vars: Initial context variables available at runtime
         gathered_context_vars: Variables extracted during the conversation
+        preset_params: Pre-resolved preset parameter values. Used by the test
+            endpoint; live calls omit this so configured templates are resolved.
         organization_id: Organization ID for credential lookup
+        include_request_headers: Include a client-safe header preview in the result.
+            Headers supplied by a stored credential are masked.
 
     Returns:
         Result dict with response data or error
@@ -248,7 +268,9 @@ async def execute_http_tool(
     # Get headers from config
     headers = dict(config.get("headers", {}) or {})
 
-    # Add auth header if credential is configured
+    # Add auth header if credential is configured. Keep track of which headers
+    # came from the credential so only those values are masked in test previews.
+    credential_headers: Dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
     if credential_uuid and organization_id:
         try:
@@ -256,8 +278,8 @@ async def execute_http_tool(
                 credential_uuid, organization_id
             )
             if credential:
-                auth_header = build_auth_header(credential)
-                headers.update(auth_header)
+                credential_headers = build_auth_header(credential)
+                headers.update(credential_headers)
                 logger.debug(f"Applied credential '{credential.name}' to tool request")
             else:
                 logger.warning(
@@ -266,17 +288,31 @@ async def execute_http_tool(
         except Exception as e:
             logger.error(f"Failed to fetch credential for tool '{tool.name}': {e}")
 
+    request_headers: Dict[str, str] = {}
+    if include_request_headers:
+        request_headers = {str(name): str(value) for name, value in headers.items()}
+        for header_name, header_value in credential_headers.items():
+            request_headers[header_name] = mask_key(str(header_value))
+
+    def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
+        if include_request_headers:
+            return {**result, "request_headers": request_headers}
+        return result
+
     # Get timeout
     timeout_ms = config.get("timeout_ms", 5000)
     timeout_seconds = timeout_ms / 1000
 
-    try:
-        preset_arguments = _resolve_preset_parameters(
-            config, call_context_vars, gathered_context_vars
-        )
-    except ValueError as e:
-        logger.error(f"Custom tool '{tool.name}' preset parameter error: {e}")
-        return {"status": "error", "error": str(e)}
+    if preset_params is None:
+        try:
+            preset_arguments = _resolve_preset_parameters(
+                config, call_context_vars, gathered_context_vars
+            )
+        except ValueError as e:
+            logger.error(f"Custom tool '{tool.name}' preset parameter error: {e}")
+            return build_result({"status": "error", "error": str(e)})
+    else:
+        preset_arguments = dict(preset_params)
 
     resolved_arguments = {**(arguments or {}), **preset_arguments}
 
@@ -286,7 +322,7 @@ async def execute_http_tool(
     if method in ("POST", "PUT", "PATCH"):
         body = resolved_arguments
     elif method in ("GET", "DELETE") and resolved_arguments:
-        params = resolved_arguments
+        params = serialize_query_params(resolved_arguments)
 
     logger.info(
         f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): {method} {url}"
@@ -322,23 +358,29 @@ async def execute_http_tool(
             logger.debug(
                 f"Custom tool '{tool.name}' completed with status {response.status_code}"
             )
-            return result
+            return build_result(result)
 
     except httpx.TimeoutException:
         logger.error(f"Custom tool '{tool.name}' timed out after {timeout_seconds}s")
-        return {
-            "status": "error",
-            "error": f"Request timed out after {timeout_seconds} seconds",
-        }
+        return build_result(
+            {
+                "status": "error",
+                "error": f"Request timed out after {timeout_seconds} seconds",
+            }
+        )
     except httpx.RequestError as e:
         logger.error(f"Custom tool '{tool.name}' request failed: {e}")
-        return {
-            "status": "error",
-            "error": f"Request failed: {str(e)}",
-        }
+        return build_result(
+            {
+                "status": "error",
+                "error": f"Request failed: {str(e)}",
+            }
+        )
     except Exception as e:
         logger.error(f"Custom tool '{tool.name}' execution failed: {e}")
-        return {
-            "status": "error",
-            "error": f"Tool execution failed: {str(e)}",
-        }
+        return build_result(
+            {
+                "status": "error",
+                "error": f"Tool execution failed: {str(e)}",
+            }
+        )

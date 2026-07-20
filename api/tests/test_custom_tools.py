@@ -30,6 +30,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 
 from api.enums import WorkflowRunMode
+from api.services.configuration.masking import mask_key
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools.custom_tool import (
     _coerce_parameter_value,
@@ -430,6 +431,7 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
             assert result["status_code"] == 201
             assert result["data"]["id"] == 123
+            assert "request_headers" not in result
 
     @pytest.mark.asyncio
     async def test_post_request_sends_nested_json_body(self):
@@ -547,6 +549,55 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
 
     @pytest.mark.asyncio
+    async def test_post_request_accepts_pre_resolved_preset_params(self):
+        """The test endpoint can supply preset values without call context."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-preset-override",
+            name="Create Lead",
+            description="Create a lead with caller context",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/leads",
+                    "timeout_ms": 5000,
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {"id": 123}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(
+                tool,
+                {"name": "John"},
+                preset_params={"phone_number": "+14155550123"},
+            )
+
+            assert mock_client.request.call_args.kwargs["json"] == {
+                "name": "John",
+                "phone_number": "+14155550123",
+            }
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
     async def test_missing_required_preset_parameter_returns_error(self):
         """Test that required preset parameters fail before the HTTP request."""
         tool = MockToolModel(
@@ -617,6 +668,52 @@ class TestExecuteHttpTool:
             assert call_kwargs["json"] is None
             assert call_kwargs["params"] == arguments
 
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_get_request_serializes_object_and_array_query_params(self):
+        """Object/array-typed arguments must be JSON-stringified for GET query
+        params — httpx raises a TypeError if a dict/list is passed as-is."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid",
+            name="Search Users",
+            description="Search for users",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.example.com/users/search",
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+
+        arguments = {
+            "source": "voice",
+            "metadata": {"campaign": "spring"},
+            "tags": ["a", "b"],
+        }
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"users": []}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, arguments)
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["params"] == {
+                "source": "voice",
+                "metadata": '{"campaign": "spring"}',
+                "tags": '["a", "b"]',
+            }
             assert result["status"] == "success"
 
     @pytest.mark.asyncio
@@ -762,11 +859,17 @@ class TestExecuteHttpTool:
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            await execute_http_tool(tool, {"data": "test"})
+            result = await execute_http_tool(
+                tool, {"data": "test"}, include_request_headers=True
+            )
 
             call_kwargs = mock_client.request.call_args.kwargs
             assert call_kwargs["headers"]["X-API-Key"] == "secret-key"
             assert call_kwargs["headers"]["X-Custom-Header"] == "custom-value"
+            assert result["request_headers"] == {
+                "X-API-Key": "secret-key",
+                "X-Custom-Header": "custom-value",
+            }
 
     @pytest.mark.asyncio
     async def test_request_includes_auth_header_from_credential(self):
@@ -807,7 +910,12 @@ class TestExecuteHttpTool:
             with patch("api.services.workflow.tools.custom_tool.db_client") as mock_db:
                 mock_db.get_credential_by_uuid = AsyncMock(return_value=mock_credential)
 
-                await execute_http_tool(tool, {"data": "test"}, organization_id=1)
+                result = await execute_http_tool(
+                    tool,
+                    {"data": "test"},
+                    organization_id=1,
+                    include_request_headers=True,
+                )
 
                 # Verify credential was fetched
                 mock_db.get_credential_by_uuid.assert_called_once_with(
@@ -818,6 +926,12 @@ class TestExecuteHttpTool:
                 call_kwargs = mock_client.request.call_args.kwargs
                 assert (
                     call_kwargs["headers"]["Authorization"] == "Bearer my-secret-token"
+                )
+                assert result["request_headers"]["Authorization"] == mask_key(
+                    "Bearer my-secret-token"
+                )
+                assert (
+                    "my-secret-token" not in result["request_headers"]["Authorization"]
                 )
 
     @pytest.mark.asyncio

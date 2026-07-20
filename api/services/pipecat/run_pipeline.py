@@ -828,6 +828,7 @@ async def _run_pipeline_impl(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
+        enable_dtmf=workflow.enable_dtmf,
     )
 
     # Create pipeline components

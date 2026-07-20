@@ -79,6 +79,7 @@ class PipecatEngine:
         embeddings_api_version: Optional[str] = None,
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
+        enable_dtmf: bool = False,
     ):
         self.task = task
         self.llm = llm
@@ -100,6 +101,7 @@ class PipecatEngine:
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
         self._dtmf_subscription_task: Optional[asyncio.Task] = None
+        self._enable_dtmf: bool = enable_dtmf
 
         # Will be set later in initialize() when we have
         # access to _context
@@ -239,6 +241,10 @@ class PipecatEngine:
 
     async def handle_dtmf_event(self, digit: str):
         """Handle a DTMF digit directly from the pipeline."""
+        if not self._enable_dtmf:
+            logger.debug(f"Pipeline received DTMF digit {digit}, but DTMF is disabled")
+            return
+
         logger.info(f"Pipeline received DTMF digit {digit} directly from frame")
         if self.task and self.context:
             dtmf_message = {

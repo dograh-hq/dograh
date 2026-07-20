@@ -1111,9 +1111,7 @@ class CloudonixProvider(TelephonyProvider):
         from_number = random.choice(self.from_numbers)
 
         backend_endpoint, _ = await get_backend_endpoints()
-        callback_url = (
-            f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"
-        )
+        callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"
 
         endpoint = f"{self.base_url}/calls/{self.domain_id}/application"
         data: Dict[str, Any] = {
@@ -1126,9 +1124,7 @@ class CloudonixProvider(TelephonyProvider):
 
         data.update(kwargs)
         headers = self._get_auth_headers()
-        masked_destination = (
-            f"***{destination[-4:]}" if len(destination) > 4 else "***"
-        )
+        masked_destination = f"***{destination[-4:]}" if len(destination) > 4 else "***"
         logger.info(
             f"[Cloudonix Transfer] Dialing {masked_destination} into conference "
             f"{conference_name} (transfer_id={transfer_id})"

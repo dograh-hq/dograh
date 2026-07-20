@@ -478,9 +478,7 @@ class ARIConnection:
 
         # FreeSWITCH: X-PBX-Provider marks the call; X-PBX-UUID is the ESL handle.
         if (
-            await self._get_channel_var(
-                channel_id, "PJSIP_HEADER(read,X-PBX-Provider)"
-            )
+            await self._get_channel_var(channel_id, "PJSIP_HEADER(read,X-PBX-Provider)")
         ) == "freeswitch":
             upstream = {
                 "provider": "freeswitch",

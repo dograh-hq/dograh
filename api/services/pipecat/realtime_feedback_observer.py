@@ -22,6 +22,7 @@ node changes.
 
 import json
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
+from datetime import datetime, UTC
 
 from loguru import logger
 
@@ -200,7 +201,8 @@ class RealtimeFeedbackObserver(BaseObserver):
                 await self._send_ws(message)
         # Handle DTMF input
         elif isinstance(frame, DTMFLogFrame):
-            event = build_user_dtmf_event(digits=frame.digits, timestamp=self._now_iso())
+            timestamp = datetime.now(UTC).isoformat(timespec="milliseconds")
+            event = build_user_dtmf_event(digits=frame.digits, timestamp=timestamp)
             await self._append_to_buffer(event)
             await self._send_ws(event)
         # Handle function call in progress

@@ -130,3 +130,19 @@ async def handle_plivo_ring_callback(
 ):
     """Handle Plivo ring callbacks."""
     return await _handle_plivo_status_callback(workflow_run_id, request)
+
+
+@router.post("/plivo/transfer-xml/{conference_name}", include_in_schema=False)
+async def handle_plivo_transfer_xml(conference_name: str, request: Request):
+    """
+    Handle answer webhook from Plivo for transfer calls.
+    Returns Plivo XML to connect the call into the conference.
+    """
+    # Plivo calls this endpoint when the destination answers.
+    # We drop them into the conference room.
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Speak>You have answered a transfer call. Connecting you now.</Speak>
+    <Conference>{conference_name}</Conference>
+</Response>"""
+    return HTMLResponse(content=xml, media_type="application/xml")

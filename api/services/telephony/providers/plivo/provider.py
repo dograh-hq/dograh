@@ -544,7 +544,84 @@ class PlivoProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        raise NotImplementedError("Plivo provider does not support call transfers")
+        """
+        Initiate a call transfer via Plivo.
+
+        Uses Plivo's Outbound Call API to dial the destination. When they answer,
+        the answer_url points to an endpoint returning Plivo XML to put them into the conference.
+
+        Args:
+            destination: The destination phone number (E.164 format)
+            transfer_id: Unique identifier for tracking this transfer
+            conference_name: Name of the conference to join the destination into
+            timeout: Transfer timeout in seconds
+            **kwargs: Additional Plivo-specific parameters
+
+        Returns:
+            Dict containing transfer result information
+
+        Raises:
+            ValueError: If provider configuration is invalid
+            Exception: If Plivo API call fails
+        """
+        if not self.validate_config():
+            raise ValueError("Plivo provider not properly configured")
+
+        from_number = random.choice(self.from_numbers)
+        logger.info(f"Selected phone number {from_number} for transfer call")
+
+        backend_endpoint, _ = await get_backend_endpoints()
+
+        answer_url = f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}"
+        
+        endpoint = f"{self.base_url}/Call/"
+        data = {
+            "to": destination,
+            "from": from_number,
+            "answer_url": answer_url,
+            "answer_method": "POST",
+            "ring_timeout": timeout,
+        }
+
+        data.update(kwargs)
+
+        try:
+            logger.debug(f"Transfer call data: {data}")
+
+            async with aiohttp.ClientSession() as session:
+                auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
+                async with session.post(endpoint, json=data, auth=auth) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+
+                    logger.info(f"Plivo transfer API response status: {response_status}")
+                    logger.debug(f"Plivo transfer API response body: {response_text}")
+
+                    if response_status in [200, 201]:
+                        try:
+                            response_data = json.loads(response_text)
+                            request_uuid = response_data.get("request_uuid")
+                            logger.info(f"Transfer call initiated successfully: {request_uuid}")
+
+                            return {
+                                "call_sid": request_uuid,
+                                "status": "queued",
+                                "provider": self.PROVIDER_NAME,
+                                "from_number": from_number,
+                                "to_number": destination,
+                                "raw_response": response_data,
+                            }
+                        except Exception as e:
+                            logger.error(f"Failed to parse Plivo transfer response JSON: {e}")
+                            raise Exception(f"Failed to parse transfer response: {e}")
+                    else:
+                        error_msg = f"Plivo API call failed with status {response_status}: {response_text}"
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+
+        except Exception as e:
+            logger.error(f"Error initiating Plivo transfer call: {e}")
+            raise
 
     def supports_transfers(self) -> bool:
-        return False
+        return True

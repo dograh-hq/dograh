@@ -174,7 +174,7 @@ foreach ($spec in $serviceSpecs) {
     Write-Host "  $($spec.Name) (PID $procId) -> logs/latest/$($spec.Name).log"
 }
 Write-Host ""
-Write-Host "Health: curl.exe http://localhost:$($env:UVICORN_BASE_PORT)/api/v1/health"
+Write-Host "Health: curl.exe http://localhost:$($env:UVkiICORN_BASE_PORT)/api/v1/health"
 Write-Host "Logs:   Get-Content logs/latest/*.log -Wait"
 Write-Host "Stop:   .\scripts\stop_services.ps1"
 Write-Host "------------------------------------------------------"

@@ -144,8 +144,26 @@ async def handle_plivo_dtmf_callback(
     request: Request,
 ):
     """Handle DTMF events from Plivo."""
+    set_current_run_id(workflow_run_id)
+    org_id = await db_client.get_organization_id_by_workflow_run_id(workflow_run_id)
+    if not org_id:
+        return HTMLResponse(content='<?xml version="1.0" encoding="UTF-8"?><Response/>', media_type="application/xml")
+
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    provider = await get_telephony_provider_for_run(workflow_run, org_id)
+
     form_data = await request.form()
     data = dict(form_data)
+    
+    is_valid = await provider.verify_inbound_signature(
+        str(request.url), data, dict(request.headers)
+    )
+    if not is_valid:
+        logger.warning(
+            f"[run {workflow_run_id}] Invalid Plivo signature on DTMF webhook"
+        )
+        return HTMLResponse(content='<?xml version="1.0" encoding="UTF-8"?><Response/>', media_type="application/xml")
+
     digit = data.get("Digits")
     call_id = data.get("CallUUID") or data.get("RequestUUID")
     
@@ -210,6 +228,19 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
 
     original_call_sid = transfer_context.original_call_sid
 
+    def _create_bridge_failed_event(msg: str) -> TransferEvent:
+        return TransferEvent(
+            type=TransferEventType.TRANSFER_FAILED,
+            transfer_id=transfer_id,
+            original_call_sid=original_call_sid,
+            transfer_call_sid=call_uuid,
+            conference_name=conference_name,
+            status="transfer_failed",
+            action="transfer_failed",
+            reason="bridge_failed",
+            message=msg,
+        )
+
     if leg_type != "aleg":
         # Trigger Plivo API to redirect the original caller (aleg) into this conference.
         if workflow_run_id and original_call_sid:
@@ -249,17 +280,7 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
                                         await call_transfer_manager.publish_transfer_event(transfer_event)
                                     else:
                                         logger.error(f"Failed to bridge original caller: status={t_status} body={t_text}")
-                                        transfer_event = TransferEvent(
-                                            type=TransferEventType.TRANSFER_FAILED,
-                                            transfer_id=transfer_id,
-                                            original_call_sid=original_call_sid,
-                                            transfer_call_sid=call_uuid,
-                                            conference_name=conference_name,
-                                            status="transfer_failed",
-                                            action="transfer_failed",
-                                            reason="bridge_failed",
-                                            message="Failed to bridge original caller into conference.",
-                                        )
+                                        transfer_event = _create_bridge_failed_event("Failed to bridge original caller into conference.")
                                         await call_transfer_manager.publish_transfer_event(transfer_event)
                                         
                                 # Explicitly stop the stream so Plivo is forced to execute the transfer XML immediately
@@ -270,17 +291,7 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
                                     logger.info(f"Plivo Stop Stream API called: status={s_status} body={s_text}")
                         except Exception as e:
                             logger.error(f"Error bridging original caller: {e}")
-                            transfer_event = TransferEvent(
-                                type=TransferEventType.TRANSFER_FAILED,
-                                transfer_id=transfer_id,
-                                original_call_sid=original_call_sid,
-                                transfer_call_sid=call_uuid,
-                                conference_name=conference_name,
-                                status="transfer_failed",
-                                action="transfer_failed",
-                                reason="bridge_failed",
-                                message=f"Failed to bridge original caller into conference due to exception: {e}",
-                            )
+                            transfer_event = _create_bridge_failed_event(f"Failed to bridge original caller into conference due to exception: {e}")
                             await call_transfer_manager.publish_transfer_event(transfer_event)
                     
                     import asyncio
@@ -356,22 +367,18 @@ async def handle_plivo_transfer_result(transfer_id: str, request: Request):
     # We detect "answered" by checking HangupCause USER_BUSY / NO_ANSWER / NORMAL_CLEARING.
     if hangup_cause == "USER_BUSY":
         # USER_BUSY means busy — treat as failed
-        if hangup_cause == "USER_BUSY":
-            transfer_event = TransferEvent(
-                type=TransferEventType.TRANSFER_FAILED,
-                transfer_id=transfer_id,
-                original_call_sid=original_call_sid,
-                transfer_call_sid=call_uuid,
-                conference_name=conference_name,
-                status="transfer_failed",
-                action="transfer_failed",
-                reason="busy",
-                message="The transfer call encountered a busy signal.",
-                end_call=True,
-            )
-        else:
-            # Empty hangup cause on ring callback = still ringing, skip
-            return {"status": "pending"}
+        transfer_event = TransferEvent(
+            type=TransferEventType.TRANSFER_FAILED,
+            transfer_id=transfer_id,
+            original_call_sid=original_call_sid,
+            transfer_call_sid=call_uuid,
+            conference_name=conference_name,
+            status="transfer_failed",
+            action="transfer_failed",
+            reason="busy",
+            message="The transfer call encountered a busy signal.",
+            end_call=True,
+        )
     elif hangup_cause == "NORMAL_CLEARING":
         # Call answered and then the conference was exited (both legs done)
         # Pipeline already torn down — nothing to do

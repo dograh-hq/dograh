@@ -226,20 +226,7 @@ class PipecatEngine:
             async for event in dtmf_manager.subscribe_dtmf_events(call_id):
                 logger.info(f"Pipeline received DTMF digit {event.digit} for call {call_id}")
                 if self.task and self.context:
-                    # Append the DTMF digit to the LLM context
-                    dtmf_message = {
-                        "role": "system",
-                        "content": f"The caller pressed the keypad digit: {event.digit}"
-                    }
-                    self.context.add_message(dtmf_message)
-                    
-                    # Push the updated messages to trigger LLM evaluation
-                    # Pipecat v0.2.x uses LLMMessagesAppendFrame
-                    frame = LLMMessagesAppendFrame(
-                        messages=[dtmf_message],
-                        run_llm=True
-                    )
-                    await self.task.queue_frame(frame)
+                    await self.handle_dtmf_event(event.digit)
         except asyncio.CancelledError:
             logger.debug("DTMF listener task cancelled")
         except Exception as e:

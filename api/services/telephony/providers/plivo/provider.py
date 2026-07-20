@@ -609,7 +609,7 @@ class PlivoProvider(TelephonyProvider):
                     logger.info(f"Plivo transfer bleg API response: {response_status}")
                     logger.debug(f"Plivo transfer bleg initiated")
 
-                    if response_status not in [200, 201]:
+                    if response_status not in [200, 201, 202]:
                         error_msg = (
                             f"Plivo API call failed with status "
                             f"{response_status}: {response_text}"

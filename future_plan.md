@@ -24,3 +24,12 @@ This document tracks future features and UI/UX improvements that need to be buil
   - **Redis Routing:** For webhook-based providers, broadcast the received digit via Redis Pub/Sub (`PUBLISH dtmf_events:<CallUUID> "1"`) so the exact server running that call's Pipecat engine can receive it.
   - **Context Injection:** The Pipecat engine intercepts the digit, wraps it in a silent system message (e.g., *"System: The user pressed '1' on their keypad"*), and injects it into the LLM's conversation history.
   - **Action:** The LLM reads the system note instead of listening for speech, and triggers standard tools (like Transfer Call) accordingly.
+
+## 4. DTMF Buffering (AAA-Grade Keypad Input)
+**Goal:** Prevent the AI from instantly replying to single digits, and prevent the "User Idle" timeout from triggering while a user is typing a long number (e.g., a PIN or account number).
+- **Current State:** Digits are sent to the LLM immediately one-by-one, which can cause the AI to interrupt the user while they are typing.
+- **Future Implementation:**
+  - Build a **DTMF Buffer** in the engine's background listener.
+  - When a digit is pressed, store it and reset a short timer (e.g., 3 seconds).
+  - While typing, pause the `UserIdleHandler` so the bot doesn't say "Are you still there?".
+  - When the user presses a terminator (like `#`) or the timer expires, send the entire buffered string (e.g., *"12345"*) to the LLM context as a single message.

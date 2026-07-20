@@ -204,3 +204,15 @@ async def test_hangup_strategy_updates_lead_before_customer_leg(monkeypatch):
         run.initial_context["external_pbx_call"], {"address3": "yes"}
     )
     adapter.hangup.assert_awaited_once_with(run.initial_context["external_pbx_call"])
+    redis.aclose.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_hangup_strategy_closes_redis_when_channel_has_no_run(monkeypatch):
+    redis = AsyncMock()
+    redis.get.return_value = None
+    monkeypatch.setattr(aioredis, "from_url", lambda *args, **kwargs: redis)
+
+    await ARIHangupStrategy()._terminate_external_pbx_if_any("missing-channel")
+
+    redis.aclose.assert_awaited_once_with()

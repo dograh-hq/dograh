@@ -261,6 +261,7 @@ class ARIHangupStrategy(HangupStrategy):
         (Redis ``ari:channel:{id}`` -> run_id -> ``initial_context``). Best-effort:
         never blocks dograh's own hangup if the upstream call fails.
         """
+        redis = None
         try:
             import redis.asyncio as aioredis
 
@@ -319,3 +320,9 @@ class ARIHangupStrategy(HangupStrategy):
                     )
         except Exception as e:
             logger.error(f"[ARI Hangup] external PBX terminate check failed: {e}")
+        finally:
+            if redis is not None:
+                try:
+                    await redis.aclose()
+                except Exception as e:
+                    logger.warning(f"[ARI Hangup] failed to close Redis client: {e}")

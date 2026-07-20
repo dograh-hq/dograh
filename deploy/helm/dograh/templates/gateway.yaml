@@ -1,0 +1,34 @@
+{{- if and (eq .Values.exposure.mode "gatewayApi") .Values.exposure.gatewayApi.createGateway }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ include "dograh.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ required "exposure.gatewayApi.gatewayClassName is required when createGateway=true" .Values.exposure.gatewayApi.gatewayClassName }}
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      {{- if .Values.exposure.gatewayApi.listenerHostname }}
+      hostname: {{ .Values.exposure.gatewayApi.listenerHostname | quote }}
+      {{- end }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      port: 443
+      protocol: HTTPS
+      {{- if .Values.exposure.gatewayApi.listenerHostname }}
+      hostname: {{ .Values.exposure.gatewayApi.listenerHostname | quote }}
+      {{- end }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ default (printf "%s-tls" (include "dograh.fullname" .)) .Values.exposure.ingress.tls.secretName }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+{{- end }}

@@ -65,8 +65,7 @@ class StartCall(TypedNode):
     greeting: Optional[str] = None
     """
     Text spoken via TTS at the start of the call. Supports
-    {{template_variables}}. Leave empty to skip the greeting. Not supported
-    with realtime (speech-to-speech) models.
+    {{template_variables}}. Leave empty to skip the greeting.
     """
 
     greeting_recording_id: Optional[str] = None

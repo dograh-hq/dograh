@@ -126,22 +126,17 @@ async def run_pipeline_and_capture_context(
         new_callable=AsyncMock,
         return_value=1,
     ):
-        with patch(
-            "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-            new_callable=AsyncMock,
-            return_value="completed",
-        ):
 
-            async def run_pipeline():
-                await run_pipeline_worker(task)
+        async def run_pipeline():
+            await run_pipeline_worker(task)
 
-            async def initialize_engine():
-                await asyncio.sleep(0.01)
-                await engine.initialize()
-                await engine.set_node(engine.workflow.start_node_id)
-                await engine.llm.queue_frame(LLMContextFrame(engine.context))
+        async def initialize_engine():
+            await asyncio.sleep(0.01)
+            await engine.initialize()
+            await engine.set_node(engine.workflow.start_node_id)
+            await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-            await asyncio.gather(run_pipeline(), initialize_engine())
+        await asyncio.gather(run_pipeline(), initialize_engine())
 
     return llm, context
 

@@ -1,0 +1,33 @@
+{{- if and (eq .Values.exposure.mode "gatewayApi") .Values.ui.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "dograh.fullname" . }}-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- if .Values.exposure.gatewayApi.createGateway }}
+    - name: {{ include "dograh.fullname" . }}
+    {{- else }}
+    {{- range .Values.exposure.gatewayApi.parentRefs }}
+    - name: {{ .name }}
+      {{- if .namespace }}
+      namespace: {{ .namespace }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  {{- if .Values.exposure.gatewayApi.listenerHostname }}
+  hostnames:
+    - {{ .Values.exposure.gatewayApi.listenerHostname | quote }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "dograh.ui.fullname" . }}
+          port: {{ .Values.ui.service.port }}
+{{- end }}

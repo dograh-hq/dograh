@@ -48,3 +48,39 @@ class Tuner(TypedNode):
     When false, Dograh skips exporting this call to Tuner.
     """
 
+    cost_calculation_enabled: bool = False
+    """
+    Send a per-call cost to Tuner, computed from your own provider rates
+    (BYOK). All rates below are optional.
+    """
+
+    cost_llm_input_rate: Optional[float] = None
+    """
+    USD per 1M tokens
+    """
+
+    cost_llm_cached_input_rate: Optional[float] = None
+    """
+    USD per 1M cached tokens
+    """
+
+    cost_llm_output_rate: Optional[float] = None
+    """
+    USD per 1M tokens
+    """
+
+    cost_tts_rate: Optional[float] = None
+    """
+    USD per 1K characters
+    """
+
+    cost_stt_rate: Optional[float] = None
+    """
+    USD per minute
+    """
+
+    cost_telephony_rate: Optional[float] = None
+    """
+    USD per minute
+    """
+

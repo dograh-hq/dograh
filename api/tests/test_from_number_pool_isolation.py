@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from api.services.call_concurrency import CallConcurrencySlot
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
 from api.services.campaign.rate_limiter import RateLimiter
 
@@ -267,6 +268,9 @@ class TestDispatcherThreadsTelephonyConfig:
                 "api.services.campaign.campaign_call_dispatcher.rate_limiter"
             ) as mock_rl,
             patch(
+                "api.services.campaign.campaign_call_dispatcher.call_concurrency"
+            ) as mock_concurrency,
+            patch(
                 "api.services.campaign.campaign_call_dispatcher.get_backend_endpoints",
                 AsyncMock(return_value=("https://example.com", None)),
             ),
@@ -280,14 +284,21 @@ class TestDispatcherThreadsTelephonyConfig:
             mock_db.get_workflow_by_id = AsyncMock(return_value=SimpleNamespace(id=1))
             mock_db.create_workflow_run = AsyncMock(return_value=workflow_run)
             mock_db.update_workflow_run = AsyncMock()
+            mock_concurrency.bind_workflow_run = AsyncMock()
+            mock_concurrency.release_slot = AsyncMock()
+            mock_concurrency.release_workflow_run_slot = AsyncMock()
 
             mock_rl.acquire_from_number = AsyncMock(return_value="+15551110001")
             mock_rl.release_from_number = AsyncMock()
-            mock_rl.release_concurrent_slot = AsyncMock()
-            mock_rl.store_workflow_slot_mapping = AsyncMock()
             mock_rl.store_workflow_from_number_mapping = AsyncMock()
 
-            await dispatcher.dispatch_call(queued_run, campaign, slot_id="slot-1")
+            slot = CallConcurrencySlot(
+                organization_id=org_id,
+                slot_id="slot-1",
+                max_concurrent=1,
+                source="test",
+            )
+            await dispatcher.dispatch_call(queued_run, campaign, slot)
 
             # acquire_from_number on rate_limiter must be called with the
             # campaign's telephony_configuration_id.
@@ -337,10 +348,15 @@ class TestDispatcherThreadsTelephonyConfig:
 
         dispatcher = CampaignCallDispatcher()
 
-        with patch(
-            "api.services.campaign.campaign_call_dispatcher.rate_limiter"
-        ) as mock_rl:
-            mock_rl.get_workflow_slot_mapping = AsyncMock(return_value=None)
+        with (
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.rate_limiter"
+            ) as mock_rl,
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.call_concurrency"
+            ) as mock_concurrency,
+        ):
+            mock_concurrency.release_workflow_run_slot = AsyncMock(return_value=False)
             mock_rl.get_workflow_from_number_mapping = AsyncMock(
                 return_value=(org_id, from_number, config_id)
             )

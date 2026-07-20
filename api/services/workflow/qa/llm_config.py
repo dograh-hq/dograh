@@ -12,7 +12,7 @@ async def resolve_llm_config(
     """Resolve the LLM provider, model, API key, and extra kwargs for QA analysis.
 
     If the QA node has its own LLM configuration (qa_use_workflow_llm=False),
-    use those settings directly. Otherwise, fall back to the user's configured LLM.
+    use those settings directly. Otherwise, fall back to the workflow/org LLM.
 
     Returns:
         (provider, model, api_key, service_kwargs) tuple — service_kwargs can be
@@ -30,7 +30,7 @@ async def resolve_llm_config(
             kwargs,
         )
 
-    # Fall back to user's configured LLM
+    # Fall back to the workflow/org configured LLM
     provider, model, api_key, kwargs = await resolve_user_llm_config(workflow_run)
 
     if qa_data.qa_model and qa_data.qa_model != "default":
@@ -42,17 +42,13 @@ async def resolve_llm_config(
 async def resolve_user_llm_config(
     workflow_run: WorkflowRunModel,
 ) -> tuple[str, str, str, dict]:
-    """Resolve the user's configured LLM (from EffectiveAIModelConfiguration).
+    """Resolve the workflow/org configured LLM.
 
     Returns:
         (provider, model, api_key, service_kwargs) tuple
     """
-    user_id = None
-    if workflow_run.workflow and workflow_run.workflow.user:
-        user_id = workflow_run.workflow.user.id
-
     llm_config: dict = {}
-    if user_id:
+    if workflow_run.workflow:
         from api.services.configuration.ai_model_configuration import (
             get_effective_ai_model_configuration_for_workflow,
         )
@@ -68,7 +64,6 @@ async def resolve_user_llm_config(
             )
 
         user_configuration = await get_effective_ai_model_configuration_for_workflow(
-            user_id=user_id,
             organization_id=workflow_run.workflow.organization_id
             if workflow_run.workflow
             else None,

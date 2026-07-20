@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.db import db_client
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -238,13 +238,13 @@ class PlivoProvider(TelephonyProvider):
         return any(hmac.compare_digest(computed, candidate) for candidate in candidates)
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         _, wss_backend_endpoint = await get_backend_endpoints()
 
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}</Stream>
+    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}</Stream>
 </Response>"""
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
@@ -281,17 +281,17 @@ class PlivoProvider(TelephonyProvider):
 
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         status_map = {
-            "in-progress": "answered",
-            "ringing": "ringing",
-            "ring": "ringing",
-            "completed": "completed",
-            "hangup": "completed",
-            "stopstream": "completed",
-            "busy": "busy",
-            "no-answer": "no-answer",
-            "cancel": "canceled",
-            "cancelled": "canceled",
-            "timeout": "no-answer",
+            "in-progress": TelephonyCallStatus.ANSWERED,
+            "ringing": TelephonyCallStatus.RINGING,
+            "ring": TelephonyCallStatus.RINGING,
+            "completed": TelephonyCallStatus.COMPLETED,
+            "hangup": TelephonyCallStatus.COMPLETED,
+            "stopstream": TelephonyCallStatus.COMPLETED,
+            "busy": TelephonyCallStatus.BUSY,
+            "no-answer": TelephonyCallStatus.NO_ANSWER,
+            "cancel": TelephonyCallStatus.CANCELED,
+            "cancelled": TelephonyCallStatus.CANCELED,
+            "timeout": TelephonyCallStatus.NO_ANSWER,
         }
 
         call_status = (data.get("CallStatus") or data.get("Event") or "").lower()
@@ -309,7 +309,7 @@ class PlivoProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
@@ -348,7 +348,7 @@ class PlivoProvider(TelephonyProvider):
             provider_name=self.PROVIDER_NAME,
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
-            user_id=user_id,
+            organization_id=organization_id,
             call_id=call_id,
             transport_kwargs={"stream_id": stream_id, "call_id": call_id},
         )

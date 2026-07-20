@@ -12,6 +12,7 @@ from pipecat.utils.run_context import set_current_run_id
 from starlette.responses import HTMLResponse
 
 from api.db import db_client
+from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
@@ -21,10 +22,31 @@ from api.services.telephony.status_processor import (
 router = APIRouter()
 
 
+async def _persist_amd_result_if_present(
+    *,
+    provider: TelephonyProvider,
+    workflow_run_id: int,
+    callback_data: dict,
+) -> None:
+    amd_result = provider.parse_answering_machine_detection_result(callback_data)
+    if not amd_result:
+        return
+
+    try:
+        logger.info(
+            f"[run {workflow_run_id}] AMD result: AnsweredBy={amd_result.answered_by}"
+        )
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            gathered_context={"answered_by": amd_result.answered_by},
+        )
+    except Exception as exc:
+        logger.warning(f"[run {workflow_run_id}] Failed to persist AMD result: {exc}")
+
+
 @router.post("/twiml", include_in_schema=False)
 async def handle_twiml_webhook(
     workflow_id: int,
-    user_id: int,
     workflow_run_id: int,
     organization_id: int,
     request: Request,
@@ -49,8 +71,14 @@ async def handle_twiml_webhook(
         )
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
+    await _persist_amd_result_if_present(
+        provider=provider,
+        workflow_run_id=workflow_run_id,
+        callback_data=callback_data,
+    )
+
     response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
+        workflow_id, organization_id, workflow_run_id
     )
 
     return HTMLResponse(content=response_content, media_type="application/xml")
@@ -109,6 +137,12 @@ async def handle_twilio_status_callback(
         direction=parsed_data.get("direction"),
         duration=parsed_data.get("duration"),
         extra=parsed_data.get("extra", {}),
+    )
+
+    await _persist_amd_result_if_present(
+        provider=provider,
+        workflow_run_id=workflow_run_id,
+        callback_data=callback_data,
     )
 
     # Process the status update

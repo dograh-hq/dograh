@@ -1,0 +1,57 @@
+---
+title: "Connect with Telephony"
+description: "Hook up Twilio so Dograh can make and receive real calls, not just browser test calls."
+---
+
+You've covered API Trigger and Webhooks. Both of those work on real calls, which means you need a real phone number connected first. This page walks through Twilio specifically, since it's the fastest way to get a number and test with free trial credits.
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/w8EhcqDjZKI"
+  title="How to Set Up Telephony for Dograh AI Voice Agents"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+## Step 1: Create a Twilio account and buy a number
+
+Sign up at Twilio. You'll land on their dashboard with free trial credits you can use for testing. Go to **Phone Numbers** and click **Buy a number**, pick any number you like.
+
+## Step 2: Copy your Account SID
+
+Back on the Twilio dashboard, copy your **Account SID**.
+
+## Step 3: Add the configuration in Dograh
+
+Open **Telephony** in Dograh, click **Add Configuration**, and select **Twilio** as the provider. Name it something you'll recognize later, your workflow name works well. Paste the Account SID.
+
+Go back to Twilio, copy your **Auth Token**, and paste it in. Keep that token private.
+
+If you want this configuration to be the default for test calls and campaigns, enable that here. For a basic setup, leave answering machine detection off, then click **Create**.
+
+<Warning>
+Enable **Set as default for outbound calls** on your telephony configuration. If no default is set, API Trigger will return a `400: Telephony provider not configured for this organization` error even after a successful setup.
+</Warning>
+
+## Step 4: Add your phone number
+
+Once the configuration exists, go to manage phone numbers and add the number you bought. Copy it from Twilio and paste it in as-is, country **US**. The label is optional, leave it blank if you want. Select your inbound workflow, in this demo, a debt collection agent. Keep it active, and enable default caller ID if you want test calls to always show that number.
+
+## Step 5: Verify your number
+
+Before testing from a Twilio trial account, verify the destination number you plan to call, such as your personal phone number. This is separate from the Twilio number you purchased for use as the caller ID. In Twilio, go to the [Verified Caller IDs page](https://www.twilio.com/console/phone-numbers/verified) and add the destination number.
+
+## Step 6: Test it
+
+Once verified, trigger a call the same way you did in [Trigger Calls using API](/getting-started/trigger-calls-from-your-backend), from Postman or your backend. Dograh places the outbound call through Twilio. The phone rings, the agent answers, and the connection is live.
+
+<Note>
+On a trial account, Twilio plays a default message before connecting to your agent. Press any key to skip it and go straight to the agent.
+</Note>
+
+Inbound calls work the same way in reverse, routed through Twilio's webhook into your Dograh workflow.
+
+## Next Steps
+
+- **Make your agent do more on the call**: [Use External Tools, Knowledge](/getting-started/add-tools-and-knowledge-base) covers tools and a Knowledge Base.
+- **Other providers**: Vonage, Plivo, Cloudonix, and SIP-based setups are covered in [Telephony Integration](/integrations/telephony/overview).

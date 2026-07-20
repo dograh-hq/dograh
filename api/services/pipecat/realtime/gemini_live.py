@@ -9,8 +9,8 @@ Layers Dograh engine integration quirks onto upstream-pristine
 - **Reconnect on node transitions.** Gemini Live cannot update
   ``system_instruction`` mid-session, so a setting change triggers a
   reconnect (deferred until the bot turn ends if currently responding).
-- **Function-call deferral.** Tool calls emitted mid-turn are queued and run
-  when the bot stops speaking, to avoid racing the turn's audio.
+- **Node-transition deferral.** Node-transition calls emitted mid-turn are
+  queued and run when the bot stops speaking, to avoid cutting off its audio.
 - **User-mute audio gating.** ``UserMuteStarted/StoppedFrame`` from the
   user aggregator gates whether incoming audio is forwarded to Gemini.
 - **TTSSpeakFrame as greeting trigger.** The engine queues a TTSSpeakFrame
@@ -18,10 +18,16 @@ Layers Dograh engine integration quirks onto upstream-pristine
   it and runs the initial-context path.
 """
 
+import asyncio
 from typing import Any
 
+from google.genai.types import Content, Part
 from loguru import logger
 
+from api.services.pipecat.gemini_json_schema_adapter import (
+    DograhGeminiJSONSchemaAdapter,
+)
+from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
@@ -39,6 +45,18 @@ from pipecat.utils.tracing.service_decorators import traced_gemini_live
 class DograhGeminiLiveLLMService(GeminiLiveLLMService):
     """Gemini Live with Dograh engine integration quirks. See module docstring."""
 
+    # Gemini input transcription is delivered independently from tool calls.
+    # Give late transcription messages a small window to arrive before running
+    # a node-transition function and tearing down the current Live connection.
+    _NODE_TRANSITION_TRANSCRIPTION_GRACE_SECONDS = 0.5
+
+    # Route tool schemas through Gemini's ``parameters_json_schema`` field so
+    # MCP/imported tools that use JSON Schema keywords (``const``, ``not``,
+    # nested ``anyOf``) rejected by the strict ``Schema`` model are accepted.
+    # Mirrors the non-realtime ``DograhGoogleLLMService`` fix;
+    # ``DograhGeminiLiveVertexLLMService`` inherits this via MRO.
+    adapter_class = DograhGeminiJSONSchemaAdapter
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # User-mute state, driven by broadcast UserMute{Started,Stopped}Frames.
@@ -47,12 +65,19 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # Guards initial-response triggering against double-firing across the
         # initial TTSSpeakFrame and any LLMContextFrame that may arrive.
         self._handled_initial_context: bool = False
-        # When a system_instruction change arrives mid-bot-turn, the reconnect
-        # is queued and drained when the turn ends.
-        self._reconnect_pending: bool = False
-        # Function calls emitted by Gemini mid-bot-turn are deferred here and
-        # invoked when the turn ends, so they don't race the turn's audio.
-        self._pending_function_calls: list[FunctionCallFromLLM] = []
+        # Node-transition calls emitted mid-bot-turn are deferred here so the
+        # transition does not tear down Gemini while it is still producing audio.
+        self._pending_node_transition_function_calls: list[FunctionCallFromLLM] = []
+        # Text greeting captured from the first TTSSpeakFrame while the Gemini
+        # session is still connecting.
+        self._pending_initial_greeting_text: str | None = None
+        self._transition_function_call_task: asyncio.Task | None = None
+        # Intentional node changes use a fresh, context-seeded connection rather
+        # than a potentially stale session-resumption handle. The new connection
+        # remains gated until the function-call result has landed in LLMContext.
+        self._awaiting_node_transition_context: bool = False
+        self._node_transition_context_received: bool = False
+        self._node_transition_context_seed_started: bool = False
 
     # ------------------------------------------------------------------
     # Hooks from upstream GeminiLiveLLMService
@@ -63,33 +88,109 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # lets pre-call fetch populate template variables first.
         return bool(self._settings.system_instruction)
 
+    def _requires_node_transition_context_aggregation(self) -> bool:
+        # A node transition replaces the current Gemini Live connection and
+        # seeds the new one from our local LLMContext. Wait for the upstream
+        # user aggregator to commit any final TranscriptionFrame before
+        # set_node() changes the prompt and starts that reconnect.
+        return True
+
+    async def cleanup(self) -> None:
+        """Cancel a delayed transition before tearing down the Live session."""
+        if self._transition_function_call_task:
+            await self.cancel_task(self._transition_function_call_task)
+            self._transition_function_call_task = None
+        await super().cleanup()
+
     async def _handle_changed_settings(self, changed: dict[str, Any]) -> set[str]:
         if "system_instruction" not in changed:
             return set()
+
+        # PipecatEngine updates system_instruction only from set_node(). The
+        # first set_node happens before a Live session exists; every later one
+        # is a node transition whose tool call has already been deferred until
+        # the current bot turn finishes.
         if not self._session:
             # First-time setting after deferred-connect.
             await self._connect()
-        elif self._bot_is_responding:
-            # Bot is mid-turn — drain the reconnect when it ends so we don't
-            # cut the bot off mid-utterance.
-            self._reconnect_pending = True
         else:
-            await self._reconnect()
+            await self._reconnect_for_node_transition()
         return {"system_instruction"}
 
     async def _run_or_defer_function_calls(
         self, function_calls_llm: list[FunctionCallFromLLM]
     ):
+        if not self._contains_node_transition(function_calls_llm):
+            await super()._run_or_defer_function_calls(function_calls_llm)
+            return
+
+        # Keep a provider tool-call batch together. Splitting a mixed batch here
+        # would discard Pipecat's shared function-call group and could trigger an
+        # LLM run before every result from the original batch has arrived.
         if self._bot_is_responding:
             # Latest batch wins; Gemini emits tool calls as one batch per
             # tool_call message, so this overwrite is intentional.
-            self._pending_function_calls = function_calls_llm
+            self._pending_node_transition_function_calls = function_calls_llm
             logger.debug(
-                f"{self}: deferring {len(function_calls_llm)} function call(s) "
+                f"{self}: deferring {len(function_calls_llm)} node-transition "
+                "function call(s) "
                 "until bot turn ends"
             )
             return
-        await super()._run_or_defer_function_calls(function_calls_llm)
+
+        self._schedule_node_transition_function_calls(function_calls_llm)
+
+    def _contains_node_transition(
+        self, function_calls_llm: list[FunctionCallFromLLM]
+    ) -> bool:
+        return any(self._is_node_transition(fc) for fc in function_calls_llm)
+
+    def _is_node_transition(self, function_call: FunctionCallFromLLM) -> bool:
+        return self._function_is_node_transition(function_call.function_name)
+
+    def _schedule_node_transition_function_calls(
+        self, function_calls_llm: list[FunctionCallFromLLM]
+    ) -> None:
+        """Run transition calls after late input transcription has settled."""
+        if (
+            self._transition_function_call_task
+            and not self._transition_function_call_task.done()
+        ):
+            logger.warning(
+                f"{self}: node-transition function call already pending; "
+                "ignoring duplicate batch"
+            )
+            return
+
+        async def _run_after_transcription_grace() -> None:
+            try:
+                await asyncio.sleep(self._NODE_TRANSITION_TRANSCRIPTION_GRACE_SECONDS)
+                await self._flush_pending_user_transcription()
+                await self.run_function_calls(function_calls_llm)
+            finally:
+                self._transition_function_call_task = None
+
+        self._transition_function_call_task = self.create_task(
+            _run_after_transcription_grace(),
+            name=f"{self}::node-transition-function-calls",
+        )
+
+    async def _flush_pending_user_transcription(self) -> None:
+        """Publish any punctuationless user transcript before a node handoff."""
+        if self._transcription_timeout_task:
+            if not self._transcription_timeout_task.done():
+                await self.cancel_task(self._transcription_timeout_task)
+            self._transcription_timeout_task = None
+
+        if not self._user_transcription_buffer:
+            return
+
+        text = self._user_transcription_buffer
+        self._user_transcription_buffer = ""
+        logger.debug(
+            f"{self}: flushing pending user transcription before node transition"
+        )
+        await self._push_user_transcription(text, result=None)
 
     # ------------------------------------------------------------------
     # State-transition side effects
@@ -99,22 +200,35 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         was_responding = self._bot_is_responding
         await super()._set_bot_is_responding(responding)
         if was_responding and not responding:
-            await self._run_pending_function_calls()
-            if self._reconnect_pending:
-                self._reconnect_pending = False
-                await self._reconnect()
+            await self._run_pending_node_transition_function_calls()
 
-    async def _run_pending_function_calls(self):
-        """Run any function calls deferred during the bot's last turn."""
-        if not self._pending_function_calls:
+    async def _run_pending_node_transition_function_calls(self):
+        """Run any node-transition calls deferred during the bot's last turn."""
+        if not self._pending_node_transition_function_calls:
             return
-        fcs = self._pending_function_calls
-        self._pending_function_calls = []
+        fcs = self._pending_node_transition_function_calls
+        self._pending_node_transition_function_calls = []
         logger.debug(
-            f"{self}: executing {len(fcs)} deferred function call(s) "
+            f"{self}: executing {len(fcs)} deferred node-transition call(s) "
             "after bot turn ended"
         )
-        await self.run_function_calls(fcs)
+        self._schedule_node_transition_function_calls(fcs)
+
+    async def _reconnect_for_node_transition(self) -> None:
+        """Start a fresh connection and wait to seed the completed context.
+
+        Gemini can report ``resumable=False`` while generating or executing a
+        function call. A workflow transition happens at exactly that boundary,
+        so using the last (older) resumption handle can omit the triggering user
+        turn. Use the local LLMContext as the source of truth for this intentional
+        handoff instead.
+        """
+        self._awaiting_node_transition_context = True
+        self._node_transition_context_received = False
+        self._node_transition_context_seed_started = False
+        self._session_resumption_handle = None
+        await self._disconnect()
+        await self._connect(session_resumption_handle=None)
 
     # ------------------------------------------------------------------
     # Frame handling: mute, TTSSpeakFrame, BotStoppedSpeakingFrame flush
@@ -132,10 +246,15 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         if isinstance(frame, TTSSpeakFrame):
             # Greeting trigger: the engine queues a TTSSpeakFrame to start the
             # bot's first turn after node setup. Gemini Live renders its own
-            # audio, so we don't pass the frame through — we re-enter
-            # _handle_context to kick off the initial response.
+            # audio, so we don't pass the frame through. For configured static
+            # text greetings, ask Gemini to say the exact greeting; otherwise
+            # re-enter _handle_context to kick off the normal initial response.
             if not self._handled_initial_context:
-                await self._handle_context(self._context)
+                greeting_text = frame.text.strip() if frame.text else ""
+                if greeting_text:
+                    await self._handle_initial_greeting(self._context, greeting_text)
+                else:
+                    await self._handle_context(self._context)
             else:
                 logger.warning(
                     f"{self}: TTSSpeakFrame after initial context already "
@@ -145,9 +264,9 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         if isinstance(frame, BotStoppedSpeakingFrame):
             # Belt-and-suspenders: the main drain happens in
             # _set_bot_is_responding(False), but if Gemini delays turn_complete
-            # past the audible end of the turn, flushing here ensures pending
-            # function calls fire promptly.
-            await self._run_pending_function_calls()
+            # past the audible end of the turn, flushing here ensures a pending
+            # node transition fires promptly.
+            await self._run_pending_node_transition_function_calls()
             # Fall through to super for the actual push.
         await super().process_frame(frame, direction)
 
@@ -165,6 +284,11 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
     # ------------------------------------------------------------------
 
     async def _handle_context(self, context: LLMContext):
+        if self._awaiting_node_transition_context:
+            self._context = context
+            self._node_transition_context_received = True
+            await self._maybe_seed_node_transition_context()
+            return
         if not self._handled_initial_context:
             self._handled_initial_context = True
             self._context = context
@@ -172,6 +296,49 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         else:
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
+
+    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+        """Trigger the first Gemini turn with an exact static text greeting."""
+        if context is None:
+            logger.warning(
+                f"{self}: received initial greeting trigger before context was set"
+            )
+            return
+
+        self._handled_initial_context = True
+        self._context = context
+        await self._create_initial_greeting_response(greeting_text)
+
+    async def _create_initial_greeting_response(self, greeting_text: str):
+        """Ask Gemini Live to speak the configured greeting exactly once."""
+        if self._disconnecting:
+            return
+
+        if not self._session:
+            self._pending_initial_greeting_text = greeting_text
+            self._run_llm_when_session_ready = True
+            return
+
+        self._pending_initial_greeting_text = None
+        prompt = format_static_greeting_prompt(greeting_text)
+        turn = Content(role="user", parts=[Part(text=prompt)])
+
+        logger.debug("Creating Gemini Live initial response from static greeting")
+
+        await self.start_ttfb_metrics()
+
+        try:
+            await self._session.send_client_content(
+                turns=[turn],
+                turn_complete=True,
+            )
+            # Gemini 3.x also needs a realtime-input nudge to begin inference.
+            if self._is_gemini_3:
+                await self._session.send_realtime_input(text=" ")
+        except Exception as e:
+            await self._handle_send_error(e)
+
+        self._ready_for_realtime_input = True
 
     # ------------------------------------------------------------------
     # Session lifecycle: drop upstream's automatic reconnect-seed and
@@ -186,15 +353,48 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             f"In _handle_session_ready self._run_llm_when_session_ready: {self._run_llm_when_session_ready}"
         )
         self._session = session
+        if self._awaiting_node_transition_context:
+            # Do not accept realtime input until the function-call result frame
+            # has updated the shared context and that complete history is seeded.
+            self._ready_for_realtime_input = False
+            await self._maybe_seed_node_transition_context()
+            return
         self._ready_for_realtime_input = True
         if self._run_llm_when_session_ready:
             # Context arrived before session was ready — fulfil the queued
             # initial response now.
             self._run_llm_when_session_ready = False
-            await self._create_initial_response()
+            if self._pending_initial_greeting_text is not None:
+                await self._create_initial_greeting_response(
+                    self._pending_initial_greeting_text
+                )
+            else:
+                await self._create_initial_response()
         await self._drain_pending_tool_results()
         # Otherwise: no automatic seed. Reconnect after a session-resumption
         # update relies on the server-side restored state; reconnects without
         # a handle (e.g. node transitions before any handle was issued) are
         # followed by a function-call-result LLMContextFrame which feeds the
         # updated-context branch in _handle_context.
+
+    async def _maybe_seed_node_transition_context(self) -> None:
+        if (
+            not self._awaiting_node_transition_context
+            or not self._node_transition_context_received
+            or not self._session
+            or self._node_transition_context_seed_started
+        ):
+            return
+
+        self._node_transition_context_seed_started = True
+        try:
+            # The complete tool result is already present in the history being
+            # seeded, so mark it delivered locally instead of sending a provider
+            # tool response for a call that the fresh session never issued.
+            await self._process_completed_function_calls(send_new_results=False)
+            await self._create_initial_response()
+            self._awaiting_node_transition_context = False
+            self._node_transition_context_received = False
+            await self._drain_pending_tool_results()
+        finally:
+            self._node_transition_context_seed_started = False

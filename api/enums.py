@@ -17,6 +17,32 @@ class CallType(Enum):
     OUTBOUND = "outbound"
 
 
+class TelephonyCallStatus(str, Enum):
+    INITIATED = "initiated"
+    RINGING = "ringing"
+    IN_PROGRESS = "in-progress"
+    ANSWERED = "answered"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    BUSY = "busy"
+    NO_ANSWER = "no-answer"
+    CANCELED = "canceled"
+    ERROR = "error"
+
+    @classmethod
+    def from_raw(cls, value: object) -> "TelephonyCallStatus | None":
+        if isinstance(value, cls):
+            return value
+
+        if value in (None, ""):
+            return None
+
+        try:
+            return cls(str(value).lower())
+        except ValueError:
+            return None
+
+
 class WorkflowRunMode(Enum):
     ARI = "ari"
     PLIVO = "plivo"
@@ -77,8 +103,6 @@ class WorkflowRunStatus(Enum):
 
 
 class OrganizationConfigurationKey(Enum):
-    DISPOSITION_CODE_MAPPING = "DISPOSITION_CODE_MAPPING"
-    DISPOSITION_MESSAGE_TEMPLATE = "DISPOSITION_MESSAGE_TEMPLATE"
     CONCURRENT_CALL_LIMIT = "CONCURRENT_CALL_LIMIT"
     TELEPHONY_CONFIGURATION = (
         "TELEPHONY_CONFIGURATION"  # Stores all providers + active one
@@ -176,3 +200,5 @@ class PostHogEvent(str, Enum):
     SIGNED_IN = "signed_in"
     ORGANIZATION_CREATED = "organization_created"
     ORGANIZATION_USER_ASSOCIATED = "organization_user_associated"
+    # usage_* events track orgs hitting capacity/limit boundaries
+    USAGE_CONCURRENT_CALL_LIMIT_REACHED = "usage_concurrent_call_limit_reached"

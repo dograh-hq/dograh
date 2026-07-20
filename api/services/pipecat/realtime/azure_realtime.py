@@ -1,9 +1,9 @@
 """Dograh subclass of pipecat's Azure OpenAI Realtime LLM service.
 
 Layers Dograh engine integration quirks (mute gating, TTSSpeakFrame greeting
-trigger, LLMMessagesAppendFrame handling, deferred tool calls) onto pipecat's
-AzureRealtimeLLMService, mirroring what DograhOpenAIRealtimeLLMService does
-for the standard OpenAI Realtime endpoint.
+trigger, LLMMessagesAppendFrame handling, workflow-control deferral) onto
+pipecat's AzureRealtimeLLMService, mirroring what
+DograhOpenAIRealtimeLLMService does for the standard OpenAI Realtime endpoint.
 """
 
 import json
@@ -11,6 +11,7 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -39,7 +40,7 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
     - User-mute audio gating
     - TTSSpeakFrame as initial-response trigger
     - One-off LLMMessagesAppendFrame handling
-    - Deferred tool calls until bot finishes speaking
+    - Workflow-control calls deferred until bot finishes speaking
     - finalized=True on TranscriptionFrame for consistency
     """
 
@@ -48,7 +49,8 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
         self._user_is_muted: bool = False
         self._handled_initial_context: bool = False
         self._bot_is_speaking: bool = False
-        self._deferred_function_calls: list[FunctionCallFromLLM] = []
+        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
+        self._pending_initial_greeting_text: str | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         if isinstance(frame, UserMuteStartedFrame):
@@ -61,7 +63,11 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
             return
         if isinstance(frame, TTSSpeakFrame):
             if not self._handled_initial_context:
-                await self._handle_context(self._context)
+                greeting_text = frame.text.strip() if frame.text else ""
+                if greeting_text:
+                    await self._handle_initial_greeting(self._context, greeting_text)
+                else:
+                    await self._handle_context(self._context)
             else:
                 logger.warning(
                     f"{self}: TTSSpeakFrame after initial context already handled — "
@@ -75,7 +81,7 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
             self._bot_is_speaking = True
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
-            await self._run_pending_function_calls()
+            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -117,6 +123,57 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
         else:
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
+
+    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+        if context is None:
+            logger.warning(
+                f"{self}: received initial greeting trigger before context was set"
+            )
+            return
+
+        self._handled_initial_context = True
+        self._context = context
+        await self._create_initial_greeting_response(greeting_text)
+
+    async def _create_initial_greeting_response(self, greeting_text: str):
+        if self._disconnecting:
+            return
+
+        if not self._api_session_ready:
+            self._pending_initial_greeting_text = greeting_text
+            self._run_llm_when_api_session_ready = True
+            return
+
+        self._pending_initial_greeting_text = None
+        await self._ensure_conversation_setup()
+        await self._send_manual_response_create(
+            instructions=format_static_greeting_prompt(greeting_text),
+            tool_choice="none",
+        )
+
+    async def _ensure_conversation_setup(self):
+        if not self._llm_needs_conversation_setup:
+            return
+
+        adapter = self.get_llm_adapter()
+        llm_invocation_params = adapter.get_llm_invocation_params(self._context)
+        for item in llm_invocation_params["messages"]:
+            evt = events.ConversationItemCreateEvent(item=item)
+            self._messages_added_manually[evt.item.id] = True
+            await self.send_client_event(evt)
+
+        await self._send_session_update()
+        self._llm_needs_conversation_setup = False
+
+    async def _handle_evt_session_updated(self, evt):
+        self._api_session_ready = True
+        if self._pending_initial_greeting_text is not None:
+            greeting_text = self._pending_initial_greeting_text
+            self._run_llm_when_api_session_ready = False
+            await self._create_initial_greeting_response(greeting_text)
+        elif self._run_llm_when_api_session_ready:
+            self._run_llm_when_api_session_ready = False
+            await self._create_response()
 
     async def _send_user_audio(self, frame):
         if self._user_is_muted:
@@ -171,30 +228,38 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
             return "\n".join(parts) if parts else None
         return None
 
-    async def _send_manual_response_create(self):
+    async def _send_manual_response_create(
+        self,
+        *,
+        instructions: str | None = None,
+        tool_choice: str | None = None,
+    ):
         await self.push_frame(LLMFullResponseStartFrame())
         await self.start_processing_metrics()
         await self.start_ttfb_metrics()
         await self.send_client_event(
             events.ResponseCreateEvent(
                 response=events.ResponseProperties(
-                    output_modalities=self._get_enabled_modalities()
+                    output_modalities=self._get_enabled_modalities(),
+                    instructions=instructions,
+                    tool_choice=tool_choice,
                 )
             )
         )
 
-    async def _run_pending_function_calls(self):
-        if not self._deferred_function_calls:
+    async def _run_pending_node_transition_function_calls(self):
+        if not self._deferred_node_transition_function_calls:
             return
-        function_calls = self._deferred_function_calls
-        self._deferred_function_calls = []
+        function_calls = self._deferred_node_transition_function_calls
+        self._deferred_node_transition_function_calls = []
         logger.debug(
-            f"{self}: executing {len(function_calls)} deferred function call(s) "
-            "after bot turn ended"
+            f"{self}: executing {len(function_calls)} deferred workflow-control "
+            "call(s) after bot turn ended"
         )
         await self.run_function_calls(function_calls)
 
     async def _handle_evt_function_call_arguments_done(self, evt):
+        """Run ordinary tools immediately and defer workflow-control calls."""
         try:
             args = json.loads(evt.arguments)
 
@@ -211,10 +276,14 @@ class DograhAzureRealtimeLLMService(AzureRealtimeLLMService):
                     )
                 ]
 
-                if self._bot_is_speaking:
-                    self._deferred_function_calls.extend(function_calls)
+                is_node_transition = self._function_is_node_transition(
+                    function_call_item.name
+                )
+                if self._bot_is_speaking and is_node_transition:
+                    self._deferred_node_transition_function_calls.extend(function_calls)
                     logger.debug(
-                        f"{self}: deferring function call {function_call_item.name} "
+                        f"{self}: deferring workflow-control call "
+                        f"{function_call_item.name} "
                         "until bot stops speaking"
                     )
                 else:

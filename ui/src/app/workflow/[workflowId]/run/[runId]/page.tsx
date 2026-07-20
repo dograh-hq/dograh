@@ -19,7 +19,10 @@ import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
-import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
+import {
+    getWorkflowApiV1WorkflowFetchWorkflowIdGet,
+    getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet,
+} from '@/client/sdk.gen';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
@@ -28,7 +31,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConversationRailFrame, RealtimeFeedback, WorkflowRunLogs } from '@/components/workflow/conversation';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
-import { useOnboarding } from '@/context/OnboardingContext';
 import { useAuth } from '@/lib/auth';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 import { cn } from '@/lib/utils';
@@ -52,6 +54,7 @@ interface WorkflowRunResponse {
 
 const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
 const WAVEFORM_BAR_COUNT = 96;
+type SplitTrackPlaybackMode = 'both' | 'user' | 'bot';
 
 function formatDuration(seconds?: number | null) {
     if (seconds == null || Number.isNaN(seconds)) return 'N/A';
@@ -83,6 +86,35 @@ function MetricCard({ label, value }: { label: string; value: string }) {
         <div className="rounded-xl border border-border bg-muted/40 px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
             <p className="mt-2 text-lg font-semibold text-foreground">{value}</p>
+        </div>
+    );
+}
+
+function CopyDebugIdButton({ label, value }: { label: string; value: string }) {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = async () => {
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+                <p className="font-mono text-sm font-semibold text-foreground">{value}</p>
+            </div>
+            <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={handleCopy}
+                aria-label={`Copy ${label.toLowerCase()}`}
+            >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
         </div>
     );
 }
@@ -124,19 +156,38 @@ async function loadWaveformPeaks(url: string) {
     }
 }
 
+function getAudioDuration(audio: HTMLAudioElement | null) {
+    return audio && Number.isFinite(audio.duration) ? audio.duration : 0;
+}
+
+function getAudioTimelineState(audios: HTMLAudioElement[]) {
+    const duration = Math.max(0, ...audios.map((audio) => getAudioDuration(audio)));
+    const currentTime = Math.max(0, ...audios.map((audio) => audio.currentTime));
+
+    return { duration, currentTime };
+}
+
+function syncAudioCurrentTime(audio: HTMLAudioElement, startTime: number) {
+    const duration = getAudioDuration(audio);
+    audio.currentTime = Math.min(startTime, duration || startTime);
+}
+
 function WaveformLane({
     peaks,
     track,
     position,
+    isActive,
 }: {
     peaks: number[] | null;
     track: 'user' | 'bot';
     position: 'top' | 'bottom';
+    isActive: boolean;
 }) {
     return (
         <div
             className={cn(
                 'absolute left-3 right-3 flex gap-0.5',
+                isActive ? 'opacity-85' : 'opacity-25',
                 position === 'top' ? 'top-5 h-12 items-end' : 'bottom-5 h-12 items-start'
             )}
         >
@@ -145,7 +196,7 @@ function WaveformLane({
                     <span
                         key={`${track}-${index}`}
                         className={cn(
-                            'min-h-1 flex-1 rounded-full opacity-85',
+                            'min-h-1 flex-1 rounded-full',
                             track === 'user' ? 'bg-sky-500' : 'bg-emerald-500'
                         )}
                         style={{ height: `${Math.round(peak * 100)}%` }}
@@ -178,6 +229,21 @@ function SplitTracksSection({
     const [isLoading, setIsLoading] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [playbackMode, setPlaybackMode] = useState<SplitTrackPlaybackMode>('both');
+
+    const getPlaybackAudios = (mode: SplitTrackPlaybackMode) => {
+        const audios: HTMLAudioElement[] = [];
+
+        if (mode !== 'bot' && userAudioRef.current) {
+            audios.push(userAudioRef.current);
+        }
+
+        if (mode !== 'user' && botAudioRef.current) {
+            audios.push(botAudioRef.current);
+        }
+
+        return audios;
+    };
 
     useEffect(() => {
         let isActive = true;
@@ -190,6 +256,7 @@ function SplitTracksSection({
         setPeaks({ user: null, bot: null });
         setIsPlaying(false);
         setProgress(0);
+        setPlaybackMode('both');
         setIsLoading(true);
 
         async function loadTracks() {
@@ -234,12 +301,17 @@ function SplitTracksSection({
 
         let frameId: number;
         const updateProgress = () => {
-            const userAudio = userAudioRef.current;
-            const botAudio = botAudioRef.current;
-            const userDuration = Number.isFinite(userAudio?.duration) ? userAudio?.duration ?? 0 : 0;
-            const botDuration = Number.isFinite(botAudio?.duration) ? botAudio?.duration ?? 0 : 0;
-            const duration = Math.max(userDuration, botDuration);
-            const currentTime = Math.max(userAudio?.currentTime ?? 0, botAudio?.currentTime ?? 0);
+            const activeAudios: HTMLAudioElement[] = [];
+
+            if (playbackMode !== 'bot' && userAudioRef.current) {
+                activeAudios.push(userAudioRef.current);
+            }
+
+            if (playbackMode !== 'user' && botAudioRef.current) {
+                activeAudios.push(botAudioRef.current);
+            }
+
+            const { duration, currentTime } = getAudioTimelineState(activeAudios);
 
             setProgress(duration > 0 ? Math.min(1, currentTime / duration) : 0);
             frameId = window.requestAnimationFrame(updateProgress);
@@ -247,7 +319,7 @@ function SplitTracksSection({
 
         frameId = window.requestAnimationFrame(updateProgress);
         return () => window.cancelAnimationFrame(frameId);
-    }, [isPlaying]);
+    }, [isPlaying, playbackMode]);
 
     const pauseTracks = () => {
         userAudioRef.current?.pause();
@@ -256,38 +328,68 @@ function SplitTracksSection({
     };
 
     const handleTrackEnded = () => {
-        const userAudio = userAudioRef.current;
-        const botAudio = botAudioRef.current;
-        const userDone = !userAudio || userAudio.ended;
-        const botDone = !botAudio || botAudio.ended;
+        const activeAudios = getPlaybackAudios(playbackMode);
+        const activeTracksDone = activeAudios.length > 0 && activeAudios.every((audio) => audio.ended);
 
-        if (userDone && botDone) {
+        if (activeTracksDone) {
             setIsPlaying(false);
             setProgress(1);
         }
     };
 
+    const handlePlaybackModeChange = async (nextMode: SplitTrackPlaybackMode) => {
+        if (nextMode === playbackMode) return;
+
+        const { currentTime } = getAudioTimelineState(getPlaybackAudios(playbackMode));
+        const nextAudios = getPlaybackAudios(nextMode);
+        const { duration } = getAudioTimelineState(nextAudios);
+        const startTime = duration > 0 && currentTime >= duration - 0.1 ? 0 : currentTime;
+
+        userAudioRef.current?.pause();
+        botAudioRef.current?.pause();
+        nextAudios.forEach((audio) => syncAudioCurrentTime(audio, startTime));
+        setPlaybackMode(nextMode);
+        setProgress(duration > 0 ? Math.min(1, startTime / duration) : 0);
+
+        if (!isPlaying) return;
+
+        if (nextAudios.length === 0) {
+            setIsPlaying(false);
+            return;
+        }
+
+        try {
+            await Promise.all(nextAudios.map((audio) => audio.play()));
+            setIsPlaying(true);
+        } catch (error) {
+            pauseTracks();
+            console.error('Error switching split track playback:', error);
+        }
+    };
+
+    const handleTrackButtonClick = (track: 'user' | 'bot') => {
+        const nextMode = playbackMode === track ? 'both' : track;
+        void handlePlaybackModeChange(nextMode);
+    };
+
     const togglePlayback = async () => {
-        const userAudio = userAudioRef.current;
-        const botAudio = botAudioRef.current;
-        if (!userAudio || !botAudio || !signedUrls.user || !signedUrls.bot) return;
+        const playbackAudios = getPlaybackAudios(playbackMode);
+        if (!canPlay || playbackAudios.length === 0) return;
 
         if (isPlaying) {
             pauseTracks();
             return;
         }
 
-        const userDuration = Number.isFinite(userAudio.duration) ? userAudio.duration : 0;
-        const botDuration = Number.isFinite(botAudio.duration) ? botAudio.duration : 0;
-        const duration = Math.max(userDuration, botDuration);
-        const currentTime = Math.max(userAudio.currentTime, botAudio.currentTime);
+        const { duration, currentTime } = getAudioTimelineState(playbackAudios);
         const startTime = duration > 0 && currentTime >= duration - 0.1 ? 0 : currentTime;
 
-        userAudio.currentTime = Math.min(startTime, userDuration || startTime);
-        botAudio.currentTime = Math.min(startTime, botDuration || startTime);
+        userAudioRef.current?.pause();
+        botAudioRef.current?.pause();
+        playbackAudios.forEach((audio) => syncAudioCurrentTime(audio, startTime));
 
         try {
-            await Promise.all([userAudio.play(), botAudio.play()]);
+            await Promise.all(playbackAudios.map((audio) => audio.play()));
             setIsPlaying(true);
         } catch (error) {
             pauseTracks();
@@ -295,8 +397,16 @@ function SplitTracksSection({
         }
     };
 
-    const canPlay = Boolean(signedUrls.user && signedUrls.bot);
+    const canPlay =
+        playbackMode === 'both'
+            ? Boolean(signedUrls.user && signedUrls.bot)
+            : playbackMode === 'user'
+                ? Boolean(signedUrls.user)
+                : Boolean(signedUrls.bot);
     const progressPercent = Math.round(progress * 1000) / 10;
+    const userTrackActive = playbackMode !== 'bot';
+    const botTrackActive = playbackMode !== 'user';
+    const playbackTargetLabel = playbackMode === 'both' ? 'split tracks' : `${playbackMode} track`;
 
     return (
         <Card className="border-border">
@@ -319,16 +429,42 @@ function SplitTracksSection({
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-600">
+                    <div className="flex items-center gap-2" role="group" aria-label="Playback tracks">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-pressed={userTrackActive}
+                            aria-label={playbackMode === 'user' ? 'Play both tracks' : 'Play user track only'}
+                            onClick={() => handleTrackButtonClick('user')}
+                            className={cn(
+                                'gap-1.5',
+                                userTrackActive
+                                    ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300'
+                                    : 'text-muted-foreground opacity-60'
+                            )}
+                        >
                             <UserRound className="h-4 w-4" />
                             User
-                        </span>
+                        </Button>
                         <span className="h-4 w-px bg-border" />
-                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-pressed={botTrackActive}
+                            aria-label={playbackMode === 'bot' ? 'Play both tracks' : 'Play bot track only'}
+                            onClick={() => handleTrackButtonClick('bot')}
+                            className={cn(
+                                'gap-1.5',
+                                botTrackActive
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                    : 'text-muted-foreground opacity-60'
+                            )}
+                        >
                             <Bot className="h-4 w-4" />
                             Bot
-                        </span>
+                        </Button>
                     </div>
                     <div className="flex items-center gap-2">
                         <Button
@@ -360,15 +496,15 @@ function SplitTracksSection({
                         variant={isPlaying ? 'default' : 'outline'}
                         onClick={togglePlayback}
                         disabled={!canPlay}
-                        aria-label={isPlaying ? 'Pause split tracks' : 'Play split tracks'}
+                        aria-label={isPlaying ? `Pause ${playbackTargetLabel}` : `Play ${playbackTargetLabel}`}
                         className="h-10 w-10 shrink-0"
                     >
                         {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                     </Button>
                     <div className="relative h-36 min-w-0 flex-1 overflow-hidden rounded-lg border border-border/70 bg-background">
                         <div className="absolute left-3 right-3 top-1/2 h-px bg-border/80" />
-                        <WaveformLane peaks={peaks.user} track="user" position="top" />
-                        <WaveformLane peaks={peaks.bot} track="bot" position="bottom" />
+                        <WaveformLane peaks={peaks.user} track="user" position="top" isActive={userTrackActive} />
+                        <WaveformLane peaks={peaks.bot} track="bot" position="bottom" isActive={botTrackActive} />
                         {canPlay && (
                             <div className="pointer-events-none absolute inset-x-3 inset-y-3">
                                 <div
@@ -464,7 +600,7 @@ export default function WorkflowRunPage() {
     const [isLoading, setIsLoading] = useState(true);
     const auth = useAuth();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
-    const { hasSeenTooltip, markTooltipSeen } = useOnboarding();
+    const [workflowName, setWorkflowName] = useState<string | null>(null);
     const customizeButtonRef = useRef<HTMLButtonElement>(null);
 
     // Redirect if not authenticated
@@ -481,37 +617,52 @@ export default function WorkflowRunPage() {
             if (!auth.isAuthenticated || auth.loading) return;
 
             setIsLoading(true);
-            const workflowId = params.workflowId;
-            const runId = params.runId;
-            const response = await getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet({
-                path: {
-                    workflow_id: Number(workflowId),
-                    run_id: Number(runId),
-                },
-            });
-            setIsLoading(false);
-            const runData = {
-                mode: response.data?.mode ?? '',
-                is_completed: response.data?.is_completed ?? false,
-                transcript_url: response.data?.transcript_url ?? null,
-                recording_url: response.data?.recording_url ?? null,
-                user_recording_url: response.data?.user_recording_url ?? null,
-                bot_recording_url: response.data?.bot_recording_url ?? null,
-                cost_info: response.data?.cost_info ?? null,
-                initial_context: response.data?.initial_context as Record<string, string> | null ?? null,
-                gathered_context: response.data?.gathered_context as Record<string, string> | null ?? null,
-                logs: response.data?.logs as WorkflowRunLogs | null ?? null,
-                annotations: response.data?.annotations as Record<string, unknown> | null ?? null,
-            };
-            setWorkflowRun(runData);
-            posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
-                workflow_id: Number(workflowId),
-                run_id: Number(runId),
-                is_completed: runData.is_completed,
-                has_recording: !!runData.recording_url,
-                has_split_recordings: !!runData.user_recording_url && !!runData.bot_recording_url,
-                has_transcript: !!runData.transcript_url,
-            });
+            setWorkflowName(null);
+            const workflowId = Number(params.workflowId);
+            const runId = Number(params.runId);
+
+            try {
+                const [runResponse, workflowResponse] = await Promise.all([
+                    getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet({
+                        path: {
+                            workflow_id: workflowId,
+                            run_id: runId,
+                        },
+                    }),
+                    getWorkflowApiV1WorkflowFetchWorkflowIdGet({
+                        path: {
+                            workflow_id: workflowId,
+                        },
+                    }),
+                ]);
+
+                setWorkflowName(workflowResponse.data?.name ?? null);
+                const runData = {
+                    mode: runResponse.data?.mode ?? '',
+                    is_completed: runResponse.data?.is_completed ?? false,
+                    transcript_url: runResponse.data?.transcript_url ?? null,
+                    recording_url: runResponse.data?.recording_url ?? null,
+                    user_recording_url: runResponse.data?.user_recording_url ?? null,
+                    bot_recording_url: runResponse.data?.bot_recording_url ?? null,
+                    cost_info: runResponse.data?.cost_info ?? null,
+                    initial_context: runResponse.data?.initial_context as Record<string, string> | null ?? null,
+                    gathered_context: runResponse.data?.gathered_context as Record<string, string> | null ?? null,
+                    logs: runResponse.data?.logs as WorkflowRunLogs | null ?? null,
+                    annotations: runResponse.data?.annotations as Record<string, unknown> | null ?? null,
+                };
+                setWorkflowRun(runData);
+                posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
+                    workflow_id: workflowId,
+                    workflow_name: workflowResponse.data?.name ?? null,
+                    run_id: runId,
+                    is_completed: runData.is_completed,
+                    has_recording: !!runData.recording_url,
+                    has_split_recordings: !!runData.user_recording_url && !!runData.bot_recording_url,
+                    has_transcript: !!runData.transcript_url,
+                });
+            } finally {
+                setIsLoading(false);
+            }
         };
         fetchWorkflowRun();
     }, [params.workflowId, params.runId, auth]);
@@ -522,6 +673,8 @@ export default function WorkflowRunPage() {
     const userSplitRecordingUrl = workflowRun?.user_recording_url ?? null;
     const botSplitRecordingUrl = workflowRun?.bot_recording_url ?? null;
     const hasSplitTracks = Boolean(userSplitRecordingUrl && botSplitRecordingUrl);
+    const workflowId = String(params.workflowId);
+    const runId = String(params.runId);
 
     if (isLoading) {
         returnValue = (
@@ -551,31 +704,47 @@ export default function WorkflowRunPage() {
                 <div className="min-w-0 flex-1 overflow-y-auto">
                     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
                     <Card className="border-border">
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <CardTitle className="text-2xl">
-                                    {isTextChatRun ? 'Text Chat Session' : 'Agent Run Completed'}
-                                </CardTitle>
-                                <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-sky-500/15' : 'bg-emerald-500/20'}`}>
-                                    {isTextChatRun ? (
-                                        <FileText className="h-5 w-5 text-sky-500" />
-                                    ) : (
-                                        <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
+                        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 flex-1 space-y-2">
+                                {workflowName && (
+                                    <div className="flex min-w-0 items-center gap-3">
+                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                                            <Bot className="h-5 w-5" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                                                Agent
+                                            </p>
+                                            <p className="truncate text-xl font-semibold text-foreground">
+                                                {workflowName}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                    <CopyDebugIdButton label="Agent ID" value={workflowId} />
+                                    <CopyDebugIdButton label="Run ID" value={runId} />
+                                </div>
+                                <div className="flex min-w-0 items-center gap-4 pt-1">
+                                    <CardTitle className="min-w-0 text-2xl">
+                                        {isTextChatRun ? 'Text Chat Session' : 'Agent Run Completed'}
+                                    </CardTitle>
+                                    <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-sky-500/15' : 'bg-emerald-500/20'}`}>
+                                        {isTextChatRun ? (
+                                            <FileText className="h-5 w-5 text-sky-500" />
+                                        ) : (
+                                            <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex shrink-0 items-center gap-2">
                                 <Link href={`/workflow/${params.workflowId}`}>
                                     <Button
                                         ref={customizeButtonRef}
                                         className="gap-2"
-                                        onClick={() => {
-                                            if (!hasSeenTooltip('customize_workflow')) {
-                                                markTooltipSeen('customize_workflow');
-                                            }
-                                        }}
                                     >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -722,12 +891,11 @@ export default function WorkflowRunPage() {
             {/* Onboarding Tooltip for Customize Workflow */}
             {showRunDetailsView && (
                 <OnboardingTooltip
+                    tooltipKey="customize_workflow"
                     title='Customize Your Workflow'
                     targetRef={customizeButtonRef}
                     message="Edit your workflow to adjust the voice agent's behavior, add new steps, or modify the conversation flow."
-                    onDismiss={() => markTooltipSeen('customize_workflow')}
                     showNext={false}
-                    isVisible={!hasSeenTooltip('customize_workflow')}
                 />
             )}
         </WorkflowLayout>

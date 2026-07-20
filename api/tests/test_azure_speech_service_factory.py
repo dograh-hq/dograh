@@ -170,6 +170,46 @@ def test_create_azure_realtime_blocks_private_endpoint_in_saas(monkeypatch):
     assert "public IP" in exc_info.value.detail
 
 
+def test_create_azure_realtime_uses_ga_websocket_url_by_default(monkeypatch):
+    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "oss")
+    user_config = SimpleNamespace(
+        realtime=SimpleNamespace(
+            provider=ServiceProviders.AZURE_REALTIME.value,
+            api_key="test-key",
+            endpoint="https://example.openai.azure.com",
+            model="my-realtime-deployment",
+            voice="alloy",
+        )
+    )
+
+    service = create_realtime_llm_service(user_config, _audio_config())
+
+    assert service.base_url == (
+        "wss://example.openai.azure.com/openai/v1/realtime?model=my-realtime-deployment"
+    )
+
+
+def test_create_azure_realtime_preserves_explicit_preview_websocket_url(monkeypatch):
+    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "oss")
+    user_config = SimpleNamespace(
+        realtime=SimpleNamespace(
+            provider=ServiceProviders.AZURE_REALTIME.value,
+            api_key="test-key",
+            endpoint="https://example.openai.azure.com",
+            api_version="2025-04-01-preview",
+            model="my-preview-deployment",
+            voice="alloy",
+        )
+    )
+
+    service = create_realtime_llm_service(user_config, _audio_config())
+
+    assert service.base_url == (
+        "wss://example.openai.azure.com/openai/realtime?"
+        "api-version=2025-04-01-preview&deployment=my-preview-deployment"
+    )
+
+
 def test_azure_embedding_service_rejects_wrong_dimension():
     service = AzureOpenAIEmbeddingService(
         db_client=SimpleNamespace(),

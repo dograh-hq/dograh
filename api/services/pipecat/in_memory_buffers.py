@@ -1,6 +1,7 @@
 import asyncio
-import tempfile
+import io
 import wave
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import List, Optional
 
@@ -15,7 +16,7 @@ from pipecat.utils.enums import RealtimeFeedbackType
 
 
 class InMemoryAudioBuffer:
-    """Buffer audio data in memory during a call, then write to temp file on disconnect."""
+    """Buffer audio data in memory during a call, then encode to WAV bytes on disconnect."""
 
     def __init__(self, workflow_run_id: int, sample_rate: int, num_channels: int = 1):
         self._workflow_run_id = workflow_run_id
@@ -41,28 +42,30 @@ class InMemoryAudioBuffer:
                 f"Appended {len(pcm_data)} bytes to audio buffer. Total size: {self._total_size}"
             )
 
-    async def write_to_temp_file(self) -> str:
-        """Write audio data to a temporary WAV file and return the path."""
+    async def to_wav_bytes(self) -> bytes:
+        """Encode the buffered PCM data as an in-memory WAV file."""
         async with self._lock:
-            temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            logger.debug(
-                f"Writing audio buffer to temp file {temp_file.name} for workflow {self._workflow_run_id}"
-            )
+            chunks = list(self._chunks)
 
-            # Write WAV header and PCM data
-            with wave.open(temp_file.name, "wb") as wf:
+        def _encode() -> bytes:
+            wav_io = io.BytesIO()
+            with wave.open(wav_io, "wb") as wf:
                 wf.setnchannels(self._num_channels)
                 wf.setsampwidth(2)  # 16-bit audio
                 wf.setframerate(self._sample_rate)
 
                 # Concatenate all chunks
-                for chunk in self._chunks:
+                for chunk in chunks:
                     wf.writeframes(chunk)
+            return wav_io.getvalue()
 
-            logger.info(
-                f"Successfully wrote {self._total_size} bytes of audio to {temp_file.name}"
-            )
-            return temp_file.name
+        # Encoding is mostly memcpy but can touch ~100MB; keep it off the event loop
+        data = await asyncio.to_thread(_encode)
+        logger.info(
+            f"Encoded {self._total_size} bytes of audio to {len(data)} WAV bytes "
+            f"for workflow {self._workflow_run_id}"
+        )
+        return data
 
     @property
     def is_empty(self) -> bool:
@@ -102,7 +105,7 @@ class InMemoryLogsBuffer:
     def __init__(self, workflow_run_id: int):
         self._workflow_run_id = workflow_run_id
         self._events: List[dict] = []
-        self._turn_counter = 0
+        self._current_turn: Optional[int] = None
         self._current_node_id: Optional[str] = None
         self._current_node_name: Optional[str] = None
 
@@ -121,36 +124,44 @@ class InMemoryLogsBuffer:
         """Get the current node name."""
         return self._current_node_name
 
-    async def append(self, event: dict):
-        """Append a feedback event to the buffer with timestamp and current node."""
+    def set_current_turn(self, turn: int) -> None:
+        """Set the fallback turn for non-transcript events."""
+        self._current_turn = turn
+
+    async def append(
+        self,
+        event: dict,
+        *,
+        timestamp: Optional[str] = None,
+        turn: Optional[int] = None,
+        node_id: Optional[str] = None,
+        node_name: Optional[str] = None,
+        use_current_node: bool = True,
+    ):
+        """Append an immutable event with optional correlation metadata."""
+        if use_current_node:
+            node_id = self._current_node_id if node_id is None else node_id
+            node_name = self._current_node_name if node_name is None else node_name
         timestamped_event = stamp_realtime_feedback_event(
-            event,
-            timestamp=datetime.now(UTC).isoformat(),
-            turn=self._turn_counter,
-            node_id=self._current_node_id,
-            node_name=self._current_node_name,
+            deepcopy(event),
+            timestamp=timestamp or datetime.now(UTC).isoformat(timespec="milliseconds"),
+            turn=self._current_turn if turn is None else turn,
+            node_id=node_id,
+            node_name=node_name,
         )
         self._events.append(timestamped_event)
         logger.trace(
             f"Appended event {event.get('type')} to logs buffer for workflow {self._workflow_run_id}"
         )
 
-    def increment_turn(self):
-        """Increment turn counter (called on user transcription completion)."""
-        self._turn_counter += 1
-        logger.trace(
-            f"Incremented turn counter to {self._turn_counter} for workflow {self._workflow_run_id}"
-        )
-
     def _sorted_events(self) -> List[dict]:
-        # Stable sort by the realtime (payload) timestamp when available, falling
-        # back to the buffer-append timestamp. Python's sort is stable, so events
-        # sharing a key retain their original insertion order — this keeps
-        # consecutive bot-text chunks of a single turn contiguous.
+        # Stable sort by the top-level event timestamp used by the persisted
+        # realtime feedback schema. Legacy events without one fall back to their
+        # payload timestamp. Events sharing a key retain insertion order.
         return sorted(self._events, key=realtime_feedback_event_sort_key)
 
     def get_events(self) -> List[dict]:
-        """Get all events for final storage, ordered by realtime timestamp."""
+        """Get all events for final storage, ordered by event timestamp."""
         return self._sorted_events()
 
     def contains_user_speech(self) -> bool:
@@ -164,34 +175,15 @@ class InMemoryLogsBuffer:
                 return True
         return False
 
-    def generate_transcript_text(self) -> str:
+    def generate_transcript_text(self, *, include_end_timestamps: bool = False) -> str:
         """Generate transcript text from logged events.
 
         Filters for rtf-user-transcription (final) and rtf-bot-text events,
         formats them as '[timestamp] user/assistant: text\\n'.
         """
-        return _generate_transcript_text(self._sorted_events())
-
-    def write_transcript_to_temp_file(self) -> Optional[str]:
-        """Write transcript to a temporary text file and return the path.
-
-        Returns None if there are no transcript events.
-        """
-        content = self.generate_transcript_text()
-        if not content:
-            return None
-
-        temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
-        logger.debug(
-            f"Writing transcript to temp file {temp_file.name} for workflow {self._workflow_run_id}"
+        return _generate_transcript_text(
+            self._sorted_events(), include_end_timestamps=include_end_timestamps
         )
-        temp_file.write(content)
-        temp_file.close()
-
-        logger.info(
-            f"Successfully wrote {len(content)} chars of transcript to {temp_file.name}"
-        )
-        return temp_file.name
 
     @property
     def is_empty(self) -> bool:

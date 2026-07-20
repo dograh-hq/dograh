@@ -1,0 +1,47 @@
+{{- if .Values.coturn.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dograh.coturn.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coturn
+  {{- with .Values.coturn.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.coturn.service.type }}
+  {{- if eq .Values.coturn.service.type "LoadBalancer" }}
+  externalTrafficPolicy: {{ .Values.coturn.service.externalTrafficPolicy }}
+  {{- end }}
+  ports:
+    - name: turn-udp
+      port: {{ .Values.coturn.ports.plain }}
+      targetPort: turn-udp
+      protocol: UDP
+    - name: turn-tcp
+      port: {{ .Values.coturn.ports.plain }}
+      targetPort: turn-tcp
+      protocol: TCP
+    - name: turns-udp
+      port: {{ .Values.coturn.ports.tls }}
+      targetPort: turns-udp
+      protocol: UDP
+    - name: turns-tcp
+      port: {{ .Values.coturn.ports.tls }}
+      targetPort: turns-tcp
+      protocol: TCP
+    # Relay range ports. AWS NLB has a default 50-listener cap; widening
+    # the range past that requires either a quota bump or multiple NLBs.
+    {{- range $port := untilStep (int .Values.coturn.relayPortRange.min) (int (add1 (int .Values.coturn.relayPortRange.max))) 1 }}
+    - name: relay-{{ $port }}
+      port: {{ $port }}
+      targetPort: {{ $port }}
+      protocol: UDP
+    {{- end }}
+  selector:
+    {{- include "dograh.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: coturn
+{{- end }}

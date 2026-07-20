@@ -117,24 +117,19 @@ async def run_pipeline_with_tool_calls(
         new_callable=AsyncMock,
         return_value=1,
     ):
-        with patch(
-            "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-            new_callable=AsyncMock,
-            return_value="completed",
-        ):
 
-            async def run_pipeline():
-                await run_pipeline_worker(task)
+        async def run_pipeline():
+            await run_pipeline_worker(task)
 
-            async def initialize_engine():
-                # Small delay to let runner start
-                await asyncio.sleep(0.01)
-                await engine.initialize()
-                await engine.set_node(engine.workflow.start_node_id)
-                await engine.llm.queue_frame(LLMContextFrame(engine.context))
+        async def initialize_engine():
+            # Small delay to let runner start
+            await asyncio.sleep(0.01)
+            await engine.initialize()
+            await engine.set_node(engine.workflow.start_node_id)
+            await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-            # Run both concurrently
-            await asyncio.gather(run_pipeline(), initialize_engine())
+        # Run both concurrently
+        await asyncio.gather(run_pipeline(), initialize_engine())
 
     return llm, context
 
@@ -187,6 +182,7 @@ class TestPipecatEngineToolCalls:
 
         # Assert that the context was updated with END_CALL_SYSTEM_PROMPT
         assert llm._settings.system_instruction == END_CALL_SYSTEM_PROMPT
+        assert llm._functions["end_call"].is_node_transition is True
 
     @pytest.mark.asyncio
     async def test_parallel_builtin_and_transition_calls_through_engine_1(

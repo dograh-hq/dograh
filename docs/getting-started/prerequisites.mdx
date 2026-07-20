@@ -86,11 +86,9 @@ REGISTRY=dograhai ./start_docker.sh
 ```
 ```powershell Windows
 # Using GitHub Container Registry (recommended)
-$env:REGISTRY = 'ghcr.io/dograh-hq'
-.\start_docker.ps1
+$env:REGISTRY = 'ghcr.io/dograh-hq'; .\start_docker.ps1
 
 # Using Docker Hub
-$env:REGISTRY = 'dograhai'
-.\start_docker.ps1
+$env:REGISTRY = 'dograhai'; .\start_docker.ps1
 ```
 </CodeGroup>

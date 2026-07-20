@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from loguru import logger
@@ -11,7 +12,11 @@ from sqlalchemy.orm import selectinload
 
 from api.constants import MPS_API_URL
 from api.db import db_client
-from api.db.models import WorkflowDefinitionModel, WorkflowModel
+from api.db.models import (
+    OrganizationConfigurationModel,
+    WorkflowDefinitionModel,
+    WorkflowModel,
+)
 from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
@@ -55,35 +60,36 @@ class WorkflowAIModelConfigurationMigrationResult:
 
 async def get_resolved_ai_model_configuration(
     *,
-    user_id: int | None,
     organization_id: int | None,
 ) -> ResolvedAIModelConfiguration:
-    organization_configuration = await get_organization_ai_model_configuration_v2(
-        organization_id
+    """Resolve the effective model configuration for an organization."""
+    organization_configuration_row = (
+        await _get_organization_ai_model_configuration_v2_row(organization_id)
+    )
+    organization_configuration = _parse_organization_ai_model_configuration_v2(
+        organization_configuration_row,
+        organization_id,
     )
     if organization_configuration is not None:
+        effective = compile_ai_model_configuration_v2(organization_configuration)
+        if organization_configuration_row is not None:
+            effective.last_validated_at = (
+                organization_configuration_row.last_validated_at
+            )
         return ResolvedAIModelConfiguration(
-            effective=compile_ai_model_configuration_v2(organization_configuration),
+            effective=effective,
             source="organization_v2",
             organization_configuration=organization_configuration,
         )
 
-    if user_id is None:
-        return ResolvedAIModelConfiguration(
-            effective=EffectiveAIModelConfiguration(),
-            source="empty",
-        )
-
-    legacy = await db_client.get_user_configurations(user_id)
     return ResolvedAIModelConfiguration(
-        effective=legacy,
-        source="legacy_user_v1" if _has_model_services(legacy) else "empty",
+        effective=EffectiveAIModelConfiguration(),
+        source="empty",
     )
 
 
 async def get_effective_ai_model_configuration_for_workflow(
     *,
-    user_id: int | None,
     organization_id: int | None,
     workflow_configurations: dict | None,
 ) -> EffectiveAIModelConfiguration:
@@ -97,7 +103,6 @@ async def get_effective_ai_model_configuration_for_workflow(
         )
 
     resolved_config = await get_resolved_ai_model_configuration(
-        user_id=user_id,
         organization_id=organization_id,
     )
     return resolve_effective_config(
@@ -109,12 +114,34 @@ async def get_effective_ai_model_configuration_for_workflow(
 async def get_organization_ai_model_configuration_v2(
     organization_id: int | None,
 ) -> OrganizationAIModelConfigurationV2 | None:
-    if organization_id is None:
-        return None
-    row = await db_client.get_configuration(
+    row = await _get_organization_ai_model_configuration_v2_row(organization_id)
+    return _parse_organization_ai_model_configuration_v2(row, organization_id)
+
+
+async def update_organization_ai_model_configuration_last_validated_at(
+    organization_id: int,
+) -> None:
+    await db_client.mark_configuration_validated(
         organization_id,
         OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
     )
+
+
+async def _get_organization_ai_model_configuration_v2_row(
+    organization_id: int | None,
+) -> OrganizationConfigurationModel | None:
+    if organization_id is None:
+        return None
+    return await db_client.get_configuration(
+        organization_id,
+        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+    )
+
+
+def _parse_organization_ai_model_configuration_v2(
+    row: OrganizationConfigurationModel | None,
+    organization_id: int | None,
+) -> OrganizationAIModelConfigurationV2 | None:
     if row is None or not row.value:
         return None
     try:
@@ -135,6 +162,7 @@ async def upsert_organization_ai_model_configuration_v2(
         organization_id,
         OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
         configuration.model_dump(mode="json", exclude_none=True),
+        last_validated_at=datetime.now(UTC),
     )
     return configuration
 
@@ -145,19 +173,12 @@ async def migrate_workflow_model_configurations_to_v2(
     fallback_user_config: EffectiveAIModelConfiguration,
 ) -> WorkflowAIModelConfigurationMigrationResult:
     workflows = await _list_workflows_for_model_configuration_migration(organization_id)
-    owner_configs: dict[int, EffectiveAIModelConfiguration] = {}
     workflow_updates: list[tuple[int, dict]] = []
     definition_updates: list[tuple[int, dict]] = []
     migrated_workflow_ids: set[int] = set()
 
     for workflow in workflows:
         base_config = fallback_user_config
-        if workflow.user_id is not None:
-            if workflow.user_id not in owner_configs:
-                owner_configs[
-                    workflow.user_id
-                ] = await db_client.get_user_configurations(workflow.user_id)
-            base_config = owner_configs[workflow.user_id]
 
         workflow_configs, workflow_changed = (
             migrate_workflow_configuration_model_override_to_v2(
@@ -316,6 +337,7 @@ def convert_legacy_ai_model_configuration_to_v2(
 
 
 def dograh_embeddings_base_url() -> str:
+    # AsyncOpenAI appends "/embeddings"; MPS exposes that under /api/v1/llm.
     return f"{MPS_API_URL}/api/v1/llm"
 
 
@@ -417,19 +439,6 @@ def _mask_secret_value(value):
     if isinstance(value, list):
         return [mask_key(item) for item in value]
     return mask_key(value)
-
-
-def _has_model_services(configuration: EffectiveAIModelConfiguration) -> bool:
-    return any(
-        service is not None
-        for service in (
-            configuration.llm,
-            configuration.tts,
-            configuration.stt,
-            configuration.embeddings,
-            configuration.realtime,
-        )
-    )
 
 
 def _convert_any_dograh_legacy_configuration(

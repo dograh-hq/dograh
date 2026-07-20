@@ -40,14 +40,14 @@ class WorkflowRunClient(BaseDBClient):
             workflow_query = (
                 select(WorkflowModel)
                 .options(joinedload(WorkflowModel.user))
-                .where(
-                    WorkflowModel.id == workflow_id, WorkflowModel.user_id == user_id
-                )
+                .where(WorkflowModel.id == workflow_id)
             )
             if organization_id is not None:
                 workflow_query = workflow_query.where(
                     WorkflowModel.organization_id == organization_id
                 )
+            elif user_id is not None:
+                workflow_query = workflow_query.where(WorkflowModel.user_id == user_id)
 
             workflow = await session.execute(workflow_query)
             workflow = workflow.scalars().first()
@@ -93,12 +93,17 @@ class WorkflowRunClient(BaseDBClient):
                 else workflow.template_context_variables
             )
 
+            merged_initial_context = {
+                **(default_context or {}),
+                **(initial_context or {}),
+            }
+
             new_run = WorkflowRunModel(
                 name=name,
                 workflow=workflow,
                 mode=mode,
                 definition_id=target_def.id if target_def else None,
-                initial_context=initial_context or default_context,
+                initial_context=merged_initial_context,
                 gathered_context=gathered_context or {},
                 logs=logs or {},
                 campaign_id=campaign_id,
@@ -433,10 +438,10 @@ class WorkflowRunClient(BaseDBClient):
             if not workflow_run:
                 return None, None
 
-            if not workflow_run.workflow or not workflow_run.workflow.user:
+            if not workflow_run.workflow:
                 return workflow_run, None
 
-            organization_id = workflow_run.workflow.user.selected_organization_id
+            organization_id = workflow_run.workflow.organization_id
             return workflow_run, organization_id
 
     async def ensure_public_access_token(self, workflow_run_id: int) -> Optional[str]:

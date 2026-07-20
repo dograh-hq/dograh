@@ -14,9 +14,16 @@ from api.services.configuration.options import (
     AZURE_SPEECH_STT_LANGUAGES,
     AZURE_SPEECH_TTS_LANGUAGES,
     AZURE_SPEECH_TTS_VOICES,
+    CARTESIA_INK_2_STT_LANGUAGES,
+    CARTESIA_INK_WHISPER_STT_LANGUAGES,
+    CARTESIA_STT_LANGUAGES,
+    CARTESIA_STT_MODELS,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
+    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
+    ELEVENLABS_STT_LANGUAGES,
+    ELEVENLABS_STT_MODELS,
     GLADIA_STT_LANGUAGES,
     GLADIA_STT_MODELS,
     GOOGLE_MODELS,
@@ -87,6 +94,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
     AZURE_REALTIME = "azure_realtime"
     SMALLEST = "smallest"
+    XAI = "xai"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -117,6 +125,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
         ServiceProviders.SMALLEST,
+        ServiceProviders.XAI,
     ]
     api_key: str | list[str]
 
@@ -251,6 +260,7 @@ GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
 DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
+XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
 INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Inworld",
     description=(
@@ -315,7 +325,6 @@ OPENROUTER_MODELS = [
     "openai/gpt-4.1-mini",
     "anthropic/claude-sonnet-4",
     "google/gemini-2.5-flash",
-    "google/gemini-2.0-flash",
     "meta-llama/llama-3.3-70b-instruct",
     "deepseek/deepseek-chat-v3-0324",
 ]
@@ -350,7 +359,7 @@ class GoogleLLMService(BaseLLMConfiguration):
     model_config = GOOGLE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-2.5-flash",
         description="Gemini model on Google AI Studio (not Vertex).",
         json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
     )
@@ -527,6 +536,7 @@ class HuggingFaceLLMConfiguration(BaseLLMConfiguration):
 MINIMAX_MODELS = [
     "MiniMax-M2.7",
     "MiniMax-M2.7-highspeed",
+    "MiniMax-M3",
 ]
 
 
@@ -611,7 +621,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 
 GROK_REALTIME_MODELS = ["grok-voice-think-fast-1.0"]
-GROK_REALTIME_VOICES = ["Ara", "Rex", "Sal", "Eve", "Leo"]
+GROK_REALTIME_VOICES = ["ara", "rex", "sal", "eve", "leo"]
 ULTRAVOX_REALTIME_MODELS = ["ultravox-v0.7", "fixie-ai/ultravox"]
 
 
@@ -628,7 +638,7 @@ class GrokRealtimeLLMConfiguration(BaseLLMConfiguration):
         },
     )
     voice: str = Field(
-        default="Ara",
+        default="ara",
         description="Voice the model speaks in.",
         json_schema_extra={
             "examples": GROK_REALTIME_VOICES,
@@ -746,7 +756,7 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
     model_config = AZURE_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE_REALTIME] = ServiceProviders.AZURE_REALTIME
     model: str = Field(
-        default="gpt-4o-realtime-preview",
+        default="gpt-realtime",
         description="Azure OpenAI realtime deployment name.",
         json_schema_extra={
             "examples": AZURE_REALTIME_MODELS,
@@ -765,8 +775,11 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
         },
     )
     api_version: str = Field(
-        default="2025-04-01-preview",
-        description="Azure OpenAI API version.",
+        default="v1",
+        description=(
+            "Azure OpenAI Realtime protocol version. Use 'v1' for the GA API; "
+            "date-based versions select the deprecated preview endpoint."
+        ),
         json_schema_extra={
             "examples": AZURE_REALTIME_API_VERSIONS,
         },
@@ -854,7 +867,10 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
     model: str = Field(
         default="eleven_flash_v2_5",
         description="ElevenLabs TTS model.",
-        json_schema_extra={"examples": ELEVENLABS_TTS_MODELS},
+        json_schema_extra={
+            "examples": ELEVENLABS_TTS_MODELS,
+            "allow_custom_input": True,
+        },
     )
     base_url: str = Field(
         default="https://api.elevenlabs.io",
@@ -1274,6 +1290,32 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
     )
 
 
+XAI_TTS_VOICES = ["eve", "ara", "leo", "rex", "sal"]
+
+
+@register_tts
+class XAITTSConfiguration(BaseServiceConfiguration):
+    model_config = XAI_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.XAI] = ServiceProviders.XAI
+    voice: str = Field(
+        default="eve",
+        description="xAI voice persona.",
+        json_schema_extra={"examples": XAI_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de'), or 'auto' for automatic language detection.",
+        json_schema_extra={"allow_custom_input": True},
+    )
+
+    @computed_field
+    @property
+    def model(self) -> str:
+        # xAI TTS has no separate model selector; the voice fully specifies the
+        # output. A constant keeps the shared `.model` contract satisfied.
+        return "xai-tts"
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1290,6 +1332,7 @@ TTSConfig = Annotated[
         MiniMaxTTSConfiguration,
         AzureSpeechTTSConfiguration,
         SmallestAITTSConfiguration,
+        XAITTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1323,9 +1366,6 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-CARTESIA_STT_MODELS = ["ink-whisper"]
-
-
 @register_stt
 class CartesiaSTTConfiguration(BaseSTTConfiguration):
     model_config = CARTESIA_PROVIDER_MODEL_CONFIG
@@ -1334,6 +1374,17 @@ class CartesiaSTTConfiguration(BaseSTTConfiguration):
         default="ink-whisper",
         description="Cartesia STT model.",
         json_schema_extra={"examples": CARTESIA_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code. ink-2 currently supports English only.",
+        json_schema_extra={
+            "examples": CARTESIA_STT_LANGUAGES,
+            "model_options": {
+                "ink-2": CARTESIA_INK_2_STT_LANGUAGES,
+                "ink-whisper": CARTESIA_INK_WHISPER_STT_LANGUAGES,
+            },
+        },
     )
 
 
@@ -1397,6 +1448,10 @@ class GoogleSTTConfiguration(BaseSTTConfiguration):
 # Dograh STT Service
 DOGRAH_STT_MODELS = ["default"]
 DOGRAH_STT_LANGUAGES = DEEPGRAM_LANGUAGES
+# Languages auto-detected when the Dograh STT language is "multi". Dograh STT runs
+# Deepgram Flux multilingual under the hood, which only auto-detects this subset —
+# not the full DOGRAH_STT_LANGUAGES list offered for explicit single-language selection.
+DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES = DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
 
 
 @register_stt
@@ -1626,6 +1681,39 @@ SMALLEST_STT_LANGUAGES = [
 
 
 @register_stt
+class ElevenlabsSTTConfiguration(BaseSTTConfiguration):
+    model_config = ELEVENLABS_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.ELEVENLABS] = ServiceProviders.ELEVENLABS
+    model: str = Field(
+        default="scribe_v2_realtime",
+        description="ElevenLabs realtime STT model.",
+        json_schema_extra={
+            "examples": ELEVENLABS_STT_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    language: str = Field(
+        default="en",
+        description=(
+            "ISO 639-1 language code for transcription. "
+            "Use 'auto' to let ElevenLabs detect the language."
+        ),
+        json_schema_extra={
+            "examples": ELEVENLABS_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://api.elevenlabs.io",
+        description=(
+            "ElevenLabs API base URL. Override to use a Data Residency endpoint "
+            "(e.g. https://api.eu.residency.elevenlabs.io) for GDPR / HIPAA / "
+            "regional compliance."
+        ),
+    )
+
+
+@register_stt
 class SmallestAISTTConfiguration(BaseSTTConfiguration):
     model_config = SMALLEST_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
@@ -1659,6 +1747,7 @@ STTConfig = Annotated[
         GladiaSTTConfiguration,
         AzureSpeechSTTConfiguration,
         SmallestAISTTConfiguration,
+        ElevenlabsSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1722,7 +1811,7 @@ class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
-DOGRAH_EMBEDDING_MODELS = ["default"]
+DOGRAH_EMBEDDING_MODELS = ["dograh_embedding_v1"]
 
 
 @register_embeddings
@@ -1730,7 +1819,7 @@ class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
-        default="default",
+        default="dograh_embedding_v1",
         description="Dograh-managed embedding model.",
         json_schema_extra={"examples": DOGRAH_EMBEDDING_MODELS},
     )

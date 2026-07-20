@@ -16,6 +16,7 @@ from api.services.workflow.node_specs._base import (
     NodeExample,
     NodeSpec,
     PropertyOption,
+    PropertyRendererOptions,
     PropertySpec,
     PropertyType,
 )
@@ -32,6 +33,7 @@ class NodeSpecMetadata:
     category: NodeCategory
     icon: str
     llm_hint: str | None = None
+    docs_url: str | None = None
     version: str = "1.0.0"
     examples: tuple[NodeExample, ...] = ()
     graph_constraints: GraphConstraints | None = None
@@ -50,7 +52,7 @@ def spec_field(
     display_options: DisplayOptions | None = None,
     options: list[PropertyOption] | None = None,
     editor: str | None = None,
-    extra: dict[str, Any] | None = None,
+    renderer_options: PropertyRendererOptions | None = None,
     spec_exclude: bool = False,
     min_value: float | None = None,
     max_value: float | None = None,
@@ -69,7 +71,7 @@ def spec_field(
         "display_options": display_options,
         "options": options,
         "editor": editor,
-        "extra": extra or {},
+        "renderer_options": renderer_options,
         "spec_exclude": spec_exclude,
         "min_value": min_value,
         "max_value": max_value,
@@ -90,6 +92,7 @@ def node_spec(
     category: NodeCategory,
     icon: str,
     llm_hint: str | None = None,
+    docs_url: str | None = None,
     version: str = "1.0.0",
     examples: list[NodeExample] | tuple[NodeExample, ...] = (),
     graph_constraints: GraphConstraints | None = None,
@@ -103,6 +106,7 @@ def node_spec(
         category=category,
         icon=icon,
         llm_hint=llm_hint,
+        docs_url=docs_url,
         version=version,
         examples=tuple(examples),
         graph_constraints=graph_constraints,
@@ -136,6 +140,7 @@ def build_spec(model_cls: type[BaseModel]) -> NodeSpec:
         display_name=metadata.display_name,
         description=metadata.description,
         llm_hint=metadata.llm_hint,
+        docs_url=metadata.docs_url,
         category=metadata.category,
         icon=metadata.icon,
         version=metadata.version,
@@ -206,7 +211,7 @@ def _build_property_spec(
         max_length=max_length,
         pattern=pattern,
         editor=meta.get("editor"),
-        extra=meta.get("extra") or {},
+        renderer_options=meta.get("renderer_options"),
     )
 
 

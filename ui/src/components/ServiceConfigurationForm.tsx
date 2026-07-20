@@ -227,7 +227,7 @@ export function ServiceConfigurationForm({
                     console.error("Failed to fetch configurations");
                     return;
                 }
-                defaultsData = response.data as ServiceConfigurationDefaults;
+                defaultsData = response.data as unknown as ServiceConfigurationDefaults;
             }
 
             const realtimeSchemas = (defaultsData.realtime || {}) as Record<string, ProviderSchema>;

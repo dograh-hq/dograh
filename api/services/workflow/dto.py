@@ -250,7 +250,6 @@ class _ToolDocumentRefsMixin(BaseModel):
             "description": (
                 "Text spoken via TTS at the start of the call. Supports "
                 "{{template_variables}}. Leave empty to skip the greeting. "
-                "Not supported with realtime (speech-to-speech) models."
             ),
             "display_options": DisplayOptions(show={"greeting_type": ["text"]}),
             "placeholder": "Hi {{first_name}}, this is Sarah from Acme.",

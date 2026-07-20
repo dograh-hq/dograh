@@ -14,14 +14,24 @@ from api.services.auth.stack_auth import stackauth
 from api.services.configuration.registry import ServiceProviders
 from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
 from api.services.posthog_client import (
+    POSTHOG_ORGANIZATION_GROUP_TYPE,
     capture_event,
     group_identify,
     set_person_properties,
 )
 from api.utils.auth import decode_jwt_token
 
-POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
-POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY = "uses_mps_billing_v2"
+
+async def require_local_auth() -> None:
+    """Reject email/password auth requests outside OSS (local) deployments.
+
+    The auth router stays mounted in every mode so the OpenAPI spec — and the
+    clients generated from it — don't vary with AUTH_PROVIDER; the gate has to
+    happen at request time. Without it, the SaaS deployment accepts
+    unauthenticated signups that mint oss_* users bypassing Stack Auth.
+    """
+    if AUTH_PROVIDER != "local":
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 async def get_user(
@@ -180,7 +190,6 @@ def _sync_created_organization_to_posthog(
     organization,
     stack_user: dict | None = None,
     created_by_provider_id: str | None = None,
-    uses_mps_billing_v2: bool | None = None,
 ) -> None:
     """Create/update the PostHog organization group for a newly-created org."""
     try:
@@ -196,10 +205,6 @@ def _sync_created_organization_to_posthog(
         }
         if created_by:
             properties["created_by_provider_id"] = created_by
-        if uses_mps_billing_v2 is not None:
-            properties[POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY] = (
-                uses_mps_billing_v2
-            )
 
         group_identify(
             POSTHOG_ORGANIZATION_GROUP_TYPE,
@@ -216,50 +221,6 @@ def _sync_created_organization_to_posthog(
             )
     except Exception:
         logger.exception("Failed to sync created organization to PostHog")
-
-
-def _sync_posthog_organization_group_properties(
-    *,
-    organization,
-    uses_mps_billing_v2: bool | None = None,
-) -> None:
-    """Update PostHog organization group properties without creating a person."""
-    try:
-        organization_id = int(organization.id)
-        properties = {
-            "organization_id": organization_id,
-            "organization_provider_id": getattr(organization, "provider_id", None),
-            "auth_provider": "stack",
-        }
-        if uses_mps_billing_v2 is not None:
-            properties[POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY] = (
-                uses_mps_billing_v2
-            )
-
-        group_identify(
-            POSTHOG_ORGANIZATION_GROUP_TYPE,
-            str(organization_id),
-            properties,
-        )
-    except Exception:
-        logger.exception("Failed to sync organization group properties to PostHog")
-
-
-def _sync_posthog_organization_mps_billing_v2_status(
-    organization_id: int,
-    *,
-    uses_mps_billing_v2: bool,
-) -> None:
-    """Update the PostHog organization group with current MPS billing status."""
-    try:
-        organization_id = int(organization_id)
-        group_identify(
-            POSTHOG_ORGANIZATION_GROUP_TYPE,
-            str(organization_id),
-            {POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY: uses_mps_billing_v2},
-        )
-    except Exception:
-        logger.exception("Failed to sync organization billing status to PostHog")
 
 
 def _associate_user_with_posthog_organization(
@@ -456,6 +417,11 @@ async def create_user_configuration_with_mps_key(
                         "provider": ServiceProviders.DOGRAH.value,
                         "api_key": [service_key],
                         "model": "default",
+                    },
+                    "embeddings": {
+                        "provider": ServiceProviders.DOGRAH.value,
+                        "api_key": [service_key],
+                        "model": "dograh_embedding_v1",
                     },
                 }
                 effective_config = EffectiveAIModelConfiguration(**configuration)

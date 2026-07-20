@@ -208,63 +208,58 @@ class TestTTSPauseWithAudioWriteFailure:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={},
             ):
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def initialize_and_end_call():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
+                async def initialize_and_end_call():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
 
-                        # Start LLM generation - this will trigger TTS
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    # Start LLM generation - this will trigger TTS
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                        # Sleep so that processing is paused in TTS Service
-                        await asyncio.sleep(0.1)
+                    # Sleep so that processing is paused in TTS Service
+                    await asyncio.sleep(0.1)
 
-                        await engine.end_call_with_reason(
-                            EndTaskReason.USER_HANGUP.value,
-                            abort_immediately=False,
-                        )
-
-                    # Create tasks explicitly for better control
-                    pipeline_task = asyncio.create_task(run_pipeline())
-                    end_call_task = asyncio.create_task(initialize_and_end_call())
-
-                    # Wait with timeout
-                    done, pending = await asyncio.wait(
-                        [pipeline_task, end_call_task],
-                        timeout=3.0,
-                        return_when=asyncio.ALL_COMPLETED,
+                    await engine.end_call_with_reason(
+                        EndTaskReason.USER_HANGUP.value,
+                        abort_immediately=False,
                     )
 
-                    # If there are pending tasks, we timed out
-                    if pending:
-                        test_timed_out = True
-                        # Cancel all pending tasks
-                        for t in pending:
-                            t.cancel()
+                # Create tasks explicitly for better control
+                pipeline_task = asyncio.create_task(run_pipeline())
+                end_call_task = asyncio.create_task(initialize_and_end_call())
 
-                        # Give limited time for cleanup
-                        try:
-                            await asyncio.wait_for(
-                                asyncio.gather(*pending, return_exceptions=True),
-                                timeout=1.0,
-                            )
-                        except asyncio.TimeoutError:
-                            pass  # Cleanup took too long, continue anyway
+                # Wait with timeout
+                done, pending = await asyncio.wait(
+                    [pipeline_task, end_call_task],
+                    timeout=3.0,
+                    return_when=asyncio.ALL_COMPLETED,
+                )
+
+                # If there are pending tasks, we timed out
+                if pending:
+                    test_timed_out = True
+                    # Cancel all pending tasks
+                    for t in pending:
+                        t.cancel()
+
+                    # Give limited time for cleanup
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(*pending, return_exceptions=True),
+                            timeout=1.0,
+                        )
+                    except asyncio.TimeoutError:
+                        pass  # Cleanup took too long, continue anyway
 
         # Verify audio write was attempted but failed
         output_transport = transport._output
@@ -327,62 +322,57 @@ class TestTTSPauseWithAudioWriteFailure:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={},
             ):
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def initialize_and_observe():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
+                async def initialize_and_observe():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
 
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                        # Sleep so that processing is paused in TTS Service
-                        await asyncio.sleep(0.1)
+                    # Sleep so that processing is paused in TTS Service
+                    await asyncio.sleep(0.1)
 
-                        await engine.end_call_with_reason(
-                            EndTaskReason.USER_HANGUP.value,
-                            abort_immediately=False,
-                        )
-
-                    # Create tasks explicitly for better control
-                    pipeline_task = asyncio.create_task(run_pipeline())
-                    end_call_task = asyncio.create_task(initialize_and_observe())
-
-                    # Wait with timeout
-                    done, pending = await asyncio.wait(
-                        [pipeline_task, end_call_task],
-                        timeout=3.0,
-                        return_when=asyncio.ALL_COMPLETED,
+                    await engine.end_call_with_reason(
+                        EndTaskReason.USER_HANGUP.value,
+                        abort_immediately=False,
                     )
 
-                    # If there are pending tasks, we timed out
-                    if pending:
-                        test_timed_out = True
-                        # Cancel all pending tasks
-                        for t in pending:
-                            t.cancel()
+                # Create tasks explicitly for better control
+                pipeline_task = asyncio.create_task(run_pipeline())
+                end_call_task = asyncio.create_task(initialize_and_observe())
 
-                        # Give limited time for cleanup
-                        try:
-                            await asyncio.wait_for(
-                                asyncio.gather(*pending, return_exceptions=True),
-                                timeout=1.0,
-                            )
-                        except asyncio.TimeoutError:
-                            pass  # Cleanup took too long, continue anyway
+                # Wait with timeout
+                done, pending = await asyncio.wait(
+                    [pipeline_task, end_call_task],
+                    timeout=3.0,
+                    return_when=asyncio.ALL_COMPLETED,
+                )
+
+                # If there are pending tasks, we timed out
+                if pending:
+                    test_timed_out = True
+                    # Cancel all pending tasks
+                    for t in pending:
+                        t.cancel()
+
+                    # Give limited time for cleanup
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(*pending, return_exceptions=True),
+                            timeout=1.0,
+                        )
+                    except asyncio.TimeoutError:
+                        pass  # Cleanup took too long, continue anyway
 
         # Verify some frames were written successfully before failure
         output_transport = transport._output

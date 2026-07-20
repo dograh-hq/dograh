@@ -1,5 +1,6 @@
 "use client";
 
+import Cal from "@calcom/embed-react";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -50,6 +51,8 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
   const [volume, setVolume] = useState("");
   const [captchaActive, setCaptchaActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Cal.com booking link from the server's response (the server decides; the app only renders).
+  const [calLink, setCalLink] = useState<string | null>(null);
 
   // Prefill the email from the logged-in user when the modal opens (don't clobber edits).
   useEffect(() => {
@@ -59,6 +62,7 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
   const reset = () => {
     setName(""); setCompany(""); setEmail(""); setJobTitle(""); setAgentGoal("");
     setPhone(""); setVolume(""); setCaptchaActive(false); setSubmitting(false);
+    setCalLink(null);
   };
 
   // Required fields, independent of the anti-spam check (which is revealed only
@@ -88,20 +92,51 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
     setCaptchaActive(false);
     setSubmitting(true);
     try {
-      await submitLead({
+      const result = await submitLead({
         kind: "hire_expert",
         source,
         origin,
         payload: { name, company, email, jobTitle, agentGoal, phone, volume },
       });
-      toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
-      reset();
-      onOpenChange(false);
+      // The server decides whether to return a booking link; if it does, show the calendar
+      // inline, else the email note. The app only reads the response — no logic of its own.
+      if (result?.show_calendar && result.cal_link) {
+        setSubmitting(false);
+        setCalLink(result.cal_link);
+      } else {
+        toast.success("Check your inbox - we just emailed you the next steps (give it a minute).");
+        reset();
+        onOpenChange(false);
+      }
     } catch {
       toast.error("Something went wrong. Please try again.");
       setSubmitting(false);
     }
   };
+
+  // Booking state: the server returned a booking link — show the inline calendar in the modal.
+  if (calLink) {
+    return (
+      <LeadModalShell
+        open={open}
+        onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}
+        icon={Sparkles}
+        eyebrow="Done-for-you"
+        title="Grab a time with our team"
+        description="Pick a time that works for you."
+        primary={{ label: "Done", onClick: () => { reset(); onOpenChange(false); } }}
+      >
+        {/* Compact, zoomed-out calendar: render it larger, scale to 0.8, and clip the layout box left behind. */}
+        <div className="overflow-hidden" style={{ height: "440px" }}>
+          <Cal
+            calLink={calLink}
+            config={{ layout: "month_view", name, email }}
+            style={{ width: "113.64%", height: "500px", overflow: "auto", transform: "scale(0.88)", transformOrigin: "top left" }}
+          />
+        </div>
+      </LeadModalShell>
+    );
+  }
 
   return (
     <LeadModalShell

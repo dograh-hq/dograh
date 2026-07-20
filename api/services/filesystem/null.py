@@ -1,6 +1,6 @@
-from typing import Any, BinaryIO, Dict, NoReturn, Optional
+from typing import Any, Dict, NoReturn, Optional
 
-from .base import BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem
 
 
 class NullFileSystem(BaseFileSystem):
@@ -16,7 +16,7 @@ class NullFileSystem(BaseFileSystem):
             "Set ENVIRONMENT to a non-test value or inject a real filesystem fixture."
         )
 
-    async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
+    async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         self._fail("acreate_file")
 
     async def aupload_file(self, local_path: str, destination_path: str) -> bool:

@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -15,9 +15,11 @@ from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
     check_for_masked_keys_in_ai_model_configuration_v2,
     convert_legacy_ai_model_configuration_to_v2,
+    get_resolved_ai_model_configuration,
     mask_ai_model_configuration_v2,
     merge_ai_model_configuration_v2_secrets,
     migrate_workflow_configuration_model_override_to_v2,
+    upsert_organization_ai_model_configuration_v2,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import mask_key
@@ -55,7 +57,7 @@ def test_dograh_v2_compiles_to_effective_managed_pipeline_with_embeddings():
     assert effective.stt.provider == "dograh"
     assert effective.stt.language == "multi"
     assert effective.embeddings.provider == "dograh"
-    assert effective.embeddings.model == "default"
+    assert effective.embeddings.model == "dograh_embedding_v1"
     assert effective.managed_service_version == 2
 
 
@@ -132,7 +134,7 @@ async def test_byok_realtime_validator_does_not_require_stt_or_tts():
                     "llm": {
                         "provider": "google",
                         "api_key": "google-llm-key",
-                        "model": "gemini-2.0-flash",
+                        "model": "gemini-2.5-flash",
                     },
                 },
             },
@@ -149,12 +151,89 @@ async def test_byok_realtime_validator_does_not_require_stt_or_tts():
 
 
 @pytest.mark.asyncio
+async def test_resolved_org_v2_uses_last_validated_at_as_validation_cache(
+    monkeypatch,
+):
+    from datetime import UTC, datetime
+
+    from api.services.configuration import ai_model_configuration
+
+    last_validated_at = datetime.now(UTC)
+    config = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key="mps-secret"),
+    )
+    row = SimpleNamespace(
+        value=config.model_dump(mode="json", exclude_none=True),
+        last_validated_at=last_validated_at,
+    )
+    monkeypatch.setattr(
+        ai_model_configuration.db_client,
+        "get_configuration",
+        AsyncMock(return_value=row),
+    )
+
+    resolved = await get_resolved_ai_model_configuration(organization_id=42)
+
+    assert resolved.source == "organization_v2"
+    assert resolved.effective.last_validated_at == last_validated_at
+
+
+@pytest.mark.asyncio
+async def test_upsert_org_v2_marks_configuration_validated(monkeypatch):
+    from api.services.configuration import ai_model_configuration
+
+    config = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key="mps-secret"),
+    )
+    upsert = AsyncMock()
+    monkeypatch.setattr(
+        ai_model_configuration.db_client,
+        "upsert_configuration",
+        upsert,
+    )
+
+    result = await upsert_organization_ai_model_configuration_v2(42, config)
+
+    assert result is config
+    upsert.assert_awaited_once()
+    args = upsert.await_args.args
+    kwargs = upsert.await_args.kwargs
+    assert args == (
+        42,
+        "MODEL_CONFIGURATION_V2",
+        config.model_dump(mode="json", exclude_none=True),
+    )
+    assert kwargs["last_validated_at"].tzinfo is not None
+
+
+def test_org_config_validation_timestamp_update_does_not_touch_updated_at():
+    from datetime import UTC, datetime
+
+    from sqlalchemy import update
+    from sqlalchemy.dialects import postgresql
+
+    from api.db.models import OrganizationConfigurationModel
+
+    stmt = (
+        update(OrganizationConfigurationModel)
+        .where(OrganizationConfigurationModel.id == 1)
+        .values(last_validated_at=datetime.now(UTC))
+    )
+
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "last_validated_at" in compiled
+    assert "updated_at" not in compiled
+
+
+@pytest.mark.asyncio
 async def test_pipeline_validator_requires_stt_and_tts_when_not_realtime():
     effective = EffectiveAIModelConfiguration(
         llm=GoogleLLMService(
             provider="google",
             api_key="google-llm-key",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
         ),
         realtime=GoogleRealtimeLLMConfiguration(
             provider="google_realtime",
@@ -442,7 +521,6 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
     ensure_billing = AsyncMock(return_value={"billing_mode": "v2"})
     upsert = AsyncMock()
     migrate_workflows = AsyncMock()
-    sync_posthog_billing = Mock()
 
     monkeypatch.setattr(organization_routes, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
@@ -480,11 +558,6 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
         "_model_configuration_v2_response",
         AsyncMock(return_value=expected_response),
     )
-    monkeypatch.setattr(
-        organization_routes,
-        "_sync_posthog_organization_mps_billing_v2_status",
-        sync_posthog_billing,
-    )
 
     user = SimpleNamespace(
         id=7,
@@ -503,5 +576,4 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
         organization_id=42,
         fallback_user_config=legacy,
     )
-    sync_posthog_billing.assert_called_once_with(42, uses_mps_billing_v2=True)
     assert response == expected_response

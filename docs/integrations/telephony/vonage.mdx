@@ -15,6 +15,7 @@ Before setting up Vonage integration, you'll need:
 - Vonage Application with Voice capability enabled
 - Application ID and Private Key from your Vonage Dashboard
 - API Key and API Secret from your Vonage Dashboard
+- Signature Secret from your Vonage Dashboard
 - At least one Vonage phone number linked to the application
 - Dograh AI instance running and accessible
 
@@ -31,9 +32,11 @@ Before setting up Vonage integration, you'll need:
 ### Step 2: Get API Credentials
 
 1. Find your **API Key** and **API Secret** in the dashboard under **API Settings**
-2. Navigate to **Numbers** → **Your Numbers**
-3. Copy your phone number(s)
-4. Link your numbers to your application
+2. Copy your **Signature Secret** from the same Vonage account. Dograh uses it
+   to verify [Vonage signed webhooks](https://developer.vonage.com/en/getting-started/concepts/webhooks).
+3. Navigate to **Numbers** → **Your Numbers**
+4. Copy your phone number(s)
+5. Link each inbound number to your Voice application
 
 ### Step 3: Configure in Dograh AI
 
@@ -44,6 +47,7 @@ Before setting up Vonage integration, you'll need:
    - Private Key (entire key including BEGIN/END lines)
    - API Key
    - API Secret
+   - Signature Secret
 4. Click **Save Configuration**
 5. Open the configuration you just created and add at least one **phone number** (without `+` prefix, e.g. `14155551234`). The default caller ID is used for outbound calls.
 
@@ -55,12 +59,24 @@ Before setting up Vonage integration, you'll need:
 
 ## Inbound Calling Setup
 
-Vonage configures inbound webhooks at the **application level**, not per phone number. A single **Answer URL** on the Vonage application applies to every number linked to it. Dograh routes the call to the right agent based on the called number's inbound workflow assignment inside Dograh. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Vonage Application's Answer URL** (provided the credentials are correct).
+Vonage routes inbound Voice API calls through a Voice application. The application owns the Answer URL and Event URL, and the phone number must be linked to that application. Dograh routes the call to the right agent based on the called number's inbound workflow assignment inside Dograh.
+
+When you save an inbound workflow on a phone number, Dograh updates the configured Vonage application's Voice webhooks and enables signed callbacks, provided the API Key, API Secret, and Application ID are correct and a Signature Secret is configured.
+
+<Warning>
+  Linking the phone number to the Voice application is required. If the number
+  is not linked, Vonage will not call Dograh's Answer URL, and you may hear a
+  busy or disconnected tone without seeing any Dograh application logs.
+</Warning>
 
 ### Step 1: Link Phone Numbers to Your Vonage Application
 
 1. Open the [Vonage Dashboard](https://dashboard.nexmo.com/)
-2. Under **Numbers** → **Your Numbers**, link each number you want to use for inbound to the same Vonage Application whose ID you configured in Dograh
+2. Go to **Numbers** → **Your Numbers**
+3. Open each number you want to use for inbound calls
+4. Set the number's Voice application to the same Vonage Application whose ID you configured in Dograh
+
+Vonage's Numbers API describes this as the number's `app_id`: the application that handles inbound traffic to that number. See the [Numbers API reference](https://developer.vonage.com/en/api/numbers).
 
 ### Step 2: Assign an Inbound Workflow to the Phone Number in Dograh
 
@@ -73,23 +89,26 @@ Vonage configures inbound webhooks at the **application level**, not per phone n
 
 1. Open your Vonage Application in the [Vonage Dashboard](https://dashboard.nexmo.com/)
 2. Under **Capabilities** → **Voice**, confirm:
-   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **Answer URL** is set to: `https://<your-backend-domain>/api/v1/telephony/inbound/run`
    - **HTTP Method** is `POST`
+   - **Event URL** is set to: `https://<your-backend-domain>/api/v1/telephony/vonage/events`
+   - **Event Method** is `POST`
+   - **Signed callbacks** are enabled
 
    <Note>
-     Dograh pushed this URL automatically when you saved the inbound workflow
-     in Step 2. If the field is empty, shows a different URL, or Dograh
-     surfaced a sync warning on save, the auto-push failed — most often
-     because the API Key/Secret or Application ID in Dograh is incorrect.
-     Paste the URL into the field yourself, set the method to `POST`, and
-     save the application. On self-hosted Dograh, replace `api.dograh.com`
-     with your backend domain.
+     Dograh pushes these settings automatically when you save the inbound
+     workflow in Step 2. If the fields are empty, show a different URL, or
+     Dograh surfaced a sync warning on save, check the API Key, API Secret,
+     Application ID, and Signature Secret in Dograh, then save the inbound
+     workflow again. On self-hosted Dograh, the backend domain must be publicly
+     reachable by Vonage.
    </Note>
 
 ### Step 4: Verify Setup
 
 - Ensure your Dograh AI instance is publicly accessible
-- Verify any firewalls allow Vonage's IP ranges
+- Verify your public backend URL is reachable from the internet
+- Use the [Vonage logs](https://dashboard.nexmo.com/logs) or Voice Inspector to confirm Vonage is sending the Answer webhook to Dograh
 
 ### Test Inbound Calling
 
@@ -119,10 +138,17 @@ Vonage uses higher quality audio (16kHz) which provides:
     - Check the Application ID is correct
     - Ensure the private key hasn't been regenerated in Vonage Dashboard
   </Accordion>
+
+  <Accordion title="Signed webhook validation failed">
+    - Verify the Signature Secret in Dograh matches the Vonage account's signature secret
+    - Ensure signed callbacks are enabled on the Vonage Voice application
+    - Check that the webhook request includes an `Authorization` header
+    - Confirm the application belongs to the same API Key saved in Dograh
+  </Accordion>
   
   <Accordion title="Invalid phone number error">
     - Remove the '+' prefix for Vonage (use `14155551234` not `+14155551234`)
-    - Ensure numbers are in E.164 format without the '+'
+    - Ensure numbers are in [E.164](https://en.wikipedia.org/wiki/E.164) format (country code + number, no spaces or dashes) without the '+'
     - Verify numbers are active in your Vonage account
   </Accordion>
   
@@ -130,7 +156,7 @@ Vonage uses higher quality audio (16kHz) which provides:
     - Verify WebSocket connection is established
     - Check audio pipeline is configured for 16kHz PCM
     - Monitor WebSocket for binary audio frames
-    - Review VAD (Voice Activity Detection) settings
+    - Review [VAD (Voice Activity Detection)](/configurations/interruption#what-is-vad) behavior — this is what detects when the caller starts and stops speaking
   </Accordion>
   
   <Accordion title="Calls disconnecting early">
@@ -141,10 +167,17 @@ Vonage uses higher quality audio (16kHz) which provides:
   </Accordion>
   
   <Accordion title="Inbound calls not reaching voice agent">
-    - Verify the Vonage application's Answer URL is set to `https://api.dograh.com/api/v1/telephony/inbound/run`
+    - Verify the Vonage application's Answer URL is set to `https://<your-backend-domain>/api/v1/telephony/inbound/run`
     - Ensure the Answer URL is publicly accessible
     - Confirm the called number is linked to the correct Vonage application
     - Confirm the called number exists in your Dograh telephony configuration and has an **Inbound workflow** assigned
+  </Accordion>
+
+  <Accordion title="Inbound call gives busy tone and Dograh shows no logs">
+    - Confirm the Vonage number is linked to the Voice application configured in Dograh
+    - Confirm the Voice application has the Dograh Answer URL set with method `POST`
+    - Confirm your backend domain is public; Vonage cannot call `localhost`
+    - Check Vonage logs for Answer URL delivery errors before debugging Dograh
   </Accordion>
   
   <Accordion title="Voice agent doesn't respond to inbound calls">
@@ -158,6 +191,7 @@ Vonage uses higher quality audio (16kHz) which provides:
 ## Best Practices
 
 - **Security**: Private keys are stored securely in the database
+- **Signed callbacks**: Keep Vonage signed callbacks enabled and keep the Signature Secret in Dograh up to date
 - **Testing**: Use Vonage Voice Inspector for debugging call issues
 - **Numbers**: Configure multiple numbers for redundancy
 - **Monitoring**: Set up alerts in Vonage Dashboard for failures
@@ -175,6 +209,6 @@ Check [Vonage pricing](https://www.vonage.com/communications-apis/voice/pricing/
 ## Next Steps
 
 - Test your Vonage integration with a simple workflow
-- Configure VAD settings for optimal voice detection
+- Review [VAD and interruption behavior](/configurations/interruption) for your workflow's nodes
 - Set up monitoring and alerts
 - Explore advanced features like call recording

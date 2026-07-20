@@ -1,0 +1,72 @@
+---
+title: "Trigger Calls using API"
+description: "Kick off a call the moment a lead lands in your CRM or spreadsheet, no manual dialing."
+---
+
+If your team is manually dialing leads one by one, or your CRM needs to kick off a call the moment a lead comes in, this is how you automate that with Dograh.
+
+Say you've got leads or accounts sitting in a CRM or a Google Sheet. Each row has details like customer name, company name, amount due. The **API Trigger** node lets you take that row of data and turn it into a personalized call, automatically.
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/P9zWbO78oSg"
+  title="How to Trigger Voice AI Calls from Your CRM (API Trigger)"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+## Step 1: Add the node
+
+Click **Add node** and add an **API Trigger** node, the topmost option in the list. This node starts the call and passes your data into the agent as `initial_context`.
+
+That's the part that matters: instead of the agent asking basic setup questions on the call, like "what's your name" or "how much do you owe", it already knows. In this demo, the opening node greets the caller with `{{debtor_name}}`, and the next node references `{{client_name}}` and `{{debt_amount}}`. None of that is hardcoded into the agent. It all comes from the API call.
+
+<Tip>
+Every node has a docs link in the top right corner. If you get stuck or want to go deeper on any node type, open the docs straight from there.
+</Tip>
+
+## Step 2: Check the prerequisites
+
+Before you trigger anything:
+
+1. [Connect with Telephony](/getting-started/connect-telephony) for outbound calls.
+2. Go to the developer portal and generate an API key. You'll need it in the request header.
+
+## Step 3: Find your trigger URL
+
+Open the API Trigger node. You'll see two URLs:
+
+- **Test URL** runs your latest draft.
+- **Production URL** runs your published agent.
+
+If you change the agent and want the production URL to reflect it, publish first, otherwise production keeps running the older version. While you're still testing, use the test URL.
+
+## Step 4: Send the request
+
+Trigger the call from Postman, or wherever your backend lives. In the body, send `phone_number` and `initial_context`:
+
+```bash
+curl -X POST https://api.dograh.com/api/v1/public/agent/test/{uuid} \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dg_your_api_key" \
+  -d '{
+    "phone_number": "+14155550100",
+    "initial_context": {
+      "debtor_name": "Rushil",
+      "client_name": "Quick Credit",
+      "debt_amount": "3500"
+    }
+  }'
+```
+
+The body can come from your CRM, a Google Sheet, or your own backend, wherever that row of data lives.
+
+## What you get
+
+Send the request, and the call goes out immediately. Because the agent already had the context before the call started, the conversation is short and specific from the first line: *"Hi, this is Alex from Apex Recovery Solutions. Am I speaking with Rushil? I'm calling about your Quick Credit account with an outstanding balance of $3,500."* No setup questions, straight to the point.
+
+## Next Steps
+
+- **Get that data back automatically**: the next step is [Sync Data using Webhook](/getting-started/send-call-data-with-webhooks), which takes whatever the agent learns on the call and sends it back to your system the moment it ends.
+- **No phone number connected yet?** See [Connect with Telephony](/getting-started/connect-telephony) first, outbound calls need a telephony provider attached.
+- **Full endpoint reference**: error codes, response shape, and choosing a specific telephony configuration are in [API Trigger](/voice-agent/api-trigger).

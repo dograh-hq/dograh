@@ -307,12 +307,15 @@ Write-Host ''
 if ($UseCoturn) {
     Write-Warn 'To start Dograh with TURN, run:'
     Write-Host ''
-    Write-Host '  docker compose --profile local-turn up --pull always' -ForegroundColor Blue
+    Write-Host '  docker compose --profile local-turn --profile tunnel up --pull always' -ForegroundColor Blue
 } else {
     Write-Warn 'To start Dograh, run:'
     Write-Host ''
-    Write-Host '  docker compose up --pull always' -ForegroundColor Blue
+    Write-Host '  docker compose --profile tunnel up --pull always' -ForegroundColor Blue
 }
+Write-Host ''
+Write-Host 'This starts a Cloudflare quick tunnel so inbound telephony webhooks can' -ForegroundColor Yellow
+Write-Host 'reach your local API over a temporary public URL.' -ForegroundColor Yellow
 Write-Host ''
 Write-Warn 'Your application will be available at:'
 Write-Host ''

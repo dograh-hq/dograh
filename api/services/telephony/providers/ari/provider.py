@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.db import db_client
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -99,7 +99,6 @@ class ARIProvider(TelephonyProvider):
                     [
                         f"workflow_run_id={workflow_run_id}",
                         f"workflow_id={kwargs.get('workflow_id', '')}",
-                        f"user_id={kwargs.get('user_id', '')}",
                     ],
                 )
             ),
@@ -179,7 +178,7 @@ class ARIProvider(TelephonyProvider):
         return True
 
     async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
+        self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         """ARI does not use webhook responses - call control is via REST API."""
         logger.warning(
@@ -205,12 +204,12 @@ class ARIProvider(TelephonyProvider):
         """
         # Map ARI channel states to common status format
         state_map = {
-            "Up": "answered",
-            "Down": "completed",
-            "Ringing": "ringing",
-            "Ring": "ringing",
-            "Busy": "busy",
-            "Unavailable": "failed",
+            "Up": TelephonyCallStatus.ANSWERED,
+            "Down": TelephonyCallStatus.COMPLETED,
+            "Ringing": TelephonyCallStatus.RINGING,
+            "Ring": TelephonyCallStatus.RINGING,
+            "Busy": TelephonyCallStatus.BUSY,
+            "Unavailable": TelephonyCallStatus.FAILED,
         }
 
         channel_state = data.get("channel", {}).get("state", "")
@@ -218,11 +217,11 @@ class ARIProvider(TelephonyProvider):
 
         # Determine status from event type
         if event_type == "StasisStart":
-            status = "answered"
+            status = TelephonyCallStatus.ANSWERED
         elif event_type == "StasisEnd":
-            status = "completed"
+            status = TelephonyCallStatus.COMPLETED
         elif event_type == "ChannelDestroyed":
-            status = "completed"
+            status = TelephonyCallStatus.COMPLETED
         else:
             status = state_map.get(channel_state, channel_state.lower())
 
@@ -241,7 +240,7 @@ class ARIProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         workflow_id: int,
-        user_id: int,
+        organization_id: int,
         workflow_run_id: int,
     ) -> None:
         """
@@ -253,7 +252,9 @@ class ARIProvider(TelephonyProvider):
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         # Get channel_id from workflow run context
-        workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+        workflow_run = await db_client.get_workflow_run(
+            workflow_run_id, organization_id=organization_id
+        )
         channel_id = ""
         if workflow_run and workflow_run.gathered_context:
             channel_id = workflow_run.gathered_context.get("call_id", "")
@@ -267,7 +268,7 @@ class ARIProvider(TelephonyProvider):
             provider_name=self.PROVIDER_NAME,
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
-            user_id=user_id,
+            organization_id=organization_id,
             call_id=channel_id,
             transport_kwargs={"channel_id": channel_id},
         )

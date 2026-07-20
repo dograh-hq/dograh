@@ -28,6 +28,16 @@
             ]
           },
           {
+            "group": "Build your First Agent",
+            "pages": [
+                  "getting-started/first-agent",
+                  "getting-started/trigger-calls-from-your-backend",
+                  "getting-started/send-call-data-with-webhooks",
+                  "getting-started/connect-telephony",
+                  "getting-started/add-tools-and-knowledge-base"
+            ]
+          },
+          {
             "group": "Core Concepts",
             "pages": [
               "core-concepts/how-dograh-works",
@@ -116,7 +126,8 @@
             "tag": "NEW",
             "pages": [
               "integrations/mcp",
-              "integrations/tuner"
+              "integrations/tuner",
+              "integrations/paygent"
             ]
           }
         ]
@@ -128,11 +139,8 @@
           {
             "group": "Contribution",
             "pages": [
-              "contribution/introduction",
               "contribution/setup",
-              "contribution/devcontainer",
-              "contribution/host-managed-setup",
-              "contribution/fork-workflow"
+              "contribution/reference"
             ]
           },
           {
@@ -317,5 +325,23 @@
   },
   "api": {
     "openapi": "api-reference/openapi.json"
-  }
+  },
+  "redirects": [
+    {
+      "source": "/contribution/introduction",
+      "destination": "/contribution/setup"
+    },
+    {
+      "source": "/contribution/devcontainer",
+      "destination": "/contribution/reference"
+    },
+    {
+      "source": "/contribution/host-managed-setup",
+      "destination": "/contribution/reference"
+    },
+    {
+      "source": "/contribution/fork-workflow",
+      "destination": "/contribution/reference"
+    }
+  ]
 }

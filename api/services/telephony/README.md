@@ -77,7 +77,7 @@ class TelephonyProvider(ABC):
     async def verify_webhook_signature(self, url: str, params: Dict[str, Any], signature: str) -> bool
     
     @abstractmethod
-    async def get_webhook_response(self, workflow_id: int, user_id: int, workflow_run_id: int) -> str
+    async def get_webhook_response(self, workflow_id: int, organization_id: int, workflow_run_id: int) -> str
 ```
 
 ## Configuration Loading

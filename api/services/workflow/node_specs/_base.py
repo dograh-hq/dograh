@@ -133,6 +133,42 @@ class PropertyOption(BaseModel):
         return out
 
 
+class PropertyLayoutOptions(BaseModel):
+    """Renderer layout hints for a property in the node editor."""
+
+    column_span: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=12,
+        description="Number of columns to occupy in the editor's 12-column grid.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class NumberInputOptions(BaseModel):
+    """Renderer hints for numeric inputs."""
+
+    fractional: bool = Field(
+        default=False,
+        description="Allow arbitrary fractional values via step='any'.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PropertyRendererOptions(BaseModel):
+    """Typed renderer metadata for node properties.
+
+    Add new renderer behavior here instead of using free-form property metadata.
+    """
+
+    layout: Optional[PropertyLayoutOptions] = None
+    number_input: Optional[NumberInputOptions] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PropertySpec(BaseModel):
     """Single field on a node.
 
@@ -180,8 +216,9 @@ class PropertySpec(BaseModel):
     # Renderer hint, e.g. "textarea" vs single-line for `string`.
     editor: Optional[str] = None
 
-    # Free-form metadata for renderer-specific behavior. Use sparingly.
-    extra: dict[str, Any] = Field(default_factory=dict)
+    # Typed metadata for renderer-specific behavior. Extend
+    # `PropertyRendererOptions` when the renderer needs a new hint.
+    renderer_options: Optional[PropertyRendererOptions] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -192,7 +229,7 @@ class PropertySpec(BaseModel):
         description, llm_hint, requiredness, default, enum options, nested
         row properties, and validation bounds. UI-rendering concerns
         (`display_name`, `placeholder`, `display_options`, `editor`,
-        `extra`) and null/empty fields are omitted — they're noise in the
+        `renderer_options`) and null/empty fields are omitted — they're noise in the
         model's context and never appear in authored SDK code.
         """
         out: dict[str, Any] = {
@@ -263,6 +300,10 @@ class NodeSpec(BaseModel):
         default=None,
         description="LLM-only guidance; omitted from the UI.",
     )
+    docs_url: Optional[str] = Field(
+        default=None,
+        description="Documentation URL shown in the node editor.",
+    )
     category: NodeCategory
     icon: str  # lucide-react icon name (e.g., "Play")
     version: str = "1.0.0"
@@ -275,8 +316,8 @@ class NodeSpec(BaseModel):
     def to_mcp_dict(self) -> dict[str, Any]:
         """Lean projection of this spec for the `get_node_type` MCP tool.
 
-        Drops node-level UI metadata (`display_name`, `category`, `icon`,
-        `version`) and the per-property rendering concerns trimmed by
+        Drops node-level UI metadata (`display_name`, `docs_url`, `category`,
+        `icon`, `version`) and the per-property rendering concerns trimmed by
         `PropertySpec.to_mcp_dict`, leaving just the authoring-relevant
         schema the LLM consumes when composing a workflow. The full spec is
         still served verbatim to the frontend renderer (REST `node-types`

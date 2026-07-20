@@ -47,7 +47,7 @@ export function WorkflowTesterPanel({
     onRuntimeNodeTransition,
 }: WorkflowTesterPanelProps) {
     const auth = useAuth();
-    const { hasSeenTooltip, markTooltipSeen, markActionCompleted } = useOnboarding();
+    const { markActionCompleted } = useOnboarding();
     const { isAuthenticated, loading: authLoading, getAccessToken } = auth;
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [activeMode, setActiveMode] = useState<"audio" | "text">("audio");
@@ -113,7 +113,6 @@ export function WorkflowTesterPanel({
             }
 
             markActionCompleted("web_call_started");
-            markTooltipSeen("web_call");
             posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
                 workflow_id: workflowId,
                 workflow_run_id: response.data.id,
@@ -126,22 +125,21 @@ export function WorkflowTesterPanel({
         } finally {
             setCreatingVoiceRun(false);
         }
-    }, [accessToken, disabled, markActionCompleted, markTooltipSeen, workflowId]);
+    }, [accessToken, disabled, markActionCompleted, workflowId]);
 
     const authUnavailableReason = tokenReady && !accessToken
         ? "Authentication is required before testing can start."
         : null;
     const effectiveDisabledReason = disabledReason ?? authUnavailableReason;
     const testerBlocked = disabled || authUnavailableReason !== null;
-    const showRunTestTooltip =
+    const runTestTooltipEnabled =
         showWebCallOnboarding &&
         isVisible &&
         activeMode === "audio" &&
         !voiceRunId &&
         tokenReady &&
         !!accessToken &&
-        !testerBlocked &&
-        !hasSeenTooltip("web_call");
+        !testerBlocked;
 
     return (
         <div className={cn("flex h-full min-h-0 flex-col bg-background", className)}>
@@ -265,12 +263,12 @@ export function WorkflowTesterPanel({
             </Tabs>
 
             <OnboardingTooltip
+                tooltipKey="web_call"
                 targetRef={runTestButtonRef}
                 title="Try Your First Web Call"
                 message="Start a browser call here to hear the agent, inspect the transcript, and validate the workflow before you customize it further."
-                onDismiss={() => markTooltipSeen("web_call")}
                 showNext={false}
-                isVisible={showRunTestTooltip}
+                enabled={runTestTooltipEnabled}
             />
         </div>
     );

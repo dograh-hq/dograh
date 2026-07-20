@@ -14,7 +14,6 @@ import type {
     HttpApiToolDefinition,
     RecordingResponseSchema,
     ToolResponse,
-    TransferCallConfig as APITransferCallConfig,
     UpdateToolRequest,
 } from "@/client/types.gen";
 import {
@@ -47,11 +46,13 @@ import {
     createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     type EndCallMessageType,
+    type ExtendedTransferCallConfig,
     getCategoryConfig,
     getToolTypeLabel,
     MCP_URL_PATTERN,
     renderToolIcon,
     type ToolCategory,
+    type TransferDestinationSource,
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 
@@ -65,6 +66,11 @@ function normalizeParameterType(value: string | null | undefined): ParameterType
         default:
             return "string";
     }
+}
+
+function headersToRows(headers: Record<string, string> | undefined | null): KeyValueItem[] {
+    if (!headers) return [];
+    return Object.entries(headers).map(([key, value]) => ({ key, value }));
 }
 
 export default function ToolDetailPage() {
@@ -109,10 +115,19 @@ export default function ToolDetailPage() {
     };
 
     // Transfer Call form state
+    const [transferDestinationSource, setTransferDestinationSource] =
+        useState<TransferDestinationSource>("static");
     const [transferDestination, setTransferDestination] = useState("");
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
     const [transferTimeout, setTransferTimeout] = useState(30);
     const [transferAudioRecordingId, setTransferAudioRecordingId] = useState("");
+    const [transferResolverUrl, setTransferResolverUrl] = useState("");
+    const [transferResolverCredentialUuid, setTransferResolverCredentialUuid] = useState("");
+    const [transferResolverHeaders, setTransferResolverHeaders] = useState<KeyValueItem[]>([]);
+    const [transferResolverTimeoutMs, setTransferResolverTimeoutMs] = useState(3000);
+    const [transferResolverWaitMessage, setTransferResolverWaitMessage] = useState("");
+    const [transferParameters, setTransferParameters] = useState<ToolParameter[]>([]);
+    const [transferPresetParameters, setTransferPresetParameters] = useState<PresetToolParameter[]>([]);
 
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
@@ -182,19 +197,50 @@ export default function ToolDetailPage() {
             }
         } else if (tool.category === "transfer_call") {
             // Populate transfer call specific fields
-            const config = tool.definition?.config as APITransferCallConfig | undefined;
+            const config = tool.definition?.config as ExtendedTransferCallConfig | undefined;
             if (config) {
+                const resolver = config.resolver || undefined;
+                setTransferDestinationSource(config.destination_source || (resolver ? "dynamic" : "static"));
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
                 setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
+                setTransferResolverUrl(resolver?.url || "");
+                setTransferResolverCredentialUuid(resolver?.credential_uuid || "");
+                setTransferResolverHeaders(headersToRows(resolver?.headers));
+                setTransferResolverTimeoutMs(resolver?.timeout_ms ?? 3000);
+                setTransferResolverWaitMessage(resolver?.wait_message || "");
+                setTransferParameters(
+                    (resolver?.parameters || config.parameters || []).map((p) => ({
+                        name: p.name || "",
+                        type: normalizeParameterType(p.type),
+                        description: p.description || "",
+                        required: p.required ?? true,
+                    })),
+                );
+                setTransferPresetParameters(
+                    (resolver?.preset_parameters || []).map((p) => ({
+                        name: p.name || "",
+                        type: normalizeParameterType(p.type),
+                        valueTemplate: p.value_template || "",
+                        required: p.required ?? true,
+                    })),
+                );
             } else {
+                setTransferDestinationSource("static");
                 setTransferDestination("");
                 setTransferMessageType("none");
                 setCustomMessage("");
                 setTransferAudioRecordingId("");
                 setTransferTimeout(30);
+                setTransferResolverUrl("");
+                setTransferResolverCredentialUuid("");
+                setTransferResolverHeaders([]);
+                setTransferResolverTimeoutMs(3000);
+                setTransferResolverWaitMessage("");
+                setTransferParameters([]);
+                setTransferPresetParameters([]);
             }
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
@@ -290,19 +336,51 @@ export default function ToolDetailPage() {
     const handleSave = async () => {
         if (!tool) return;
 
+        const normalizedTransferDestination = transferDestination.trim();
+
         // Validation based on tool type
         if (tool.category === "calculator") {
             // No validation needed for built-in tools
         } else if (tool.category === "transfer_call") {
-            // Validate destination for Transfer Call tools (supports both E.164 and SIP endpoints)
-            const e164Pattern = /^\+[1-9]\d{1,14}$/;
-            const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
-            const isValidE164 = e164Pattern.test(transferDestination);
-            const isValidSip = sipPattern.test(transferDestination);
-
-            if (!transferDestination || (!isValidE164 && !isValidSip)) {
-                setError("Please enter a valid phone number (E.164 format) or SIP endpoint (e.g., PJSIP/1234)");
+            if (transferDestinationSource === "static" && !normalizedTransferDestination) {
+                setError("Please enter a transfer destination");
                 return;
+            }
+            if (transferDestinationSource === "dynamic") {
+                const resolverUrlValidation = validateUrl(transferResolverUrl);
+                if (!resolverUrlValidation.valid) {
+                    setError(resolverUrlValidation.error || "Invalid resolver URL");
+                    return;
+                }
+
+                const invalidTransferParams = transferParameters.filter(
+                    (p) => !p.name.trim() || !p.description.trim()
+                );
+                if (invalidTransferParams.length > 0) {
+                    setError("All resolver arguments must have a name and description");
+                    return;
+                }
+                const transferParamNames = transferParameters
+                    .map((p) => p.name.trim())
+                    .filter(Boolean);
+                if (new Set(transferParamNames).size !== transferParamNames.length) {
+                    setError("Resolver argument names must be unique");
+                    return;
+                }
+                const invalidPresetTransferParams = transferPresetParameters.filter(
+                    (p) => !p.name.trim() || !p.valueTemplate.trim()
+                );
+                if (invalidPresetTransferParams.length > 0) {
+                    setError("All resolver preset parameters must have a name and a value");
+                    return;
+                }
+                const transferPresetParamNames = transferPresetParameters
+                    .map((p) => p.name.trim())
+                    .filter(Boolean);
+                if (new Set(transferPresetParamNames).size !== transferPresetParamNames.length) {
+                    setError("Resolver preset parameter names must be unique");
+                    return;
+                }
             }
         } else if (tool.category === "mcp") {
             // Validate MCP server URL (must be http(s))
@@ -374,6 +452,55 @@ export default function ToolDetailPage() {
                     },
                 };
             } else if (tool.category === "transfer_call") {
+                const resolverHeadersObject: Record<string, string> = {};
+                transferResolverHeaders.filter((h) => h.key && h.value).forEach((h) => {
+                    resolverHeadersObject[h.key] = h.value;
+                });
+
+                const validTransferParameters = transferParameters.filter((p) => p.name.trim());
+                const validTransferPresetParameters = transferPresetParameters.filter(
+                    (p) => p.name.trim() && p.valueTemplate.trim()
+                );
+
+                const transferConfig: ExtendedTransferCallConfig = {
+                    destination_source: transferDestinationSource,
+                    destination: transferDestinationSource === "static" ? normalizedTransferDestination : "",
+                    messageType: transferMessageType,
+                    customMessage: transferMessageType === "custom" ? customMessage : undefined,
+                    audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
+                    timeout: transferTimeout,
+                    resolver: transferDestinationSource === "dynamic"
+                        ? {
+                            type: "http",
+                            url: transferResolverUrl.trim(),
+                            credential_uuid: transferResolverCredentialUuid || undefined,
+                            headers:
+                                Object.keys(resolverHeadersObject).length > 0
+                                    ? resolverHeadersObject
+                                    : undefined,
+                            timeout_ms: transferResolverTimeoutMs,
+                            wait_message: transferResolverWaitMessage.trim() || undefined,
+                            parameters:
+                                validTransferParameters.length > 0
+                                    ? validTransferParameters.map((p) => ({
+                                        name: p.name.trim(),
+                                        type: p.type,
+                                        description: p.description.trim(),
+                                        required: p.required,
+                                    }))
+                                    : undefined,
+                            preset_parameters:
+                                validTransferPresetParameters.length > 0
+                                    ? validTransferPresetParameters.map((p) => ({
+                                        name: p.name.trim(),
+                                        type: p.type,
+                                        value_template: p.valueTemplate.trim(),
+                                        required: p.required,
+                                    }))
+                                    : undefined,
+                        }
+                        : undefined,
+                };
                 // Build transfer call request body
                 requestBody = {
                     name,
@@ -381,14 +508,8 @@ export default function ToolDetailPage() {
                     definition: {
                         schema_version: 1,
                         type: "transfer_call",
-                        config: {
-                            destination: transferDestination,
-                            messageType: transferMessageType,
-                            customMessage: transferMessageType === "custom" ? customMessage : undefined,
-                            audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
-                            timeout: transferTimeout,
-                        },
-                    },
+                        config: transferConfig,
+                    } as UpdateToolRequest["definition"],
                 };
             } else if (tool.category === "mcp") {
                 requestBody = {
@@ -651,6 +772,8 @@ const data = await response.json();`;
                             onNameChange={setName}
                             description={description}
                             onDescriptionChange={setDescription}
+                            destinationSource={transferDestinationSource}
+                            onDestinationSourceChange={setTransferDestinationSource}
                             destination={transferDestination}
                             onDestinationChange={setTransferDestination}
                             messageType={transferMessageType}
@@ -662,6 +785,20 @@ const data = await response.json();`;
                             recordings={recordings}
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
+                            resolverUrl={transferResolverUrl}
+                            onResolverUrlChange={setTransferResolverUrl}
+                            resolverCredentialUuid={transferResolverCredentialUuid}
+                            onResolverCredentialUuidChange={setTransferResolverCredentialUuid}
+                            resolverHeaders={transferResolverHeaders}
+                            onResolverHeadersChange={setTransferResolverHeaders}
+                            resolverTimeoutMs={transferResolverTimeoutMs}
+                            onResolverTimeoutMsChange={setTransferResolverTimeoutMs}
+                            resolverWaitMessage={transferResolverWaitMessage}
+                            onResolverWaitMessageChange={setTransferResolverWaitMessage}
+                            parameters={transferParameters}
+                            onParametersChange={setTransferParameters}
+                            presetParameters={transferPresetParameters}
+                            onPresetParametersChange={setTransferPresetParameters}
                         />
                     ) : isMcpTool ? (
                         <Card>

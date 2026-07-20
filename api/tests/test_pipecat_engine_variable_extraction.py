@@ -156,29 +156,24 @@ class TestVariableExtractionDuringTransitions:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            # Mock the actual extraction to avoid needing a real LLM
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={"user_name": "John Doe"},
             ):
-                # Mock the actual extraction to avoid needing a real LLM
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={"user_name": "John Doe"},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def initialize_engine():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                async def initialize_engine():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                    await asyncio.gather(run_pipeline(), initialize_engine())
+                await asyncio.gather(run_pipeline(), initialize_engine())
 
         # Should have 3 LLM generations
         assert llm.get_current_step() == 3

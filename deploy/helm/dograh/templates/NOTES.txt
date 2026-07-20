@@ -1,0 +1,80 @@
+Dograh has been installed.
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+Chart:      {{ .Chart.Name }}-{{ .Chart.Version }}
+
+=== HTTP exposure ({{ .Values.exposure.mode }}) ===
+{{- if eq .Values.exposure.mode "gatewayApi" }}
+{{- if .Values.exposure.gatewayApi.createGateway }}
+A Gateway named {{ include "dograh.fullname" . }} was created with class
+"{{ .Values.exposure.gatewayApi.gatewayClassName }}". Find its address with:
+
+  kubectl get gateway {{ include "dograh.fullname" . }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.status.addresses[0].value}'
+{{- else }}
+HTTPRoutes were attached to existing Gateway(s):
+{{- range .Values.exposure.gatewayApi.parentRefs }}
+  - {{ .name }}{{ if .namespace }}/{{ .namespace }}{{ end }}
+{{- end }}
+{{- end }}
+{{- else }}
+Ingress class: "{{ .Values.exposure.ingress.className }}"
+Host: {{ default "(unset — set exposure.ingress.host)" .Values.exposure.ingress.host }}
+{{- end }}
+
+=== TURN (coturn) ===
+{{- if .Values.coturn.enabled }}
+The coturn Service is type LoadBalancer. Find its external address:
+
+  kubectl get svc {{ include "dograh.coturn.fullname" . }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}'
+
+IMPORTANT — chicken-and-egg with coturn.externalIp:
+coturn announces an external IP in ICE candidates. The LoadBalancer IP is
+typically not known until after install. Once the LB has an address:
+
+  helm upgrade {{ .Release.Name }} . \
+    --reuse-values \
+    --set coturn.externalIp=<EXTERNAL_IP> \
+    --set config.turnHost=<EXTERNAL_IP>
+
+Until then, WebRTC media will be impaired in relay-only scenarios.
+
+NLB listener-quota note (AWS): the default coturn relay range is
+{{ .Values.coturn.relayPortRange.min }}-{{ .Values.coturn.relayPortRange.max }}, which is
+{{ sub (int .Values.coturn.relayPortRange.max) (int .Values.coturn.relayPortRange.min) | add1 }} ports.
+AWS NLB default quota is 50 listeners per LB. Widening the range requires either
+a quota increase or splitting TURN across multiple LBs.
+{{- else }}
+coturn is disabled. Set coturn.enabled=true to deploy media relay.
+{{- end }}
+
+=== Migrations ===
+{{- if .Values.migrate.enabled }}
+Alembic migrations run as a post-install / pre-upgrade hook. Inspect with:
+
+  kubectl logs job/{{ include "dograh.migrate.fullname" . }} -n {{ .Release.Namespace }}
+{{- end }}
+
+=== Singletons ===
+ari-manager and campaign-orchestrator run with replicas=1 and
+strategy=Recreate by design. Do NOT scale these via kubectl scale —
+they use in-memory locks and would silently corrupt with >1 replica.
+
+=== Required overrides ===
+{{- if eq .Values.secrets.ossJwtSecret "ChangeMeInProduction" }}
+WARNING: secrets.ossJwtSecret is still the chart default. Override before
+running in any non-dev environment:
+
+  --set secrets.ossJwtSecret="$(openssl rand -hex 32)"
+{{- end }}
+{{- if and (eq .Values.database.mode "external") (empty .Values.secrets.databaseUrl) }}
+ERROR: database.mode=external but secrets.databaseUrl is empty.
+{{- end }}
+{{- if and (eq .Values.redis.mode "external") (empty .Values.secrets.redisUrl) }}
+ERROR: redis.mode=external but secrets.redisUrl is empty.
+{{- end }}
+
+For troubleshooting and topology examples see
+deploy/helm/dograh/README.md and examples/.

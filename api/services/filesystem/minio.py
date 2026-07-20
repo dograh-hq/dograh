@@ -1,12 +1,13 @@
 import asyncio
+import io
 import json
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, Dict, Optional
 
 from loguru import logger
 from minio import Minio
 from minio.error import S3Error
 
-from .base import BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem
 
 
 class MinioFileSystem(BaseFileSystem):
@@ -89,15 +90,16 @@ class MinioFileSystem(BaseFileSystem):
             logger.debug(f"Bucket setup note: {e}")
             pass
 
-    async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
+    async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         try:
             data = await content.read()
 
             def _put():
+                # The MinIO SDK requires a stream with .read(), not raw bytes.
                 self.client.put_object(
                     self.bucket_name,
                     file_path,
-                    data=bytes(data),
+                    data=io.BytesIO(data),
                     length=len(data),
                 )
 

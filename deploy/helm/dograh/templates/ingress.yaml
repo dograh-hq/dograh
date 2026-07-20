@@ -1,0 +1,70 @@
+{{- if eq .Values.exposure.mode "ingress" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "dograh.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+  annotations:
+    # Sensible defaults for WebSocket-heavy signaling traffic. These are
+    # nginx-ingress style; if you use a different controller, override
+    # via exposure.ingress.annotations.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    {{- with .Values.exposure.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.exposure.ingress.className }}
+  ingressClassName: {{ .Values.exposure.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.exposure.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ required "exposure.ingress.host is required when tls.enabled=true" .Values.exposure.ingress.host | quote }}
+      secretName: {{ required "exposure.ingress.tls.secretName is required when tls.enabled=true" .Values.exposure.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - {{- if .Values.exposure.ingress.host }}
+      host: {{ .Values.exposure.ingress.host | quote }}
+      {{- end }}
+      http:
+        paths:
+          # /api/v1/ (not /api/) — the UI serves its own Next.js routes under
+          # /api/auth/* and /api/config/*, which must fall through to the UI.
+          # Everything browser→backend (REST + the signaling WebSocket) is
+          # namespaced under /api/v1/.
+          - path: /api/v1/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dograh.web.fullname" . }}
+                port:
+                  number: {{ .Values.web.service.port }}
+          {{- if or (eq .Values.storage.mode "internalMinio") (eq .Values.storage.mode "externalMinio") }}
+          - path: /voice-audio/
+            pathType: Prefix
+            backend:
+              service:
+                {{- if eq .Values.storage.mode "internalMinio" }}
+                name: {{ include "dograh.minioHost" . }}
+                {{- else }}
+                # externalMinio: requires an ExternalName Service named
+                # <release>-minio-external pointing at storage.externalMinio.endpoint.
+                name: {{ include "dograh.fullname" . }}-minio-external
+                {{- end }}
+                port:
+                  number: 9000
+          {{- end }}
+          {{- if .Values.ui.enabled }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dograh.ui.fullname" . }}
+                port:
+                  number: {{ .Values.ui.service.port }}
+          {{- end }}
+{{- end }}

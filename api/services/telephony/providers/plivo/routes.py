@@ -74,7 +74,6 @@ async def _handle_plivo_status_callback(
 @router.post("/plivo-xml", include_in_schema=False)
 async def handle_plivo_xml_webhook(
     workflow_id: int,
-    user_id: int,
     workflow_run_id: int,
     organization_id: int,
     request: Request,
@@ -110,7 +109,7 @@ async def handle_plivo_xml_webhook(
         )
 
     response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
+        workflow_id, organization_id, workflow_run_id
     )
     return HTMLResponse(content=response_content, media_type="application/xml")
 

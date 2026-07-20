@@ -6,8 +6,14 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.constants import MPS_API_URL
-from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
+from api.services.configuration.options import (
+    DEEPGRAM_FLUX_MODELS,
+    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
+)
 from api.services.configuration.registry import ServiceProviders
+from api.services.pipecat.gemini_json_schema_adapter import (
+    DograhGeminiJSONSchemaAdapter,
+)
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
@@ -15,21 +21,28 @@ from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
 from pipecat.services.azure.stt import AzureSTTService, AzureSTTSettings
 from pipecat.services.azure.tts import AzureTTSService, AzureTTSSettings
-from pipecat.services.cartesia.stt import CartesiaSTTService
+from pipecat.services.cartesia.stt import CartesiaSTTService, CartesiaSTTSettings
 from pipecat.services.cartesia.tts import (
     CartesiaTTSService,
     CartesiaTTSSettings,
     GenerationConfig,
 )
+from pipecat.services.cartesia.turns.stt import CartesiaTurnsSTTService
 from pipecat.services.deepgram.flux.stt import (
     DeepgramFluxSTTService,
     DeepgramFluxSTTSettings,
 )
 from pipecat.services.deepgram.stt import DeepgramSTTService, DeepgramSTTSettings
 from pipecat.services.deepgram.tts import DeepgramTTSService, DeepgramTTSSettings
+from pipecat.services.dograh.flux.stt import DograhFluxSTTService
 from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
 from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
+from pipecat.services.elevenlabs.stt import (
+    CommitStrategy,
+    ElevenLabsRealtimeSTTService,
+    ElevenLabsRealtimeSTTSettings,
+)
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
@@ -73,6 +86,7 @@ from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
 )
+from pipecat.services.xai.tts import XAIHttpTTSService, XAITTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -92,6 +106,75 @@ DEEPGRAM_FLUX_LANGUAGE_HINTS = {
     "pt": Language.PT,
     "ru": Language.RU,
 }
+
+
+def dograh_stt_uses_flux_language(language: str | None) -> bool:
+    language = language or "multi"
+    return language in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS
+
+
+def _resolve_elevenlabs_stt_language(
+    language_code: str | None,
+) -> Language | str | None:
+    if not language_code or language_code == "auto":
+        return None
+    try:
+        return Language(language_code)
+    except ValueError:
+        return language_code
+
+
+def _elevenlabs_websocket_url(base_url: str) -> str:
+    """Normalize an ElevenLabs API base URL for WebSocket clients."""
+    base_url = base_url.strip()
+    parsed = urlparse(base_url)
+    if not parsed.netloc:
+        return base_url.rstrip("/")
+
+    websocket_scheme = {
+        "http": "ws",
+        "https": "wss",
+    }.get(parsed.scheme, parsed.scheme)
+    return urlunparse(
+        parsed._replace(
+            scheme=websocket_scheme,
+            path=parsed.path.rstrip("/"),
+        )
+    )
+
+
+def _elevenlabs_realtime_stt_host(base_url: str) -> str:
+    """Return the host/path prefix Pipecat's ElevenLabs realtime STT expects.
+
+    Pipecat's realtime STT service builds
+    ``wss://{host}/v1/speech-to-text/realtime`` internally, so remove the scheme
+    from the same normalized WebSocket URL used by ElevenLabs TTS. Preserve
+    netloc (including optional ports) and any path prefix used by BYOK proxies.
+    """
+    websocket_url = _elevenlabs_websocket_url(base_url)
+    parsed = urlparse(websocket_url)
+    if parsed.netloc:
+        path = parsed.path
+        return f"{parsed.netloc}{path}" if path else parsed.netloc
+    return websocket_url
+
+
+def stt_uses_external_turns(user_config) -> bool:
+    if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
+        return user_config.stt.model in DEEPGRAM_FLUX_MODELS
+    if user_config.stt.provider == ServiceProviders.DOGRAH.value:
+        return dograh_stt_uses_flux_language(getattr(user_config.stt, "language", None))
+    if user_config.stt.provider == ServiceProviders.CARTESIA.value:
+        return user_config.stt.model == "ink-2"
+    return False
+
+
+class DograhGoogleLLMService(GoogleLLMService):
+    adapter_class = DograhGeminiJSONSchemaAdapter
+
+
+class DograhGoogleVertexLLMService(GoogleVertexLLMService):
+    adapter_class = DograhGeminiJSONSchemaAdapter
 
 
 def _validate_runtime_service_url(url: str, field_name: str) -> None:
@@ -166,6 +249,7 @@ def create_stt_service(
         return OpenAISTTService(
             api_key=user_config.stt.api_key,
             settings=OpenAISTTSettings(model=user_config.stt.model),
+            should_interrupt=False,  # Let UserAggregator own interruption confirmation.
             **kwargs,
         )
     elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
@@ -186,13 +270,48 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
+        if user_config.stt.model == "ink-2":
+            return CartesiaTurnsSTTService(
+                api_key=user_config.stt.api_key,
+                should_interrupt=False,  # Let UserAggregator emit interruption frames.
+                sample_rate=audio_config.transport_in_sample_rate,
+            )
+
+        language = getattr(user_config.stt, "language", None) or "en"
         return CartesiaSTTService(
             api_key=user_config.stt.api_key,
+            settings=CartesiaSTTSettings(
+                model=user_config.stt.model,
+                language=language,
+            ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:
         base_url = MPS_API_URL.replace("http://", "ws://").replace("https://", "wss://")
         language = getattr(user_config.stt, "language", None) or "multi"
+
+        if dograh_stt_uses_flux_language(language):
+            # Dograh's Flux proxy only supports multilingual auto-detect and the
+            # same language hint subset as Deepgram Flux multilingual.
+            settings_kwargs = {
+                "model": "flux-general-multi",
+                "eot_timeout_ms": 3000,
+                "eot_threshold": 0.7,
+                "eager_eot_threshold": 0.5,
+                "keyterm": keyterms or [],
+            }
+            language_hint = DEEPGRAM_FLUX_LANGUAGE_HINTS.get(language)
+            if language_hint:
+                settings_kwargs["language_hints"] = [language_hint]
+            return DograhFluxSTTService(
+                base_url=base_url,
+                api_key=user_config.stt.api_key,
+                correlation_id=correlation_id,
+                settings=DeepgramFluxSTTSettings(**settings_kwargs),
+                should_interrupt=False,  # external turn strategies own interruption
+                sample_rate=audio_config.transport_in_sample_rate,
+            )
+
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
@@ -347,6 +466,24 @@ def create_stt_service(
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.ELEVENLABS.value:
+        language_code = getattr(user_config.stt, "language", None)
+        pipecat_language = _resolve_elevenlabs_stt_language(language_code)
+
+        _validate_runtime_service_url(user_config.stt.base_url, "base_url")
+        elevenlabs_host = _elevenlabs_realtime_stt_host(user_config.stt.base_url)
+
+        return ElevenLabsRealtimeSTTService(
+            api_key=user_config.stt.api_key,
+            base_url=elevenlabs_host,
+            commit_strategy=CommitStrategy.VAD,
+            settings=ElevenLabsRealtimeSTTSettings(
+                model=user_config.stt.model,
+                language=pipecat_language,
+            ),
+            should_interrupt=False,
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid STT provider {user_config.stt.provider}"
@@ -420,13 +557,11 @@ def create_tts_service(
             voice_id = user_config.tts.voice.split(" - ")[1]
         except IndexError:
             voice_id = user_config.tts.voice
-        # ElevenLabs TTS uses WebSocket. Users configure base_url with an HTTP
-        # scheme (matching ElevenLabs documentation, e.g.
-        # https://api.eu.residency.elevenlabs.io); rewrite it to the WS scheme.
+        # ElevenLabs TTS consumes the full normalized WebSocket URL. Realtime
+        # STT uses the same normalization before adapting it to Pipecat's
+        # scheme-less base_url contract.
         _validate_runtime_service_url(user_config.tts.base_url, "base_url")
-        elevenlabs_url = user_config.tts.base_url.replace("https://", "wss://").replace(
-            "http://", "ws://"
-        )
+        elevenlabs_url = _elevenlabs_websocket_url(user_config.tts.base_url)
         return ElevenLabsTTSService(
             reconnect_on_error=False,
             api_key=user_config.tts.api_key,
@@ -673,10 +808,45 @@ def create_tts_service(
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.XAI.value:
+        voice = getattr(user_config.tts, "voice", None) or "eve"
+        language_code = getattr(user_config.tts, "language", None) or "en"
+        if language_code.lower() == "auto":
+            pipecat_language = "auto"
+        else:
+            try:
+                pipecat_language = Language(language_code)
+            except ValueError:
+                pipecat_language = Language.EN
+        return XAIHttpTTSService(
+            api_key=user_config.tts.api_key,
+            sample_rate=audio_config.transport_out_sample_rate,
+            encoding="pcm",
+            settings=XAITTSSettings(
+                voice=voice,
+                language=pipecat_language,
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid TTS provider {user_config.tts.provider}"
         )
+
+
+def _migrate_deprecated_google_model(model: str) -> str:
+    """Google removed the ``gemini-2.0-flash*`` models. Transparently upgrade
+    any stored config that still references them to the 2.5 equivalent so old
+    user configurations keep working instead of failing at runtime."""
+    if model and model.startswith("gemini-2.0-flash"):
+        migrated = model.replace("gemini-2.0-", "gemini-2.5-", 1)
+        logger.warning(
+            f"Google model '{model}' is no longer supported; using '{migrated}' instead"
+        )
+        return migrated
+    return model
 
 
 def create_llm_service_from_provider(
@@ -736,12 +906,13 @@ def create_llm_service_from_provider(
             **kwargs,
         )
     elif provider == ServiceProviders.GOOGLE.value:
-        return GoogleLLMService(
+        model = _migrate_deprecated_google_model(model)
+        return DograhGoogleLLMService(
             api_key=api_key,
             settings=GoogleLLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
-        return GoogleVertexLLMService(
+        return DograhGoogleVertexLLMService(
             credentials=credentials,
             project_id=project_id,
             location=location or "us-east4",
@@ -858,14 +1029,28 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         from api.services.pipecat.realtime.grok_realtime import (
             DograhGrokRealtimeLLMService,
         )
-        from pipecat.services.xai.realtime.events import SessionProperties
+        from pipecat.services.xai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            InputAudioTranscription,
+            SessionProperties,
+        )
+
+        grok_voice = voice or "ara"
+        if grok_voice.lower() in {"ara", "rex", "sal", "eve", "leo"}:
+            grok_voice = grok_voice.lower()
 
         return DograhGrokRealtimeLLMService(
             api_key=api_key,
             settings=DograhGrokRealtimeLLMService.Settings(
                 model=model,
                 session_properties=SessionProperties(
-                    voice=voice or "Ara",
+                    voice=grok_voice,
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(),
+                        ),
+                    ),
                 ),
             ),
         )
@@ -944,19 +1129,25 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 detail="Azure Realtime requires an endpoint.",
             )
         _validate_runtime_service_url(endpoint, "endpoint")
-        api_version = (
-            getattr(realtime_config, "api_version", None) or "2025-04-01-preview"
-        )
-        # Construct the Azure Realtime WebSocket URL
-        # https://<resource>.openai.azure.com/openai/realtime?api-version=<ver>&deployment=<model>
+        api_version = getattr(realtime_config, "api_version", None) or "v1"
         parsed_endpoint = urlparse(endpoint)
+        if api_version == "v1":
+            # Azure's GA Realtime API uses the deployment name as `model` and
+            # deliberately has no date-based api-version query parameter.
+            path = "/openai/v1/realtime"
+            query = urlencode({"model": model})
+        else:
+            # Preserve explicitly configured preview deployments while users
+            # migrate. Microsoft deprecated this protocol on April 30, 2026.
+            path = "/openai/realtime"
+            query = urlencode({"api-version": api_version, "deployment": model})
         wss_url = urlunparse(
             (
                 "wss",
                 parsed_endpoint.netloc,
-                "/openai/realtime",
+                path,
                 "",
-                urlencode({"api-version": api_version, "deployment": model}),
+                query,
                 "",
             )
         )

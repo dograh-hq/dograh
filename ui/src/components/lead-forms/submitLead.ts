@@ -7,9 +7,9 @@ import posthog from "posthog-js";
 
 import { PostHogEvent } from "@/constants/posthog-events";
 
-import { detectCountry } from "./detectCountry";
+import { detectCountry, detectTimezone } from "./detectCountry";
 import type { LeadKind, LeadOrigin, LeadSource } from "./leadFieldOptions";
-import { postLeadToService } from "./onboardingServiceClient";
+import { type LeadResult, postLeadToService } from "./onboardingServiceClient";
 
 const SUBMIT_EVENT: Record<LeadKind, string> = {
   hire_expert: PostHogEvent.HIRE_EXPERT_SUBMITTED,
@@ -25,12 +25,13 @@ export interface SubmitLeadArgs {
   payload: Record<string, unknown>;
 }
 
-export async function submitLead({ kind, source, origin, payload }: SubmitLeadArgs): Promise<void> {
-  // `country` is detected silently (timezone/locale) and sent in the body — no visible
-  // field. It feeds the founders-notification email subject server-side.
-  const body = { source, origin, country: detectCountry(), ...payload };
+export async function submitLead({ kind, source, origin, payload }: SubmitLeadArgs): Promise<LeadResult | null> {
+  // `country` (name) + `timezone` (raw IANA) are detected silently — no visible fields.
+  // Both are neutral analytics in the body; the backend alone decides anything from them
+  // . `country` also feeds the email subject.
+  const body = { source, origin, country: detectCountry(), timezone: detectTimezone(), ...payload };
   // PostHog capture — the durable record, always fired.
   posthog.capture(SUBMIT_EVENT[kind], body);
-  // Persist to the separate user_onboarding service (best-effort, public).
-  await postLeadToService(kind, body);
+  // Persist to the separate user_onboarding service (best-effort, public); return its verdict.
+  return postLeadToService(kind, body);
 }

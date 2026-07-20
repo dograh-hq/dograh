@@ -36,6 +36,9 @@ from api.services.pipecat.realtime_feedback_events import (
 
 if TYPE_CHECKING:
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+    from api.services.pipecat.transcript_log_coordinator import (
+        TranscriptLogCoordinator,
+    )
 
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -72,7 +75,7 @@ class RealtimeFeedbackObserver(BaseObserver):
     - TTFB metrics (LLM generation time only)
 
     Logs buffer persistence (only final data for post-call analysis):
-    - Complete user transcripts per turn (via on_user_turn_stopped)
+    - Complete user transcripts per turn (via on_user_turn_message_added)
     - Complete assistant transcripts per turn (via on_assistant_turn_stopped)
     - Function calls and TTFB metrics
 
@@ -294,40 +297,36 @@ class RealtimeFeedbackObserver(BaseObserver):
 
 
 def register_turn_log_handlers(
-    logs_buffer: "InMemoryLogsBuffer",
+    transcript_coordinator: "TranscriptLogCoordinator",
     user_aggregator,
     assistant_aggregator,
 ):
     """Register event handlers on aggregators to persist final turn transcripts.
 
-    Hooks into on_user_turn_stopped and on_assistant_turn_stopped to store
-    complete turn text in the logs buffer. Works for both WebRTC and telephony
-    calls — independent of WebSocket availability.
+    Hooks into on_user_turn_message_added and on_assistant_turn_stopped to store
+    complete turn text through the turn-aware coordinator. Works for both
+    WebRTC and telephony calls — independent of WebSocket availability.
     """
 
-    @user_aggregator.event_handler("on_user_turn_stopped")
-    async def on_user_turn_stopped(aggregator, strategy, message):
-        logs_buffer.increment_turn()
+    @user_aggregator.event_handler("on_user_turn_message_added")
+    async def on_user_turn_message_added(aggregator, message):
         try:
-            await logs_buffer.append(
-                build_user_transcription_event(
-                    text=message.content,
-                    final=True,
-                    timestamp=message.timestamp,
-                )
+            await transcript_coordinator.record_user_transcript(
+                text=message.content,
+                timestamp=message.timestamp,
+                end_timestamp=getattr(message, "end_timestamp", None),
             )
         except Exception as e:
-            logger.error(f"Failed to append user turn to logs buffer: {e}")
+            logger.error(f"Failed to coordinate user turn transcript: {e}")
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message):
         if message.content:
             try:
-                await logs_buffer.append(
-                    build_bot_text_event(
-                        text=message.content,
-                        timestamp=message.timestamp,
-                    )
+                await transcript_coordinator.record_assistant_transcript(
+                    text=message.content,
+                    timestamp=message.timestamp,
+                    end_timestamp=getattr(message, "end_timestamp", None),
                 )
             except Exception as e:
-                logger.error(f"Failed to append assistant turn to logs buffer: {e}")
+                logger.error(f"Failed to coordinate assistant turn transcript: {e}")

@@ -9,6 +9,7 @@ from pipecat.frames.frames import (
     FunctionCallResultProperties,
     LLMContextFrame,
     TTSSpeakFrame,
+    LLMMessagesAppendFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -98,6 +99,7 @@ class PipecatEngine:
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
+        self._dtmf_subscription_task: Optional[asyncio.Task] = None
 
         # Will be set later in initialize() when we have
         # access to _context
@@ -197,10 +199,43 @@ class PipecatEngine:
             if self._context_compaction_enabled:
                 self._context_summarization_manager = ContextSummarizationManager(self)
 
+            call_id = self._call_context_vars.get("call_id")
+            if call_id:
+                self._dtmf_subscription_task = asyncio.create_task(
+                    self._listen_for_dtmf(call_id)
+                )
+
             logger.debug(f"{self.__class__.__name__} initialized")
         except Exception as e:
             logger.error(f"Error initializing {self.__class__.__name__}: {e}")
             raise
+
+    async def _listen_for_dtmf(self, call_id: str):
+        """Listen for DTMF events and inject them into the LLM context."""
+        try:
+            from api.services.telephony.dtmf_manager import dtmf_manager
+            
+            async for event in dtmf_manager.subscribe_dtmf_events(call_id):
+                logger.info(f"Pipeline received DTMF digit {event.digit} for call {call_id}")
+                if self.task and self.context:
+                    # Append the DTMF digit to the LLM context
+                    dtmf_message = {
+                        "role": "system",
+                        "content": f"The caller pressed the keypad digit: {event.digit}"
+                    }
+                    self.context.add_message(dtmf_message)
+                    
+                    # Push the updated messages to trigger LLM evaluation
+                    # Pipecat v0.2.x uses LLMMessagesAppendFrame
+                    frame = LLMMessagesAppendFrame(
+                        messages=[dtmf_message],
+                        run_llm=True
+                    )
+                    await self.task.queue_frame(frame)
+        except asyncio.CancelledError:
+            logger.debug("DTMF listener task cancelled")
+        except Exception as e:
+            logger.error(f"Error in DTMF listener: {e}")
 
     async def _update_llm_context(self, system_prompt: str, functions: list[dict]):
         """Update LLM settings with the composed system prompt and tool list."""
@@ -985,6 +1020,12 @@ class PipecatEngine:
             and not self._user_response_timeout_task.done()
         ):
             self._user_response_timeout_task.cancel()
+
+        if (
+            self._dtmf_subscription_task
+            and not self._dtmf_subscription_task.done()
+        ):
+            self._dtmf_subscription_task.cancel()
 
         # Cancel any in-flight background summarization.
         if self._context_summarization_manager:

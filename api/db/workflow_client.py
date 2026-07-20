@@ -524,6 +524,7 @@ class WorkflowClient(BaseDBClient):
         workflow_definition: dict | None,
         template_context_variables: dict | None,
         workflow_configurations: dict | None,
+        enable_dtmf: bool | None = None,
         user_id: int = None,
         organization_id: int = None,
     ) -> WorkflowModel:
@@ -569,6 +570,9 @@ class WorkflowClient(BaseDBClient):
             # Name is a workflow-level field, not versioned
             if name is not None:
                 workflow.name = name
+
+            if enable_dtmf is not None:
+                workflow.enable_dtmf = enable_dtmf
 
             try:
                 await session.commit()

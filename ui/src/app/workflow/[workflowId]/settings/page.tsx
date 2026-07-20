@@ -266,14 +266,17 @@ function GeneralSection({
     workflowConfigurations,
     workflowName,
     workflowId,
+    enableDtmf,
     onSave,
 }: {
     workflowConfigurations: WorkflowConfigurations;
     workflowName: string;
     workflowId: number;
-    onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
+    enableDtmf: boolean;
+    onSave: (configurations: WorkflowConfigurations, workflowName: string, enableDtmf?: boolean) => Promise<void>;
 }) {
     const [name, setName] = useState(workflowName);
+    const [dtmfEnabled, setDtmfEnabled] = useState(enableDtmf);
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
         workflowConfigurations.ambient_noise_configuration,
     );
@@ -320,10 +323,11 @@ function GeneralSection({
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
+            dtmfEnabled !== enableDtmf ||
             includeTranscriptEndTimestamps !==
             (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, workflowConfigurations, dtmfEnabled, enableDtmf]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -406,6 +410,7 @@ function GeneralSection({
                     },
                 },
                 name,
+                dtmfEnabled
             );
         } catch (error) {
             console.error("Failed to save general settings:", error);
@@ -435,6 +440,26 @@ function GeneralSection({
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Enter Agent name"
                     />
+                </div>
+
+                <Separator />
+
+                {/* Keypad DTMF Input */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Keypad DTMF Input</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Allow the caller to use their phone keypad (DTMF) to input numbers during the call.
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="dtmf-enabled" className="text-sm">Enable Keypad Inputs</Label>
+                        <Switch
+                            id="dtmf-enabled"
+                            checked={dtmfEnabled}
+                            onCheckedChange={setDtmfEnabled}
+                        />
+                    </div>
                 </div>
 
                 <Separator />
@@ -1565,6 +1590,7 @@ function WorkflowSettingsInner({
                                 workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName || workflow.name}
                                 workflowId={workflowId}
+                                enableDtmf={workflow.enable_dtmf ?? false}
                                 onSave={saveWorkflowConfigurations}
                             />
 

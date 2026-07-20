@@ -111,8 +111,11 @@ async def handle_plivo_xml_webhook(
             run_id=workflow_run_id, gathered_context=gathered_context
         )
 
+    workflow = await db_client.get_workflow_by_id(workflow_id)
+    enable_dtmf = workflow.enable_dtmf if workflow else False
+
     response_content = await provider.get_webhook_response(
-        workflow_id, organization_id, workflow_run_id
+        workflow_id, organization_id, workflow_run_id, enable_dtmf
     )
     return HTMLResponse(content=response_content, media_type="application/xml")
 
@@ -133,6 +136,34 @@ async def handle_plivo_ring_callback(
 ):
     """Handle Plivo ring callbacks."""
     return await _handle_plivo_status_callback(workflow_run_id, request)
+
+
+@router.post("/plivo/dtmf-callback/{workflow_run_id}")
+async def handle_plivo_dtmf_callback(
+    workflow_run_id: int,
+    request: Request,
+):
+    """Handle DTMF events from Plivo."""
+    form_data = await request.form()
+    data = dict(form_data)
+    digit = data.get("Digits")
+    call_id = data.get("CallUUID") or data.get("RequestUUID")
+    
+    if call_id and digit:
+        from api.services.telephony.dtmf_manager import dtmf_manager
+        from api.services.telephony.dtmf_event_protocol import DTMFEvent
+        from datetime import datetime, UTC
+        
+        event = DTMFEvent(
+            call_id=call_id,
+            digit=digit,
+            timestamp=datetime.now(UTC),
+        )
+        await dtmf_manager.publish_dtmf_event(call_id, event)
+        logger.info(f"Received Plivo DTMF digit: {digit} for call {call_id}")
+        
+    return HTMLResponse(content='<?xml version="1.0" encoding="UTF-8"?><Response/>', media_type="application/xml")
+
 
 
 @router.post("/plivo/transfer-xml/{conference_name}/{transfer_id}", include_in_schema=False)

@@ -232,6 +232,7 @@ class WorkflowResponse(BaseModel):
     call_disposition_codes: CallDispositionCodes | None = None
     total_runs: int | None = None
     workflow_configurations: dict | None = None
+    enable_dtmf: bool = False
     version_number: int | None = None
     version_status: str | None = None
     workflow_uuid: str | None = None
@@ -289,6 +290,7 @@ class UpdateWorkflowRequest(BaseModel):
     # enforced by FastAPI; extra="allow" keeps passthrough keys like
     # model_configuration_v2_override intact.
     workflow_configurations: WorkflowConfigurationDefaults | None = None
+    enable_dtmf: bool | None = None
 
 
 class WorkflowVersionResponse(BaseModel):
@@ -322,7 +324,7 @@ class CreateWorkflowRunResponse(BaseModel):
 
 
 class CreateWorkflowTemplateRequest(BaseModel):
-    call_type: Literal[CallType.INBOUND.value, CallType.OUTBOUND.value]
+    call_type: Literal["inbound", "outbound"]
     use_case: str
     activity_description: str
 
@@ -737,6 +739,7 @@ async def get_workflow(
         "template_context_variables": template_vars,
         "call_disposition_codes": workflow.call_disposition_codes,
         "workflow_configurations": mask_workflow_configurations(workflow_configs),
+        "enable_dtmf": workflow.enable_dtmf,
         "version_number": active_def.version_number if active_def else None,
         "version_status": active_def.status if active_def else None,
         "workflow_uuid": workflow.workflow_uuid,
@@ -1195,6 +1198,7 @@ async def update_workflow(
             workflow_definition=workflow_definition,
             template_context_variables=request.template_context_variables,
             workflow_configurations=workflow_configurations,
+            enable_dtmf=request.enable_dtmf,
             organization_id=user.selected_organization_id,
         )
 
@@ -1231,6 +1235,7 @@ async def update_workflow(
             "template_context_variables": template_vars,
             "call_disposition_codes": workflow.call_disposition_codes,
             "workflow_configurations": mask_workflow_configurations(workflow_configs),
+            "enable_dtmf": workflow.enable_dtmf,
             "version_number": active_def.version_number if active_def else None,
             "version_status": active_def.status if active_def else None,
         }

@@ -596,7 +596,7 @@ class PlivoProvider(TelephonyProvider):
         }
 
         try:
-            logger.debug(f"Transfer call data (bleg): {data}")
+            logger.debug(f"Initiating transfer (bleg) for transfer_id={transfer_id} to destination={destination}")
 
             async with aiohttp.ClientSession() as session:
                 auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
@@ -607,7 +607,7 @@ class PlivoProvider(TelephonyProvider):
                     response_text = await response.text()
 
                     logger.info(f"Plivo transfer bleg API response: {response_status}")
-                    logger.debug(f"Plivo transfer bleg response body: {response_text}")
+                    logger.debug(f"Plivo transfer bleg initiated")
 
                     if response_status not in [200, 201]:
                         error_msg = (

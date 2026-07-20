@@ -145,7 +145,7 @@ services:
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"
-      LOG_LEVEL: "DEBUG"
+      LOG_LEVEL: "INFO"
 
       # Set to "false" in .env to disable public signup (invite-only installs).
       ENABLE_SIGNUP: "${ENABLE_SIGNUP:-true}"
@@ -325,45 +325,6 @@ services:
       - "2000:2000" # metrics endpoint (quick-tunnel URL discovery)
     networks:
       - app-network
-
-  # dograh-asterisk — SIP/ARI gateway. A remote VICIdial SIP-trunks in here;
-  # calls route to Stasis(dograh) and dograh's ari_manager (in the api container)
-  # takes over: it reaches ARI at http://dograh-asterisk:8088 and Asterisk
-  # streams externalMedia audio back to ws://api:8000/api/v1/telephony/ws/ari —
-  # both over this compose network, so ARI/8088 is deliberately NOT published.
-  asterisk:
-    build:
-      context: ./asterisk
-      dockerfile: Dockerfile
-    image: dograh-asterisk:22
-    container_name: dograh-asterisk
-    restart: unless-stopped
-    # Asterisk is started with `-c` (interactive console). Without a TTY, its
-    # console read-loop hits instant EOF on stdin (/dev/null) and busy-spins,
-    # pinning a CPU core and spewing NUL bytes to stdout (77GB of logs in a day).
-    # Allocating a pty gives the console a blocking stdin, so it idles instead.
-    tty: true
-    stdin_open: true
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    # Config is dir-mounted from ./asterisk/etc — edit the .conf files on the host
-    # and apply with `docker exec dograh-asterisk asterisk -rx "module reload
-    # res_pjsip.so"` (or `dialplan reload`), no image rebuild. Host-specific values
-    # (public IP, ARI password, ws URI, RTP ports) are set literally in those
-    # files, so there are no env vars to configure here. Transport/port changes
-    # still need a container restart.
-    volumes:
-      - ./asterisk/etc:/etc/asterisk
-    ports:
-      - "${ASTERISK_SIP_PORT:-5060}:5060/udp" # SIP signalling
-      - "10000-10020:10000-10020/udp" # RTP media (must match rtp.conf rtpstart/rtpend)
-    networks:
-      - app-network
-    depends_on:
-      - api
 
 volumes:
   postgres_data:

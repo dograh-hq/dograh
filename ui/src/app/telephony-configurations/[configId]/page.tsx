@@ -56,6 +56,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { useOrgConfig } from "@/context/OrgConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
@@ -69,6 +70,7 @@ export default function TelephonyConfigurationDetailPage() {
 
   const { user, getAccessToken, loading: authLoading } = useAuth();
   const { config: appConfig } = useAppConfig();
+  const { externalPbxIntegrationsEnabled } = useOrgConfig();
   const inboundWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}${INBOUND_WEBHOOK_PATH}`;
   const [config, setConfig] = useState<TelephonyConfigurationDetail | null>(null);
   const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumberResponse[]>([]);
@@ -248,11 +250,13 @@ export default function TelephonyConfigurationDetailPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-            {Object.entries(config.credentials ?? {}).map(([k, v]) => (
+            {Object.entries(config.credentials ?? {})
+              .filter(([key]) => key !== "external_pbx" || externalPbxIntegrationsEnabled)
+              .map(([k, v]) => (
               <div key={k} className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">{k}</dt>
                 <dd className="font-mono text-right truncate max-w-[60%]">
-                  {String(v ?? "")}
+                  {v && typeof v === "object" ? "Configured" : String(v ?? "")}
                 </dd>
               </div>
             ))}

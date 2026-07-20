@@ -44,6 +44,11 @@ from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
 from api.services.reports import generate_workflow_report_csv
 from api.services.storage import storage_fs
+from api.services.workflow.configuration_policy import (
+    ExternalPBXConfigurationDisabledError,
+    WorkflowConfigurationNotFoundError,
+    apply_external_pbx_mapping_policy,
+)
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
@@ -1050,6 +1055,16 @@ async def update_workflow(
             if request.workflow_configurations is not None
             else None
         )
+        try:
+            workflow_configurations = await apply_external_pbx_mapping_policy(
+                workflow_configurations,
+                workflow_id=workflow_id,
+                organization_id=user.selected_organization_id,
+            )
+        except WorkflowConfigurationNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ExternalPBXConfigurationDisabledError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         if workflow_configurations and workflow_configurations.get(
             WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
         ):

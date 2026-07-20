@@ -192,6 +192,7 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
                     
                     transfer_endpoint = f"{provider.base_url}/Call/{original_call_sid}/"
                     transfer_data = {
+                        "legs": "aleg",
                         "aleg_url": aleg_answer_url,
                         "aleg_method": "POST",
                     }
@@ -209,6 +210,13 @@ async def handle_plivo_transfer_xml(conference_name: str, transfer_id: str, requ
                                         logger.info(f"Original caller bridged into conference: status={t_status}")
                                     else:
                                         logger.error(f"Failed to bridge original caller: status={t_status} body={t_text}")
+                                        
+                                # Explicitly stop the stream so Plivo is forced to execute the transfer XML immediately
+                                stop_stream_endpoint = f"{provider.base_url}/Call/{original_call_sid}/Stream/"
+                                async with session.delete(stop_stream_endpoint, auth=auth) as s_response:
+                                    s_status = s_response.status
+                                    s_text = await s_response.text()
+                                    logger.info(f"Plivo Stop Stream API called: status={s_status} body={s_text}")
                         except Exception as e:
                             logger.error(f"Error bridging original caller: {e}")
                     

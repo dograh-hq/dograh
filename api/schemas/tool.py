@@ -258,7 +258,10 @@ class ContextDestinationMappingConfig(BaseModel):
     @field_validator("context_path")
     @classmethod
     def strip_context_path(cls, value: str) -> str:
-        return value.strip()
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("context path cannot be blank")
+        return stripped
 
     @field_validator("fallback_destination")
     @classmethod

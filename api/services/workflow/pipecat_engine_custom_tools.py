@@ -626,18 +626,6 @@ class CustomToolManager:
                 is_dynamic_transfer = config.get(
                     "destination_source", "static"
                 ) == "dynamic" and isinstance(resolver, dict)
-                resolver_phase_muted = False
-
-                def clear_transfer_setup_mute_state() -> None:
-                    nonlocal resolver_phase_muted
-                    if resolver_phase_muted:
-                        self._engine.set_mute_pipeline(False)
-                        resolver_phase_muted = False
-                    self._engine._queued_speech_mute_state = "idle"
-
-                if is_dynamic_transfer:
-                    self._engine.set_mute_pipeline(True)
-                    resolver_phase_muted = True
 
                 if is_dynamic_transfer and resolver.get("wait_message"):
                     await self._engine.task.queue_frame(
@@ -647,7 +635,6 @@ class CustomToolManager:
                             persist_to_logs=True,
                         )
                     )
-                    self._engine._queued_speech_mute_state = "waiting"
 
                 try:
                     resolved_transfer = await resolve_transfer_config(
@@ -662,7 +649,6 @@ class CustomToolManager:
                     destination = resolved_transfer.destination
                     timeout_seconds = resolved_transfer.timeout_seconds
                 except TransferResolutionError as e:
-                    clear_transfer_setup_mute_state()
                     validation_error_result = {
                         "status": "failed",
                         "message": "I'm sorry, but I couldn't find a valid destination for this transfer.",
@@ -678,7 +664,6 @@ class CustomToolManager:
                     resolved_transfer.source == "context_mapping"
                     and not external_pbx_call
                 ):
-                    clear_transfer_setup_mute_state()
                     await self._handle_transfer_result(
                         {
                             "status": "failed",
@@ -702,7 +687,6 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "no_destination",
                     }
-                    clear_transfer_setup_mute_state()
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
@@ -720,11 +704,8 @@ class CustomToolManager:
                             persist_to_logs=True,
                         )
                     )
-                    self._engine._queued_speech_mute_state = "waiting"
                 else:
-                    played = await self._play_config_message(config)
-                    if played:
-                        self._engine._queued_speech_mute_state = "waiting"
+                    await self._play_config_message(config)
 
                 if external_pbx_call:
                     workflow_configurations = (
@@ -742,7 +723,6 @@ class CustomToolManager:
                         field_updates=field_updates,
                     )
                     if external_result is not None:
-                        clear_transfer_setup_mute_state()
                         if external_result.get("status") == "success":
                             self._engine._gathered_context[
                                 "external_pbx_transferred"
@@ -779,7 +759,6 @@ class CustomToolManager:
                         "action": "transfer_failed",
                         "reason": "provider_does_not_support_transfer",
                     }
-                    clear_transfer_setup_mute_state()
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
@@ -830,7 +809,6 @@ class CustomToolManager:
                 except Exception as e:
                     logger.error(f"Transfer provider failed: {e}")
                     self._engine.set_mute_pipeline(False)
-                    self._engine._queued_speech_mute_state = "idle"
                     await call_transfer_manager.remove_transfer_context(transfer_id)
                     provider_error_result = {
                         "status": "failed",
@@ -930,7 +908,6 @@ class CustomToolManager:
                     f"Transfer call tool '{function_name}' execution failed: {e}"
                 )
                 self._engine.set_mute_pipeline(False)
-                self._engine._queued_speech_mute_state = "idle"
 
                 # Handle generic exception with user-friendly message
                 exception_result = {

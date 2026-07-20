@@ -1705,7 +1705,6 @@ class TestCustomToolManagerUnit:
             call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list
         ] == [
             True,
-            True,
             False,
         ]
 
@@ -1716,8 +1715,8 @@ class TestCustomToolManagerUnit:
         assert "I will connect you with our Texas partner now." in spoken_texts
 
     @pytest.mark.asyncio
-    async def test_transfer_call_resolver_failure_resets_queued_speech_mute(self):
-        """Resolver failure after a wait message should not leave user input muted."""
+    async def test_transfer_call_resolver_failure_does_not_toggle_pipeline_mute(self):
+        """Function-call muting covers resolver execution without pipeline state."""
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
@@ -1729,7 +1728,6 @@ class TestCustomToolManagerUnit:
         mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
         mock_engine.set_mute_pipeline = Mock()
         mock_engine.end_call_with_reason = AsyncMock()
-        mock_engine._queued_speech_mute_state = "idle"
 
         manager = CustomToolManager(mock_engine)
         tool = MockToolModel(
@@ -1792,13 +1790,7 @@ class TestCustomToolManagerUnit:
 
         assert result_received["status"] == "transfer_failed"
         assert result_received["reason"] == "no_destination"
-        assert mock_engine._queued_speech_mute_state == "idle"
-        assert [
-            call.args[0] for call in mock_engine.set_mute_pipeline.call_args_list
-        ] == [
-            True,
-            False,
-        ]
+        mock_engine.set_mute_pipeline.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_transfer_call_propagates_provider_destination_error(self):

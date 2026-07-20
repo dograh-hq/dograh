@@ -566,34 +566,6 @@ def _set_nested_field(value: dict, dotted_path: str, field_value) -> None:
     current[parts[-1]] = field_value
 
 
-async def _enforce_external_pbx_feature(
-    organization_id: int,
-    provider: str,
-    credentials: dict,
-    *,
-    existing_credentials: Optional[dict] = None,
-) -> None:
-    if provider != "ari":
-        return
-    if await external_pbx_integrations_enabled(organization_id):
-        return
-    requested_external_pbx = credentials.get("external_pbx")
-    existing_external_pbx = (existing_credentials or {}).get("external_pbx")
-    if not requested_external_pbx and not existing_external_pbx:
-        return
-    # Disabling the feature hides and disables the integration, but does not
-    # destroy saved credentials. Allow only an unchanged masked round-trip.
-    if requested_external_pbx == existing_external_pbx:
-        return
-    raise HTTPException(
-        status_code=403,
-        detail=(
-            "External PBX integrations are disabled for this organization. "
-            "Enable them in Platform Settings before changing this configuration."
-        ),
-    )
-
-
 def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
     """Provider credentials only — strip provider/from_numbers from the payload."""
     payload = config.model_dump()
@@ -690,9 +662,6 @@ async def create_telephony_configuration(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     credentials = _credentials_from_payload(request.config)
-    await _enforce_external_pbx_feature(
-        user.selected_organization_id, request.config.provider, credentials
-    )
     credentials = await _run_preprocess_hook(request.config.provider, credentials)
 
     try:
@@ -774,12 +743,6 @@ async def update_telephony_configuration(
         credentials = _credentials_from_payload(request.config)
         preserve_masked_fields(
             existing.provider, credentials, existing.credentials or {}
-        )
-        await _enforce_external_pbx_feature(
-            user.selected_organization_id,
-            existing.provider,
-            credentials,
-            existing_credentials=existing.credentials or {},
         )
         credentials = await _run_preprocess_hook(existing.provider, credentials)
 

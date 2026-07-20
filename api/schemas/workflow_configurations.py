@@ -22,15 +22,15 @@ class ExternalPBXFieldMapping(BaseModel):
     context_path: str = Field(min_length=1, max_length=255)
     destination_field: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 
-    @field_validator("context_path")
+    @field_validator("context_path", mode="before")
     @classmethod
-    def strip_context_path(cls, value: str) -> str:
-        return value.strip()
+    def strip_context_path(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
-    @field_validator("destination_field")
+    @field_validator("destination_field", mode="before")
     @classmethod
-    def strip_destination_field(cls, value: str) -> str:
-        return value.strip()
+    def strip_destination_field(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class AmbientNoiseConfigurationDefaults(BaseModel):

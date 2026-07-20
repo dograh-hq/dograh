@@ -64,11 +64,21 @@ def test_cap_stays_within_concurrency_stale_timeout():
 def test_external_pbx_field_mapping_is_validated():
     config = WorkflowConfigurationDefaults(
         external_pbx_field_mappings=[
-            {"context_path": "qualified", "destination_field": "address3"}
+            {"context_path": " qualified ", "destination_field": " address3 "}
         ]
     )
 
+    assert config.external_pbx_field_mappings[0].context_path == "qualified"
     assert config.external_pbx_field_mappings[0].destination_field == "address3"
+
+
+def test_external_pbx_field_mapping_rejects_blank_context_paths():
+    with pytest.raises(ValidationError, match="context_path"):
+        WorkflowConfigurationDefaults(
+            external_pbx_field_mappings=[
+                {"context_path": "   ", "destination_field": "address3"}
+            ]
+        )
 
 
 def test_external_pbx_field_mapping_rejects_invalid_field_names():

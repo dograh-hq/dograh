@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
 
 from api.routes import organization
 from api.services import tool_management
@@ -41,42 +40,6 @@ def test_nested_masked_external_pbx_secrets_are_restored_on_update():
 
     assert request["app_password"] == "ari-secret"
     assert request["external_pbx"]["agent_api"]["password"] == "agent-secret"
-
-
-@pytest.mark.asyncio
-async def test_disabled_feature_allows_unchanged_telephony_configuration(monkeypatch):
-    monkeypatch.setattr(
-        organization,
-        "external_pbx_integrations_enabled",
-        AsyncMock(return_value=False),
-    )
-    existing = _credentials()
-
-    await organization._enforce_external_pbx_feature(
-        7,
-        "ari",
-        _credentials(),
-        existing_credentials=existing,
-    )
-
-
-@pytest.mark.asyncio
-async def test_disabled_feature_rejects_removing_telephony_configuration(monkeypatch):
-    monkeypatch.setattr(
-        organization,
-        "external_pbx_integrations_enabled",
-        AsyncMock(return_value=False),
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        await organization._enforce_external_pbx_feature(
-            7,
-            "ari",
-            {"external_pbx": None},
-            existing_credentials=_credentials(),
-        )
-
-    assert exc_info.value.status_code == 403
 
 
 @pytest.mark.asyncio

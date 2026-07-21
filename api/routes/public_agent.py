@@ -345,10 +345,16 @@ async def _execute_resolved_target(
     if target.identifier_type == "trigger_path":
         gathered_context["trigger_uuid"] = target.identifier_value
 
-    await db_client.update_workflow_run(
-        run_id=workflow_run.id,
-        gathered_context=gathered_context,
-    )
+    try:
+        await db_client.update_workflow_run(
+            run_id=workflow_run.id,
+            gathered_context=gathered_context,
+        )
+    except Exception as e:
+        logger.warning(
+            f"Call initiated for workflow run {workflow_run.id}, but failed to "
+            f"persist provider metadata: {e}"
+        )
 
     logger.info(
         f"Call initiated successfully for workflow run {workflow_run.id} "

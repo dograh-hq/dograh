@@ -320,7 +320,7 @@ async def _execute_resolved_target(
     # (e.g. Telnyx, Cloudonix); without them the URL contains "None/None" and
     # the stream connection fails.
     try:
-        await provider.initiate_call(
+        result = await provider.initiate_call(
             to_number=request.phone_number,
             webhook_url=webhook_url,
             workflow_run_id=workflow_run.id,
@@ -336,6 +336,19 @@ async def _execute_resolved_target(
             status_code=400,
             detail=f"Failed to initiate call: {e}",
         )
+
+    gathered_context = {
+        "provider": provider.PROVIDER_NAME,
+        "triggered_by": "api",
+        **(result.provider_metadata or {}),
+    }
+    if target.identifier_type == "trigger_path":
+        gathered_context["trigger_uuid"] = target.identifier_value
+
+    await db_client.update_workflow_run(
+        run_id=workflow_run.id,
+        gathered_context=gathered_context,
+    )
 
     logger.info(
         f"Call initiated successfully for workflow run {workflow_run.id} "

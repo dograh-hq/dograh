@@ -45,7 +45,14 @@ def _provider():
         PROVIDER_NAME="twilio",
         WEBHOOK_ENDPOINT="outbound",
         validate_config=Mock(return_value=True),
-        initiate_call=AsyncMock(),
+        initiate_call=AsyncMock(
+            return_value=SimpleNamespace(
+                call_id="CA123",
+                status="queued",
+                caller_number="+15550000000",
+                provider_metadata={"call_id": "CA123"},
+            )
+        ),
     )
 
 
@@ -96,6 +103,7 @@ def test_trigger_route_executes_as_workflow_owner():
             return_value=SimpleNamespace(id=55)
         )
         mock_db.create_workflow_run = AsyncMock(return_value=SimpleNamespace(id=501))
+        mock_db.update_workflow_run = AsyncMock()
 
         response = client.post(
             "/public/agent/trigger-uuid-123",
@@ -135,6 +143,15 @@ def test_trigger_route_executes_as_workflow_owner():
     assert initiate_kwargs["workflow_id"] == workflow.id
     # The media websocket URL is keyed on the org, not the workflow owner.
     assert initiate_kwargs["organization_id"] == workflow.organization_id
+    mock_db.update_workflow_run.assert_awaited_once_with(
+        run_id=501,
+        gathered_context={
+            "provider": "twilio",
+            "triggered_by": "api",
+            "call_id": "CA123",
+            "trigger_uuid": "trigger-uuid-123",
+        },
+    )
 
 
 def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
@@ -177,6 +194,7 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
             return_value=SimpleNamespace(id=55)
         )
         mock_db.create_workflow_run = AsyncMock(return_value=SimpleNamespace(id=601))
+        mock_db.update_workflow_run = AsyncMock()
 
         response = client.post(
             f"/public/agent/workflow/{workflow.workflow_uuid}",
@@ -207,6 +225,14 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
     assert create_kwargs["definition_id"] == 77
     assert "name" not in create_kwargs["initial_context"]
     assert not mock_db.get_draft_version.called
+    mock_db.update_workflow_run.assert_awaited_once_with(
+        run_id=601,
+        gathered_context={
+            "provider": "twilio",
+            "triggered_by": "api",
+            "call_id": "CA123",
+        },
+    )
 
 
 def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
@@ -262,6 +288,7 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
             return_value=SimpleNamespace(id=55)
         )
         mock_db.create_workflow_run = AsyncMock(return_value=SimpleNamespace(id=501))
+        mock_db.update_workflow_run = AsyncMock()
 
         response = client.post(
             "/public/agent/test/trigger-uuid-123",
@@ -328,6 +355,7 @@ def test_workflow_uuid_test_route_uses_draft_and_template_context():
             return_value=SimpleNamespace(id=55)
         )
         mock_db.create_workflow_run = AsyncMock(return_value=SimpleNamespace(id=501))
+        mock_db.update_workflow_run = AsyncMock()
 
         response = client.post(
             f"/public/agent/test/workflow/{workflow.workflow_uuid}",

@@ -20,6 +20,7 @@ from api.services.campaign.errors import (
 )
 from api.services.campaign.rate_limiter import rate_limiter
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
@@ -237,7 +238,10 @@ class CampaignCallDispatcher:
 
         try:
             # Get workflow details
-            workflow = await db_client.get_workflow_by_id(campaign.workflow_id)
+            workflow = await db_client.get_workflow(
+                campaign.workflow_id,
+                organization_id=campaign.organization_id,
+            )
             if not workflow:
                 raise ValueError(f"Workflow {campaign.workflow_id} not found")
 
@@ -280,6 +284,7 @@ class CampaignCallDispatcher:
 
             # Create workflow run with queued_run_id tracking
             workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
+            run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
             workflow_run = await db_client.create_workflow_run(
                 name=workflow_run_name,
                 workflow_id=campaign.workflow_id,
@@ -289,6 +294,7 @@ class CampaignCallDispatcher:
                 campaign_id=campaign.id,
                 queued_run_id=queued_run.id,  # Link to queued run for retry tracking
                 organization_id=campaign.organization_id,
+                definition_id=run_inputs.definition_id,
             )
             await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
             slot_bound = True
@@ -300,7 +306,7 @@ class CampaignCallDispatcher:
                 from_number,
                 telephony_configuration_id=campaign.telephony_configuration_id,
             )
-        except Exception as e:
+        except Exception:
             # Release slot and from_number on error
             if slot_bound and workflow_run:
                 await call_concurrency.release_workflow_run_slot(workflow_run.id)

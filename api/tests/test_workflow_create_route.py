@@ -1,5 +1,6 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -82,3 +83,51 @@ def test_create_workflow_rejects_duplicate_api_triggers_before_db_write():
     assert detail["errors"][0]["kind"] == "workflow"
     assert "at most one API Trigger" in detail["errors"][0]["message"]
     assert mock_db.mock_calls == []
+
+
+def test_create_workflow_run_uses_draft_and_template_context():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    workflow = SimpleNamespace(
+        id=33,
+        released_definition=SimpleNamespace(
+            id=77,
+            template_context_variables={"name": "published"},
+        ),
+        current_definition=None,
+        template_context_variables={"name": "workflow"},
+    )
+    draft = SimpleNamespace(
+        id=88,
+        template_context_variables={"name": "draft", "draft_only": "kept"},
+    )
+    run = SimpleNamespace(
+        id=501,
+        workflow_id=workflow.id,
+        name="WR-test",
+        mode="smallwebrtc",
+        created_at=datetime.now(UTC),
+        definition_id=draft.id,
+        initial_context={"name": "draft", "draft_only": "kept"},
+        gathered_context={},
+    )
+
+    with patch("api.routes.workflow.db_client") as mock_db:
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_draft_version = AsyncMock(return_value=draft)
+        mock_db.create_workflow_run = AsyncMock(return_value=run)
+
+        response = client.post(
+            f"/workflow/{workflow.id}/runs",
+            json={"name": "WR-test", "mode": "smallwebrtc"},
+        )
+
+    assert response.status_code == 200
+    mock_db.get_draft_version.assert_awaited_once_with(workflow.id)
+    create_kwargs = mock_db.create_workflow_run.await_args.kwargs
+    assert create_kwargs["definition_id"] == draft.id
+    assert create_kwargs["initial_context"] == {
+        "name": "draft",
+        "draft_only": "kept",
+    }

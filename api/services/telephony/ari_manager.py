@@ -38,6 +38,7 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 # Redis key pattern and TTL for channel-to-run mapping
 _CHANNEL_KEY_PREFIX = "ari:channel:"
@@ -633,6 +634,7 @@ class ARIConnection:
 
             # 3. Create workflow run
             call_id = channel_id
+            run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
             # Capture the configured external PBX identity from SIP headers.
             external_pbx_call = await self._capture_external_pbx_call(
                 channel_id, channel.get("name", "")
@@ -655,6 +657,7 @@ class ARIConnection:
                     "call_id": call_id,
                 },
                 organization_id=self.organization_id,
+                definition_id=run_inputs.definition_id,
             )
             await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
 

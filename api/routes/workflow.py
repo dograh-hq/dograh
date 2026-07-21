@@ -52,6 +52,7 @@ from api.services.workflow.configuration_policy import (
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.run_usage_response import (
     format_public_cost_info,
     format_public_usage_info,
@@ -1317,13 +1318,27 @@ async def create_workflow_run(
         request: The create workflow run request
         user: The user to create the workflow run for
     """
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    run_inputs = await prepare_workflow_run_inputs(
+        db_client,
+        workflow,
+        use_draft=True,
+        include_template_context=True,
+    )
+
     run = await db_client.create_workflow_run(
         request.name,
         workflow_id,
         request.mode,
         user.id,
-        use_draft=True,
         organization_id=user.selected_organization_id,
+        definition_id=run_inputs.definition_id,
+        initial_context=run_inputs.initial_context,
     )
     return {
         "id": run.id,

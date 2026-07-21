@@ -31,8 +31,12 @@ def _active_workflow(*, trigger_path: str | None = None):
         status="active",
         workflow_uuid="workflow-uuid-123",
         released_definition=SimpleNamespace(
-            workflow_json={"nodes": nodes, "edges": []}
+            id=77,
+            workflow_json={"nodes": nodes, "edges": []},
+            template_context_variables={"name": "published"},
         ),
+        current_definition=None,
+        template_context_variables={"name": "workflow"},
     )
 
 
@@ -123,6 +127,9 @@ def test_trigger_route_executes_as_workflow_owner():
     assert create_kwargs["initial_context"]["workflow_uuid"] == workflow.workflow_uuid
     assert create_kwargs["initial_context"]["api_key_id"] == 7
     assert create_kwargs["initial_context"]["api_key_created_by"] == 22
+    assert create_kwargs["definition_id"] == 77
+    assert "name" not in create_kwargs["initial_context"]
+    assert not mock_db.get_draft_version.called
 
     initiate_kwargs = provider.initiate_call.await_args.kwargs
     assert initiate_kwargs["workflow_id"] == workflow.id
@@ -197,6 +204,148 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
     )
     assert create_kwargs["initial_context"]["agent_identifier_type"] == "workflow_uuid"
     assert "agent_uuid" not in create_kwargs["initial_context"]
+    assert create_kwargs["definition_id"] == 77
+    assert "name" not in create_kwargs["initial_context"]
+    assert not mock_db.get_draft_version.called
+
+
+def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    workflow = _active_workflow(trigger_path="trigger-uuid-123")
+    draft = SimpleNamespace(
+        id=88,
+        workflow_json=workflow.released_definition.workflow_json,
+        template_context_variables={"name": "john", "age": 12, "rank": 2},
+    )
+    provider = _provider()
+    quota_mock = AsyncMock(
+        return_value=SimpleNamespace(has_quota=True, error_message="")
+    )
+
+    with (
+        patch("api.routes.public_agent.db_client") as mock_db,
+        patch("api.routes.public_agent.call_concurrency") as mock_concurrency,
+        patch(
+            "api.routes.public_agent.authorize_workflow_run_start",
+            new=quota_mock,
+        ),
+        patch(
+            "api.routes.public_agent.get_default_telephony_provider",
+            new=AsyncMock(return_value=provider),
+        ),
+        patch(
+            "api.routes.public_agent.get_backend_endpoints",
+            new=AsyncMock(return_value=("https://api.example.com", "wss://ignored")),
+        ),
+    ):
+        slot = object()
+        mock_concurrency.acquire_org_slot = AsyncMock(return_value=slot)
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_workflow_run_slot = AsyncMock()
+        mock_concurrency.release_slot = AsyncMock()
+
+        mock_db.validate_api_key = AsyncMock(
+            return_value=SimpleNamespace(id=7, organization_id=11, created_by=22)
+        )
+        mock_db.get_agent_trigger_by_path = AsyncMock(
+            return_value=SimpleNamespace(
+                workflow_id=workflow.id,
+                organization_id=11,
+                state="active",
+            )
+        )
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_draft_version = AsyncMock(return_value=draft)
+        mock_db.get_default_telephony_configuration = AsyncMock(
+            return_value=SimpleNamespace(id=55)
+        )
+        mock_db.create_workflow_run = AsyncMock(return_value=SimpleNamespace(id=501))
+
+        response = client.post(
+            "/public/agent/test/trigger-uuid-123",
+            headers={"X-API-Key": "test-api-key"},
+            json={
+                "phone_number": "+15551234567",
+                "initial_context": {"name": "tom", "age": 10},
+            },
+        )
+
+    assert response.status_code == 200
+    assert mock_db.get_draft_version.await_count == 2
+    create_kwargs = mock_db.create_workflow_run.await_args.kwargs
+    assert create_kwargs["definition_id"] == draft.id
+    assert create_kwargs["initial_context"]["name"] == "tom"
+    assert create_kwargs["initial_context"]["age"] == 10
+    assert create_kwargs["initial_context"]["rank"] == 2
+    assert create_kwargs["initial_context"]["trigger_mode"] == "test"
+
+
+def test_workflow_uuid_test_route_uses_draft_and_template_context():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    workflow = _active_workflow()
+    draft = SimpleNamespace(
+        id=88,
+        workflow_json={"nodes": [], "edges": []},
+        template_context_variables={"name": "john", "age": 12, "rank": 2},
+    )
+    provider = _provider()
+    quota_mock = AsyncMock(
+        return_value=SimpleNamespace(has_quota=True, error_message="")
+    )
+
+    with (
+        patch("api.routes.public_agent.db_client") as mock_db,
+        patch("api.routes.public_agent.call_concurrency") as mock_concurrency,
+        patch(
+            "api.routes.public_agent.authorize_workflow_run_start",
+            new=quota_mock,
+        ),
+        patch(
+            "api.routes.public_agent.get_default_telephony_provider",
+            new=AsyncMock(return_value=provider),
+        ),
+        patch(
+            "api.routes.public_agent.get_backend_endpoints",
+            new=AsyncMock(return_value=("https://api.example.com", "wss://ignored")),
+        ),
+    ):
+        slot = object()
+        mock_concurrency.acquire_org_slot = AsyncMock(return_value=slot)
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_workflow_run_slot = AsyncMock()
+        mock_concurrency.release_slot = AsyncMock()
+
+        mock_db.validate_api_key = AsyncMock(
+            return_value=SimpleNamespace(id=7, organization_id=11, created_by=22)
+        )
+        mock_db.get_workflow_by_uuid = AsyncMock(return_value=workflow)
+        mock_db.get_draft_version = AsyncMock(return_value=draft)
+        mock_db.get_default_telephony_configuration = AsyncMock(
+            return_value=SimpleNamespace(id=55)
+        )
+        mock_db.create_workflow_run = AsyncMock(return_value=SimpleNamespace(id=501))
+
+        response = client.post(
+            f"/public/agent/test/workflow/{workflow.workflow_uuid}",
+            headers={"X-API-Key": "test-api-key"},
+            json={
+                "phone_number": "+15551234567",
+                "initial_context": {"name": "tom"},
+            },
+        )
+
+    assert response.status_code == 200
+    assert mock_db.get_draft_version.await_count == 2
+    create_kwargs = mock_db.create_workflow_run.await_args.kwargs
+    assert create_kwargs["definition_id"] == draft.id
+    assert create_kwargs["initial_context"]["name"] == "tom"
+    assert create_kwargs["initial_context"]["age"] == 12
+    assert create_kwargs["initial_context"]["rank"] == 2
+    assert create_kwargs["initial_context"]["trigger_mode"] == "test"
 
 
 def test_trigger_route_rejects_when_concurrency_limit_reached():

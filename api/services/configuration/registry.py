@@ -1307,15 +1307,6 @@ class XAITTSConfiguration(BaseServiceConfiguration):
         description="BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de'), or 'auto' for automatic language detection.",
         json_schema_extra={"allow_custom_input": True},
     )
-    transport: Literal["http", "websocket"] = Field(
-        default="http",
-        description=(
-            "xAI TTS transport. 'http' calls the batch REST endpoint (default). "
-            "'websocket' streams audio over xAI's realtime WebSocket endpoint "
-            "instead, for lower time-to-first-byte on live voice calls."
-        ),
-    )
-
     @computed_field
     @property
     def model(self) -> str:

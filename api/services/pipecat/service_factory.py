@@ -86,12 +86,7 @@ from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
 )
-from pipecat.services.xai.tts import (
-    XAIHttpTTSService,
-    XAITTSService,
-    XAITTSSettings,
-    XAIWebsocketTTSSettings,
-)
+from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -823,25 +818,9 @@ def create_tts_service(
                 pipecat_language = Language(language_code)
             except ValueError:
                 pipecat_language = Language.EN
-        if getattr(user_config.tts, "transport", "http") == "websocket":
-            # Streams over xAI's realtime WebSocket endpoint instead of the
-            # batch HTTP endpoint: lower time-to-first-byte for live voice
-            # calls, at the cost of one long-lived connection per call.
-            return XAITTSService(
-                api_key=user_config.tts.api_key,
-                settings=XAIWebsocketTTSSettings(
-                    voice=voice,
-                    language=pipecat_language,
-                ),
-                text_filters=[xml_function_tag_filter],
-                skip_aggregator_types=["recording_router", "recording"],
-                silence_time_s=1.0,
-            )
-        return XAIHttpTTSService(
+        return XAITTSService(
             api_key=user_config.tts.api_key,
-            sample_rate=audio_config.transport_out_sample_rate,
-            encoding="pcm",
-            settings=XAITTSSettings(
+            settings=XAIWebsocketTTSSettings(
                 voice=voice,
                 language=pipecat_language,
             ),

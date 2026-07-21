@@ -251,6 +251,10 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
     assert workflow_run.initial_context == {
         "name": "explicit",
         "draft_only": "kept",
+        "runtime_configuration": {
+            "llm_provider": "openai",
+            "llm_model": "gpt-4.1",
+        },
     }
     assert "call_duration_seconds" in workflow_run.usage_info
     assert _log_texts(run_payload["logs"], "rtf-bot-text") == [

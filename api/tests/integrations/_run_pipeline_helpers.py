@@ -236,6 +236,7 @@ async def create_workflow_run_rows(
         workflow_id=workflow.id,
         mode=WorkflowRunMode.SMALLWEBRTC.value,
         user_id=user.id,
+        definition_id=workflow.released_definition_id,
     )
 
     return workflow_run, user, workflow

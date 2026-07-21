@@ -1332,7 +1332,6 @@ class XAITTSConfiguration(BaseServiceConfiguration):
         description="BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de'), or 'auto' for automatic language detection.",
         json_schema_extra={"allow_custom_input": True},
     )
-
     @computed_field
     @property
     def model(self) -> str:

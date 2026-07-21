@@ -56,7 +56,7 @@ Once enabled, configure two things:
 
 For example:
 
-```
+```text
 Extraction Prompt:
 Extract the payment outcome from this debt collection call.
 
@@ -66,35 +66,35 @@ Variables:
 - sentiment (string): User tone: cooperative, hesitant, angry, refused.
 ```
 
-Each extracted value is stored in `gathered_context` and can be referenced in downstream nodes and webhook payloads as `{{gathered_context.variable_name}}`.
+Each extracted value is stored in `gathered_context`. It is not available in any node's Prompt - reference it in [Webhook node](./webhook) payloads as `{{gathered_context.variable_name}}`, or read it from the run record after the call completes.
 
 ## Using multiple Agent Nodes
 
 Break complex conversations into phases. Each Agent Node handles one part of the flow. A debt collection workflow, for example, might chain three Agent Nodes: identity verification, offer presentation, and objection handling.
 
-Nodes pass context forward automatically. Variables extracted in one node are stored in `gathered_context` and available in the prompt of the next node using `{{gathered_context.field_name}}` syntax.
+Nodes pass context forward automatically, but not into prompts. Variables extracted in one node are stored in `gathered_context` and merged with variables from later nodes as the call progresses. `gathered_context` is not available in any node's Prompt - it can only be referenced in [Webhook node](./webhook) payloads and in the run record after the call completes. If a later Agent Node needs to react to something extracted earlier, that logic has to live in the prompt's own instructions, not in a `{{gathered_context...}}` reference.
 
 ## Common mistakes
 
 **No outgoing edges.** Every Agent Node needs at least one edge. A dead-end node has no exit path and will trap the call.
 
-**Putting global instructions in the Agent prompt.** Rules that apply across the entire workflow - persona, tone, compliance guardrails - belong in the [Global Node](/voice-agent/global), not repeated in every Agent Node.
+**Putting global instructions in the Agent prompt.** Rules that apply across the entire workflow - persona, tone, compliance guardrails - belong in the [Global Node](./global), not repeated in every Agent Node.
 
 **Vague edge conditions.** The LLM picks the edge that best matches the conversation state. Overly broad conditions cause unpredictable routing between nodes.
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="End Call Node" href="/voice-agent/end-call">
+  <Card title="End Call Node" href="./end-call">
     Terminate the conversation with a closing message.
   </Card>
-  <Card title="Global Node" href="/voice-agent/global">
+  <Card title="Global Node" href="./global">
     Write shared instructions that apply to every node.
   </Card>
-  <Card title="Context and Variables" href="/core-concepts/context-and-variables">
-    Understand how `gathered_context` flows between nodes.
+  <Card title="Context and Variables" href="../core-concepts/context-and-variables">
+    Understand how `gathered_context` is built and where it can be referenced.
   </Card>
-  <Card title="QA Node" href="/voice-agent/qa">
+  <Card title="QA Node" href="./qa">
     Evaluate agent performance automatically after each call.
   </Card>
 </CardGroup>

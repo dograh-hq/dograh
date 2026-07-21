@@ -23,19 +23,14 @@ System instructions for what the agent says before the call ends. You can make t
 
 For example:
 
-```
+```text
 If the caller committed to a payment, confirm the arrangement: the
 exact amount and expected processing time. If no commitment was made,
 thank them for their time and let them know they can call back to
 discuss options. Always close professionally.
 ```
 
-You can reference `gathered_context` variables here to pull in specific details from the conversation:
-
-```
-The caller committed to {{gathered_context.payment_option_chosen}}.
-Confirm this amount and thank them before ending the call.
-```
+The Prompt cannot reference `gathered_context` - variables extracted by this or earlier nodes are not available in any node's Prompt. To act on extracted data, send it out via a [Webhook node](./webhook) instead.
 
 **Add Global Prompt**
 
@@ -60,16 +55,16 @@ Check every Agent Node for a path to End Call before publishing. Nodes with no d
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="QA Node" href="/voice-agent/qa">
+  <Card title="QA Node" href="./qa">
     Automatically evaluate calls after they end.
   </Card>
-  <Card title="Webhook Node" href="/voice-agent/webhook">
+  <Card title="Webhook Node" href="./webhook">
     Sync call outcomes to your CRM or external systems.
   </Card>
-  <Card title="Agent Node" href="/voice-agent/agent">
+  <Card title="Agent Node" href="./agent">
     Configure the conversation logic that routes into End Call.
   </Card>
-  <Card title="Context and Variables" href="/core-concepts/context-and-variables">
-    Reference `gathered_context` variables in your End Call prompt.
+  <Card title="Context and Variables" href="../core-concepts/context-and-variables">
+    Learn where `gathered_context` can and cannot be referenced.
   </Card>
 </CardGroup>

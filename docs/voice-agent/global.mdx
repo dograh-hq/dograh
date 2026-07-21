@@ -1,6 +1,6 @@
 ---
 title: "Global Node"
-description: "Global Node contain the common prompt that is appended to the prompt of every node, in which `Add Global Prompt` is turned on."
+description: "Global Node contain the common prompt that is prepended to the prompt of every node, in which `Add Global Prompt` is turned on."
 ---
 
 <Note>
@@ -40,17 +40,17 @@ Turn the toggle off selectively when a specific node needs different behavior. A
 
 **Putting node-specific logic in the Global Node.** Global is for rules that always apply, not for conversation-specific decisions. Sequence and outcome logic belong in each Agent Node prompt.
 
-**Leaving the Global Node prompt empty with toggles on.** A blank Global Node appended to every prompt does nothing harmful, but it is also pointless. Either fill it in or leave the toggle off.
+**Leaving the Global Node prompt empty with toggles on.** A blank Global Node prepended to every prompt does nothing harmful, but it is also pointless. Either fill it in or leave the toggle off.
 
 **Adding a second Global Node.** Each workflow supports exactly one. Adding a second throws an error.
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Start Call Node" href="/voice-agent/start-call">
+  <Card title="Start Call Node" href="./start-call">
     Configure how your agent opens the conversation.
   </Card>
-  <Card title="Agent Node" href="/voice-agent/agent">
+  <Card title="Agent Node" href="./agent">
     Build the core conversation logic that inherits your global prompt.
   </Card>
 </CardGroup>

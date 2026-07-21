@@ -31,12 +31,12 @@ Optional fixed line spoken via TTS the moment the call connects, before the AI's
 
 For example:
 
-```
+```text
 Hi {{initial_context.debtor_name}}, this is Alex from Apex Recovery Solutions.
 ```
 
 <Note>
-See [Pre-recorded Audio](/voice-agent/pre-recorded-audio) to use a recording file instead of TTS text.
+See [Pre-recorded Audio](./pre-recorded-audio) to use a recording file instead of TTS text.
 </Note>
 
 **Prompt** (required)
@@ -45,7 +45,7 @@ System instructions for the AI's opening conversational turn. Runs after Greetin
 
 For example:
 
-```
+```text
 After greeting the caller, confirm you are speaking with
 {{initial_context.debtor_name}}. If they confirm, move to Debt Disclosure.
 If they say wrong number, move to End Call.
@@ -94,7 +94,7 @@ Each edge needs two things:
 
 A typical Start Call has two edges:
 
-```
+```text
 Label: "caller confirmed"
 Condition: "The caller confirmed they are the right person and are ready to continue."
 
@@ -108,23 +108,23 @@ You can add more edges if the opening turn needs to branch further.
 
 **Leaving Greeting Text empty with no Prompt.** If both Greeting Text and Prompt are empty, the agent says nothing at the start of the call. The caller hears silence.
 
-**Confusing Node Name with the agent's spoken name.** Node Name is a canvas label for your own reference. The name the agent introduces itself as comes from the Greeting Text or Prompt content, or the persona you define in the [Global Node](/voice-agent/global).
+**Confusing Node Name with the agent's spoken name.** Node Name is a canvas label for your own reference. The name the agent introduces itself as comes from the Greeting Text or Prompt content, or the persona you define in the [Global Node](./global).
 
 **Adding a second Start Call node.** Each workflow has one entry point. A second Start Call node will throw an error.
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Agent Node" href="/voice-agent/agent">
+  <Card title="Agent Node" href="./agent">
     Build the core conversation logic that follows the greeting.
   </Card>
-  <Card title="Global Node" href="/voice-agent/global">
+  <Card title="Global Node" href="./global">
     Set persona and tone rules that apply across all nodes.
   </Card>
-  <Card title="Context and Variables" href="/core-concepts/context-and-variables">
+  <Card title="Context and Variables" href="../core-concepts/context-and-variables">
     Learn how `initial_context` variables flow through a call.
   </Card>
-  <Card title="End Call Node" href="/voice-agent/end-call">
+  <Card title="End Call Node" href="./end-call">
     Configure the agent's final message before the call drops.
   </Card>
 </CardGroup>

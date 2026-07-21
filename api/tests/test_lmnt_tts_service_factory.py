@@ -50,8 +50,9 @@ def test_create_lmnt_tts_service_uses_pipeline_compatible_audio_format(
     kwargs = mock_service.call_args.kwargs
     assert kwargs["api_key"] == "test-key"
     assert kwargs["sample_rate"] == transport_out_sample_rate
-    # Raw PCM keeps the audio compatible with the telephony/output transport.
-    assert kwargs["output_format"] == "pcm_s16le"
+    # LMNT's "raw" format returns signed 16-bit PCM at the requested sample
+    # rate, which the output transport consumes directly.
+    assert kwargs["output_format"] == "raw"
     assert kwargs["settings"].voice == "daniel"
     assert kwargs["settings"].model == "blizzard"
     assert kwargs["settings"].language == Language.EN

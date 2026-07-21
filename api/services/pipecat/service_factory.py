@@ -839,7 +839,10 @@ def create_tts_service(
         return LmntTTSService(
             api_key=user_config.tts.api_key,
             sample_rate=audio_config.transport_out_sample_rate,
-            output_format="pcm_s16le",
+            # LMNT's streaming `format` field expects "raw" for signed 16-bit PCM
+            # at the requested sample rate, which is what the output transport
+            # consumes; "pcm_s16le" is not a valid LMNT format value.
+            output_format="raw",
             settings=LmntTTSSettings(
                 voice=voice,
                 language=pipecat_language,

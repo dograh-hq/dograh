@@ -113,7 +113,11 @@ def test_lmnt_key_validation_accepts_valid_key():
         assert validator._check_lmnt_api_key("aurora", "lmnt-valid-key") is True
     called_url = mock_get.call_args.args[0]
     assert called_url == "https://api.lmnt.com/v1/ai/voice/list"
-    assert mock_get.call_args.kwargs["headers"]["X-API-Key"] == "lmnt-valid-key"
+    headers = mock_get.call_args.kwargs["headers"]
+    assert headers["X-API-Key"] == "lmnt-valid-key"
+    # LMNT requires the version header; without it the request is rejected as
+    # malformed rather than authenticated, defeating the smoke test.
+    assert headers["lmnt-version"] == "1.1"
 
 
 def test_lmnt_key_validation_rejects_bad_key():

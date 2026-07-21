@@ -411,7 +411,7 @@ class UserConfigurationValidator:
         try:
             response = httpx.get(
                 "https://api.lmnt.com/v1/ai/voice/list",
-                headers={"X-API-Key": api_key},
+                headers={"X-API-Key": api_key, "lmnt-version": "1.1"},
                 timeout=10.0,
             )
         except httpx.RequestError:

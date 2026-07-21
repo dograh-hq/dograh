@@ -1,0 +1,138 @@
+---
+title: "VICIdial Integration"
+description: "Connect Dograh to VICIdial through Asterisk ARI for call control, in-group transfers, and lead updates"
+---
+
+## Overview
+
+Use this integration when VICIdial owns the customer call and connects Dograh
+to it through Asterisk. Dograh uses Asterisk ARI for audio and VICIdial APIs for
+operations that must affect the original customer leg:
+
+- Hang up the customer call when the agent ends the conversation
+- Transfer the customer to a VICIdial in-group
+- Update selected VICIdial lead fields from gathered workflow context
+
+VICIdial controls are an advanced organization feature. Users who do not enable
+the feature do not see VICIdial configuration, transfer mappings, or lead field
+mappings in the UI.
+
+## Prerequisites
+
+Before configuring VICIdial, ensure that:
+
+- Asterisk ARI is connected to Dograh as described in the
+  [Asterisk ARI integration](./asterisk-ari)
+- VICIdial sends the customer call to the Asterisk dialplan that enters the
+  Dograh Stasis application
+- You have VICIdial agent API credentials with permission to hang up and
+  perform in-group transfers
+- If workflows will update leads, you also have non-agent API credentials with
+  permission to call `update_lead`
+
+## Enable the organization feature
+
+1. Open **Platform Settings** by going to https://app.dograh.com/settings
+2. Enable **External PBX integrations**.
+
+This switch reveals the advanced settings in Asterisk telephony
+configurations, Transfer Call tools, and workflow configurations. Disabling it
+hides and disables those controls without deleting their saved values.
+
+## Configure VICIdial credentials
+
+1. Open **Telephony Configurations**.
+2. Create or edit an **Asterisk ARI** configuration.
+3. In **External PBX**, set **External PBX Type** to **VICIdial**.
+4. Configure the agent API:
+   - **Agent API URL**: normally ends in `/agc/api.php`
+   - **Agent API User**
+   - **Agent API Password**
+5. To update leads, configure the non-agent API:
+   - **Non-Agent API URL**: normally ends in `/vicidial/non_agent_api.php`
+   - **Non-Agent API User**
+   - **Non-Agent API Password**
+6. Save the configuration.
+
+The non-agent API is optional when no lead updates are required. If it is used,
+its URL, user, and password must all be present. Credentials are stored with the
+telephony configuration and are returned masked by the Dograh API.
+
+## Pass VICIdial call identity to Asterisk
+
+Dograh needs VICIdial's call identity to control the original customer leg.
+Configure VICIdial or the connecting dialplan to preserve these SIP headers on
+the call that enters the Dograh Stasis application:
+
+| Header | Purpose |
+| --- | --- |
+| `X-VICIDIAL-callerid` | Call-control identifier used by the agent API |
+| `X-VICIDIAL-user` | Remote-agent user used by the agent API |
+| `X-VICIDIAL-lead_id` | Lead identifier used by optional lead updates |
+| `X-VICIDIAL-campaign_id` | **(Optional)** Campaign context retained with the call |
+| `X-VICIDIAL-ingroup_id` | **(Optional)** Original in-group available to transfer fallback routing |
+
+Hangup and transfer require the call-control identifier and remote-agent user.
+Lead updates additionally require the lead ID. The source in-group header is
+only required when a transfer mapping uses the `source` fallback.
+
+## Configure in-group transfers
+
+In-group mappings select a VICIdial destination from information gathered by
+the agent during a call.
+
+1. Open or create a **Transfer Call** tool.
+2. Select **Context Mapping** as the destination source.
+3. Enter a context path, such as `qualified` or
+   `extracted_variables.qualified`.
+4. Add one route for each expected value and its destination in-group ID.
+5. Optionally configure a fallback in-group. Enter `source` to return the
+   caller to the original in-group captured from the SIP headers.
+6. Save the tool and attach it to the workflow.
+
+The match is case-insensitive. Dograh performs final variable extraction before
+resolving the mapping. If no route or fallback matches, the transfer fails and
+the agent can recover instead of silently hanging up the caller.
+
+## Configure lead field mappings
+
+Lead field mappings copy selected values from gathered context into the
+VICIdial lead before transfer or hangup.
+
+1. Open the workflow's **Configurations** dialog.
+2. In **External PBX Field Updates**, add a mapping.
+3. Enter the gathered-context path and the destination VICIdial lead field.
+4. Add any additional mappings and save the workflow configuration.
+
+For example, map `extracted_variables.customer_state` to `state`. A context
+path can address a direct gathered-context value or a nested value. Mappings
+whose source value is absent are skipped.
+
+The VICIdial adapter ignores mappings that target the API control parameters
+`source`, `user`, `pass`, `function`, and `lead_id`. The non-agent API
+configuration is required for mappings to be applied. A lead-update failure
+does not prevent Dograh from attempting the requested transfer or hangup.
+
+## Runtime behavior
+
+When the workflow transfers the call, Dograh resolves the configured in-group,
+applies available lead updates, asks VICIdial to transfer the customer leg, and
+then closes only the local Asterisk media leg.
+
+When the conversation ends without a transfer, Dograh persists final gathered
+context, applies available lead updates, asks VICIdial to hang up the customer
+leg, and then closes the local Asterisk leg.
+
+## Troubleshooting
+
+- **VICIdial settings are not visible:** enable **External PBX integrations**
+  in Platform Settings.
+- **The local media leg ends but the customer remains connected:** confirm that
+  `X-VICIDIAL-callerid` and `X-VICIDIAL-user` reach Asterisk and that the agent
+  API credentials can control the call.
+- **A transfer cannot resolve a destination:** inspect the workflow's final
+  gathered context, the configured context path, and the mapping values.
+- **The `source` fallback fails:** ensure `X-VICIDIAL-ingroup_id` is present on
+  the inbound call.
+- **Lead fields are unchanged:** confirm `X-VICIDIAL-lead_id`, the non-agent API
+  credentials, and the destination field names.

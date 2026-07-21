@@ -24,10 +24,7 @@ def test_xai_tts_configuration_defaults():
     assert XAI_TTS_VOICES == ["eve", "ara", "leo", "rex", "sal"]
 
 
-@pytest.mark.parametrize("transport_out_sample_rate", [8000, 16000])
-def test_create_xai_tts_service_uses_pipeline_compatible_audio_format(
-    transport_out_sample_rate,
-):
+def test_create_xai_tts_service_uses_websocket_streaming():
     user_config = SimpleNamespace(
         tts=SimpleNamespace(
             provider=ServiceProviders.XAI.value,
@@ -38,20 +35,18 @@ def test_create_xai_tts_service_uses_pipeline_compatible_audio_format(
         )
     )
     audio_config = SimpleNamespace(
-        transport_out_sample_rate=transport_out_sample_rate,
+        transport_out_sample_rate=24000,
         transport_in_sample_rate=16000,
     )
 
-    with patch(
-        "api.services.pipecat.service_factory.XAIHttpTTSService"
-    ) as mock_service:
+    with patch("api.services.pipecat.service_factory.XAITTSService") as mock_service:
         create_tts_service(user_config, audio_config)
 
     assert mock_service.call_count == 1
     kwargs = mock_service.call_args.kwargs
     assert kwargs["api_key"] == "test-key"
-    assert kwargs["sample_rate"] == transport_out_sample_rate
-    assert kwargs["encoding"] == "pcm"
+    # Sample rate is resolved from the pipeline StartFrame, like other providers.
+    assert "sample_rate" not in kwargs
     assert kwargs["settings"].voice == "rex"
     assert kwargs["settings"].language == Language.EN
 
@@ -71,9 +66,7 @@ def test_create_xai_tts_service_converts_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch(
-        "api.services.pipecat.service_factory.XAIHttpTTSService"
-    ) as mock_service:
+    with patch("api.services.pipecat.service_factory.XAITTSService") as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
@@ -95,9 +88,7 @@ def test_create_xai_tts_service_falls_back_to_english_for_unknown_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch(
-        "api.services.pipecat.service_factory.XAIHttpTTSService"
-    ) as mock_service:
+    with patch("api.services.pipecat.service_factory.XAITTSService") as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
@@ -119,9 +110,7 @@ def test_create_xai_tts_service_preserves_auto_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch(
-        "api.services.pipecat.service_factory.XAIHttpTTSService"
-    ) as mock_service:
+    with patch("api.services.pipecat.service_factory.XAITTSService") as mock_service:
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs

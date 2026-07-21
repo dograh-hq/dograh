@@ -50,6 +50,45 @@ interface ConfigFormDialogProps {
 type FieldValue = string | number | boolean | undefined;
 type FieldValues = Record<string, FieldValue>;
 
+function flattenValues(
+  value: Record<string, unknown>,
+  prefix = "",
+): FieldValues {
+  const flattened: FieldValues = {};
+  for (const [key, child] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (child && typeof child === "object" && !Array.isArray(child)) {
+      Object.assign(flattened, flattenValues(child as Record<string, unknown>, path));
+    } else if (
+      child === undefined ||
+      typeof child === "string" ||
+      typeof child === "number" ||
+      typeof child === "boolean"
+    ) {
+      flattened[path] = child;
+    }
+  }
+  return flattened;
+}
+
+function nestValues(values: FieldValues): Record<string, unknown> {
+  const nested: Record<string, unknown> = {};
+  for (const [path, value] of Object.entries(values)) {
+    if (value === undefined || value === "") continue;
+    const parts = path.split(".");
+    let current = nested;
+    for (const part of parts.slice(0, -1)) {
+      const child = current[part];
+      if (!child || typeof child !== "object" || Array.isArray(child)) {
+        current[part] = {};
+      }
+      current = current[part] as Record<string, unknown>;
+    }
+    current[parts[parts.length - 1]] = value;
+  }
+  return nested;
+}
+
 export function ConfigFormDialog({
   open,
   onOpenChange,
@@ -71,6 +110,15 @@ export function ConfigFormDialog({
     () => providers.find((p) => p.provider === providerName),
     [providers, providerName],
   );
+  const visibleFields = useMemo(
+    () =>
+      currentProvider?.fields.filter(
+        (field) =>
+          !field.visible_when ||
+          values[field.visible_when.field] === field.visible_when.equals,
+      ) ?? [],
+    [currentProvider, values],
+  );
 
   // Fetch provider metadata once when the dialog opens.
   useEffect(() => {
@@ -88,7 +136,7 @@ export function ConfigFormDialog({
         setProviderName(existing.provider);
         setName(existing.name);
         setIsDefault(existing.is_default_outbound);
-        setValues((existing.credentials ?? {}) as FieldValues);
+        setValues(flattenValues(existing.credentials ?? {}));
       } else if (list.length > 0 && !providerName) {
         setProviderName(list[0].provider);
         setValues({});
@@ -106,7 +154,15 @@ export function ConfigFormDialog({
   }, [providerName, isEdit]);
 
   const updateField = (fieldName: string, value: FieldValue) => {
-    setValues((prev) => ({ ...prev, [fieldName]: value }));
+    setValues((prev) => {
+      const next = { ...prev, [fieldName]: value };
+      if (value === undefined) {
+        for (const field of currentProvider?.fields ?? []) {
+          if (field.visible_when?.field === fieldName) delete next[field.name];
+        }
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async () => {
@@ -123,7 +179,7 @@ export function ConfigFormDialog({
       // Build the provider-discriminated config payload from collected values.
       const configPayload = {
         provider: providerName,
-        ...values,
+        ...nestValues(values),
       } as unknown as TelephonyConfigPayload;
 
       if (isEdit && existing) {
@@ -253,8 +309,13 @@ export function ConfigFormDialog({
 
           {currentProvider && (
             <div className="space-y-3 border-t pt-3">
-              {currentProvider.fields.map((field) => (
+              {visibleFields.map((field, index) => (
                 <div className="space-y-1" key={field.name}>
+                  {field.section && field.section !== visibleFields[index - 1]?.section && (
+                    <div className="pb-2 pt-3">
+                      <h3 className="text-sm font-semibold">{field.section}</h3>
+                    </div>
+                  )}
                   <Label htmlFor={`cfg-field-${field.name}`}>
                     {field.label}
                     {!field.required && (
@@ -343,6 +404,26 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
         checked={Boolean(value)}
         onCheckedChange={onChange}
       />
+    );
+  }
+  if (field.type === "select") {
+    return (
+      <Select
+        value={value === undefined ? "__none__" : String(value)}
+        onValueChange={(next) => onChange(next === "__none__" ? undefined : next)}
+      >
+        <SelectTrigger id={`cfg-field-${field.name}`}>
+          <SelectValue placeholder={placeholder || "Select an option"} />
+        </SelectTrigger>
+        <SelectContent>
+          {!field.required && <SelectItem value="__none__">Not configured</SelectItem>}
+          {(field.options ?? []).map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     );
   }
   return (

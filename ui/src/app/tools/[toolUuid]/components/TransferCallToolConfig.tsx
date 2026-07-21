@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus, Trash2 } from "lucide-react";
+
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
 import {
@@ -12,6 +14,7 @@ import {
     type ToolParameter,
     UrlInput,
 } from "@/components/http";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
+    type ContextDestinationRouteRow,
     type EndCallMessageType,
     type TransferDestinationSource,
 } from "../../config";
@@ -56,6 +60,13 @@ export interface TransferCallToolConfigProps {
     onParametersChange: (parameters: ToolParameter[]) => void;
     presetParameters: PresetToolParameter[];
     onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
+    externalPbxRoutingEnabled: boolean;
+    contextMappingPath: string;
+    onContextMappingPathChange: (path: string) => void;
+    contextDestinationRoutes: ContextDestinationRouteRow[];
+    onContextDestinationRoutesChange: (routes: ContextDestinationRouteRow[]) => void;
+    fallbackDestination: string;
+    onFallbackDestinationChange: (destination: string) => void;
 }
 
 export function TransferCallToolConfig({
@@ -90,6 +101,13 @@ export function TransferCallToolConfig({
     onParametersChange,
     presetParameters,
     onPresetParametersChange,
+    externalPbxRoutingEnabled,
+    contextMappingPath,
+    onContextMappingPathChange,
+    contextDestinationRoutes,
+    onContextDestinationRoutesChange,
+    fallbackDestination,
+    onFallbackDestinationChange,
 }: TransferCallToolConfigProps) {
     return (
         <Card>
@@ -217,14 +235,22 @@ export function TransferCallToolConfig({
                             Choose whether the transfer uses a configured destination or resolves one from an HTTP endpoint.
                         </p>
                     </div>
-                    <Tabs
+                    {!externalPbxRoutingEnabled && destinationSource === "context_mapping" ? (
+                        <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                            This tool has advanced external-PBX routing configured. Enable
+                            External PBX integrations in Platform Settings to view or change it.
+                        </div>
+                    ) : <Tabs
                         value={destinationSource}
                         onValueChange={(v) => onDestinationSourceChange(v as TransferDestinationSource)}
                         className="w-full"
                     >
-                        <TabsList className="grid w-full grid-cols-2">
+                        <TabsList className={`grid w-full ${externalPbxRoutingEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
                             <TabsTrigger value="static">Static / Template</TabsTrigger>
                             <TabsTrigger value="dynamic">Dynamic HTTP Resolver</TabsTrigger>
+                            {externalPbxRoutingEnabled && (
+                                <TabsTrigger value="context_mapping">Context Mapping</TabsTrigger>
+                            )}
                         </TabsList>
 
                         <TabsContent value="static" className="space-y-4 mt-4">
@@ -343,7 +369,100 @@ export function TransferCallToolConfig({
                                 />
                             </div>
                         </TabsContent>
-                    </Tabs>
+                        {externalPbxRoutingEnabled && (
+                            <TabsContent value="context_mapping" className="space-y-5 mt-4">
+                                <div>
+                                    <Label>External PBX Context Routing</Label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Resolve a gathered-context value to a provider-native destination.
+                                        Matching ignores case and surrounding whitespace.
+                                    </p>
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="pbx-context-path">Gathered Context Field</Label>
+                                    <Input
+                                        id="pbx-context-path"
+                                        value={contextMappingPath}
+                                        onChange={(event) => onContextMappingPathChange(event.target.value)}
+                                        placeholder="qualified or extracted_variables.qualified"
+                                    />
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Value to Destination Mappings</Label>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => onContextDestinationRoutesChange([
+                                                ...contextDestinationRoutes,
+                                                {
+                                                    id: crypto.randomUUID(),
+                                                    context_value: "",
+                                                    destination: "",
+                                                },
+                                            ])}
+                                        >
+                                            <Plus className="mr-1 h-4 w-4" /> Add mapping
+                                        </Button>
+                                    </div>
+                                    {contextDestinationRoutes.map((route, index) => (
+                                        <div key={route.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                                            <Input
+                                                aria-label={`Context value ${index + 1}`}
+                                                value={route.context_value}
+                                                onChange={(event) => onContextDestinationRoutesChange(
+                                                    contextDestinationRoutes.map((item) =>
+                                                        item.id === route.id
+                                                            ? { ...item, context_value: event.target.value }
+                                                            : item
+                                                    )
+                                                )}
+                                                placeholder="Context value"
+                                            />
+                                            <Input
+                                                aria-label={`PBX destination ${index + 1}`}
+                                                value={route.destination}
+                                                onChange={(event) => onContextDestinationRoutesChange(
+                                                    contextDestinationRoutes.map((item) =>
+                                                        item.id === route.id
+                                                            ? { ...item, destination: event.target.value }
+                                                            : item
+                                                    )
+                                                )}
+                                                placeholder="Provider destination"
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                aria-label={`Remove mapping ${index + 1}`}
+                                                onClick={() => onContextDestinationRoutesChange(
+                                                    contextDestinationRoutes.filter((item) => item.id !== route.id)
+                                                )}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                    {contextDestinationRoutes.length === 0 && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Add at least one mapping.
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="pbx-fallback-destination">Fallback Destination (Optional)</Label>
+                                    <Input
+                                        id="pbx-fallback-destination"
+                                        value={fallbackDestination}
+                                        onChange={(event) => onFallbackDestinationChange(event.target.value)}
+                                        placeholder="Provider-native fallback destination"
+                                    />
+                                </div>
+                            </TabsContent>
+                        )}
+                    </Tabs>}
                 </div>
             </CardContent>
         </Card>

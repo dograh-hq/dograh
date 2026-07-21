@@ -86,7 +86,7 @@ from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
 )
-from pipecat.services.xai.tts import XAIHttpTTSService, XAITTSSettings
+from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -227,7 +227,6 @@ def create_stt_service(
         # Other models than flux
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
-        logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
             api_key=user_config.stt.api_key,
             settings=DeepgramSTTSettings(
@@ -818,11 +817,9 @@ def create_tts_service(
                 pipecat_language = Language(language_code)
             except ValueError:
                 pipecat_language = Language.EN
-        return XAIHttpTTSService(
+        return XAITTSService(
             api_key=user_config.tts.api_key,
-            sample_rate=audio_config.transport_out_sample_rate,
-            encoding="pcm",
-            settings=XAITTSSettings(
+            settings=XAIWebsocketTTSSettings(
                 voice=voice,
                 language=pipecat_language,
             ),
@@ -1009,6 +1006,13 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             SessionProperties,
         )
 
+        # Pin the transcription language when configured. Without it the model
+        # auto-detects per utterance, which misfires on short/noisy telephony
+        # audio (e.g. Portuguese transcribed as English or Chinese).
+        transcription_kwargs = {}
+        if language:
+            transcription_kwargs["language"] = language
+
         return DograhOpenAIRealtimeLLMService(
             api_key=api_key,
             settings=DograhOpenAIRealtimeLLMService.Settings(
@@ -1016,7 +1020,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 session_properties=SessionProperties(
                     audio=AudioConfiguration(
                         input=AudioInput(
-                            transcription=InputAudioTranscription(),
+                            transcription=InputAudioTranscription(
+                                **transcription_kwargs
+                            ),
                         ),
                         output=AudioOutput(
                             voice=voice or "alloy",

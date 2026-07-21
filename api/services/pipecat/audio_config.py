@@ -52,16 +52,6 @@ class AudioConfig:
             )
             self.pipeline_sample_rate = 16000
 
-        # Log configuration for auditing
-        logger.info(
-            f"AudioConfig initialized: "
-            f"transport_in={self.transport_in_sample_rate}Hz, "
-            f"transport_out={self.transport_out_sample_rate}Hz, "
-            f"vad={self.vad_sample_rate}Hz, "
-            f"pipeline={self.pipeline_sample_rate}Hz, "
-            f"buffer={self.buffer_size_seconds}s"
-        )
-
     @property
     def buffer_size_bytes(self) -> int:
         """Calculate buffer size in bytes based on pipeline sample rate."""

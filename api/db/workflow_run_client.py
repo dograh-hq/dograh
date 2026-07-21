@@ -229,6 +229,26 @@ class WorkflowRunClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def get_workflow_run_configurations(
+        self, run_id: int, organization_id: int
+    ) -> dict:
+        """Load the immutable workflow configuration snapshot for one run."""
+
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowDefinitionModel.workflow_configurations)
+                .join(
+                    WorkflowRunModel,
+                    WorkflowRunModel.definition_id == WorkflowDefinitionModel.id,
+                )
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == run_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+            )
+            return result.scalar_one_or_none() or {}
+
     async def get_organization_id_by_workflow_run_id(
         self, run_id: int | None
     ) -> int | None:

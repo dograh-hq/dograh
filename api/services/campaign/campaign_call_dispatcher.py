@@ -238,14 +238,12 @@ class CampaignCallDispatcher:
 
         try:
             # Get workflow details
-            workflow = await db_client.get_workflow_by_id(campaign.workflow_id)
+            workflow = await db_client.get_workflow(
+                campaign.workflow_id,
+                organization_id=campaign.organization_id,
+            )
             if not workflow:
                 raise ValueError(f"Workflow {campaign.workflow_id} not found")
-            if workflow.organization_id != campaign.organization_id:
-                raise ValueError(
-                    f"Workflow {campaign.workflow_id} does not belong to "
-                    f"organization {campaign.organization_id}"
-                )
 
             # Extract phone number
             phone_number = queued_run.context_variables.get("phone_number")
@@ -308,7 +306,7 @@ class CampaignCallDispatcher:
                 from_number,
                 telephony_configuration_id=campaign.telephony_configuration_id,
             )
-        except Exception as e:
+        except Exception:
             # Release slot and from_number on error
             if slot_bound and workflow_run:
                 await call_concurrency.release_workflow_run_slot(workflow_run.id)

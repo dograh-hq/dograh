@@ -281,7 +281,7 @@ class TestDispatcherThreadsTelephonyConfig:
                 ),
             ),
         ):
-            mock_db.get_workflow_by_id = AsyncMock(return_value=SimpleNamespace(id=1))
+            mock_db.get_workflow = AsyncMock(return_value=SimpleNamespace(id=1))
             mock_db.create_workflow_run = AsyncMock(return_value=workflow_run)
             mock_db.update_workflow_run = AsyncMock()
             mock_concurrency.bind_workflow_run = AsyncMock()
@@ -299,6 +299,11 @@ class TestDispatcherThreadsTelephonyConfig:
                 source="test",
             )
             await dispatcher.dispatch_call(queued_run, campaign, slot)
+
+            mock_db.get_workflow.assert_awaited_once_with(
+                campaign.workflow_id,
+                organization_id=org_id,
+            )
 
             # acquire_from_number on rate_limiter must be called with the
             # campaign's telephony_configuration_id.

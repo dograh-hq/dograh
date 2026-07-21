@@ -55,8 +55,13 @@ class WorkflowRunClient(BaseDBClient):
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
             if definition_id is not None:
-                definition = await session.get(WorkflowDefinitionModel, definition_id)
-                if not definition or definition.workflow_id != workflow.id:
+                definition_result = await session.execute(
+                    select(WorkflowDefinitionModel.id).where(
+                        WorkflowDefinitionModel.id == definition_id,
+                        WorkflowDefinitionModel.workflow_id == workflow.id,
+                    )
+                )
+                if definition_result.scalar_one_or_none() is None:
                     raise ValueError(
                         f"Workflow definition {definition_id} does not belong to "
                         f"workflow {workflow.id}"

@@ -78,3 +78,69 @@ async def test_prepare_inputs_falls_back_to_published_when_draft_missing():
         "name": "explicit",
         "published_only": "kept",
     }
+    workflow_client.get_draft_version.assert_awaited_once_with(33)
+
+
+@pytest.mark.asyncio
+async def test_prepare_inputs_uses_current_definition_when_released_missing():
+    workflow = _workflow()
+    workflow.released_definition = None
+    workflow.current_definition = SimpleNamespace(
+        id=66,
+        template_context_variables={"name": "current", "current_only": "kept"},
+    )
+    workflow_client = SimpleNamespace(get_draft_version=AsyncMock())
+
+    run_inputs = await prepare_workflow_run_inputs(
+        workflow_client,
+        workflow,
+        include_template_context=True,
+    )
+
+    assert run_inputs.definition_id == 66
+    assert run_inputs.initial_context == {
+        "name": "current",
+        "current_only": "kept",
+    }
+    workflow_client.get_draft_version.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_prepare_inputs_falls_back_to_workflow_template_context_when_definition_context_is_none():
+    workflow = _workflow()
+    workflow.released_definition = SimpleNamespace(
+        id=77,
+        template_context_variables=None,
+    )
+    workflow_client = SimpleNamespace(get_draft_version=AsyncMock())
+
+    run_inputs = await prepare_workflow_run_inputs(
+        workflow_client,
+        workflow,
+        include_template_context=True,
+    )
+
+    assert run_inputs.definition_id == 77
+    assert run_inputs.initial_context == {
+        "name": "workflow",
+        "workflow_only": "kept",
+    }
+
+
+@pytest.mark.asyncio
+async def test_prepare_inputs_respects_empty_definition_template_context():
+    workflow = _workflow()
+    workflow.released_definition = SimpleNamespace(
+        id=77,
+        template_context_variables={},
+    )
+    workflow_client = SimpleNamespace(get_draft_version=AsyncMock())
+
+    run_inputs = await prepare_workflow_run_inputs(
+        workflow_client,
+        workflow,
+        include_template_context=True,
+    )
+
+    assert run_inputs.definition_id == 77
+    assert run_inputs.initial_context == {}

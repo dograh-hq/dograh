@@ -37,10 +37,14 @@ async def prepare_workflow_run_inputs(
 
     default_context = {}
     if include_template_context:
-        default_context = (
-            target_definition.template_context_variables
+        definition_context = (
+            getattr(target_definition, "template_context_variables", None)
             if target_definition
-            and getattr(target_definition, "template_context_variables", None)
+            else None
+        )
+        default_context = (
+            definition_context
+            if definition_context is not None
             else getattr(workflow, "template_context_variables", None)
         ) or {}
 

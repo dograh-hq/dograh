@@ -640,3 +640,35 @@ class TestRunDefinitionBinding:
             "company_name": "Override Co",
             "provider": "smallwebrtc",
         }
+
+    async def test_run_rejects_definition_from_another_workflow(
+        self, db_session, org_and_user
+    ):
+        """The DB client must not bind a run to another workflow's definition."""
+        org, user = org_and_user
+        workflow_a = await db_session.create_workflow(
+            name="Workflow A",
+            workflow_definition=GRAPH_V1,
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        workflow_b = await db_session.create_workflow(
+            name="Workflow B",
+            workflow_definition=GRAPH_V2,
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        workflow_b_versions = await db_session.get_workflow_versions(workflow_b.id)
+        workflow_b_definition = next(
+            v for v in workflow_b_versions if v.status == "published"
+        )
+
+        with pytest.raises(ValueError, match="does not belong"):
+            await db_session.create_workflow_run(
+                name="Bad Run",
+                workflow_id=workflow_a.id,
+                mode="smallwebrtc",
+                user_id=user.id,
+                organization_id=org.id,
+                definition_id=workflow_b_definition.id,
+            )

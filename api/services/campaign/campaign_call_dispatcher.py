@@ -241,6 +241,11 @@ class CampaignCallDispatcher:
             workflow = await db_client.get_workflow_by_id(campaign.workflow_id)
             if not workflow:
                 raise ValueError(f"Workflow {campaign.workflow_id} not found")
+            if workflow.organization_id != campaign.organization_id:
+                raise ValueError(
+                    f"Workflow {campaign.workflow_id} does not belong to "
+                    f"organization {campaign.organization_id}"
+                )
 
             # Extract phone number
             phone_number = queued_run.context_variables.get("phone_number")
@@ -281,11 +286,6 @@ class CampaignCallDispatcher:
 
             # Create workflow run with queued_run_id tracking
             workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
-            workflow = await db_client.get_workflow(
-                campaign.workflow_id, organization_id=campaign.organization_id
-            )
-            if not workflow:
-                raise ValueError(f"Workflow with ID {campaign.workflow_id} not found")
             run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
             workflow_run = await db_client.create_workflow_run(
                 name=workflow_run_name,

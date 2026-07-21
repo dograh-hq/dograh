@@ -10,6 +10,7 @@ from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_cl
 from api.db.models import (
     OrganizationModel,
     UserModel,
+    WorkflowDefinitionModel,
     WorkflowModel,
     WorkflowRunModel,
 )
@@ -52,6 +53,14 @@ class WorkflowRunClient(BaseDBClient):
             workflow = workflow.scalars().first()
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
+
+            if definition_id is not None:
+                definition = await session.get(WorkflowDefinitionModel, definition_id)
+                if not definition or definition.workflow_id != workflow.id:
+                    raise ValueError(
+                        f"Workflow definition {definition_id} does not belong to "
+                        f"workflow {workflow.id}"
+                    )
 
             # Get the current storage backend based on ENABLE_AWS_S3 flag
             current_backend = StorageBackend.get_current_backend()

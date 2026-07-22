@@ -47,8 +47,10 @@ def _extract_org_id_from_key(key: str) -> Optional[int]:
     """Try to extract an organization ID from a storage key.
 
     Matches known org-scoped keys of the form ``{prefix}/{org_id}/...`` where
-    *org_id* is a positive integer. Returns ``None`` when the pattern does not
-    match.
+    *org_id* is a positive integer. Workflow recordings require an additional
+    path segment so they cannot be confused with legacy workflow-run artifacts
+    such as ``recordings/{run_id}/user.wav``. Returns ``None`` when the pattern
+    does not match.
     """
     parts = key.split("/")
     if (
@@ -57,6 +59,9 @@ def _extract_org_id_from_key(key: str) -> Optional[int]:
         and parts[1].isdigit()
     ):
         return int(parts[1])
+    recording_match = re.fullmatch(r"recordings/(\d+)/[a-zA-Z0-9_-]+/.+", key)
+    if recording_match:
+        return int(recording_match.group(1))
     return None
 
 
@@ -178,8 +183,8 @@ async def get_signed_url(
 
     Access Control:
     * Known org-scoped keys (for example ``campaigns/{org_id}/...`` and
-      ``knowledge_base/{org_id}/...``) are authorized by matching the org_id
-      against the requesting user's organization.
+      ``recordings/{org_id}/{recording_id}/...``) are authorized by matching the
+      org_id against the requesting user's organization.
     * Legacy keys (``recordings/{run_id}.wav``, ``transcripts/{run_id}.txt``)
       are authorized via the workflow run they belong to.
     * Superusers can request any key.

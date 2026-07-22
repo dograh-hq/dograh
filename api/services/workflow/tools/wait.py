@@ -12,7 +12,8 @@ def get_wait_tools() -> list[Dict[str, Any]]:
             "You MUST specify the duration in seconds to wait. "
             "If the user does not specify a duration, default to 60 seconds. "
             "NOTE: The minimum wait time is 15 seconds. If the user says 'give me a second' or 'wait a sec', "
-            "they mean at least 20 seconds. Do not use this tool for very short pauses (< 15s)."
+            "they mean at least 20 seconds. Do not use this tool for very short pauses (< 15s). "
+            "The absolute maximum wait time is 300 seconds (5 minutes)."
         ),
                 "parameters": {
                     "type": "object",
@@ -20,6 +21,7 @@ def get_wait_tools() -> list[Dict[str, Any]]:
                         "seconds": {
                             "type": "integer",
                             "description": "The number of seconds to wait. Defaults to 60 if not specified.",
+                            "maximum": 300
                         },
                         "message": {
                             "type": "string",

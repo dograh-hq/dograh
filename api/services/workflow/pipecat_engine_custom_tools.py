@@ -28,6 +28,7 @@ from api.services.telephony.external_pbx import resolve_external_pbx_field_mappi
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
+from api.services.workflow.tools.wait import get_wait_tools
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
@@ -175,6 +176,16 @@ class CustomToolManager:
                 if tool.category == "wait":
                     self._register_wait_handler()
                     logger.debug(f"Registered wait tool handler (tool_uuid: {tool.tool_uuid})")
+                    for tool_def in get_wait_tools():
+                        func = tool_def["function"]
+                        schemas.append(
+                            get_function_schema(
+                                func["name"],
+                                func["description"],
+                                properties=func["parameters"]["properties"],
+                                required=func["parameters"]["required"],
+                            )
+                        )
                     continue
 
                 if tool.category == ToolCategory.CALCULATOR.value:
@@ -547,7 +558,7 @@ class CustomToolManager:
                 await function_call_params.result_callback({"error": str(e)})
 
         # Register with a large timeout to prevent the LLM caller from timing out the wait.
-        self._engine.llm.register_function("wait_for_user", wait_func, timeout_secs=315.0)
+        self._engine.llm.register_function("wait_for_user", wait_func, timeout_secs=330.0)
 
     def _register_calculator_handler(self) -> None:
         """Register the built-in calculator function with the LLM."""

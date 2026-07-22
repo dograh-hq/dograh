@@ -11,16 +11,54 @@ from alembic import op
 import sqlalchemy as sa
 
 
+from alembic_postgresql_enum import TableReference
+
 # revision identifiers, used by Alembic.
 revision: str = 'ceeaf3c37b2f'
-down_revision: Union[str, None] = 'gg11dd223344'
+down_revision: Union[str, None] = '0a1b2c3d4e5f'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.execute("ALTER TYPE tool_category ADD VALUE IF NOT EXISTS 'wait'")
+    op.sync_enum_values(
+        enum_schema="public",
+        enum_name="tool_category",
+        new_values=[
+            "http_api",
+            "end_call",
+            "transfer_call",
+            "calculator",
+            "native",
+            "integration",
+            "mcp",
+            "wait",
+        ],
+        affected_columns=[
+            TableReference(
+                table_schema="public", table_name="tools", column_name="category"
+            )
+        ],
+        enum_values_to_rename=[],
+    )
 
 def downgrade() -> None:
-    pass
+    op.sync_enum_values(
+        enum_schema="public",
+        enum_name="tool_category",
+        new_values=[
+            "http_api",
+            "end_call",
+            "transfer_call",
+            "calculator",
+            "native",
+            "integration",
+            "mcp",
+        ],
+        affected_columns=[
+            TableReference(
+                table_schema="public", table_name="tools", column_name="category"
+            )
+        ],
+        enum_values_to_rename=[],
+    )

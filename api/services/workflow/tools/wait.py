@@ -26,7 +26,7 @@ def get_wait_tools() -> list[Dict[str, Any]]:
                             "description": "A short conversational acknowledgment to speak to the user before waiting (e.g. 'Sure, I will wait.').",
                         }
                     },
-                    "required": ["seconds", "message"],
+                    "required": ["message"],
                 },
             },
         }

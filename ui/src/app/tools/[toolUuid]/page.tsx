@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Code, ExternalLink, FlaskConical, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Code, ExternalLink, Loader2, Save } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -38,14 +38,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
-import { useOrgConfig } from "@/context/OrgConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 import {
-    type ContextDestinationRouteRow,
     createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     type EndCallMessageType,
@@ -57,14 +54,7 @@ import {
     type ToolCategory,
     type TransferDestinationSource,
 } from "../config";
-import {
-    buildHttpToolTestSnapshot,
-    BuiltinToolConfig,
-    EndCallToolConfig,
-    HttpApiToolConfig,
-    HttpToolTestDialog,
-    TransferCallToolConfig,
-} from "./components";
+import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 
 function normalizeParameterType(value: string | null | undefined): ParameterType {
     switch (value) {
@@ -86,7 +76,6 @@ function headersToRows(headers: Record<string, string> | undefined | null): KeyV
 export default function ToolDetailPage() {
     const { toolUuid } = useParams<{ toolUuid: string }>();
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
-    const { externalPbxIntegrationsEnabled } = useOrgConfig();
     const router = useRouter();
 
     const [tool, setTool] = useState<ToolResponse | null>(null);
@@ -95,8 +84,6 @@ export default function ToolDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [showCodeDialog, setShowCodeDialog] = useState(false);
-    const [showTestDialog, setShowTestDialog] = useState(false);
-    const [savedHttpTestSnapshot, setSavedHttpTestSnapshot] = useState<string | null>(null);
 
     // Common form state
     const [name, setName] = useState("");
@@ -141,10 +128,6 @@ export default function ToolDetailPage() {
     const [transferResolverWaitMessage, setTransferResolverWaitMessage] = useState("");
     const [transferParameters, setTransferParameters] = useState<ToolParameter[]>([]);
     const [transferPresetParameters, setTransferPresetParameters] = useState<PresetToolParameter[]>([]);
-    const [transferContextMappingPath, setTransferContextMappingPath] = useState("");
-    const [transferContextDestinationRoutes, setTransferContextDestinationRoutes] =
-        useState<ContextDestinationRouteRow[]>([]);
-    const [transferFallbackDestination, setTransferFallbackDestination] = useState("");
 
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
@@ -244,16 +227,6 @@ export default function ToolDetailPage() {
                         required: p.required ?? true,
                     })),
                 );
-                setTransferContextMappingPath(config.context_mapping?.context_path || "");
-                setTransferContextDestinationRoutes(
-                    (config.context_mapping?.routes || []).map((route) => ({
-                        ...route,
-                        id: crypto.randomUUID(),
-                    }))
-                );
-                setTransferFallbackDestination(
-                    config.context_mapping?.fallback_destination || ""
-                );
             } else {
                 setTransferDestinationSource("static");
                 setTransferDestination("");
@@ -268,9 +241,6 @@ export default function ToolDetailPage() {
                 setTransferResolverWaitMessage("");
                 setTransferParameters([]);
                 setTransferPresetParameters([]);
-                setTransferContextMappingPath("");
-                setTransferContextDestinationRoutes([]);
-                setTransferFallbackDestination("");
             }
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
@@ -294,73 +264,52 @@ export default function ToolDetailPage() {
             // Populate HTTP API specific fields
             const config = tool.definition?.config as HttpApiToolDefinition["config"] | undefined;
             if (config) {
-                const loadedHttpMethod = (config.method as HttpMethod) || "POST";
-                const loadedUrl = config.url || "";
-                const loadedCredentialUuid = config.credential_uuid || "";
-                const loadedTimeoutMs = config.timeout_ms || 5000;
-                const loadedCustomMessage = config.customMessage || "";
-                const loadedCustomMessageType = config.customMessageType || "text";
-                const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
-                setHttpMethod(loadedHttpMethod);
-                setUrl(loadedUrl);
-                setCredentialUuid(loadedCredentialUuid);
-                setTimeoutMs(loadedTimeoutMs);
-                setCustomMessage(loadedCustomMessage);
-                setCustomMessageType(loadedCustomMessageType);
-                setCustomMessageRecordingId(loadedCustomMessageRecordingId);
+                setHttpMethod((config.method as HttpMethod) || "POST");
+                setUrl(config.url || "");
+                setCredentialUuid(config.credential_uuid || "");
+                setTimeoutMs(config.timeout_ms || 5000);
+                setCustomMessage(config.customMessage || "");
+                setCustomMessageType(config.customMessageType || "text");
+                setCustomMessageRecordingId(config.customMessageRecordingId || "");
 
                 // Convert headers object to array
-                const loadedHeaders = config.headers
-                    ? Object.entries(config.headers).map(([key, value]) => ({
-                        key,
-                        value: value as string,
-                    }))
-                    : [];
-                setHeaders(loadedHeaders);
+                if (config.headers) {
+                    setHeaders(
+                        Object.entries(config.headers).map(([key, value]) => ({
+                            key,
+                            value: value as string,
+                        }))
+                    );
+                } else {
+                    setHeaders([]);
+                }
 
                 // Load parameters
-                let loadedParameters: ToolParameter[] = [];
                 if (config.parameters && Array.isArray(config.parameters)) {
-                    loadedParameters = config.parameters.map((p) => ({
-                        name: p.name || "",
-                        type: normalizeParameterType(p.type),
-                        description: p.description || "",
-                        required: p.required ?? true,
-                    }));
-                    setParameters(loadedParameters);
+                    setParameters(
+                        config.parameters.map((p) => ({
+                            name: p.name || "",
+                            type: normalizeParameterType(p.type),
+                            description: p.description || "",
+                            required: p.required ?? true,
+                        }))
+                    );
                 } else {
                     setParameters([]);
                 }
 
-                let loadedPresetParameters: PresetToolParameter[] = [];
                 if (config.preset_parameters && Array.isArray(config.preset_parameters)) {
-                    loadedPresetParameters = config.preset_parameters.map((p) => ({
-                        name: p.name || "",
-                        type: normalizeParameterType(p.type),
-                        valueTemplate: p.value_template || "",
-                        required: p.required ?? true,
-                    }));
-                    setPresetParameters(loadedPresetParameters);
+                    setPresetParameters(
+                        config.preset_parameters.map((p) => ({
+                            name: p.name || "",
+                            type: normalizeParameterType(p.type),
+                            valueTemplate: p.value_template || "",
+                            required: p.required ?? true,
+                        }))
+                    );
                 } else {
                     setPresetParameters([]);
                 }
-
-                setSavedHttpTestSnapshot(
-                    buildHttpToolTestSnapshot({
-                        name: tool.name,
-                        description: tool.description || "",
-                        httpMethod: loadedHttpMethod,
-                        url: loadedUrl,
-                        credentialUuid: loadedCredentialUuid,
-                        headers: loadedHeaders,
-                        parameters: loadedParameters,
-                        presetParameters: loadedPresetParameters,
-                        timeoutMs: loadedTimeoutMs,
-                        customMessage: loadedCustomMessage,
-                        customMessageType: loadedCustomMessageType,
-                        customMessageRecordingId: loadedCustomMessageRecordingId,
-                    })
-                );
             }
         }
     };
@@ -390,7 +339,7 @@ export default function ToolDetailPage() {
         const normalizedTransferDestination = transferDestination.trim();
 
         // Validation based on tool type
-        if (tool.category === "calculator") {
+        if (tool.category === "calculator" || tool.category === "wait") {
             // No validation needed for built-in tools
         } else if (tool.category === "transfer_call") {
             if (transferDestinationSource === "static" && !normalizedTransferDestination) {
@@ -433,28 +382,6 @@ export default function ToolDetailPage() {
                     return;
                 }
             }
-            if (transferDestinationSource === "context_mapping") {
-                if (!transferContextMappingPath.trim()) {
-                    setError("Please enter a gathered-context field for PBX routing");
-                    return;
-                }
-                if (
-                    transferContextDestinationRoutes.length === 0 ||
-                    transferContextDestinationRoutes.some(
-                        (route) => !route.context_value.trim() || !route.destination.trim()
-                    )
-                ) {
-                    setError("Add at least one complete context value to destination mapping");
-                    return;
-                }
-                const routeValues = transferContextDestinationRoutes.map((route) =>
-                    route.context_value.trim().toLocaleLowerCase()
-                );
-                if (new Set(routeValues).size !== routeValues.length) {
-                    setError("Destination mapping context values must be unique");
-                    return;
-                }
-            }
         } else if (tool.category === "mcp") {
             // Validate MCP server URL (must be http(s))
             if (!mcpUrl.trim()) {
@@ -477,11 +404,6 @@ export default function ToolDetailPage() {
             const invalidParams = parameters.filter((p) => !p.name.trim());
             if (invalidParams.length > 0) {
                 setError("All parameters must have a name");
-                return;
-            }
-            const paramNames = parameters.map((p) => p.name.trim()).filter(Boolean);
-            if (new Set(paramNames).size !== paramNames.length) {
-                setError("Parameter names must be unique");
                 return;
             }
 
@@ -510,6 +432,15 @@ export default function ToolDetailPage() {
                     definition: {
                         schema_version: 1,
                         type: "calculator",
+                    },
+                };
+            } else if (tool.category === "wait") {
+                // Built-in tool - only name/description, no config
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        type: "wait",
                     },
                 };
             } else if (tool.category === "end_call") {
@@ -576,17 +507,6 @@ export default function ToolDetailPage() {
                                         required: p.required,
                                     }))
                                     : undefined,
-                        }
-                        : undefined,
-                    context_mapping: transferDestinationSource === "context_mapping"
-                        ? {
-                            context_path: transferContextMappingPath.trim(),
-                            routes: transferContextDestinationRoutes.map((route) => ({
-                                context_value: route.context_value.trim(),
-                                destination: route.destination.trim(),
-                            })),
-                            fallback_destination:
-                                transferFallbackDestination.trim() || undefined,
                         }
                         : undefined,
                 };
@@ -669,24 +589,6 @@ export default function ToolDetailPage() {
                 setTool(response.data);
                 setSaveSuccess(true);
                 setTimeout(() => setSaveSuccess(false), 3000);
-                if (tool.category === "http_api") {
-                    setSavedHttpTestSnapshot(
-                        buildHttpToolTestSnapshot({
-                            name,
-                            description,
-                            httpMethod,
-                            url,
-                            credentialUuid,
-                            headers,
-                            parameters,
-                            presetParameters,
-                            timeoutMs,
-                            customMessage,
-                            customMessageType,
-                            customMessageRecordingId,
-                        })
-                    );
-                }
             }
         } catch (err) {
             setError("Failed to save tool");
@@ -786,26 +688,8 @@ const data = await response.json();`;
 
     const isEndCallTool = tool.category === "end_call";
     const isTransferCallTool = tool.category === "transfer_call";
-    const isBuiltinTool = tool.category === "calculator";
+    const isBuiltinTool = tool.category === "calculator" || tool.category === "wait";
     const isMcpTool = tool.category === "mcp";
-    const isHttpApiTool = tool.category === "http_api";
-    const hasUnsavedHttpChanges =
-        isHttpApiTool &&
-        (savedHttpTestSnapshot === null ||
-            buildHttpToolTestSnapshot({
-                name,
-                description,
-                httpMethod,
-                url,
-                credentialUuid,
-                headers,
-                parameters,
-                presetParameters,
-                timeoutMs,
-                customMessage,
-                customMessageType,
-                customMessageRecordingId,
-            }) !== savedHttpTestSnapshot);
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
     return (
@@ -841,7 +725,7 @@ const data = await response.json();`;
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {isHttpApiTool && (
+                            {!isEndCallTool && !isTransferCallTool && !isBuiltinTool && !isMcpTool && (
                                 <Button
                                     variant="outline"
                                     onClick={() => setShowCodeDialog(true)}
@@ -870,8 +754,8 @@ const data = await response.json();`;
                             onNameChange={setName}
                             description={description}
                             onDescriptionChange={setDescription}
-                            title="Calculator Configuration"
-                            subtitle="Built-in calculator for arithmetic operations. No additional configuration needed."
+                            title={tool.category === "wait" ? "Wait Tool Configuration" : "Calculator Configuration"}
+                            subtitle={tool.category === "wait" ? "Built-in dynamic wait tool. No additional configuration needed." : "Built-in calculator for arithmetic operations. No additional configuration needed."}
                         />
                     ) : isEndCallTool ? (
                         <EndCallToolConfig
@@ -924,13 +808,6 @@ const data = await response.json();`;
                             onParametersChange={setTransferParameters}
                             presetParameters={transferPresetParameters}
                             onPresetParametersChange={setTransferPresetParameters}
-                            externalPbxRoutingEnabled={externalPbxIntegrationsEnabled}
-                            contextMappingPath={transferContextMappingPath}
-                            onContextMappingPathChange={setTransferContextMappingPath}
-                            contextDestinationRoutes={transferContextDestinationRoutes}
-                            onContextDestinationRoutesChange={setTransferContextDestinationRoutes}
-                            fallbackDestination={transferFallbackDestination}
-                            onFallbackDestinationChange={setTransferFallbackDestination}
                         />
                     ) : isMcpTool ? (
                         <Card>
@@ -1035,18 +912,6 @@ const data = await response.json();`;
                         />
                     )}
 
-                    {isHttpApiTool && (
-                        <HttpToolTestDialog
-                            open={showTestDialog}
-                            onOpenChange={setShowTestDialog}
-                            toolUuid={toolUuid}
-                            httpMethod={httpMethod}
-                            url={url}
-                            parameters={parameters}
-                            presetParameters={presetParameters}
-                        />
-                    )}
-
                     {error && (
                         <div className="mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
                             {error}
@@ -1059,34 +924,7 @@ const data = await response.json();`;
                         </div>
                     )}
 
-                    <div className="flex justify-end gap-2 mt-6">
-                        {isHttpApiTool && (
-                            hasUnsavedHttpChanges ? (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <span className="inline-flex" tabIndex={0}>
-                                            <Button type="button" variant="outline" disabled>
-                                                <FlaskConical className="w-4 h-4 mr-2" />
-                                                Test Tool
-                                            </Button>
-                                        </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top">
-                                        Save the tool before testing.
-                                    </TooltipContent>
-                                </Tooltip>
-                            ) : (
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setShowTestDialog(true)}
-                                    disabled={isSaving}
-                                >
-                                    <FlaskConical className="w-4 h-4 mr-2" />
-                                    Test Tool
-                                </Button>
-                            )
-                        )}
+                    <div className="flex justify-end mt-6">
                         <Button onClick={handleSave} disabled={isSaving}>
                             {isSaving ? (
                                 <>
@@ -1118,7 +956,6 @@ const data = await response.json();`;
                     </div>
                 </DialogContent>
             </Dialog>
-
         </div>
     );
 }

@@ -28,6 +28,7 @@ from api.services.telephony.external_pbx import resolve_external_pbx_field_mappi
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
+from api.services.workflow.tools.wait import get_wait_tools
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
@@ -172,6 +173,21 @@ class CustomToolManager:
 
             schemas: list[FunctionSchema] = []
             for tool in tools:
+                if tool.category == "wait":
+                    self._register_wait_handler()
+                    logger.debug(f"Registered wait tool handler (tool_uuid: {tool.tool_uuid})")
+                    for tool_def in get_wait_tools():
+                        func = tool_def["function"]
+                        schemas.append(
+                            get_function_schema(
+                                func["name"],
+                                func["description"],
+                                properties=func["parameters"]["properties"],
+                                required=func["parameters"]["required"],
+                            )
+                        )
+                    continue
+
                 if tool.category == ToolCategory.CALCULATOR.value:
                     # Built-in calculator: return pre-defined schemas
                     for tool_def in get_calculator_tools():
@@ -250,6 +266,11 @@ class CustomToolManager:
             tools = await db_client.get_tools_by_uuids(tool_uuids, organization_id)
 
             for tool in tools:
+                if tool.category == "wait":
+                    self._register_wait_handler()
+                    logger.debug(f"Registered wait tool handler (tool_uuid: {tool.tool_uuid})")
+                    continue
+
                 if tool.category == ToolCategory.CALCULATOR.value:
                     self._register_calculator_handler()
                     logger.debug(
@@ -358,6 +379,186 @@ class CustomToolManager:
             resolver_timeout = min(max(resolver_timeout, 0.5), 5.0)
 
         return float(transfer_timeout) + resolver_timeout + 15.0
+
+    def _register_wait_handler(self) -> None:
+        """Register the built-in wait function with the LLM."""
+
+        async def wait_func(function_call_params: FunctionCallParams) -> None:
+            logger.info("LLM Function Call EXECUTED: wait_for_user")
+            logger.info(f"Arguments: {function_call_params.arguments}")
+            
+            try:
+                seconds_arg = function_call_params.arguments.get("seconds", 60)
+                try:
+                    seconds = int(seconds_arg)
+                    if seconds < 0:
+                        raise ValueError("Seconds cannot be negative.")
+                except (ValueError, TypeError):
+                    await function_call_params.result_callback({"error": f"Invalid 'seconds' parameter: {seconds_arg}. Must be a positive integer."})
+                    return
+                
+                # Use a hard cap of 300 seconds for the built-in wait tool
+                max_wait = 300
+                seconds = min(max(seconds, 1), max_wait)
+                
+                message = function_call_params.arguments.get("message")
+                if message:
+                    from pipecat.frames.frames import TTSSpeakFrame, TTSStartedFrame, TTSStoppedFrame
+                    from pipecat.observers.base_observer import BaseObserver as _BaseObserver, FramePushed as _FramePushed
+
+                    logger.info(f"Playing wait acknowledgment message: {message}")
+
+                    # Register a temporary observer BEFORE queuing the TTS so we
+                    # don't miss TTSStartedFrame if the pipeline is very fast.
+                    # We require TTSStartedFrame before accepting TTSStoppedFrame to
+                    # guard against stale TTSStoppedFrames from the previous response.
+                    tts_done_event = asyncio.Event()
+
+                    class _TTSDoneObserver(_BaseObserver):
+                        def __init__(self):
+                            super().__init__()
+                            self._seen_started = False
+
+                        async def on_push_frame(self, data: _FramePushed):
+                            if isinstance(data.frame, TTSStartedFrame):
+                                self._seen_started = True
+                            elif isinstance(data.frame, TTSStoppedFrame) and self._seen_started:
+                                logger.info("Wait tool: acknowledgment TTS finished (TTSStoppedFrame received).")
+                                tts_done_event.set()
+
+                    tts_done_observer = _TTSDoneObserver()
+                    _task = self._engine.task
+                    if _task:
+                        _task.add_observer(tts_done_observer)
+
+                    await self._engine.task.queue_frame(
+                        TTSSpeakFrame(
+                            message,
+                            append_to_context=False,
+                            persist_to_logs=True,
+                        )
+                    )
+
+                    # Wait for TTS to actually finish, with a generous fallback timeout.
+                    try:
+                        await asyncio.wait_for(tts_done_event.wait(), timeout=15.0)
+                    except asyncio.TimeoutError:
+                        logger.warning("Wait tool: TTS done event timed out after 15s ÔÇö proceeding anyway.")
+
+                    if _task:
+                        try:
+                            await _task.remove_observer(tts_done_observer)
+                        except Exception as e:
+                            logger.warning(f"Could not remove TTS done observer: {e}")
+
+                logger.info(f"Pausing for {seconds} seconds...")
+                
+                stop_event = asyncio.Event()
+                hold_music_task = None
+                
+                if seconds >= 5 and self._engine._audio_config and self._engine._transport_output:
+                    from api.constants import APP_ROOT_DIR
+                    sample_rate = self._engine._audio_config.pipeline_sample_rate
+                    audio_file = str(APP_ROOT_DIR / "assets" / f"wait_music_{sample_rate}.wav")
+
+                    hold_music_task = asyncio.create_task(
+                        play_audio_loop(
+                            stop_event=stop_event,
+                            sample_rate=sample_rate,
+                            queue_frame=self._engine._transport_output.queue_frame,
+                            audio_file=audio_file,
+                        )
+                    )
+                
+                user_speech_event = asyncio.Event()
+                # Issue 2 fix: capture the actual transcript text so we can include it
+                # in the tool result. Without this, the TranscriptionFrame is muted by
+                # FunctionCallUserMuteStrategy and the LLM never sees what the user said,
+                # forcing the user to repeat themselves.
+                import time
+                user_speech_text: list[str] = []  # mutable container for closure capture
+
+                # We use a pipeline observer (not the mute-filtered aggregator)
+                # because FunctionCallUserMuteStrategy suppresses all
+                # TranscriptionFrames and UserStartedSpeakingFrames while a
+                # tool is executing. Pipeline observers receive frames *before*
+                # the mute strategy suppresses them.
+                from pipecat.observers.base_observer import BaseObserver, FramePushed
+                from pipecat.frames.frames import TranscriptionFrame
+
+                class _WaitInterruptObserver(BaseObserver):
+                    async def on_push_frame(self, data: FramePushed):
+                        if isinstance(data.frame, TranscriptionFrame) and data.frame.text.strip():
+                            text = data.frame.text.strip()
+                            logger.info(f"Wait tool observer: transcription received: '{text}', signalling interrupt.")
+                            # Capture the text (Issue 2 fix: include in tool result)
+                            if not user_speech_text:
+                                user_speech_text.append(text)
+                            user_speech_event.set()
+
+                wait_observer = _WaitInterruptObserver()
+                task = self._engine.task
+                if task:
+                    task.add_observer(wait_observer)
+
+                elapsed = 0.0
+                try:
+                    # Fix #1: Never wait less than 15 seconds to avoid overlapping TTS
+                    # acknowledgment and immediate "are you still there" follow-up.
+                    effective_seconds = min(max(float(seconds), 15.0), float(max_wait))
+                    
+                    while round(elapsed, 1) < effective_seconds:
+                        if self._engine.is_call_disposed():
+                            break
+
+                        if user_speech_event.is_set():
+                            logger.info("Wait interrupted by user speech.")
+                            break
+
+                        await asyncio.sleep(0.1)
+                        elapsed += 0.1
+                finally:
+                    stop_event.set()
+                    if hold_music_task:
+                        hold_music_task.cancel()
+                        try:
+                            await hold_music_task
+                        except asyncio.CancelledError:
+                            pass
+
+                    if task:
+                        try:
+                            await task.remove_observer(wait_observer)
+                        except Exception as e:
+                            logger.warning(f"Could not remove wait observer: {e}")
+                
+                logger.info(f"Wait completed after {elapsed} seconds (requested {seconds}).")
+                
+                if function_call_params and function_call_params.result_callback:
+                    clean_elapsed = round(elapsed, 1)
+                    msg = f"Wait finished after {clean_elapsed} seconds. "
+                    if user_speech_event.is_set():
+                        # Issue 2 fix: The TranscriptionFrame was muted by
+                        # FunctionCallUserMuteStrategy so the LLM context never received
+                        # it. We inject the captured text directly into the tool result
+                        # so the LLM can respond to the user's exact words.
+                        captured = user_speech_text[0] if user_speech_text else None
+                        if captured:
+                            msg += f'The user has returned and said: "{captured}". Respond directly to what they said. Do NOT thank them for waiting, because YOU were the one waiting for THEM.'
+                        else:
+                            msg += "The user has returned and spoken. Please respond naturally to what they just said. Do NOT thank them for waiting, because YOU were the one waiting for THEM."
+                    else:
+                        msg += "The time is up. Please ask the user if they are still there and if they need further assistance. Do NOT thank them for waiting, because YOU were the one waiting for THEM."
+                        
+                    await function_call_params.result_callback(
+                        {"status": "success", "message": msg}
+                    )
+            except Exception as e:
+                logger.error(f"Wait tool error: {e}")
+                await function_call_params.result_callback({"error": str(e)})
+
+        # Register with a large timeout to prevent the LLM caller from timing out the wait.
+        self._engine.llm.register_function("wait_for_user", wait_func, timeout_secs=330.0)
 
     def _register_calculator_handler(self) -> None:
         """Register the built-in calculator function with the LLM."""

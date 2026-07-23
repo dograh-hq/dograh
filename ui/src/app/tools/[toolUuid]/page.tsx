@@ -391,7 +391,7 @@ export default function ToolDetailPage() {
         const normalizedTransferDestination = transferDestination.trim();
 
         // Validation based on tool type
-        if (tool.category === "calculator") {
+        if (tool.category === "calculator" || tool.category === "wait") {
             // No validation needed for built-in tools
         } else if (tool.category === "transfer_call") {
             if (transferDestinationSource === "static" && !normalizedTransferDestination) {
@@ -512,6 +512,15 @@ export default function ToolDetailPage() {
                         schema_version: 1,
                         type: "calculator",
                     },
+                };
+            } else if (tool.category === "wait") {
+                // Built-in tool - only name/description, no config
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        type: "wait",
+                    } as any,
                 };
             } else if (tool.category === "end_call") {
                 // Build end call request body
@@ -787,7 +796,7 @@ const data = await response.json();`;
 
     const isEndCallTool = tool.category === "end_call";
     const isTransferCallTool = tool.category === "transfer_call";
-    const isBuiltinTool = tool.category === "calculator";
+    const isBuiltinTool = tool.category === "calculator" || tool.category === "wait";
     const isMcpTool = tool.category === "mcp";
     const isHttpApiTool = tool.category === "http_api";
     const hasUnsavedHttpChanges =
@@ -871,8 +880,8 @@ const data = await response.json();`;
                             onNameChange={setName}
                             description={description}
                             onDescriptionChange={setDescription}
-                            title="Calculator Configuration"
-                            subtitle="Built-in calculator for arithmetic operations. No additional configuration needed."
+                            title={tool.category === "wait" ? "Wait Tool" : "Calculator Tool"}
+                            subtitle={tool.category === "wait" ? "A built-in tool that forces the agent to wait for a specified duration." : "A built-in calculator for performing arithmetic operations during the conversation."}
                         />
                     ) : isEndCallTool ? (
                         <EndCallToolConfig

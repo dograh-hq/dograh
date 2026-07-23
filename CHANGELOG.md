@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.43.0 (2026-07-23)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add tool test panel for HTTP API tools by @rushilbh27 in https://github.com/dograh-hq/dograh/pull/547
+* feat(openai-realtime): allow pinning input transcription language by @jvcss in https://github.com/dograh-hq/dograh/pull/557
+* feat: add vici dial controls from UI by @a6kme in https://github.com/dograh-hq/dograh/pull/563
+* feat(tts): add websocket transport option for xAI TTS by @Flowentxo in https://github.com/dograh-hq/dograh/pull/548
+### Bug Fixes
+* fix(web): honor X-Forwarded-Proto in uvicorn so request.url is https behind a reverse proxy by @prabhatlepton in https://github.com/dograh-hq/dograh/pull/515
+* fix: clear both cookie jars during superadmin impersonation by @a6kme in https://github.com/dograh-hq/dograh/pull/558
+* fix: add Transcription Turn Start for non external STTs by @a6kme in https://github.com/dograh-hq/dograh/pull/559
+* fix(api): validate pagination bounds on run-list endpoints (#553) by @amaanJvd in https://github.com/dograh-hq/dograh/pull/554
+* fix(ui): restore committed states in workflow undo/redo by @AliFozooni in https://github.com/dograh-hq/dograh/pull/550
+* fix: move draft and template context handling out of create_workflow_run by @chewwbaka in https://github.com/dograh-hq/dograh/pull/560
+* fix: save call metadata in gathered context for an api trigger outbou… by @chewwbaka in https://github.com/dograh-hq/dograh/pull/566
+* fix: fix crypto.randomUUID crash by @a6kme in https://github.com/dograh-hq/dograh/pull/573
+* fix: cast usage run filter JSON values to Float instead of Integer by @a6kme in https://github.com/dograh-hq/dograh/pull/574
+### Documentation
+* docs: flesh out all 5 voice agent node pages by @rushilbh27 in https://github.com/dograh-hq/dograh/pull/556
+### Other Changes
+* Add support for Cloudonix parameters in WebSocket start event by @greenfieldtech-nirs in https://github.com/dograh-hq/dograh/pull/549
+* updated youtube url link by @nihal0514 in https://github.com/dograh-hq/dograh/pull/568
+
+## New Contributors
+* @jvcss made their first contribution in https://github.com/dograh-hq/dograh/pull/557
+* @AliFozooni made their first contribution in https://github.com/dograh-hq/dograh/pull/550
+* @Flowentxo made their first contribution in https://github.com/dograh-hq/dograh/pull/548
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.42.0...dograh-v1.43.0
+
 ## 1.42.0 (2026-07-15)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

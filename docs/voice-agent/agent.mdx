@@ -3,4 +3,111 @@ title: "Agent Node"
 description: "Agent node contains the prompts that drives the conversation with the Voice Agent"
 ---
 
-The Edges connected with Agent Nodes are pathways that the LLMs can take depending on how the conversation has been going so far. 
+## Video Tutorial
+
+<iframe 
+  width="560" 
+  height="315" 
+  src="https://www.youtube.com/embed/GavcBI8JQAQ" 
+  title="Agent Node Tutorial" 
+  frameBorder="0" 
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+  referrerPolicy="strict-origin-when-cross-origin" 
+  allowFullScreen
+></iframe>
+
+Agent Node is the core building block of every Dograh workflow. It holds the LLM prompt that drives the conversation, any tools the agent can call, and knowledge base documents to reference. You can have multiple Agent Nodes in a single workflow, each handling a distinct phase of the conversation.
+
+The Edges connected with Agent Nodes are pathways that the LLMs can take depending on how the conversation has been going so far.
+
+## What goes in an Agent Node
+
+**Prompt**
+
+The instructions for how the agent should behave at this step. Be explicit about sequence: if the agent should confirm identity before discussing payment, say so in the prompt. Vague prompts produce inconsistent behavior.
+
+**Tools**
+
+External functions the agent can call during this step - for example, looking up account balances or updating a CRM record. Add tools via the "HTTP & Tools" or "MCP" tabs in the node settings panel.
+
+**Allow Interruption**
+
+When on, the caller can interrupt the agent mid-utterance.
+
+**Add Global Prompt**
+
+When on and a Global Node exists, the Global Prompt is prepended to this node's Prompt at runtime. On by default.
+
+**Knowledge Base Documents**
+
+Files the agent can reference when answering questions - product guides, FAQs, policies. Attach them via the "Manage Documents" button in the node settings panel.
+
+## Configuring edges
+
+Each outgoing edge has a condition written in plain language. The LLM evaluates the conversation and picks the edge whose condition best matches.
+
+Write edge conditions as specifically as possible:
+
+| Vague (avoid) | Specific (use) |
+|---------------|----------------|
+| "Debtor responds" | "Debtor confirms their identity and is ready to discuss the account" |
+| "Call ends" | "Debtor commits to a specific payment option and states the amount" |
+| "Problem" | "Debtor disputes owing the debt or requests validation documentation" |
+
+<Tip>
+If the agent keeps routing to the wrong edge, make the condition more specific. Conditions like "user responds" or "conversation ends" are too broad and will route unpredictably.
+</Tip>
+
+## Extracting variables
+
+Agent Node can extract structured data from the conversation after the node completes. Enable this in the node settings under "Enable Variable Extraction."
+
+Once enabled, configure two things:
+
+- **Extraction Prompt:** overall instructions telling the LLM how to approach the extraction.
+- **Variables to Extract:** a list of variables, each with a name, a data type (`string`, `number`, `boolean`), and a per-variable hint describing what to capture.
+
+For example:
+
+```text
+Extraction Prompt:
+Extract the payment outcome from this debt collection call.
+
+Variables:
+- amount_user_will_pay (string): Amount the user said they will pay.
+- payment_method (string): How they said they will pay, e.g. card, bank transfer.
+- sentiment (string): User tone: cooperative, hesitant, angry, refused.
+```
+
+Each extracted value is stored in `gathered_context`. It is not available in any node's Prompt - reference it in [Webhook node](./webhook) payloads as `{{gathered_context.variable_name}}`, or read it from the run record after the call completes.
+
+## Using multiple Agent Nodes
+
+Break complex conversations into phases. Each Agent Node handles one part of the flow. A debt collection workflow, for example, might chain three Agent Nodes: identity verification, offer presentation, and objection handling.
+
+Nodes pass context forward automatically, but not into prompts. Variables extracted in one node are stored in `gathered_context` and merged with variables from later nodes as the call progresses. `gathered_context` is not available in any node's Prompt - it can only be referenced in [Webhook node](./webhook) payloads and in the run record after the call completes. If a later Agent Node needs to react to something extracted earlier, that logic has to live in the prompt's own instructions, not in a `{{gathered_context...}}` reference.
+
+## Common mistakes
+
+**No outgoing edges.** Every Agent Node needs at least one edge. A dead-end node has no exit path and will trap the call.
+
+**Putting global instructions in the Agent prompt.** Rules that apply across the entire workflow - persona, tone, compliance guardrails - belong in the [Global Node](./global), not repeated in every Agent Node.
+
+**Vague edge conditions.** The LLM picks the edge that best matches the conversation state. Overly broad conditions cause unpredictable routing between nodes.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="End Call Node" href="./end-call">
+    Terminate the conversation with a closing message.
+  </Card>
+  <Card title="Global Node" href="./global">
+    Write shared instructions that apply to every node.
+  </Card>
+  <Card title="Context and Variables" href="../core-concepts/context-and-variables">
+    Understand how `gathered_context` is built and where it can be referenced.
+  </Card>
+  <Card title="QA Node" href="./qa">
+    Evaluate agent performance automatically after each call.
+  </Card>
+</CardGroup>

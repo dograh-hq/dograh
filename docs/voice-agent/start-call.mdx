@@ -2,6 +2,142 @@
 title: "Start Call"
 description: "You can use Start Call node to Start the call and configure how Agent greets the user when the conversation starts."
 ---
+
+## Video Tutorial
+
+<iframe 
+  width="560" 
+  height="315" 
+  src="https://www.youtube.com/embed/Bpnu7Oz-YPI" 
+  title="Start Call Node Tutorial" 
+  frameBorder="0" 
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+  referrerPolicy="strict-origin-when-cross-origin" 
+  allowFullScreen
+></iframe>
+
 <Note>
 You should have only one Start Call node per Voice Agent.
 </Note>
+
+Start Call is the entry point for every conversation. It fires the moment a call connects and controls the first thing your agent says. Every workflow must have exactly one.
+
+## When it runs
+
+Start Call executes before any Agent Node. No other node can precede it in the call flow.
+
+After Start Call completes, the conversation moves to the next node - typically your first Agent Node. If the caller hangs up immediately or reaches a wrong-number condition, Start Call can route directly to End Call instead.
+
+## Fields
+
+**Name**
+
+Short identifier shown in the canvas and call logs. Has no runtime effect on what the agent says.
+
+**Greeting Type**
+
+Whether the greeting is spoken via TTS from text or played from a pre-recorded audio file. Defaults to "Text (TTS)".
+
+**Greeting Text**
+
+Optional fixed line spoken via TTS the moment the call connects, before the AI's conversational turn begins. Supports `{{template_variables}}`. Leave empty to skip the greeting and let the Prompt handle the opening.
+
+For example:
+
+```text
+Hi {{initial_context.debtor_name}}, this is Alex from Apex Recovery Solutions.
+```
+
+<Note>
+See [Pre-recorded Audio](./pre-recorded-audio) to use a recording file instead of TTS text.
+</Note>
+
+**Prompt** (required)
+
+System instructions for the AI's opening conversational turn. Runs after Greeting Text (if set). Supports `{{initial_context.field_name}}` and variables from Pre-Call Data Fetch.
+
+For example:
+
+```text
+After greeting the caller, confirm you are speaking with
+{{initial_context.debtor_name}}. If they confirm, move to Debt Disclosure.
+If they say wrong number, move to End Call.
+```
+
+<Warning>
+If a variable referenced in Greeting Text or Prompt is missing from the API request payload, the agent speaks the raw placeholder out loud - for example, "Hi `{{initial_context.debtor_name}}`" - instead of the caller's name. Test with a complete payload before publishing.
+</Warning>
+
+**Allow Interruption**
+
+When on, the caller can interrupt the agent mid-utterance. Off by default on Start Call.
+
+**Add Global Prompt**
+
+When on and a Global Node exists, the Global Prompt is prepended to this node's Prompt at runtime. On by default.
+
+**Delayed Start**
+
+When on, the agent waits before speaking after the call connects. Useful for outbound calls where the called party needs a moment to settle. Duration can be set between 0.1 and 10 seconds.
+
+**Enable Variable Extraction**
+
+When on, an LLM extraction pass runs after this node's turn to capture structured data from the conversation into `gathered_context`.
+
+**Tools**
+
+Functions the agent can call during the opening turn. Add via the "HTTP & Tools" tab (HTTP API and built-in tools) or the "MCP" tab (MCP server tools).
+
+**Knowledge Base Documents**
+
+Documents the agent can reference during this step. Attach via "Manage Documents."
+
+**Pre-Call Data Fetch**
+
+When on, Dograh makes a POST request to an external API before the call starts and merges the JSON response into the call context as template variables.
+
+## Outgoing edges
+
+Start Call can have multiple outgoing edges, each with a user-defined label and a condition written in plain language. The LLM reads the conversation and picks the edge whose condition best matches.
+
+Each edge needs two things:
+
+- **Label:** a short name shown on the canvas (you define this)
+- **Condition:** the instruction that tells the LLM when to take this edge
+
+A typical Start Call has two edges:
+
+```text
+Label: "caller confirmed"
+Condition: "The caller confirmed they are the right person and are ready to continue."
+
+Label: "wrong number"
+Condition: "The caller says this is the wrong number, asks not to be called, or refuses to confirm their identity."
+```
+
+You can add more edges if the opening turn needs to branch further.
+
+## Common mistakes
+
+**Leaving Greeting Text empty with no Prompt.** If both Greeting Text and Prompt are empty, the agent says nothing at the start of the call. The caller hears silence.
+
+**Confusing Node Name with the agent's spoken name.** Node Name is a canvas label for your own reference. The name the agent introduces itself as comes from the Greeting Text or Prompt content, or the persona you define in the [Global Node](./global).
+
+**Adding a second Start Call node.** Each workflow has one entry point. A second Start Call node will throw an error.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Node" href="./agent">
+    Build the core conversation logic that follows the greeting.
+  </Card>
+  <Card title="Global Node" href="./global">
+    Set persona and tone rules that apply across all nodes.
+  </Card>
+  <Card title="Context and Variables" href="../core-concepts/context-and-variables">
+    Learn how `initial_context` variables flow through a call.
+  </Card>
+  <Card title="End Call Node" href="./end-call">
+    Configure the agent's final message before the call drops.
+  </Card>
+</CardGroup>

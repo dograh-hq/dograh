@@ -63,11 +63,18 @@ async def _read_stored_audio(storage_key: str) -> bytes | None:
         return await asyncio.to_thread(_read_and_unlink, tmp_path)
     except Exception as exc:
         logger.warning(f"Noveum completion failed to read {storage_key}: {exc}")
+        # adownload_file may raise after _make_temp_wav_path created the file,
+        # bypassing _read_and_unlink; clean it up so we do not leak temp WAVs.
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
         return None
 
 
 async def _upload_manifest_audio(
-    client: Any, manifest: list[dict[str, Any]]
+    client: Any, manifest: Any
 ) -> tuple[int, int]:
     """
     Upload every parked audio segment to Noveum under the audio_uuid the
@@ -81,7 +88,12 @@ async def _upload_manifest_audio(
     """
     semaphore = asyncio.Semaphore(_AUDIO_UPLOAD_CONCURRENCY)
 
-    async def _upload_entry(entry: dict[str, Any]) -> bool:
+    async def _upload_entry(entry: Any) -> bool:
+        # A non-dict entry (corrupt/tampered manifest) is counted as an
+        # individual failure rather than raising inside asyncio.gather, which
+        # would abort the node result AFTER the trace POST already succeeded.
+        if not isinstance(entry, dict):
+            return False
         audio_uuid = entry.get("audio_uuid")
         storage_key = entry.get("storage_key")
         if not audio_uuid or not storage_key:
@@ -106,7 +118,9 @@ async def _upload_manifest_audio(
                 )
                 return False
 
-    if not manifest:
+    # A persisted manifest that is not a list (corrupt/tampered log) must not
+    # raise during iteration — treat it as empty so trace delivery still stands.
+    if not isinstance(manifest, list) or not manifest:
         return 0, 0
 
     outcomes = await asyncio.gather(*(_upload_entry(entry) for entry in manifest))
@@ -119,7 +133,13 @@ async def run_completion(
     context: IntegrationCompletionContext,
 ) -> dict[str, Any]:
     results: dict[str, Any] = {}
-    envelope = (context.workflow_run.logs or {}).get(NOVEUM_PAYLOAD_LOG_KEY)
+    logs = context.workflow_run.logs
+    envelope = logs.get(NOVEUM_PAYLOAD_LOG_KEY) if isinstance(logs, dict) else None
+    # A persisted envelope that is present but not a dict (corrupt/tampered log)
+    # would crash every later ``envelope.get(...)`` — which runs outside the
+    # per-node try/except — losing every node's truthful result. Flag it so the
+    # loop records a bounded per-node error instead of raising.
+    envelope_malformed = envelope is not None and not isinstance(envelope, dict)
     recording_url = _build_recording_url(context)
 
     for node in nodes:
@@ -133,6 +153,14 @@ async def run_completion(
 
         if not noveum_data.noveum_enabled:
             logger.debug(f"Noveum node '{noveum_data.name}' is disabled, skipping")
+            continue
+
+        if envelope_malformed:
+            logger.warning(
+                f"Noveum payload for node '{noveum_data.name}' (#{node_id}) is "
+                f"malformed (type {type(envelope).__name__}), skipping export"
+            )
+            results[f"noveum_{node_id}"] = {"error": "malformed_payload"}
             continue
 
         if not envelope:
@@ -180,7 +208,6 @@ async def run_completion(
                 api_key=noveum_data.noveum_api_key or "",
                 project=noveum_data.noveum_project or "",
                 environment=noveum_data.noveum_environment,
-                endpoint=noveum_data.noveum_endpoint,
                 service_version=(
                     str(agent_version) if agent_version is not None else None
                 ),

@@ -47,7 +47,6 @@ from api.services.workflow.node_specs.model_spec import (
         "noveum_api_key",
         "noveum_project",
         "noveum_environment",
-        "noveum_endpoint",
         "noveum_record_audio",
     ),
     field_overrides={
@@ -95,12 +94,6 @@ class NoveumNodeData(BaseNodeData):
         ui_type=PropertyType.string,
         display_name="Noveum Environment",
         description="Environment label stamped on exported traces (e.g. production, staging).",
-    )
-    noveum_endpoint: str | None = spec_field(
-        default=None,
-        ui_type=PropertyType.string,
-        display_name="Noveum Endpoint",
-        description="Optional Noveum API endpoint override. Leave empty for the default (https://api.noveum.ai/api).",
     )
     noveum_record_audio: bool = spec_field(
         default=True,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from loguru import logger
@@ -67,17 +66,15 @@ class NoveumRuntimeSession(IntegrationRuntimeSession):
         self._observer = observer
         self._manifest = manifest
         self._call_attributes = call_attributes
-        # Keep a reference so the scheduled attach coroutine is not GC'd.
-        self._attach_task: asyncio.Task[None] | None = None
 
     def attach(self, task: Any) -> None:
         task.add_observer(self._observer)
-        # attach_to_task is async (it starts AudioBufferProcessor recording when
-        # one is present); attach() runs inside the pipeline's event loop right
-        # after task creation, so schedule it — it completes before frames flow.
-        self._attach_task = asyncio.get_running_loop().create_task(
-            self._observer.attach_to_task(task)
-        )
+        # Register turn/latency/audio wiring synchronously (no fire-and-forget
+        # task) so nothing races teardown. attach_to_task_sync does NOT start
+        # ABP recording (that is async); dograh's on_client_connected already
+        # calls audio_buffer.start_recording() before any conversation PCM, so
+        # the on_audio_data handler is live in time to capture it.
+        self._observer.attach_to_task_sync(task)
 
     async def on_call_finished(
         self,

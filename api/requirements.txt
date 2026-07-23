@@ -19,5 +19,5 @@ email-validator==2.3.0
 posthog==7.19.1
 fastmcp==3.2.4
 tuner-pipecat-sdk==0.2.4
-noveum-trace==1.5.20
+noveum-trace==1.5.21
 PyNaCl==1.6.2

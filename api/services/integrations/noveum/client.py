@@ -10,7 +10,6 @@ def build_noveum_client(
     api_key: str,
     project: str,
     environment: str = "production",
-    endpoint: str | None = None,
     service_version: str | None = None,
 ) -> Any:
     """
@@ -28,7 +27,7 @@ def build_noveum_client(
         api_key=api_key,
         project=project,
         environment=environment,
-        endpoint=endpoint or DEFAULT_NOVEUM_ENDPOINT,
+        endpoint=DEFAULT_NOVEUM_ENDPOINT,
         service_version=service_version,
     )
     return NoveumClient(config=config)

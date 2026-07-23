@@ -142,7 +142,6 @@ def test_noveum_spec_property_order_stable():
         "noveum_api_key",
         "noveum_project",
         "noveum_environment",
-        "noveum_endpoint",
         "noveum_record_audio",
     ]
 
@@ -231,17 +230,16 @@ def test_create_runtime_sessions_disables_audio_sink_when_opted_out():
     assert kwargs["audio_sink"] is None
 
 
-async def test_attach_registers_observer_and_schedules_attach_to_task():
+async def test_attach_registers_observer_and_wires_task_sync():
     observer = MagicMock()
-    observer.attach_to_task = AsyncMock()
+    observer.attach_to_task_sync = MagicMock()
     session = NoveumRuntimeSession(observer, manifest=[], call_attributes={})
     task = MagicMock()
 
     session.attach(task)
-    await session._attach_task
 
     task.add_observer.assert_called_once_with(observer)
-    observer.attach_to_task.assert_awaited_once_with(task)
+    observer.attach_to_task_sync.assert_called_once_with(task)
 
 
 async def test_on_call_finished_returns_envelope_with_disposition():
@@ -419,7 +417,6 @@ async def test_completion_happy_path_uploads_audio_and_sends_trace():
         api_key="nv-key",
         project="voice-agent",
         environment="production",
-        endpoint=None,
         service_version=None,
     )
     # Direct, delivery-observed sends — one send_audio_sync per manifest entry.
@@ -572,6 +569,65 @@ async def test_completion_trace_send_failure_is_not_reported_delivered():
     assert result.get("status") != "delivered"
     client.send_audio_sync.assert_not_called()
     client.shutdown.assert_called_once()
+
+
+async def test_completion_malformed_envelope_yields_error_without_raising():
+    # A persisted envelope that is present but not a dict must not crash the
+    # whole handler (the .get() calls run outside the per-node try/except) —
+    # each enabled node records a bounded error and export is skipped.
+    context = _completion_context(logs={NOVEUM_PAYLOAD_LOG_KEY: "not-a-dict"})
+    nodes = [_noveum_node(api_key="nv-key")]
+
+    results = await run_completion(nodes, context)
+
+    assert results["noveum_noveum-1"] == {"error": "malformed_payload"}
+
+
+async def test_completion_counts_non_dict_manifest_entry_as_failure():
+    # A non-dict manifest entry must be counted as an individual failure, not
+    # raise inside asyncio.gather after the trace POST already succeeded.
+    envelope = {
+        "schema_version": NOVEUM_SNAPSHOT_SCHEMA_VERSION,
+        "trace": _trace_snapshot(),
+        "audio_manifest": ["not-a-dict"],
+    }
+    context = _completion_context(logs={NOVEUM_PAYLOAD_LOG_KEY: envelope})
+    nodes = [_noveum_node(api_key="nv-key")]
+    client = MagicMock()
+
+    with patch(_BUILD_CLIENT, return_value=client):
+        results = await run_completion(nodes, context)
+
+    client.send_trace_dict.assert_called_once()
+    client.send_audio_sync.assert_not_called()
+    result = results["noveum_noveum-1"]
+    assert result["status"] == "delivered"
+    assert result["audio_uploaded"] == 0
+    assert result["audio_failed"] == 1
+
+
+async def test_read_stored_audio_cleans_temp_on_download_error(tmp_path):
+    # adownload_file raising after the temp WAV was created must not leak the
+    # temp file (only _read_and_unlink deletes it, and that is skipped here).
+    from api.services.integrations.noveum import completion as completion_mod
+
+    seg = tmp_path / "seg.wav"
+
+    def _make():
+        seg.write_bytes(b"")
+        return str(seg)
+
+    fake_fs = MagicMock()
+    fake_fs.adownload_file = AsyncMock(side_effect=RuntimeError("boom"))
+
+    with (
+        patch.object(completion_mod, "_make_temp_wav_path", _make),
+        patch.object(completion_mod, "storage_fs", fake_fs),
+    ):
+        result = await completion_mod._read_stored_audio("some-key")
+
+    assert result is None
+    assert not seg.exists()
 
 
 # ---------------------------------------------------------------------------

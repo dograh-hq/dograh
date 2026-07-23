@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { cn } from "@/lib/utils";
+import { createUuid } from "@/lib/uuid";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 import { NodeContent } from "./common/NodeContent";
@@ -517,7 +518,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     useEffect(() => {
         if (type !== "trigger") return;
         if (data.trigger_path) return;
-        const newPath = crypto.randomUUID();
+        const newPath = createUuid();
         handleSaveNodeData({ ...data, trigger_path: newPath });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [type]);

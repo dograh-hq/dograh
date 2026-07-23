@@ -3,6 +3,7 @@
 import {
     Bot,
     Check,
+    Clock,
     Copy,
     Download,
     ExternalLink,
@@ -31,12 +32,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConversationRailFrame, RealtimeFeedback, WorkflowRunLogs } from '@/components/workflow/conversation';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
+import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
+import { formatDateTime } from '@/lib/dateTime';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 import { cn } from '@/lib/utils';
 
 interface WorkflowRunResponse {
     mode: string;
+    created_at: string | null;
     is_completed: boolean;
     transcript_url: string | null;
     recording_url: string | null;
@@ -599,6 +603,7 @@ export default function WorkflowRunPage() {
     const params = useParams();
     const [isLoading, setIsLoading] = useState(true);
     const auth = useAuth();
+    const organizationTimezone = useOrganizationTimezone();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
     const [workflowName, setWorkflowName] = useState<string | null>(null);
     const customizeButtonRef = useRef<HTMLButtonElement>(null);
@@ -639,6 +644,7 @@ export default function WorkflowRunPage() {
                 setWorkflowName(workflowResponse.data?.name ?? null);
                 const runData = {
                     mode: runResponse.data?.mode ?? '',
+                    created_at: runResponse.data?.created_at ?? null,
                     is_completed: runResponse.data?.is_completed ?? false,
                     transcript_url: runResponse.data?.transcript_url ?? null,
                     recording_url: runResponse.data?.recording_url ?? null,
@@ -739,6 +745,12 @@ export default function WorkflowRunPage() {
                                         )}
                                     </div>
                                 </div>
+                                {workflowRun?.created_at && (
+                                    <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                        <Clock className="h-4 w-4" />
+                                        Call time: {formatDateTime(workflowRun.created_at, organizationTimezone)}
+                                    </p>
+                                )}
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                                 <Link href={`/workflow/${params.workflowId}`}>

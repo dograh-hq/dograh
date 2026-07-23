@@ -57,8 +57,10 @@ import {
 } from "@/components/ui/table";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useOrgConfig } from "@/context/OrgConfigContext";
+import { useOrganizationTimezone } from "@/hooks/useOrganizationTimezone";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { formatDateTime } from "@/lib/dateTime";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 const INBOUND_WEBHOOK_PATH = "/api/v1/telephony/inbound/run";
@@ -71,6 +73,7 @@ export default function TelephonyConfigurationDetailPage() {
   const { user, getAccessToken, loading: authLoading } = useAuth();
   const { config: appConfig } = useAppConfig();
   const { externalPbxIntegrationsEnabled } = useOrgConfig();
+  const organizationTimezone = useOrganizationTimezone();
   const inboundWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}${INBOUND_WEBHOOK_PATH}`;
   const [config, setConfig] = useState<TelephonyConfigurationDetail | null>(null);
   const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumberResponse[]>([]);
@@ -220,7 +223,7 @@ export default function TelephonyConfigurationDetailPage() {
               )}
             </div>
             <CardDescription>
-              Updated {new Date(config.updated_at).toLocaleString()}
+              Updated {formatDateTime(config.updated_at, organizationTimezone)}
             </CardDescription>
             <button
               type="button"

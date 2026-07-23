@@ -805,6 +805,7 @@ class CustomToolManager:
                         transfer_id=transfer_id,
                         conference_name=conference_name,
                         timeout=timeout_seconds,
+                        original_call_sid=original_call_sid,
                     )
                 except Exception as e:
                     logger.error(f"Transfer provider failed: {e}")
@@ -962,6 +963,9 @@ class CustomToolManager:
                 },
                 properties=response_properties,
             )
+
+            import asyncio
+            await asyncio.sleep(2.0)
 
             # End pipeline - providers complete bridge swap/conference join as final transfer leg
             await self._engine.end_call_with_reason(

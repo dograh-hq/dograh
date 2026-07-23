@@ -46,5 +46,9 @@ def generate_transcript_text(
             timestamp = _format_timestamp_range(payload, event, include_end_timestamps)
             prefix = f"[{timestamp}] " if timestamp else ""
             lines.append(f"{prefix}assistant: {payload.get('text', '')}\n")
+        elif event_type == "rtf-user-dtmf":
+            timestamp = _format_timestamp_range(payload, event, include_end_timestamps)
+            prefix = f"[{timestamp}] " if timestamp else ""
+            lines.append(f"{prefix}user [keypad]: {payload.get('text', '')}\n")
 
     return "".join(lines)

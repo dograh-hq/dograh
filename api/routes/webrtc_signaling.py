@@ -253,13 +253,17 @@ class SignalingManager:
         self._peer_connections: Dict[str, SmallWebRTCConnection] = {}
         self._connection_peer_ids: Dict[str, Set[str]] = {}
         self._peer_connection_owners: Dict[str, str] = {}
+        self._dtmf_queues: Dict[str, asyncio.Queue] = {}
 
     def _track_peer_connection(
         self, connection_id: str, pc_id: str, pc: SmallWebRTCConnection
-    ) -> None:
+    ) -> asyncio.Queue:
         self._peer_connections[pc_id] = pc
         self._peer_connection_owners[pc_id] = connection_id
         self._connection_peer_ids.setdefault(connection_id, set()).add(pc_id)
+        dtmf_queue = asyncio.Queue()
+        self._dtmf_queues[pc_id] = dtmf_queue
+        return dtmf_queue
 
     def _forget_peer_connection(self, pc_id: str) -> Optional[str]:
         connection_id = self._peer_connection_owners.pop(pc_id, None)
@@ -271,6 +275,10 @@ class SignalingManager:
                 peer_ids.discard(pc_id)
                 if not peer_ids:
                     self._connection_peer_ids.pop(connection_id, None)
+
+        dtmf_queue = self._dtmf_queues.pop(pc_id, None)
+        if dtmf_queue:
+            dtmf_queue.put_nowait(None)
 
         return connection_id
 
@@ -412,8 +420,24 @@ class SignalingManager:
             )
         elif msg_type == "ice-candidate":
             await self._handle_ice_candidate(payload, connection_key)
+        elif msg_type == "dtmf":
+            self._handle_dtmf(payload, connection_key)
         elif msg_type == "renegotiate":
             await self._handle_renegotiation(ws, payload, connection_key)
+
+    def _handle_dtmf(self, payload: dict, connection_key: str):
+        """Handle incoming DTMF digits."""
+        digit = payload.get("digit")
+        if not digit or not isinstance(digit, str) or len(digit) != 1 or digit not in "0123456789*#ABCDabcd":
+            return
+        
+        digit = digit.upper()
+
+        peer_ids = self._connection_peer_ids.get(connection_key, set())
+        for pc_id in peer_ids:
+            dtmf_queue = self._dtmf_queues.get(pc_id)
+            if dtmf_queue:
+                dtmf_queue.put_nowait(digit)
 
     async def _handle_offer(
         self,
@@ -549,7 +573,7 @@ class SignalingManager:
                 await pc.initialize(sdp=sdp, type=type_)
 
                 # Store peer connection using client's pc_id
-                self._track_peer_connection(connection_key, pc_id, pc)
+                dtmf_queue = self._track_peer_connection(connection_key, pc_id, pc)
 
                 # Register WebSocket sender for real-time feedback
                 async def ws_sender(message: dict):
@@ -585,6 +609,7 @@ class SignalingManager:
                         call_context_vars,
                         user_provider_id=str(user.provider_id),
                         organization_id=organization_id,
+                        dtmf_queue=dtmf_queue,
                     )
                 )
                 pipeline_started = True

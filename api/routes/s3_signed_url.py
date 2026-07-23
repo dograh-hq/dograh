@@ -1,6 +1,7 @@
 import re
 import uuid
-from typing import Annotated, Any, Dict, Optional, TypedDict
+from typing import Annotated, Any, Dict, Optional
+from typing_extensions import TypedDict
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query

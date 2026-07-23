@@ -22,6 +22,7 @@ node changes.
 
 import json
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
+from datetime import datetime, UTC
 
 from loguru import logger
 
@@ -32,6 +33,8 @@ from api.services.pipecat.realtime_feedback_events import (
     build_pipeline_error_event,
     build_ttfb_metric_event,
     build_user_transcription_event,
+    build_user_dtmf_event,
+    DTMFLogFrame,
 )
 
 if TYPE_CHECKING:
@@ -196,6 +199,12 @@ class RealtimeFeedbackObserver(BaseObserver):
                 await self._send_message(message)
             else:
                 await self._send_ws(message)
+        # Handle DTMF input
+        elif isinstance(frame, DTMFLogFrame):
+            timestamp = datetime.now(UTC).isoformat(timespec="milliseconds")
+            event = build_user_dtmf_event(digits=frame.digits, timestamp=timestamp)
+            await self._append_to_buffer(event)
+            await self._send_ws(event)
         # Handle function call in progress
         elif (
             isinstance(frame, FunctionCallInProgressFrame)

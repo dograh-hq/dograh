@@ -63,6 +63,9 @@ SERVICE_COMMANDS=(
 if [[ -d "$VENV_PATH" && -f "$VENV_PATH/bin/activate" ]]; then
   source "$VENV_PATH/bin/activate"
   echo "Virtual environment activated: $VENV_PATH"
+elif [[ -d "$VENV_PATH" && -f "$VENV_PATH/Scripts/activate" ]]; then
+  source "$VENV_PATH/Scripts/activate"
+  echo "Virtual environment activated (Windows): $VENV_PATH"
 else
   echo "Warning: Virtual environment not found at $VENV_PATH"
   echo "Continuing without virtual environment activation..."
@@ -167,7 +170,7 @@ mkdir -p "$BASE_LOG_DIR" "$LOG_DIR"
 if [[ -L "$LATEST_LINK" ]]; then
   rm "$LATEST_LINK"
 fi
-ln -s "$TIMESTAMP" "$LATEST_LINK"
+ln -s "$TIMESTAMP" "$LATEST_LINK" || true
 
 echo "Log directory: $LOG_DIR"
 echo "Latest symlink: $LATEST_LINK -> $TIMESTAMP"

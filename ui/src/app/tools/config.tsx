@@ -90,7 +90,7 @@ export const TOOL_CATEGORIES: ToolCategoryConfig[] = [
     {
         value: "transfer_call",
         label: "Transfer Call",
-        description: "Transfer the call to another phone number (Twilio only)",
+        description: "Transfer the call to another phone number (Twilio, Plivo)",
         icon: PhoneForwarded,
         iconName: "phone-forwarded",
         iconColor: "#10B981",

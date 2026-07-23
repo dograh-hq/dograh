@@ -7,7 +7,8 @@ export type RealtimeFeedbackMessageType =
     | "node-transition"
     | "ttfb-metric"
     | "pipeline-error"
-    | "interrupt-warning";
+    | "interrupt-warning"
+    | "user-dtmf";
 
 export interface RealtimeFeedbackMessage {
     id: string;

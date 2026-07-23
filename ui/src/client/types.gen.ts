@@ -6479,6 +6479,7 @@ export type UpdateWorkflowRequest = {
         [key: string]: unknown;
     } | null;
     workflow_configurations?: WorkflowConfigurationDefaults | null;
+    enable_dtmf?: boolean | null;
 };
 
 /**
@@ -7149,6 +7150,7 @@ export type WorkflowResponse = {
      * Workflow Uuid
      */
     workflow_uuid?: string | null;
+    enable_dtmf?: boolean;
 };
 
 /**

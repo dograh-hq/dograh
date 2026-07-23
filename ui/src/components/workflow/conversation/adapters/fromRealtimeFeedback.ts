@@ -31,6 +31,17 @@ function liveFeedbackItem(message: RealtimeFeedbackMessage, reasoningDurationMs?
         };
     }
 
+    if (message.type === "user-dtmf") {
+        return {
+            kind: "message",
+            id: message.id,
+            timestamp: message.timestamp,
+            role: "user",
+            text: `[Keypad]: ${message.text}`,
+            final: true,
+        };
+    }
+
     if (message.type === "bot-text") {
         return {
             kind: "message",
@@ -150,6 +161,20 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
                 role: "user",
                 text: feedbackEventText(event),
                 final: event.payload.final,
+            });
+            return;
+        }
+
+        if (event.type === "rtf-user-dtmf") {
+            currentBotItemIndex = null;
+            currentBotTurn = null;
+            items.push({
+                kind: "message",
+                id: `user-dtmf-${event.turn}-${index}`,
+                timestamp: event.timestamp,
+                role: "user",
+                text: `[Keypad]: ${feedbackEventText(event)}`,
+                final: true,
             });
             return;
         }

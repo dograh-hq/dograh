@@ -1,10 +1,11 @@
 "use client";
 
-import { Loader2, Phone, RefreshCw } from "lucide-react";
+import { Grid3X3, Loader2, Phone, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RealtimeFeedback } from "@/components/workflow/conversation";
 
 import { ApiKeyErrorDialog, ConnectionStatus, WorkflowConfigErrorDialog } from "../../run/[runId]/components";
@@ -46,6 +47,7 @@ export function EmbeddedVoiceTester({
         stop,
         isStarting,
         feedbackMessages,
+        sendDtmfDigit,
     } = useWebSocketRTC({
         workflowId,
         workflowRunId,
@@ -103,39 +105,65 @@ export function EmbeddedVoiceTester({
                         {permissionError ? (
                             <p className="text-center text-sm text-destructive">{permissionError}</p>
                         ) : null}
-                        <Button
-                            onClick={handleFooterAction}
-                            disabled={isStarting && connectionStatus !== "failed"}
-                            variant={connectionActive ? "destructive" : "default"}
-                            className="w-full"
-                        >
-                            {isStarting && connectionStatus !== "failed" ? (
-                                <>
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                    Starting Test...
-                                </>
-                            ) : connectionActive ? (
-                                <>
-                                    <Phone className="h-4 w-4" />
-                                    {endButtonLabel}
-                                </>
-                            ) : connectionStatus === "failed" ? (
-                                <>
-                                    <RefreshCw className="h-4 w-4" />
-                                    {endButtonLabel}
-                                </>
-                            ) : isCompleted ? (
-                                <>
-                                    <RefreshCw className="h-4 w-4" />
-                                    {endButtonLabel}
-                                </>
-                            ) : (
-                                <>
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                    {endButtonLabel}
-                                </>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                onClick={handleFooterAction}
+                                disabled={isStarting && connectionStatus !== "failed"}
+                                variant={connectionActive ? "destructive" : "default"}
+                                className="flex-1"
+                            >
+                                {isStarting && connectionStatus !== "failed" ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Starting Test...
+                                    </>
+                                ) : connectionActive ? (
+                                    <>
+                                        <Phone className="h-4 w-4" />
+                                        {endButtonLabel}
+                                    </>
+                                ) : connectionStatus === "failed" ? (
+                                    <>
+                                        <RefreshCw className="h-4 w-4" />
+                                        {endButtonLabel}
+                                    </>
+                                ) : isCompleted ? (
+                                    <>
+                                        <RefreshCw className="h-4 w-4" />
+                                        {endButtonLabel}
+                                    </>
+                                ) : (
+                                    <>
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        {endButtonLabel}
+                                    </>
+                                )}
+                            </Button>
+
+                            {connectionActive && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" size="icon" className="shrink-0" title="Keypad">
+                                            <Grid3X3 className="h-4 w-4" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent side="top" align="end" className="w-[200px] p-3">
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"].map((digit) => (
+                                                <Button
+                                                    key={digit}
+                                                    variant="secondary"
+                                                    className="h-10 text-lg font-medium hover:bg-primary/20 hover:text-primary transition-colors"
+                                                    onClick={() => sendDtmfDigit(digit)}
+                                                >
+                                                    {digit}
+                                                </Button>
+                                            ))}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
                             )}
-                        </Button>
+                        </div>
                     </div>
                 </div>
 

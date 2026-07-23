@@ -9,6 +9,9 @@ from pipecat.frames.frames import (
     FunctionCallResultProperties,
     LLMContextFrame,
     TTSSpeakFrame,
+    LLMMessagesAppendFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -37,6 +40,7 @@ from loguru import logger
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.mcp_tool_session import McpToolSession
+from api.services.pipecat.realtime_feedback_events import DTMFLogFrame
 from api.services.workflow.pipecat_engine_context_composer import (
     compose_functions_for_node,
     compose_system_prompt_for_node,
@@ -78,6 +82,7 @@ class PipecatEngine:
         embeddings_api_version: Optional[str] = None,
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
+        enable_dtmf: bool = False,
     ):
         self.task = task
         self.llm = llm
@@ -98,6 +103,12 @@ class PipecatEngine:
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
+        self._dtmf_subscription_task: Optional[asyncio.Task] = None
+        self._enable_dtmf: bool = enable_dtmf
+        self._dtmf_buffer: str = ""
+        self._dtmf_timer_task: Optional[asyncio.Task] = None
+        self._dtmf_timeout_seconds: float = 3.0
+
         # True once a final (synchronous) extraction has run, so the end-of-call
         # and upstream-transfer paths don't redundantly re-extract the same
         # terminal state.
@@ -201,10 +212,86 @@ class PipecatEngine:
             if self._context_compaction_enabled:
                 self._context_summarization_manager = ContextSummarizationManager(self)
 
+            call_id = self._call_context_vars.get("call_id")
+            if call_id:
+                self._dtmf_subscription_task = asyncio.create_task(
+                    self._listen_for_dtmf(call_id)
+                )
+
             logger.debug(f"{self.__class__.__name__} initialized")
         except Exception as e:
             logger.error(f"Error initializing {self.__class__.__name__}: {e}")
             raise
+
+    async def _listen_for_dtmf(self, call_id: str):
+        """Listen for DTMF events and inject them into the LLM context."""
+        try:
+            from api.services.telephony.dtmf_manager import dtmf_manager
+            
+            async for event in dtmf_manager.subscribe_dtmf_events(call_id):
+                logger.info(f"Pipeline received DTMF digit {event.digit} for call {call_id}")
+                if self.task and self.context:
+                    await self.handle_dtmf_event(event.digit)
+        except asyncio.CancelledError:
+            logger.debug("DTMF listener task cancelled")
+        except Exception as e:
+            logger.error(f"Error in DTMF listener: {e}")
+
+    async def handle_dtmf_event(self, digit: str):
+        """Handle a DTMF digit directly from the pipeline."""
+        if not self._enable_dtmf:
+            logger.debug(f"Pipeline received DTMF digit {digit}, but DTMF is disabled")
+            return
+
+        logger.info(f"Pipeline received DTMF digit {digit} directly from frame")
+        
+        if not self._dtmf_buffer and self.task:
+            logger.debug("First DTMF digit received, pushing UserStartedSpeakingFrame to interrupt TTS.")
+            await self.task.queue_frame(UserStartedSpeakingFrame())
+            
+        if self._dtmf_timer_task:
+            self._dtmf_timer_task.cancel()
+            
+        if digit == "#":
+            logger.info("DTMF terminator '#' received, flushing buffer immediately.")
+            await self._flush_dtmf_buffer()
+        else:
+            self._dtmf_buffer += digit
+            self._dtmf_timer_task = asyncio.create_task(self._dtmf_timer())
+
+    async def _dtmf_timer(self):
+        try:
+            await asyncio.sleep(self._dtmf_timeout_seconds)
+            logger.info(f"DTMF timer expired after {self._dtmf_timeout_seconds}s, flushing buffer.")
+            await self._flush_dtmf_buffer()
+        except asyncio.CancelledError:
+            pass
+
+    async def _flush_dtmf_buffer(self):
+        if not self._dtmf_buffer:
+            if self.task:
+                await self.task.queue_frame(UserStoppedSpeakingFrame())
+            return
+            
+        digits = self._dtmf_buffer
+        self._dtmf_buffer = ""
+        self._dtmf_timer_task = None
+        
+        logger.info(f"Flushing DTMF buffer to LLM: {digits}")
+        
+        if self.task and self.context:
+            await self.task.queue_frame(DTMFLogFrame(digits=digits))
+            await self.task.queue_frame(UserStoppedSpeakingFrame())
+            dtmf_message = {
+                "role": "system",
+                "content": f"The caller pressed the keypad digits: {digits}"
+            }
+            self.context.add_message(dtmf_message)
+            frame = LLMMessagesAppendFrame(
+                messages=[dtmf_message],
+                run_llm=True
+            )
+            await self.task.queue_frame(frame)
 
     async def _update_llm_context(self, system_prompt: str, functions: list[dict]):
         """Update LLM settings with the composed system prompt and tool list."""
@@ -1021,6 +1108,12 @@ class PipecatEngine:
             and not self._user_response_timeout_task.done()
         ):
             self._user_response_timeout_task.cancel()
+
+        if self._dtmf_subscription_task:
+            self._dtmf_subscription_task.cancel()
+            
+        if self._dtmf_timer_task:
+            self._dtmf_timer_task.cancel()
 
         # Cancel any in-flight background summarization.
         if self._context_summarization_manager:

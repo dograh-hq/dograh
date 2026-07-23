@@ -268,15 +268,18 @@ function GeneralSection({
     workflowConfigurations,
     workflowName,
     workflowId,
+    enableDtmf,
     onSave,
 }: {
     workflowConfigurations: WorkflowConfigurations;
     workflowName: string;
     workflowId: number;
-    onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
+    enableDtmf: boolean;
+    onSave: (configurations: WorkflowConfigurations, workflowName: string, enableDtmf?: boolean) => Promise<void>;
 }) {
     const { externalPbxIntegrationsEnabled } = useOrgConfig();
     const [name, setName] = useState(workflowName);
+    const [dtmfEnabled, setDtmfEnabled] = useState(enableDtmf);
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
         workflowConfigurations.ambient_noise_configuration,
     );
@@ -331,12 +334,13 @@ function GeneralSection({
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
+            dtmfEnabled !== enableDtmf ||
             includeTranscriptEndTimestamps !==
             (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false) ||
             JSON.stringify(externalPbxFieldMappings) !==
             JSON.stringify(workflowConfigurations.external_pbx_field_mappings)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, externalPbxFieldMappings, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, externalPbxFieldMappings, workflowConfigurations, dtmfEnabled, enableDtmf]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -420,6 +424,7 @@ function GeneralSection({
                     external_pbx_field_mappings: externalPbxFieldMappings,
                 },
                 name,
+                dtmfEnabled
             );
         } catch (error) {
             console.error("Failed to save general settings:", error);
@@ -449,6 +454,26 @@ function GeneralSection({
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Enter Agent name"
                     />
+                </div>
+
+                <Separator />
+
+                {/* Keypad DTMF Input */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Keypad DTMF Input</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Allows callers to enter digits via their phone keypad. Multi-digit inputs like PINs are automatically buffered and submitted when the caller presses # or stops typing for 3 seconds.
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="dtmf-enabled" className="text-sm">Enable Keypad Inputs</Label>
+                        <Switch
+                            id="dtmf-enabled"
+                            checked={dtmfEnabled}
+                            onCheckedChange={setDtmfEnabled}
+                        />
+                    </div>
                 </div>
 
                 <Separator />
@@ -1668,6 +1693,7 @@ function WorkflowSettingsInner({
                                 workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName || workflow.name}
                                 workflowId={workflowId}
+                                enableDtmf={workflow.enable_dtmf ?? false}
                                 onSave={saveWorkflowConfigurations}
                             />
 

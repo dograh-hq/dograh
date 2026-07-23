@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { createUuid } from "@/lib/uuid";
 
 import {
     type ContextDestinationRouteRow,
@@ -397,7 +398,7 @@ export function TransferCallToolConfig({
                                             onClick={() => onContextDestinationRoutesChange([
                                                 ...contextDestinationRoutes,
                                                 {
-                                                    id: crypto.randomUUID(),
+                                                    id: createUuid(),
                                                     context_value: "",
                                                     destination: "",
                                                 },

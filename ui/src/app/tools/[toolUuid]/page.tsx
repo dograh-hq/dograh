@@ -43,6 +43,7 @@ import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { createUuid } from "@/lib/uuid";
 
 import {
     type ContextDestinationRouteRow,
@@ -248,7 +249,7 @@ export default function ToolDetailPage() {
                 setTransferContextDestinationRoutes(
                     (config.context_mapping?.routes || []).map((route) => ({
                         ...route,
-                        id: crypto.randomUUID(),
+                        id: createUuid(),
                     }))
                 );
                 setTransferFallbackDestination(

@@ -15,6 +15,7 @@ noveum-trace to be importable.
 
 from __future__ import annotations
 
+import asyncio
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -608,7 +609,7 @@ async def test_completion_counts_non_dict_manifest_entry_as_failure():
 
 async def test_read_stored_audio_cleans_temp_on_download_error(tmp_path):
     # adownload_file raising after the temp WAV was created must not leak the
-    # temp file (only _read_and_unlink deletes it, and that is skipped here).
+    # temp file.
     from api.services.integrations.noveum import completion as completion_mod
 
     seg = tmp_path / "seg.wav"
@@ -627,6 +628,31 @@ async def test_read_stored_audio_cleans_temp_on_download_error(tmp_path):
         result = await completion_mod._read_stored_audio("some-key")
 
     assert result is None
+    assert not seg.exists()
+
+
+async def test_read_stored_audio_cleans_temp_on_cancellation(tmp_path):
+    # CancelledError is a BaseException, so `except Exception` never sees it:
+    # an arq job_timeout / worker shutdown cancelling the download must still
+    # unlink the temp WAV, and must propagate rather than return None.
+    from api.services.integrations.noveum import completion as completion_mod
+
+    seg = tmp_path / "seg.wav"
+
+    def _make():
+        seg.write_bytes(b"")
+        return str(seg)
+
+    fake_fs = MagicMock()
+    fake_fs.adownload_file = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with (
+        patch.object(completion_mod, "_make_temp_wav_path", _make),
+        patch.object(completion_mod, "storage_fs", fake_fs),
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await completion_mod._read_stored_audio("some-key")
+
     assert not seg.exists()
 
 

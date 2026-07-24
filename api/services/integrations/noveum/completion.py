@@ -38,39 +38,39 @@ def _make_temp_wav_path() -> str:
     return tmp_path
 
 
-def _read_and_unlink(tmp_path: str) -> bytes:
-    try:
-        with open(tmp_path, "rb") as f:
-            return f.read()
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+def _read_file(tmp_path: str) -> bytes:
+    with open(tmp_path, "rb") as f:
+        return f.read()
 
 
 async def _read_stored_audio(storage_key: str) -> bytes | None:
     """Fetch one stored WAV segment back as bytes (via a temp file — the
-    filesystem abstraction has no direct bytes-read API). File I/O runs in
-    worker threads so full-WAV reads never block the arq event loop."""
+    filesystem abstraction has no direct bytes-read API). Full-WAV reads run in
+    a worker thread so they never block the arq event loop."""
     tmp_path: str | None = None
     try:
-        tmp_path = await asyncio.to_thread(_make_temp_wav_path)
+        # Created synchronously so tmp_path is always bound before the first
+        # cancellable await — an off-loop mkstemp whose await is cancelled
+        # would leave a file nothing knows the name of. It is two syscalls.
+        tmp_path = _make_temp_wav_path()
         ok = await storage_fs.adownload_file(storage_key, tmp_path)
         if not ok:
-            await asyncio.to_thread(_read_and_unlink, tmp_path)
             return None
-        return await asyncio.to_thread(_read_and_unlink, tmp_path)
+        return await asyncio.to_thread(_read_file, tmp_path)
     except Exception as exc:
         logger.warning(f"Noveum completion failed to read {storage_key}: {exc}")
-        # adownload_file may raise after _make_temp_wav_path created the file,
-        # bypassing _read_and_unlink; clean it up so we do not leak temp WAVs.
+        return None
+    finally:
+        # Covers every exit: success, failure, and CancelledError (a
+        # BaseException, so `except Exception` never saw it) from an arq
+        # job_timeout or worker shutdown landing on one of the awaits above.
+        # Unlink is inline, not awaited: an await inside finally during
+        # cancellation re-raises immediately and would skip the cleanup.
         if tmp_path is not None:
             try:
                 os.unlink(tmp_path)
             except OSError:
                 pass
-        return None
 
 
 async def _upload_manifest_audio(

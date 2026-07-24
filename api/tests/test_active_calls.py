@@ -239,4 +239,10 @@ def test_active_calls_route_returns_count_with_secret(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"active_calls": 1}
+    # loop_lag_* are defaulted fields on ActiveCallsResponse (the autoscaling
+    # saturation signal); the monitor isn't started in this test, so they read 0.
+    assert response.json() == {
+        "active_calls": 1,
+        "loop_lag_p95_ms": 0.0,
+        "loop_lag_max_ms": 0.0,
+    }

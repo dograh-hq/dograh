@@ -135,6 +135,16 @@ async def health() -> HealthResponse:
 
 class ActiveCallsResponse(BaseModel):
     active_calls: int
+    # Event-loop lag over the recent window (ms). The per-pod saturation signal
+    # for autoscaling load tests; see api/services/pipecat/loop_lag.py.
+    loop_lag_p95_ms: float = 0.0
+    loop_lag_max_ms: float = 0.0
+
+
+class AutoscaleMetricResponse(BaseModel):
+    # Fleet-wide active calls plus the warm buffer. KEDA divides this by the
+    # per-pod target (K) to get desiredPods = ceil((calls + buffer) / K).
+    value: int
 
 
 DOGRAH_DEVOPS_SECRET_HEADER = "X-Dograh-Devops-Secret"
@@ -175,7 +185,38 @@ async def active_calls(
     or per Kubernetes pod (preStop hook). See api/services/pipecat/active_calls.py.
     """
     from api.constants import DOGRAH_DEVOPS_SECRET
+    from api.services.pipecat import loop_lag
     from api.services.pipecat.active_calls import active_call_count
 
     _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
-    return ActiveCallsResponse(active_calls=active_call_count())
+    lag = loop_lag.stats()
+    return ActiveCallsResponse(
+        active_calls=active_call_count(),
+        loop_lag_p95_ms=lag["p95_ms"],
+        loop_lag_max_ms=lag["max_ms"],
+    )
+
+
+@router.get("/health/autoscale-metric", response_model=AutoscaleMetricResponse)
+async def autoscale_metric(
+    buffer: int = 0,
+    x_dograh_devops_secret: Annotated[
+        str | None,
+        Header(alias=DOGRAH_DEVOPS_SECRET_HEADER),
+    ] = None,
+) -> AutoscaleMetricResponse:
+    """Fleet-wide autoscaling signal for KEDA: total active calls + warm buffer.
+
+    Unlike /health/active-calls (a per-worker drain signal), this is the whole
+    fleet's active-call count read from Redis, so a single scrape drives the
+    ScaledObject. ``buffer`` (query param, in calls) is the warm headroom: KEDA
+    divides value by the per-pod target K, giving desiredPods =
+    ceil((calls + buffer) / K). All scaling policy — K, buffer, min/max — lives
+    in the ScaledObject; this endpoint is pure signal. See AUTOSCALING_PLAN.md.
+    """
+    from api.constants import DOGRAH_DEVOPS_SECRET
+    from api.services.campaign.rate_limiter import rate_limiter
+
+    _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
+    calls = await rate_limiter.get_fleet_concurrent_count()
+    return AutoscaleMetricResponse(value=calls + max(0, buffer))

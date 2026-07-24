@@ -46,10 +46,14 @@ TURN traffic: dedicated L4 Service of type `LoadBalancer`.
 These are choices the chart made where `HELM_DEPLOYMENT_PLAN.md` was
 silent. Each is exposed in `values.yaml` for operator override.
 
-- **terminationGracePeriodSeconds for web: 600s.** Covers a 10-minute
-  call; tune to your call-length distribution.
-- **preStop sleep: 15s.** Conservative window for the gateway/ingress
-  to observe pod NotReady and stop dispatching new connections.
+- **terminationGracePeriodSeconds for web: 1260s.** Covers a full-length
+  (20-minute) call so scale-down / rolling updates drain instead of cutting
+  it; tune to your call-length distribution.
+- **preStop active-call drain (scripts/drain_web.sh).** Waits
+  `preStopSleepSeconds` (15s) for the gateway to stop dispatching new
+  connections, then polls /api/v1/health/active-calls and holds SIGTERM until
+  the count hits 0 or `drainMaxWaitSeconds` (1200s). Falls back to a fixed
+  sleep when the devops secret is unset.
 - **Liveness probes on singletons: `exec` (`pgrep`).** No HTTP endpoint
   exists on ari-manager / campaign-orchestrator; process-alive check is
   the simplest correct signal.
@@ -121,8 +125,8 @@ Spot-check expectations:
   `strategy.type: Recreate`.
 - `Deployment/<release>-campaign-orchestrator` has `replicas: 1` and
   `strategy.type: Recreate`.
-- `Deployment/<release>-web` has `terminationGracePeriodSeconds: 600`
-  and a `lifecycle.preStop` exec hook.
+- `Deployment/<release>-web` has `terminationGracePeriodSeconds: 1260`
+  and a `lifecycle.preStop` exec hook running `./scripts/drain_web.sh`.
 - Liveness probe on ari-manager / campaign-orchestrator uses `exec`,
   not `httpGet`.
 

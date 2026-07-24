@@ -1,0 +1,70 @@
+{{- if .Values.autoscaling.web.keda.enabled }}
+{{- if not .Values.secrets.devopsSecret }}
+{{- if not .Values.secrets.existingSecret }}
+{{- fail "autoscaling.web.keda.enabled requires secrets.devopsSecret (or provide it via secrets.existingSecret under key DOGRAH_DEVOPS_SECRET)" }}
+{{- end }}
+{{- end }}
+# Call-based autoscaling for the web tier. KEDA scrapes the fleet-wide active
+# call count + warm buffer from /health/autoscale-metric and, via the generated
+# HPA, holds desiredPods = ceil((calls + bufferCalls) / callsPerPod).
+#
+# KEDA OWNS this Deployment: web-hpa.yaml (CPU/mem) is suppressed and
+# web-deployment.yaml omits spec.replicas while this is enabled — two
+# controllers on one Deployment would fight. Requires KEDA in the cluster.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "dograh.web.fullname" . }}-keda-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  secretTargetRef:
+    - parameter: apiKey
+      name: {{ include "dograh.secretName" . }}
+      key: DOGRAH_DEVOPS_SECRET
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "dograh.web.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  scaleTargetRef:
+    name: {{ include "dograh.web.fullname" . }}
+  minReplicaCount: {{ .Values.autoscaling.web.keda.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.web.keda.maxReplicas }}
+  pollingInterval: {{ .Values.autoscaling.web.keda.pollingInterval }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          # React immediately — the warm buffer covers cold-start latency.
+          stabilizationWindowSeconds: 0
+        scaleDown:
+          stabilizationWindowSeconds: {{ .Values.autoscaling.web.keda.scaleDownStabilizationSeconds }}
+          policies:
+            # Remove at most one pod per minute so a draining pod isn't yanked.
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+  triggers:
+    - type: metrics-api
+      # AverageValue => desired = ceil(metricValue / targetValue) = ceil((C+B)/K).
+      metricType: AverageValue
+      metadata:
+        {{- /* FQDN with the release namespace: KEDA runs in its own namespace
+               (e.g. keda) and a bare Service name would resolve there, not here. */}}
+        url: "http://{{ include "dograh.web.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.web.service.port }}/api/v1/health/autoscale-metric?buffer={{ .Values.autoscaling.web.keda.bufferCalls }}"
+        valueLocation: "value"
+        targetValue: "{{ .Values.autoscaling.web.keda.callsPerPod }}"
+        authMode: "apiKey"
+        method: "header"
+        keyParamName: "X-Dograh-Devops-Secret"
+      authenticationRef:
+        name: {{ include "dograh.web.fullname" . }}-keda-auth
+{{- end }}

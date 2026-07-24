@@ -1,4 +1,6 @@
-{{- if and .Values.autoscaling.web.enabled (or .Values.autoscaling.web.targetCPUUtilizationPercentage .Values.autoscaling.web.targetMemoryUtilizationPercentage) }}
+{{- /* Suppressed when KEDA owns the web tier — its ScaledObject renders its own
+       HPA, and two HPAs on one Deployment fight. See web-keda-scaledobject.yaml. */}}
+{{- if and .Values.autoscaling.web.enabled (not .Values.autoscaling.web.keda.enabled) (or .Values.autoscaling.web.targetCPUUtilizationPercentage .Values.autoscaling.web.targetMemoryUtilizationPercentage) }}
 # WARNING: CPU/memory is a poor signal for WebRTC signaling. WebSockets
 # are long-lived and low-CPU; this HPA will not respond to connection
 # pressure. Replace with a custom metric (active connections, active

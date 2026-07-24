@@ -68,11 +68,18 @@ async def lifespan(app: FastAPI):
         await sync_manager.start()
         set_worker_sync_manager(sync_manager)
 
+        # Event-loop lag gauge — per-pod saturation signal read off
+        # /health/active-calls during autoscaling load tests (AUTOSCALING_PLAN.md).
+        from api.services.pipecat import loop_lag
+
+        loop_lag.start()
+
         yield  # Run app
 
         # Shutdown sequence - this runs when FastAPI is shutting down
         logger.info("Starting graceful shutdown...")
         await sync_manager.stop()
+        await loop_lag.stop()
 
 
 app = FastAPI(

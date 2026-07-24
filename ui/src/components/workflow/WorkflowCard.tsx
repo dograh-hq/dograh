@@ -2,6 +2,9 @@
 
 import { useRouter } from 'next/navigation';
 
+import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
+import { formatDate } from '@/lib/dateTime';
+
 interface WorkflowCardProps {
     id: number;
     name: string;
@@ -10,6 +13,7 @@ interface WorkflowCardProps {
 
 export function WorkflowCard({ id, name, createdAt }: WorkflowCardProps) {
     const router = useRouter();
+    const organizationTimezone = useOrganizationTimezone();
 
     const handleClick = () => {
         router.push(`/workflow/${id}`);
@@ -23,7 +27,7 @@ export function WorkflowCard({ id, name, createdAt }: WorkflowCardProps) {
             <div>
                 <h3 className="text-lg font-semibold mb-2">{name}</h3>
                 <p className="text-gray-600 mb-2">
-                    Created: {new Date(createdAt).toLocaleDateString()}
+                    Created: {formatDate(createdAt, organizationTimezone)}
                 </p>
             </div>
         </div>

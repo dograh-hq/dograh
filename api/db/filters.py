@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Float, Integer, Text, and_, cast, func
+from sqlalchemy import Float, Text, and_, cast, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from api.db.models import WorkflowRunModel
@@ -211,17 +211,16 @@ def apply_workflow_run_filters(
                 if field == "usage_info.call_duration_seconds":
                     # Use ->> operator for compatibility with all PostgreSQL versions
                     # (subscript [] only works in PostgreSQL 14+)
+                    # Cast to Float, not Integer: some rows store the value as
+                    # a JSON float (e.g. 0.0), and Postgres can't cast the text
+                    # '0.0' to integer.
                     duration_text = cast(WorkflowRunModel.usage_info, JSONB).op("->>")(
                         "call_duration_seconds"
                     )
                     if min_val is not None:
-                        filter_conditions.append(
-                            cast(duration_text, Integer) >= min_val
-                        )
+                        filter_conditions.append(cast(duration_text, Float) >= min_val)
                     if max_val is not None:
-                        filter_conditions.append(
-                            cast(duration_text, Integer) <= max_val
-                        )
+                        filter_conditions.append(cast(duration_text, Float) <= max_val)
 
                 elif field == "cost_info.total_cost_usd":
                     # Use ->> operator for compatibility with all PostgreSQL versions
@@ -229,9 +228,9 @@ def apply_workflow_run_filters(
                         "total_cost_usd"
                     )
                     if min_val is not None:
-                        filter_conditions.append(cast(cost_text, Integer) >= min_val)
+                        filter_conditions.append(cast(cost_text, Float) >= min_val)
                     if max_val is not None:
-                        filter_conditions.append(cast(cost_text, Integer) <= max_val)
+                        filter_conditions.append(cast(cost_text, Float) <= max_val)
 
     if filter_conditions:
         base_query = base_query.where(and_(*filter_conditions))

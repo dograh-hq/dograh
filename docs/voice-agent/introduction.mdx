@@ -24,10 +24,10 @@ A workflow should have only one **Start Call** node and typically ends at an **E
 | --- | --- |
 | [**Start Call**](/voice-agent/start-call) | Starts the call and configures the agent's greeting. Should have only one per workflow. |
 | [**Agent**](/voice-agent/agent) | Holds the prompt that drives conversation at a given stage; connects to other nodes via pathways. |
-| [**Global**](/voice-agent/global) | Common instructions (tone, objection handling) appended to every node with "Add Global Prompt" enabled. |
+| [**Global**](/voice-agent/global) | Common instructions (tone, objection handling) prepended to every node with "Add Global Prompt" enabled. |
 | [**QA**](/voice-agent/qa) | Runs automated post-call quality analysis against criteria you define. |
 | [**API Trigger**](/voice-agent/api-trigger) | Exposes an endpoint so external systems (n8n, Zapier, your backend) can start outbound calls. |
-| [**End Call**](/voice-agent/end-call) | Configures the agent's final message before the call is terminated. Should have only one per workflow. |
+| [**End Call**](/voice-agent/end-call) | Configures the agent's final message before the call is terminated. A workflow can have multiple End Call nodes, each with a distinct Prompt. |
 | [**Webhook**](/voice-agent/webhook) | Sends call results to an external system (CRM, Zapier, n8n) when a run ends. |
 
 Beyond nodes, you can extend an agent with:

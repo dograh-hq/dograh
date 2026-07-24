@@ -214,6 +214,23 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         )
         self._schedule_node_transition_function_calls(fcs)
 
+    async def _disconnect_for_reconnect(self) -> bool:
+        """Disconnect without discarding a pending graceful shutdown.
+
+        Returns:
+            ``True`` when the caller should open a new Gemini session.
+            ``False`` when a deferred :class:`EndFrame` was released instead.
+        """
+        await self._disconnect(preserve_pending_end_frame=True)
+        if not self._end_frame_pending_bot_turn_finished:
+            return True
+
+        logger.info(
+            "Releasing deferred EndFrame instead of reconnecting Gemini service"
+        )
+        await self._release_deferred_end_frame()
+        return False
+
     async def _reconnect_for_node_transition(self) -> None:
         """Start a fresh connection and wait to seed the completed context.
 
@@ -227,7 +244,14 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         self._node_transition_context_received = False
         self._node_transition_context_seed_started = False
         self._session_resumption_handle = None
-        await self._disconnect()
+        should_open_new_session = await self._disconnect_for_reconnect()
+        if not should_open_new_session:
+            # The helper released a deferred EndFrame, so graceful shutdown now
+            # owns the lifecycle and this node transition must not reconnect.
+            self._awaiting_node_transition_context = False
+            self._node_transition_context_received = False
+            self._node_transition_context_seed_started = False
+            return
         await self._connect(session_resumption_handle=None)
 
     # ------------------------------------------------------------------

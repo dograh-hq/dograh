@@ -21,12 +21,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppConfig } from '@/context/AppConfigContext';
+import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
+import { formatDateTime } from '@/lib/dateTime';
 import logger from '@/lib/logger';
 
 export default function APIKeysPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const { config } = useAppConfig();
+    const organizationTimezone = useOrganizationTimezone();
     const isOSS = config?.deploymentMode === 'oss';
 
     logger.debug('[APIKeysPage] Component render', {
@@ -292,13 +295,7 @@ export default function APIKeysPage() {
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return 'Never';
-        return new Date(dateString).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        return formatDateTime(dateString, organizationTimezone);
     };
 
     // Don't render content until auth is loaded

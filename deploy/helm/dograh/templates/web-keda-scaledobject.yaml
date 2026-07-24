@@ -57,7 +57,9 @@ spec:
       # AverageValue => desired = ceil(metricValue / targetValue) = ceil((C+B)/K).
       metricType: AverageValue
       metadata:
-        url: "http://{{ include "dograh.web.fullname" . }}:{{ .Values.web.service.port }}/api/v1/health/autoscale-metric?buffer={{ .Values.autoscaling.web.keda.bufferCalls }}"
+        {{- /* FQDN with the release namespace: KEDA runs in its own namespace
+               (e.g. keda) and a bare Service name would resolve there, not here. */}}
+        url: "http://{{ include "dograh.web.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.web.service.port }}/api/v1/health/autoscale-metric?buffer={{ .Values.autoscaling.web.keda.bufferCalls }}"
         valueLocation: "value"
         targetValue: "{{ .Values.autoscaling.web.keda.callsPerPod }}"
         authMode: "apiKey"

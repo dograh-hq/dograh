@@ -17,6 +17,7 @@ The gauge is a module global updated by one background task and read (peek) off
 """
 
 import asyncio
+import math
 
 # ponytail: single in-process gauge — exactly the unit (one event loop) we're
 # sizing. A window of recent lag samples is enough for a p95; no metrics library.
@@ -49,12 +50,26 @@ def start() -> asyncio.Task:
     return _task
 
 
+async def stop() -> None:
+    """Cancel the monitor on shutdown so the loop doesn't warn about a pending
+    task being destroyed. Safe to call when never started."""
+    global _task
+    task, _task = _task, None
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 def _percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    # nearest-rank; index clamped to the last element
-    idx = min(len(ordered) - 1, int(pct / 100 * len(ordered)))
+    # nearest-rank: rank = ceil(pct/100 * n), 1-indexed -> subtract 1. Using
+    # int()/floor here would land one rank high (p95 of 20 samples = the max).
+    idx = min(len(ordered) - 1, max(0, math.ceil(pct / 100 * len(ordered)) - 1))
     return ordered[idx]
 
 

@@ -79,6 +79,7 @@ async def lifespan(app: FastAPI):
         # Shutdown sequence - this runs when FastAPI is shutting down
         logger.info("Starting graceful shutdown...")
         await sync_manager.stop()
+        await loop_lag.stop()
 
 
 app = FastAPI(

@@ -42,7 +42,7 @@ import time
 
 import aiohttp
 from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
-from aiortc.contrib.media import MediaBlackhole, MediaPlayer
+from aiortc.contrib.media import MediaPlayer
 
 
 async def _create_run(session, base_url, api_key, workflow_id):
@@ -79,18 +79,21 @@ class _Call:
         pc = RTCPeerConnection(RTCConfiguration(iceServers=self.ice_servers))
         player = MediaPlayer(self.wav, loop=True)
         pc.addTrack(player.audio)
-        blackhole = MediaBlackhole()
+        consumers: list[asyncio.Task] = []
 
         @pc.on("track")
         def _on_track(track):
             # Bot audio: timestamp each frame to measure continuity/underruns.
+            # This is the SOLE consumer of the track — a second reader (e.g. a
+            # MediaBlackhole) would split frames between them and manufacture gaps.
             async def _consume():
-                while True:
-                    frame = await track.recv()
-                    self.bot_frame_ts.append(time.monotonic())
-                    _ = frame  # discarded; timing is what we measure
-            asyncio.ensure_future(_consume())
-            blackhole.addTrack(track)
+                try:
+                    while True:
+                        await track.recv()
+                        self.bot_frame_ts.append(time.monotonic())
+                except Exception:
+                    pass  # track ended / pc closed
+            consumers.append(asyncio.ensure_future(_consume()))
 
         try:
             run_id = await _create_run(
@@ -113,12 +116,12 @@ class _Call:
                         },
                     }
                 )
-                await blackhole.start()
                 await self._pump(ws, pc, stop)
         except Exception as e:  # noqa: BLE001 — driver records, never crashes the ramp
             self.error = f"{type(e).__name__}: {e}"
         finally:
-            await blackhole.stop()
+            for c in consumers:
+                c.cancel()
             await pc.close()
 
     async def _pump(self, ws, pc, stop: asyncio.Event):
@@ -139,14 +142,13 @@ class _Call:
             elif mtype == "error":
                 self.error = json.dumps(payload)
                 break
-            elif mtype == "realtime_feedback":
-                # LATENCY_MEASURED / TTFB_METRIC — field names per
-                # api/services/pipecat/realtime_feedback_events.py
-                fb = payload.get("type") or data.get("event_type")
-                if fb == "LATENCY_MEASURED" and "latency_seconds" in payload:
-                    self.latencies.append(payload["latency_seconds"])
-                elif fb == "TTFB_METRIC" and "ttfb_seconds" in payload:
-                    self.ttfbs.append(payload["ttfb_seconds"])
+            # Feedback frames carry the type at the TOP level (not "realtime_feedback")
+            # with the value in payload — see RealtimeFeedbackType in pipecat enums
+            # and build_ttfb_metric_event / on_latency_measured in run_pipeline.py.
+            elif mtype == "rtf-latency-measured" and "latency_seconds" in payload:
+                self.latencies.append(payload["latency_seconds"])
+            elif mtype == "rtf-ttfb-metric" and "ttfb_seconds" in payload:
+                self.ttfbs.append(payload["ttfb_seconds"])
 
     def underrun_rate(self, frame_ms=20.0, jitter_ms=40.0):
         """Fraction of inter-frame gaps exceeding frame+jitter (audible breakup)."""
@@ -158,17 +160,26 @@ class _Call:
         return bad / len(gaps)
 
 
-async def _poll_health(session, base_url, devops_secret, out, stop):
-    """Sample the pod's per-pod saturation signals for the whole step."""
+async def _poll_health(session, base_url, devops_secret, out, errors, stop):
+    """Sample the pod's per-pod saturation signals for the whole step.
+
+    Only 2xx JSON is recorded as a sample. A non-2xx (e.g. 403 bad secret, 503
+    secret unset) records a health-poll error instead — otherwise the error
+    body's missing keys default to 0 and a failed measurement masquerades as an
+    idle pod, hiding the real saturation.
+    """
     headers = {"X-Dograh-Devops-Secret": devops_secret} if devops_secret else {}
     while not stop.is_set():
         try:
             async with session.get(
                 f"{base_url}/api/v1/health/active-calls", headers=headers
             ) as r:
-                out.append(await r.json())
-        except Exception:  # noqa: BLE001
-            pass
+                if r.status // 100 == 2:
+                    out.append(await r.json())
+                else:
+                    errors.append(f"health {r.status}: {(await r.text())[:120]}")
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"health poll: {type(e).__name__}: {e}")
         await asyncio.sleep(2)
 
 
@@ -176,6 +187,7 @@ async def run_step(args, n, wav, ice_servers):
     """Hold n concurrent calls for args.hold seconds; return the step report."""
     stop = asyncio.Event()
     health: list[dict] = []
+    health_errors: list[str] = []
     async with aiohttp.ClientSession() as session:
         calls = [
             _Call(i, args.base_url, args.api_key, args.workflow_id, wav, ice_servers)
@@ -183,7 +195,9 @@ async def run_step(args, n, wav, ice_servers):
         ]
         tasks = [asyncio.create_task(c.run(session, stop)) for c in calls]
         poller = asyncio.create_task(
-            _poll_health(session, args.base_url, args.devops_secret, health, stop)
+            _poll_health(
+                session, args.base_url, args.devops_secret, health, health_errors, stop
+            )
         )
         await asyncio.sleep(args.hold)
         stop.set()
@@ -207,6 +221,9 @@ async def run_step(args, n, wav, ice_servers):
         "underrun_rate_mean": round(statistics.mean(underruns), 4) if underruns else None,
         "errors": len(errors),
         "error_samples": errors[:3],
+        "health_samples": len(active),
+        "health_poll_errors": len(health_errors),
+        "health_error_samples": health_errors[:3],
     }
 
 

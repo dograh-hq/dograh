@@ -262,20 +262,25 @@ class RateLimiter:
         them too would double-count. Org keys have a purely numeric suffix;
         scope keys do not, which is how we tell them apart.
 
-        Uses SCAN (never KEYS) so it is safe on a production Redis. Does not
-        clean stale entries (unlike get_concurrent_count) — a read-only scrape
-        hit every ~30s by KEDA shouldn't write to every org key on each poll.
-        Stale members inflate the count for at most stale_call_timeout (20m);
-        the acquire/get paths clean them, and the 1h key EXPIRE bounds the rest.
+        Uses SCAN (never KEYS) so it is safe on a production Redis, and ZCOUNT
+        by score (not ZCARD) so stale slots older than stale_call_timeout are
+        excluded without writing — a read-only scrape then can't keep the metric
+        high past the timeout and block scale-down when a call is orphaned,
+        matching get_concurrent_count's cleanup semantics.
         """
         redis_client = await self._get_redis()
         prefix = "concurrent_calls:"
+        stale_cutoff = time.time() - self.stale_call_timeout
         try:
             total = 0
+            seen: set[str] = set()
             async for key in redis_client.scan_iter(match=f"{prefix}*", count=100):
-                if not key[len(prefix):].isdigit():  # skip scope keys (campaign:<id>)
+                # SCAN can return a key more than once (rehash) — skip scope
+                # keys (campaign:<id>) and already-counted keys.
+                if not key[len(prefix):].isdigit() or key in seen:
                     continue
-                total += await redis_client.zcard(key)
+                seen.add(key)
+                total += await redis_client.zcount(key, stale_cutoff, "+inf")
             return total
         except Exception as e:
             logger.error(f"Error getting fleet concurrent count: {e}")

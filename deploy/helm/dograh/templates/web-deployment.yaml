@@ -1,3 +1,11 @@
+{{- /* The preStop drain runs preStopSleepSeconds THEN loops up to
+       drainMaxWaitSeconds; if their sum reaches terminationGracePeriodSeconds the
+       kubelet SIGKILLs mid-drain and cuts live calls. Fail the render instead of
+       shipping that. 30s headroom covers SIGTERM handling / uvicorn shutdown. */}}
+{{- $drainBudget := add (int .Values.web.preStopSleepSeconds) (int .Values.web.drainMaxWaitSeconds) 30 }}
+{{- if gt $drainBudget (int .Values.web.terminationGracePeriodSeconds) }}
+{{- fail (printf "web.preStopSleepSeconds (%d) + web.drainMaxWaitSeconds (%d) + 30s headroom = %ds exceeds web.terminationGracePeriodSeconds (%d); raise the grace period or lower the drain window" (int .Values.web.preStopSleepSeconds) (int .Values.web.drainMaxWaitSeconds) $drainBudget (int .Values.web.terminationGracePeriodSeconds)) }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

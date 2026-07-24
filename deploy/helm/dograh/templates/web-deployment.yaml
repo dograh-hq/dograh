@@ -7,11 +7,12 @@ metadata:
     {{- include "dograh.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
-  {{- /* Omit spec.replicas only when the HPA object will actually render — matches
-         the gate in templates/web-hpa.yaml. If HPA is enabled but both metric
-         targets are null the HPA is suppressed, so we must keep the static
-         replica count here to avoid a Deployment with no owner. */ -}}
-  {{- if not (and .Values.autoscaling.web.enabled (or .Values.autoscaling.web.targetCPUUtilizationPercentage .Values.autoscaling.web.targetMemoryUtilizationPercentage)) }}
+  {{- /* Omit spec.replicas only when an autoscaler will actually own this
+         Deployment — either the CPU/mem HPA (web-hpa.yaml) renders, or the KEDA
+         ScaledObject (web-keda-scaledobject.yaml) is enabled. If HPA is enabled
+         but both metric targets are null the HPA is suppressed, so we must keep
+         the static replica count here to avoid a Deployment with no owner. */ -}}
+  {{- if not (or (and .Values.autoscaling.web.enabled (or .Values.autoscaling.web.targetCPUUtilizationPercentage .Values.autoscaling.web.targetMemoryUtilizationPercentage)) .Values.autoscaling.web.keda.enabled) }}
   replicas: {{ .Values.web.replicaCount }}
   {{- end }}
   selector:
@@ -65,6 +66,14 @@ spec:
             # original https scheme — see web.forwardedAllowIps in values.yaml.
             - name: FORWARDED_ALLOW_IPS
               value: {{ .Values.web.forwardedAllowIps | quote }}
+            # Drain tuning (scripts/drain_web.sh, the preStop hook below). Keep
+            # DRAIN_MAX_WAIT below terminationGracePeriodSeconds
+            # ({{ .Values.web.terminationGracePeriodSeconds }}s) or the kubelet
+            # SIGKILLs mid-drain and cuts live calls.
+            - name: DRAIN_INITIAL_DELAY
+              value: {{ .Values.web.preStopSleepSeconds | quote }}
+            - name: DRAIN_MAX_WAIT
+              value: {{ .Values.web.drainMaxWaitSeconds | quote }}
             {{- include "dograh.dbEnv" . | nindent 12 }}
           # Distinct probes: readiness flips fast (drain), liveness is
           # slower (process aliveness).
@@ -74,11 +83,11 @@ spec:
             {{- toYaml .Values.web.readinessProbe | nindent 12 }}
           lifecycle:
             preStop:
-              # Sleep so the gateway / load balancer observes the pod
-              # NotReady and stops sending new connections before SIGTERM
-              # propagates to uvicorn.
+              # Drain in-flight calls to zero before SIGTERM so scale-down /
+              # rolling updates don't cut live call WebSockets. Falls back to a
+              # fixed sleep when the devops secret is unset. See scripts/drain_web.sh.
               exec:
-                command: ["sh", "-c", "sleep {{ .Values.web.preStopSleepSeconds }}"]
+                command: ["./scripts/drain_web.sh"]
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
       {{- with .Values.web.nodeSelector }}

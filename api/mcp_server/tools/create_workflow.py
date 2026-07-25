@@ -8,7 +8,7 @@ is no prior published version to protect, so we skip the draft step.
 Execution flow mirrors `save_workflow`:
     1. Parse via the Node TS validator — AST-only, never executes the code.
     2. Pydantic validation via `ReactFlowDTO.model_validate`.
-    3. Graph validation via `WorkflowGraph`.
+    3. Graph and resolved custom-tool name validation.
     4. Persist via `db_client.create_workflow` — workflow row + v1
        published definition in a single transaction.
 
@@ -34,6 +34,9 @@ from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.posthog_client import capture_event
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
+from api.services.workflow.tool_name_validation import (
+    validate_workflow_tool_name_collisions,
+)
 from api.services.workflow.trigger_paths import (
     extract_trigger_paths,
     validate_trigger_paths,
@@ -137,6 +140,17 @@ async def create_workflow(code: str) -> dict[str, Any]:
         WorkflowGraph(dto)
     except (ValueError, Exception) as e:  # WorkflowGraph raises ValueError
         return _error_result("graph_validation", str(e))
+
+    tool_name_errors = await validate_workflow_tool_name_collisions(
+        payload,
+        user.selected_organization_id,
+    )
+    if tool_name_errors:
+        return _error_result(
+            "graph_validation",
+            "\n".join(error["message"] for error in tool_name_errors),
+            errors=tool_name_errors,
+        )
 
     # 4. Reject upfront if any trigger path collides with another workflow's
     # trigger in this org so we don't leave an orphan workflow record.

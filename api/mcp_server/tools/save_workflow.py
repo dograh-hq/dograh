@@ -6,7 +6,7 @@ Execution flow:
     2. Pydantic validation via `ReactFlowDTO.model_validate` (defence in
        depth; the parser is already spec-driven, but the DTO layer is the
        authoritative wire-format gate).
-    3. Graph validation via `WorkflowGraph`.
+    3. Graph and resolved custom-tool name validation.
     4. Save as a new draft via `db_client.save_workflow_draft` — the
        published version stays intact, so edits are rollback-safe.
 
@@ -35,6 +35,9 @@ from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
+from api.services.workflow.tool_name_validation import (
+    validate_workflow_tool_name_collisions,
+)
 from api.services.workflow.trigger_paths import validate_trigger_paths
 from api.services.workflow.workflow_graph import WorkflowGraph
 
@@ -140,6 +143,17 @@ async def save_workflow(workflow_id: int, code: str) -> dict[str, Any]:
         WorkflowGraph(dto)
     except (ValueError, Exception) as e:  # WorkflowGraph raises ValueError
         return _error_result("graph_validation", str(e))
+
+    tool_name_errors = await validate_workflow_tool_name_collisions(
+        payload,
+        user.selected_organization_id,
+    )
+    if tool_name_errors:
+        return _error_result(
+            "graph_validation",
+            "\n".join(error["message"] for error in tool_name_errors),
+            errors=tool_name_errors,
+        )
 
     # 4a. If the `new Workflow({ name })` in the edited source differs from
     # the stored name, rename the workflow. Name is a workflow-level field

@@ -22,6 +22,12 @@ TYPE_MAP = {
 }
 
 
+def custom_tool_function_name(name: str) -> str:
+    """Return the LLM function name generated for a custom tool."""
+    function_name = re.sub(r"[^a-z0-9_]", "_", name.lower())
+    return re.sub(r"_+", "_", function_name).strip("_")
+
+
 def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
     """JSON-stringify dict/list values so they're safe to pass as query params.
 
@@ -110,10 +116,7 @@ def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
         }
         required.append("reason")
 
-    # Sanitize tool name for function name (lowercase, underscores only)
-    function_name = re.sub(r"[^a-z0-9_]", "_", tool.name.lower())
-    # Remove consecutive underscores and trim
-    function_name = re.sub(r"_+", "_", function_name).strip("_")
+    function_name = custom_tool_function_name(tool.name)
 
     return {
         "type": "function",

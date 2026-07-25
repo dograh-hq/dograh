@@ -12,22 +12,24 @@ export async function copyTextToClipboard(text: string): Promise<void> {
         throw new Error("Clipboard access is unavailable");
     }
 
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.setAttribute("readonly", "");
-    textArea.style.position = "fixed";
-    textArea.style.opacity = "0";
-    textArea.style.pointerEvents = "none";
-    document.body.appendChild(textArea);
+    let copiedText = false;
+    const handleCopy = (event: ClipboardEvent) => {
+        if (!event.clipboardData) {
+            return;
+        }
+
+        event.clipboardData.setData("text/plain", text);
+        event.preventDefault();
+        copiedText = true;
+    };
+
+    document.addEventListener("copy", handleCopy);
 
     try {
-        textArea.select();
-        textArea.setSelectionRange(0, text.length);
-
-        if (!document.execCommand("copy")) {
+        if (!document.execCommand("copy") || !copiedText) {
             throw new Error("Copy command was unsuccessful");
         }
     } finally {
-        textArea.remove();
+        document.removeEventListener("copy", handleCopy);
     }
 }

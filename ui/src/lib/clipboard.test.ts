@@ -13,7 +13,6 @@ describe("copyTextToClipboard", () => {
             configurable: true,
             value: originalExecCommand,
         });
-        document.querySelectorAll("textarea").forEach((element) => element.remove());
     });
 
     it("uses the Clipboard API when it is available", async () => {
@@ -32,7 +31,15 @@ describe("copyTextToClipboard", () => {
     });
 
     it("uses the DOM fallback when the Clipboard API is unavailable", async () => {
-        const execCommand = vi.fn().mockReturnValue(true);
+        const setData = vi.fn();
+        const execCommand = vi.fn(() => {
+            const event = new Event("copy", { cancelable: true });
+            Object.defineProperty(event, "clipboardData", {
+                value: { setData },
+            });
+            document.dispatchEvent(event);
+            return true;
+        });
         vi.stubGlobal("navigator", {});
         Object.defineProperty(document, "execCommand", {
             configurable: true,
@@ -42,12 +49,20 @@ describe("copyTextToClipboard", () => {
         await copyTextToClipboard("secret");
 
         expect(execCommand).toHaveBeenCalledWith("copy");
-        expect(document.querySelector("textarea")).toBeNull();
+        expect(setData).toHaveBeenCalledWith("text/plain", "secret");
     });
 
     it("uses the DOM fallback when Clipboard API access is denied", async () => {
         const writeText = vi.fn().mockRejectedValue(new Error("denied"));
-        const execCommand = vi.fn().mockReturnValue(true);
+        const setData = vi.fn();
+        const execCommand = vi.fn(() => {
+            const event = new Event("copy", { cancelable: true });
+            Object.defineProperty(event, "clipboardData", {
+                value: { setData },
+            });
+            document.dispatchEvent(event);
+            return true;
+        });
         vi.stubGlobal("navigator", { clipboard: { writeText } });
         Object.defineProperty(document, "execCommand", {
             configurable: true,
@@ -58,9 +73,10 @@ describe("copyTextToClipboard", () => {
 
         expect(writeText).toHaveBeenCalledWith("secret");
         expect(execCommand).toHaveBeenCalledWith("copy");
+        expect(setData).toHaveBeenCalledWith("text/plain", "secret");
     });
 
-    it("rejects and removes the temporary element when copying fails", async () => {
+    it("rejects when copying fails", async () => {
         const execCommand = vi.fn().mockReturnValue(false);
         vi.stubGlobal("navigator", {});
         Object.defineProperty(document, "execCommand", {
@@ -71,6 +87,5 @@ describe("copyTextToClipboard", () => {
         await expect(copyTextToClipboard("secret")).rejects.toThrow(
             "Copy command was unsuccessful",
         );
-        expect(document.querySelector("textarea")).toBeNull();
     });
 });

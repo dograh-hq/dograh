@@ -57,6 +57,9 @@ from api.services.workflow.run_usage_response import (
     format_public_cost_info,
     format_public_usage_info,
 )
+from api.services.workflow.tool_name_validation import (
+    validate_workflow_tool_name_collisions,
+)
 from api.services.workflow.trigger_paths import (
     TriggerPathIssue,
     ensure_trigger_paths,
@@ -68,6 +71,7 @@ from api.services.workflow.trigger_paths import (
 from api.services.workflow.workflow_graph import (
     WorkflowGraph,
     validate_node_instance_constraints,
+    validate_unique_transition_tool_names,
 )
 from api.utils.artifacts import artifact_url
 from api.utils.recording_artifacts import (
@@ -129,9 +133,10 @@ def _trigger_path_validation_http_exception(
 
 async def _validate_workflow_definition(
     workflow_definition: Optional[dict],
+    organization_id: int,
     exclude_workflow_id: Optional[int] = None,
 ) -> list[WorkflowError]:
-    """Run DTO + graph + trigger-conflict checks on a workflow definition.
+    """Run DTO, graph, tool-name, and trigger checks on a workflow definition.
 
     Returns the list of errors (empty if the definition is valid). This is
     the single source of truth for "is this workflow valid?" — used by the
@@ -165,6 +170,13 @@ async def _validate_workflow_definition(
                 message=issue.message,
             )
         )
+
+    errors.extend(
+        await validate_workflow_tool_name_collisions(
+            workflow_definition,
+            organization_id,
+        )
+    )
 
     # ----------- Trigger Path Conflict Check ------------
     trigger_paths = extract_trigger_paths(workflow_definition)
@@ -221,6 +233,35 @@ def _node_instance_validation_errors(
         node_types,
         enforce_min_instances=False,
     )
+
+
+def _transition_tool_name_validation_errors(
+    workflow_definition: Optional[dict],
+) -> list[WorkflowError]:
+    """Validate transition names without requiring a complete draft DTO."""
+    if not workflow_definition:
+        return []
+    edges = workflow_definition.get("edges")
+    if not isinstance(edges, list):
+        return []
+
+    transitions: list[tuple[str, str, str]] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        edge_id = edge.get("id")
+        source = edge.get("source")
+        data = edge.get("data")
+        label = data.get("label") if isinstance(data, dict) else None
+        if (
+            isinstance(edge_id, str)
+            and isinstance(source, str)
+            and isinstance(label, str)
+            and label
+        ):
+            transitions.append((edge_id, source, label))
+
+    return validate_unique_transition_tool_names(transitions)
 
 
 class CallDispositionCodes(BaseModel):
@@ -364,7 +405,9 @@ async def validate_workflow(
     )
 
     errors = await _validate_workflow_definition(
-        workflow_definition, exclude_workflow_id=workflow_id
+        workflow_definition,
+        organization_id=user.selected_organization_id,
+        exclude_workflow_id=workflow_id,
     )
 
     if errors:
@@ -421,6 +464,15 @@ async def create_workflow(
     instance_errors = _node_instance_validation_errors(workflow_definition)
     if instance_errors:
         raise _validation_errors_http_exception(instance_errors)
+    transition_errors = _transition_tool_name_validation_errors(workflow_definition)
+    if transition_errors:
+        raise _validation_errors_http_exception(transition_errors)
+    tool_name_errors = await validate_workflow_tool_name_collisions(
+        workflow_definition,
+        user.selected_organization_id,
+    )
+    if tool_name_errors:
+        raise _validation_errors_http_exception(tool_name_errors)
 
     # Validate trigger path uniqueness BEFORE creating the workflow so we
     # don't leave an orphaned workflow record when the trigger conflicts.
@@ -814,7 +866,9 @@ async def publish_workflow(
         raise HTTPException(status_code=400, detail="No draft to publish")
 
     errors = await _validate_workflow_definition(
-        draft.workflow_json, exclude_workflow_id=workflow_id
+        draft.workflow_json,
+        organization_id=user.selected_organization_id,
+        exclude_workflow_id=workflow_id,
     )
     if errors:
         raise _validation_errors_http_exception(errors)
@@ -1030,6 +1084,18 @@ async def update_workflow(
         instance_errors = _node_instance_validation_errors(workflow_definition)
         if instance_errors:
             raise _validation_errors_http_exception(instance_errors, status_code=409)
+        transition_errors = _transition_tool_name_validation_errors(workflow_definition)
+        if transition_errors:
+            raise _validation_errors_http_exception(transition_errors, status_code=409)
+        tool_name_errors = await validate_workflow_tool_name_collisions(
+            workflow_definition,
+            user.selected_organization_id,
+        )
+        if tool_name_errors:
+            raise _validation_errors_http_exception(
+                tool_name_errors,
+                status_code=409,
+            )
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id

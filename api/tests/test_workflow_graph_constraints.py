@@ -24,7 +24,10 @@ import pytest
 
 from api.services.workflow.audit import audit_definition
 from api.services.workflow.dto import ReactFlowDTO
-from api.services.workflow.workflow_graph import WorkflowGraph
+from api.services.workflow.workflow_graph import (
+    WorkflowGraph,
+    validate_unique_transition_tool_names,
+)
 
 _FIXTURES_DIR = Path(__file__).parent / "dto_fixtures"
 
@@ -164,3 +167,69 @@ def test_workflow_graph_start_semantics_come_from_node_type_not_legacy_flag():
 
     assert graph.start_node_id == "start-1"
     assert graph.nodes["start-1"].is_start is True
+
+
+def test_workflow_graph_rejects_duplicate_transition_tool_names():
+    dto = ReactFlowDTO.model_validate(
+        {
+            "nodes": [
+                {
+                    "id": "start-1",
+                    "type": "startCall",
+                    "position": {"x": 0, "y": 0},
+                    "data": {"name": "Start", "prompt": "Greet."},
+                },
+                {
+                    "id": "end-1",
+                    "type": "endCall",
+                    "position": {"x": 0, "y": 200},
+                    "data": {"name": "End one", "prompt": "Bye."},
+                },
+                {
+                    "id": "end-2",
+                    "type": "endCall",
+                    "position": {"x": 200, "y": 200},
+                    "data": {"name": "End two", "prompt": "Bye."},
+                },
+            ],
+            "edges": [
+                {
+                    "id": "edge-1",
+                    "source": "start-1",
+                    "target": "end-1",
+                    "data": {
+                        "label": "Go to sales",
+                        "condition": "Caller wants sales.",
+                    },
+                },
+                {
+                    "id": "edge-2",
+                    "source": "start-1",
+                    "target": "end-2",
+                    "data": {
+                        "label": "go-to-sales",
+                        "condition": "Caller asks for the sales team.",
+                    },
+                },
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        WorkflowGraph(dto)
+
+    errors = exc_info.value.args[0]
+    assert {error["id"] for error in errors} == {"edge-1", "edge-2"}
+    assert all(error["field"] == "data.label" for error in errors)
+    assert all('"go_to_sales"' in error["message"] for error in errors)
+
+
+def test_duplicate_transition_tool_names_are_scoped_to_source_node():
+    errors = validate_unique_transition_tool_names(
+        [
+            ("edge-1", "source-1", "Continue"),
+            ("edge-2", "source-2", "Continue"),
+        ]
+    )
+
+    assert errors == []

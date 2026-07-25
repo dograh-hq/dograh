@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import {
@@ -34,6 +35,7 @@ import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { formatDateTime } from '@/lib/dateTime';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 import { cn } from '@/lib/utils';
@@ -98,9 +100,13 @@ function CopyDebugIdButton({ label, value }: { label: string; value: string }) {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = async () => {
-        await navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+            await copyTextToClipboard(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            toast.error(`Failed to copy ${label}`);
+        }
     };
 
     return (
@@ -560,11 +566,15 @@ function RunMetricsSection({
 function ContextDisplay({ title, context }: { title: string; context: Record<string, string | number | boolean | object> | null }) {
     const [copied, setCopied] = useState(false);
 
-    const handleCopy = () => {
+    const handleCopy = async () => {
         if (!context) return;
-        navigator.clipboard.writeText(JSON.stringify(context, null, 2));
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+            await copyTextToClipboard(JSON.stringify(context, null, 2));
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            toast.error('Failed to copy context');
+        }
     };
 
     if (!context || Object.keys(context).length === 0) {

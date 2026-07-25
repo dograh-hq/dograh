@@ -3,6 +3,7 @@ import * as LucideIcons from "lucide-react";
 import { Check, Circle, Copy, Edit, type LucideIcon, Trash2Icon } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import type { NodeSpec } from "@/client/types.gen";
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { createUuid } from "@/lib/uuid";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
@@ -350,9 +352,13 @@ function ClickToCopy({
     const [copied, setCopied] = useState(false);
     const onCopy = async () => {
         if (!value) return;
-        await navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+            await copyTextToClipboard(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            toast.error("Failed to copy value");
+        }
     };
     return (
         <button
@@ -509,9 +515,13 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     const handleCopyTrigger = useCallback(async () => {
         const endpoint = buildTriggerEndpoints(data.trigger_path, webhookBaseUrl).production;
         if (!endpoint) return;
-        await navigator.clipboard.writeText(endpoint);
-        setTriggerCopied(true);
-        setTimeout(() => setTriggerCopied(false), 2000);
+        try {
+            await copyTextToClipboard(endpoint);
+            setTriggerCopied(true);
+            setTimeout(() => setTriggerCopied(false), 2000);
+        } catch {
+            toast.error("Failed to copy trigger URL");
+        }
     }, [data.trigger_path, webhookBaseUrl]);
 
     // For trigger nodes without a path yet, generate one and persist.

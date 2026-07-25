@@ -38,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface ConfigFormDialogProps {
   open: boolean;
@@ -236,8 +237,7 @@ export function ConfigFormDialog({
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard
-                    .writeText(String(existing.id))
+                  copyTextToClipboard(String(existing.id))
                     .then(() => toast.success("Configuration ID copied"))
                     .catch(() => toast.error("Failed to copy ID"));
                 }}

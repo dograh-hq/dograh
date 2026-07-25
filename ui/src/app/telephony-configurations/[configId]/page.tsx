@@ -60,6 +60,7 @@ import { useOrgConfig } from "@/context/OrgConfigContext";
 import { useOrganizationTimezone } from "@/hooks/useOrganizationTimezone";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { formatDateTime } from "@/lib/dateTime";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
@@ -228,8 +229,7 @@ export default function TelephonyConfigurationDetailPage() {
             <button
               type="button"
               onClick={() => {
-                navigator.clipboard
-                  .writeText(String(config.id))
+                copyTextToClipboard(String(config.id))
                   .then(() => toast.success("Configuration ID copied"))
                   .catch(() => toast.error("Failed to copy ID"));
               }}
@@ -270,8 +270,7 @@ export default function TelephonyConfigurationDetailPage() {
               type="button"
               onClick={() => {
                 const url = inboundWebhookUrl;
-                navigator.clipboard
-                  .writeText(url)
+                copyTextToClipboard(url)
                   .then(() => toast.success("Inbound webhook URL copied"))
                   .catch(() => toast.error("Failed to copy URL"));
               }}

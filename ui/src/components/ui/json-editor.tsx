@@ -1,9 +1,11 @@
 import { AlertCircle, Check, Copy } from "lucide-react";
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface JsonEditorProps {
     value: string;
@@ -113,9 +115,13 @@ export function JsonEditor({
     const [copied, setCopied] = useState(false);
 
     const handleCopy = useCallback(async () => {
-        await navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+            await copyTextToClipboard(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            toast.error("Failed to copy JSON");
+        }
     }, [value]);
 
     return (

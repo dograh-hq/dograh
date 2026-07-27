@@ -27,7 +27,7 @@ Set the method to **POST**. If your backend needs auth, add a bearer token or AP
 
 ## Step 3: Build the payload template
 
-This is the important part, it decides exactly what JSON Dograh sends. Include both kinds of context: `initial_context` fields like debtor name, client name, and debt amount, and `gathered_context` fields like amount to pay, payment method, and sentiment.
+This is the important part, it decides exactly what JSON Dograh sends. Include both kinds of context: `initial_context` fields like debtor name, client name, and debt amount, and `gathered_context` fields like amount to pay, payment method, and sentiment. You can also include the final call outcome with `{{gathered_context.call_disposition}}` — how the call ended, e.g. `user_hangup` or `voicemail_detected`.
 
 ```json
 {
@@ -36,9 +36,12 @@ This is the important part, it decides exactly what JSON Dograh sends. Include b
   "debt_amount": "{{initial_context.debt_amount}}",
   "amount_user_will_pay": "{{gathered_context.amount_user_will_pay}}",
   "payment_method": "{{gathered_context.payment_method}}",
-  "sentiment": "{{gathered_context.sentiment}}"
+  "sentiment": "{{gathered_context.sentiment}}",
+  "call_disposition": "{{gathered_context.call_disposition}}"
 }
 ```
+
+For every variable you can reference here, see the [Webhook Payloads developer reference](/developer/webhooks).
 
 <Warning>
 Variable names in your payload have to match your context fields exactly. If a variable cannot be resolved, its field remains in the payload with an empty string value.

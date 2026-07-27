@@ -35,6 +35,14 @@ The following variables are available in your `payload_template` using double-br
 | `recording_url` | string \| null | Public download URL for the call recording |
 | `transcript_url` | string \| null | Public download URL for the call transcript |
 
+### Call disposition
+
+The final outcome of the call is available as `{{gathered_context.call_disposition}}`. It holds the disposition set during the call, falling back to the reason the call ended (e.g. `user_hangup`, `voicemail_detected`, `call_transferred`, `call_duration_exceeded`).
+
+<Note>
+Dograh always includes a top-level `call_disposition` field in the delivered payload. If your template doesn't set one, it is added automatically from `gathered_context.call_disposition`; if your template sets it explicitly, your value is kept.
+</Note>
+
 ### Example payload template
 
 ```json
@@ -42,6 +50,7 @@ The following variables are available in your `payload_template` using double-br
   "run_id": "{{workflow_run_id}}",
   "customer": "{{initial_context.customer_name}}",
   "outcome": "{{gathered_context.resolution}}",
+  "disposition": "{{gathered_context.call_disposition}}",
   "recording": "{{recording_url}}"
 }
 ```

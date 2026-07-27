@@ -112,6 +112,8 @@ config:
   minioSecure: false
   enableAwsS3: false
   enableTelemetry: true
+  enableSupportDiagnostics: true
+  sentryDsn: https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448
   posthogHost: https://us.i.posthog.com
   posthogApiKey: phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr
   forceTurnRelay: false

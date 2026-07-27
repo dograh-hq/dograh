@@ -202,6 +202,7 @@ if [[ "$DEPLOY_MODE" == "build" ]]; then
 fi
 
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
+ENABLE_SUPPORT_DIAGNOSTICS="${ENABLE_SUPPORT_DIAGNOSTICS:-$ENABLE_TELEMETRY}"
 FASTAPI_WORKERS="${FASTAPI_WORKERS:-}"
 
 if [[ -z "$FASTAPI_WORKERS" ]]; then
@@ -263,6 +264,7 @@ echo -e "  Certificate:      ${BLUE}$CERT_DESC${NC}"
 echo -e "  TURN Secret:      ${BLUE}********${NC}"
 echo -e "  Deploy mode:      ${BLUE}$DEPLOY_MODE${NC}"
 echo -e "  Force TURN relay: ${BLUE}$FORCE_TURN_RELAY${NC}"
+echo -e "  Diagnostics:      ${BLUE}$ENABLE_SUPPORT_DIAGNOSTICS${NC}"
 echo -e "  FastAPI workers:  ${BLUE}$FASTAPI_WORKERS${NC}  (ports 8000..$((8000 + FASTAPI_WORKERS - 1)))"
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     if [[ "${REPO_SOURCE:-}" == "clone" ]]; then
@@ -369,6 +371,9 @@ MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY
+
+# Support diagnostics sends error reports to Dograh through Sentry
+ENABLE_SUPPORT_DIAGNOSTICS=$ENABLE_SUPPORT_DIAGNOSTICS
 
 # Number of uvicorn worker processes; nginx load-balances across them
 FASTAPI_WORKERS=$FASTAPI_WORKERS

@@ -235,6 +235,8 @@ services:
 
       # Telemetry
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      ENABLE_SUPPORT_DIAGNOSTICS: "${ENABLE_SUPPORT_DIAGNOSTICS:-${ENABLE_TELEMETRY:-true}}"
+      SENTRY_DSN: "${SENTRY_DSN:-https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448}"
       POSTHOG_API_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.i.posthog.com"
 
@@ -272,6 +274,10 @@ services:
 
       # Flag to enable/ disable posthog
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+
+      # Support diagnostics (Sentry error reporting)
+      ENABLE_SUPPORT_DIAGNOSTICS: "${ENABLE_SUPPORT_DIAGNOSTICS:-${ENABLE_TELEMETRY:-true}}"
+      SENTRY_DSN: "${SENTRY_DSN:-https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448}"
 
       # Posthog
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"

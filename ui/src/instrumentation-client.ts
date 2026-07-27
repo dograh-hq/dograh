@@ -19,8 +19,19 @@ const sharedSentryOptions = {
 
 // Initialize Sentry - prioritize NEXT_PUBLIC env vars, fallback to API
 const initSentry = () => {
-  const hasPublicConfig = process.env.NEXT_PUBLIC_SENTRY_DSN;
+  const supportDiagnosticsSetting =
+    process.env.NEXT_PUBLIC_ENABLE_SUPPORT_DIAGNOSTICS ??
+    process.env.NEXT_PUBLIC_ENABLE_TELEMETRY ??
+    'true';
+  const supportDiagnosticsEnabled =
+    supportDiagnosticsSetting.toLowerCase() === 'true';
+  const hasPublicConfig =
+    supportDiagnosticsEnabled && process.env.NEXT_PUBLIC_SENTRY_DSN;
 
+  if (!supportDiagnosticsEnabled) {
+    console.log('Sentry disabled (support diagnostics disabled)');
+    return;
+  }
 
   if (hasPublicConfig) {
     // Use client-side environment variables

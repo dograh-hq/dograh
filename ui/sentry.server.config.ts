@@ -4,18 +4,24 @@
 
 import * as Sentry from "@sentry/nextjs";
 
-// Only initialize Sentry if explicitly enabled and DSN is provided
-const enableSentry = process.env.NEXT_PUBLIC_SENTRY_DSN;
+// Only initialize support diagnostics if enabled and a DSN is provided.
+const supportDiagnosticsSetting =
+  process.env.ENABLE_SUPPORT_DIAGNOSTICS ??
+  process.env.ENABLE_TELEMETRY ??
+  'true';
+const supportDiagnosticsEnabled =
+  supportDiagnosticsSetting.toLowerCase() === 'true';
+const sentryDsn = process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN;
 
-if (enableSentry) {
+if (supportDiagnosticsEnabled && sentryDsn) {
   Sentry.init({
-    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    dsn: sentryDsn,
 
     // Setting this option to true will print useful information to the console while you're setting up Sentry.
     debug: false,
-    enabled: process.env.NEXT_PUBLIC_NODE_ENV === 'production'
+    enabled: true
   });
-  console.log('Sentry initialized for server-side error tracking');
+  console.log('Support diagnostics initialized for server-side error tracking');
 } else {
-  console.log('Sentry disabled on server (NEXT_PUBLIC_ENABLE_SENTRY=false or DSN not configured)');
+  console.log('Support diagnostics disabled on server (ENABLE_SUPPORT_DIAGNOSTICS=false or DSN not configured)');
 }

@@ -108,6 +108,13 @@ LOG_ROTATION_SIZE = os.getenv("LOG_ROTATION_SIZE", "100 MB")
 LOG_RETENTION = os.getenv("LOG_RETENTION", "7 days")
 LOG_COMPRESSION = os.getenv("LOG_COMPRESSION", "gz")
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "true").lower() == "true"
+ENABLE_SUPPORT_DIAGNOSTICS = (
+    os.getenv(
+        "ENABLE_SUPPORT_DIAGNOSTICS",
+        "true" if ENABLE_TELEMETRY else "false",
+    ).lower()
+    == "true"
+)
 
 
 def _get_version() -> str:

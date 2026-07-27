@@ -410,7 +410,6 @@ async def initiate_call(
         target_resolver=_resolve_trigger_target,
     )
 
-
 @router.post("/test/{uuid}", response_model=TriggerCallResponse)
 async def initiate_call_test(
     uuid: str,

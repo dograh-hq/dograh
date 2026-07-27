@@ -77,6 +77,8 @@ An honest comparison on the axes that matter most to teams evaluating voice AI p
 
 > **Note**
 > We collect anonymous usage data to improve the product. You can opt out by setting `ENABLE_TELEMETRY=false` before running the startup script.
+>
+> Support diagnostics is separate and helps Dograh troubleshoot self-hosted setup and runtime issues. It sends error reports and stack traces through Sentry, not product usage analytics. By default it follows `ENABLE_TELEMETRY`; to share diagnostics while telemetry is disabled, set `ENABLE_TELEMETRY=false ENABLE_SUPPORT_DIAGNOSTICS=true`. Reports may include technical context such as error messages, request paths, app version, and runtime environment, so avoid including secrets or sensitive data in logs, errors, or URLs. To disable it, set `ENABLE_SUPPORT_DIAGNOSTICS=false`.
 
 > **Note**
 > If you wish to run the platform on a remote server instead, checkout our [Documentation](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment)

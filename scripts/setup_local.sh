@@ -106,6 +106,7 @@ FORCE_TURN_RELAY="${FORCE_TURN_RELAY:-false}"
 
 # Telemetry opt-out (default: true)
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
+ENABLE_SUPPORT_DIAGNOSTICS="${ENABLE_SUPPORT_DIAGNOSTICS:-$ENABLE_TELEMETRY}"
 
 # Container registry (defaults to the public OSS registry)
 REGISTRY="${REGISTRY:-ghcr.io/dograh-hq}"
@@ -119,6 +120,7 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     echo -e "  Force relay:   ${BLUE}$FORCE_TURN_RELAY${NC}"
 fi
 echo -e "  Telemetry:     ${BLUE}$ENABLE_TELEMETRY${NC}"
+echo -e "  Diagnostics:   ${BLUE}$ENABLE_SUPPORT_DIAGNOSTICS${NC}"
 echo -e "  Registry:      ${BLUE}$REGISTRY${NC}"
 echo ""
 
@@ -179,6 +181,9 @@ MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY
+
+# Support diagnostics sends error reports to Dograh through Sentry
+ENABLE_SUPPORT_DIAGNOSTICS=$ENABLE_SUPPORT_DIAGNOSTICS
 
 # Relay-only ICE candidates for explicit TURN diagnostics
 FORCE_TURN_RELAY=$FORCE_TURN_RELAY

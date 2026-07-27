@@ -201,6 +201,7 @@ if ($UseCoturn) {
 }
 
 $EnableTelemetry = if ([string]::IsNullOrEmpty($env:ENABLE_TELEMETRY)) { 'true' } else { $env:ENABLE_TELEMETRY }
+$EnableSupportDiagnostics = if ([string]::IsNullOrEmpty($env:ENABLE_SUPPORT_DIAGNOSTICS)) { $EnableTelemetry } else { $env:ENABLE_SUPPORT_DIAGNOSTICS }
 $Registry = if ([string]::IsNullOrEmpty($env:REGISTRY)) { 'ghcr.io/dograh-hq' } else { $env:REGISTRY }
 
 Write-Host ''
@@ -212,6 +213,7 @@ if ($UseCoturn) {
     Write-Host "  Force relay:   $ForceTurnRelay" -ForegroundColor Blue
 }
 Write-Host "  Telemetry:     $EnableTelemetry" -ForegroundColor Blue
+Write-Host "  Diagnostics:   $EnableSupportDiagnostics" -ForegroundColor Blue
 Write-Host "  Registry:      $Registry" -ForegroundColor Blue
 Write-Host ''
 
@@ -272,6 +274,9 @@ $envLines = @(
     ''
     '# Telemetry (set to false to disable)'
     "ENABLE_TELEMETRY=$EnableTelemetry"
+    ''
+    '# Support diagnostics sends error reports to Dograh through Sentry'
+    "ENABLE_SUPPORT_DIAGNOSTICS=$EnableSupportDiagnostics"
     ''
     '# Relay-only ICE candidates for explicit TURN diagnostics'
     "FORCE_TURN_RELAY=$ForceTurnRelay"

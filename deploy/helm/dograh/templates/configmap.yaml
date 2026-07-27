@@ -13,6 +13,8 @@ data:
   MINIO_SECURE: {{ .Values.config.minioSecure | quote }}
   ENABLE_AWS_S3: {{ ternary "true" "false" (eq .Values.storage.mode "s3") | quote }}
   ENABLE_TELEMETRY: {{ .Values.config.enableTelemetry | quote }}
+  ENABLE_SUPPORT_DIAGNOSTICS: {{ .Values.config.enableSupportDiagnostics | quote }}
+  SENTRY_DSN: {{ .Values.config.sentryDsn | quote }}
   POSTHOG_HOST: {{ .Values.config.posthogHost | quote }}
   POSTHOG_API_KEY: {{ .Values.config.posthogApiKey | quote }}
   FORCE_TURN_RELAY: {{ .Values.config.forceTurnRelay | quote }}

@@ -61,6 +61,10 @@ spec:
               value: {{ default (printf "http://%s:%d" (include "dograh.web.fullname" .) (int .Values.web.service.port)) .Values.ui.backendUrl | quote }}
             - name: ENABLE_TELEMETRY
               value: {{ .Values.config.enableTelemetry | quote }}
+            - name: ENABLE_SUPPORT_DIAGNOSTICS
+              value: {{ .Values.config.enableSupportDiagnostics | quote }}
+            - name: SENTRY_DSN
+              value: {{ .Values.config.sentryDsn | quote }}
             - name: POSTHOG_KEY
               value: {{ .Values.config.posthogApiKey | quote }}
             - name: POSTHOG_HOST

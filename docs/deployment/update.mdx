@@ -64,6 +64,10 @@ After the script finishes, apply the update through the validated startup wrappe
 The script overwrites `docker-compose.yaml` and the remote helper bundle (`remote_up.sh`, `scripts/run_dograh_init.sh`, `scripts/lib/setup_common.sh`, and `deploy/templates/*`) from the shared upstream deployment bundle. If you've made local edits to any of these, check the `.bak.<timestamp>` files after the update and re-apply your edits.
 </Note>
 
+<Note>
+Support diagnostics for self-hosted deployments is configured through the deployment bundle. If you only pull newer `dograh-api` and `dograh-ui` images while keeping an older `docker-compose.yaml`, the stack keeps the older behavior and does not automatically receive Dograh's Sentry DSN. Use the update flow above, or refresh `docker-compose.yaml`, to make support diagnostics available. Existing `ENABLE_TELEMETRY=false` opt-outs are respected unless you explicitly set `ENABLE_SUPPORT_DIAGNOSTICS=true`.
+</Note>
+
 ## Local deployment
 
 For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh` / `setup_local.ps1`), refresh `docker-compose.yaml` and the startup script, stop the stack, then run the startup script. The script preserves existing `.env` secrets, creates `REDIS_PASSWORD` and MinIO credentials if they are missing, and only creates `POSTGRES_PASSWORD` for brand-new `.env` files. If a retained local Postgres volume already exists, it syncs the database user's password to `.env` before starting the full stack:

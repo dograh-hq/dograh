@@ -68,7 +68,9 @@ http://localhost:3010
 ```
 
 <Note>
-You can disable telemetry by setting `ENABLE_TELEMETRY=false` before running `./start_docker.sh` or `.\start_docker.ps1`.
+You can disable product telemetry by setting `ENABLE_TELEMETRY=false` before running `./start_docker.sh` or `.\start_docker.ps1`.
+
+Support diagnostics is separate and helps Dograh troubleshoot self-hosted setup and runtime issues. It sends error reports and stack traces through Sentry, not product usage analytics. By default it follows `ENABLE_TELEMETRY`; to share diagnostics while telemetry is disabled, set `ENABLE_TELEMETRY=false ENABLE_SUPPORT_DIAGNOSTICS=true`. Reports may include technical context such as error messages, request paths, app version, and runtime environment, so avoid including secrets or sensitive data in logs, errors, or URLs. To disable support diagnostics, set `ENABLE_SUPPORT_DIAGNOSTICS=false`.
 </Note>
 
 ### Troubleshooting WebRTC Connectivity

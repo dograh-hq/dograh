@@ -186,6 +186,8 @@ services:
       OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret}"
 
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      ENABLE_SUPPORT_DIAGNOSTICS: "${ENABLE_SUPPORT_DIAGNOSTICS:-${ENABLE_TELEMETRY:-true}}"
+      SENTRY_DSN: "${SENTRY_DSN:-https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448}"
       POSTHOG_API_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.i.posthog.com"
     depends_on:
@@ -230,6 +232,8 @@ services:
       BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
       NODE_ENV: "oss"
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      ENABLE_SUPPORT_DIAGNOSTICS: "${ENABLE_SUPPORT_DIAGNOSTICS:-${ENABLE_TELEMETRY:-true}}"
+      SENTRY_DSN: "${SENTRY_DSN:-https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448}"
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.posthog.com"
     depends_on:

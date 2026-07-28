@@ -76,6 +76,18 @@ class CallTransferManager:
             logger.error(f"Failed to get transfer context: {e}")
             return None
 
+    async def claim_transfer_step(
+        self, transfer_id: str, step: str, ttl: int = 300
+    ) -> bool:
+        """Atomically claim a one-time transfer step.
+
+        Provider callbacks may be retried. ``True`` means this worker is the
+        first one handling the step; subsequent deliveries return ``False``.
+        """
+        redis = await self._get_redis()
+        key = TransferRedisChannels.transfer_step_key(transfer_id, step)
+        return bool(await redis.set(key, "1", ex=ttl, nx=True))
+
     async def remove_transfer_context(self, transfer_id: str) -> None:
         """Remove transfer context from Redis.
 
@@ -229,7 +241,7 @@ class CallTransferManager:
             for pubsub in self._pubsub_connections.values():
                 try:
                     await pubsub.close()
-                except:
+                except Exception:
                     pass
             self._pubsub_connections.clear()
 

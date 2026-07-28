@@ -108,3 +108,8 @@ class TransferRedisChannels:
         instead of an O(N) ``KEYS transfer:context:*`` keyspace scan.
         """
         return f"transfer:by_call_sid:{original_call_sid}"
+
+    @staticmethod
+    def transfer_step_key(transfer_id: str, step: str) -> str:
+        """Key used to make provider webhook side effects idempotent."""
+        return f"transfer:step:{transfer_id}:{step}"

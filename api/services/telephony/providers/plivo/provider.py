@@ -544,28 +544,11 @@ class PlivoProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """
-        Initiate a call transfer via Plivo.
+        """Dial the transfer destination and point its answer URL at the conference.
 
-        1. Dials the destination (bleg) with answer_url → conference XML, and
-           hangup_url → /plivo/transfer-result/{transfer_id} so Dograh is
-           notified when the destination answers or fails via Redis pub/sub.
-        2. Redirects the original caller (aleg) into the same conference via
-           Plivo's Transfer API so both legs are bridged together.
-
-        Args:
-            destination: The destination phone number (E.164 format)
-            transfer_id: Unique identifier for tracking this transfer
-            conference_name: Name of the conference to join both legs into
-            timeout: Transfer timeout in seconds
-            **kwargs: May include original_call_sid for the aleg redirect
-
-        Returns:
-            Dict containing transfer result information
-
-        Raises:
-            ValueError: If provider configuration is invalid
-            Exception: If Plivo API call fails
+        The destination answer callback seeds the conference. The original
+        caller is redirected later by ``PlivoConferenceStrategy`` when the
+        pipeline ends with ``TRANSFER_CALL``.
         """
         if not self.validate_config():
             raise ValueError("Plivo provider not properly configured")
@@ -575,9 +558,7 @@ class PlivoProvider(TelephonyProvider):
 
         backend_endpoint, _ = await get_backend_endpoints()
 
-        answer_url = (
-            f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}/{transfer_id}"
-        )
+        answer_url = f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}/{transfer_id}"
         hangup_url = (
             f"{backend_endpoint}/api/v1/telephony/plivo/transfer-result/{transfer_id}"
         )
@@ -590,26 +571,27 @@ class PlivoProvider(TelephonyProvider):
             "answer_method": "POST",
             "hangup_url": hangup_url,
             "hangup_method": "POST",
-            "ring_url": hangup_url,
-            "ring_method": "POST",
             "ring_timeout": timeout,
         }
 
         try:
-            logger.debug(f"Initiating transfer (bleg) for transfer_id={transfer_id} to destination={destination}")
+            logger.debug(
+                f"Dialing Plivo transfer destination for transfer_id={transfer_id} "
+                f"to destination={destination}"
+            )
 
             async with aiohttp.ClientSession() as session:
                 auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
 
-                # Step 1: Dial the destination (bleg)
                 async with session.post(endpoint, json=data, auth=auth) as response:
                     response_status = response.status
                     response_text = await response.text()
 
-                    logger.info(f"Plivo transfer bleg API response: {response_status}")
-                    logger.debug(f"Plivo transfer bleg initiated")
+                    logger.info(
+                        f"Plivo transfer destination API response: {response_status}"
+                    )
 
-                    if response_status not in [200, 201]:
+                    if response_status not in (200, 201, 202):
                         error_msg = (
                             f"Plivo API call failed with status "
                             f"{response_status}: {response_text}"
@@ -620,11 +602,17 @@ class PlivoProvider(TelephonyProvider):
                     try:
                         response_data = json.loads(response_text)
                     except Exception as e:
-                        logger.error(f"Failed to parse Plivo transfer response JSON: {e}")
+                        logger.error(
+                            f"Failed to parse Plivo transfer response JSON: {e}"
+                        )
                         raise Exception(f"Failed to parse transfer response: {e}")
 
                     request_uuid = response_data.get("request_uuid")
-                    logger.info(f"Transfer bleg initiated: {request_uuid}")
+                    if not request_uuid:
+                        raise Exception(
+                            f"Plivo transfer response missing request_uuid: {response_data}"
+                        )
+                    logger.info(f"Plivo transfer destination initiated: {request_uuid}")
 
                 return {
                     "call_sid": request_uuid,

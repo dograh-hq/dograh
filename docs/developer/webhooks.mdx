@@ -30,6 +30,7 @@ The following variables are available in your `payload_template` using double-br
 | `call_time` | string | ISO-8601 UTC timestamp of when the run was created |
 | `initial_context` | object | Context passed when the call was initiated |
 | `gathered_context` | object | Data extracted during the call by agent nodes |
+| `gathered_context.call_disposition` | string | Final call outcome (see [Call disposition](#call-disposition)) |
 | `cost_info` | object | Call cost breakdown |
 | `cost_info.call_duration_seconds` | number | Call duration in seconds |
 | `annotations` | object | QA analysis results (if a `qa` node is configured) |

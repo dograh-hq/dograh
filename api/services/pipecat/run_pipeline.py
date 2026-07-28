@@ -20,10 +20,10 @@ from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
 )
-from api.services.pipecat.active_calls import (
+from api.services.observability.active_calls import (
     register_active_call as register_worker_active_call,
 )
-from api.services.pipecat.active_calls import (
+from api.services.observability.active_calls import (
     unregister_active_call as unregister_worker_active_call,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config

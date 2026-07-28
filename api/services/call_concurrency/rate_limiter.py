@@ -8,6 +8,13 @@ from loguru import logger
 
 from api.constants import REDIS_URL
 
+# Fleet-wide mirror of every live slot ("<org_id>:<slot_id>", scored by acquire
+# time), maintained by the acquire/release paths alongside the per-org sets so
+# the autoscaling scrape (get_fleet_concurrent_count) is a single ZCOUNT instead
+# of a keyspace scan. Deliberately outside the "concurrent_calls:" prefix so it
+# can never collide with an org or scope counter key.
+FLEET_CONCURRENT_KEY = "concurrent_calls_fleet"
+
 
 @dataclass(frozen=True)
 class ConcurrentSlotAcquisition:
@@ -131,6 +138,11 @@ class RateLimiter:
         counter to be below ``scope_max_concurrent``. Both counters are
         updated atomically. The scope-scoped slot must be released with the
         same ``scope_key``.
+
+        Every successful acquisition is also mirrored into the fleet-wide set
+        (FLEET_CONCURRENT_KEY) in the same atomic script — see
+        get_fleet_concurrent_count. Scope entries are not mirrored: a scoped
+        call already has exactly one fleet member via its org slot.
         """
         redis_client = await self._get_redis()
 
@@ -144,11 +156,13 @@ class RateLimiter:
         lua_script = """
         local key = KEYS[1]
         local scope_key = KEYS[2]
+        local fleet_key = KEYS[3]
         local now = tonumber(ARGV[1])
         local max_concurrent = tonumber(ARGV[2])
         local stale_cutoff = tonumber(ARGV[3])
         local slot_id = ARGV[4]
         local scope_max_concurrent = tonumber(ARGV[5])
+        local fleet_member = ARGV[6]
 
         -- Remove stale entries (older than the stale-call timeout)
         redis.call('ZREMRANGEBYSCORE', key, 0, stale_cutoff)
@@ -171,6 +185,12 @@ class RateLimiter:
 
         redis.call('ZADD', key, now, slot_id)
         redis.call('EXPIRE', key, 3600)  -- Expire after 1 hour
+
+        -- Mirror the slot into the fleet-wide set (autoscaling signal); stale
+        -- members are pruned here since no other write path touches this key.
+        redis.call('ZREMRANGEBYSCORE', fleet_key, 0, stale_cutoff)
+        redis.call('ZADD', fleet_key, now, fleet_member)
+        redis.call('EXPIRE', fleet_key, 3600)
         return {slot_id, current_count + 1}
         """
 
@@ -180,14 +200,16 @@ class RateLimiter:
         try:
             result = await redis_client.eval(
                 lua_script,
-                2,
+                3,
                 concurrent_key,
                 scope_concurrent_key,
+                FLEET_CONCURRENT_KEY,
                 now,
                 max_concurrent,
                 stale_cutoff,
                 slot_id,
                 scope_max_concurrent if scope_max_concurrent is not None else 0,
+                f"{organization_id}:{slot_id}",
             )
             if not result:
                 return None
@@ -221,6 +243,9 @@ class RateLimiter:
 
         try:
             removed = await redis_client.zrem(concurrent_key, slot_id)
+            await redis_client.zrem(
+                FLEET_CONCURRENT_KEY, f"{organization_id}:{slot_id}"
+            )
             if scope_key:
                 await redis_client.zrem(f"concurrent_calls:{scope_key}", slot_id)
             if removed:
@@ -251,6 +276,26 @@ class RateLimiter:
         except Exception as e:
             logger.error(f"Error getting concurrent count: {e}")
             return 0
+
+    async def get_fleet_concurrent_count(self) -> int:
+        """Total active calls across every org — the fleet-wide autoscaling signal.
+
+        One ZCOUNT over FLEET_CONCURRENT_KEY, the fleet-wide mirror the
+        acquire/release paths maintain alongside the per-org counters — no
+        keyspace scan, no per-org fan-out, and scrape cost is independent of
+        whatever else lives in this (shared) Redis. Counting by score (not
+        ZCARD) excludes slots older than stale_call_timeout without writing, so
+        an orphaned call can't keep the metric high and block scale-down,
+        matching the org counters' stale semantics.
+
+        Unlike the sibling methods, Redis errors are NOT swallowed here: for an
+        autoscaling signal, 0 is the most aggressive scale-down instruction, so
+        a failed read must surface as an error (the autoscale-metric endpoint
+        turns it into a 503) rather than masquerade as an idle fleet.
+        """
+        redis_client = await self._get_redis()
+        stale_cutoff = time.time() - self.stale_call_timeout
+        return await redis_client.zcount(FLEET_CONCURRENT_KEY, stale_cutoff, "+inf")
 
     async def store_workflow_slot_mapping(
         self, workflow_run_id: int, organization_id: int, slot_id: str

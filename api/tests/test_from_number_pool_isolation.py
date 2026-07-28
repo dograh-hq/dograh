@@ -21,8 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.services.call_concurrency import CallConcurrencySlot
+from api.services.call_concurrency.rate_limiter import RateLimiter
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
-from api.services.campaign.rate_limiter import RateLimiter
 
 
 def _unique_id() -> int:

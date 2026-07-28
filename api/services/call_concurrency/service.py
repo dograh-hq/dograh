@@ -7,7 +7,7 @@ from loguru import logger
 from api.constants import DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey, PostHogEvent
-from api.services.campaign.rate_limiter import rate_limiter
+from api.services.call_concurrency.rate_limiter import rate_limiter
 from api.services.posthog_client import capture_event
 
 
@@ -71,6 +71,14 @@ class CallConcurrencyService:
                 f"Error getting concurrent limit for org {organization_id}: {e}"
             )
         return self.default_concurrent_limit
+
+    async def get_fleet_active_calls(self) -> int:
+        """Total active calls across every org — the fleet-wide autoscaling
+        signal scraped by /health/autoscale-metric. Thin passthrough so routes
+        stay behind this facade; the Redis projection lives with the key schema
+        in rate_limiter. Redis errors propagate (they must not read as an idle
+        fleet — see get_fleet_concurrent_count)."""
+        return await rate_limiter.get_fleet_concurrent_count()
 
     async def acquire_org_slot(
         self,

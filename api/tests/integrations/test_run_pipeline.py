@@ -21,7 +21,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.enums import WorkflowRunMode, WorkflowRunState
-from api.services.pipecat import active_calls
+from api.services.observability import active_calls
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.run_pipeline import _run_pipeline
 from api.services.pipecat.worker_runner import wait_for_pipeline_worker_started

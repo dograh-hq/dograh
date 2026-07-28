@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from api.services.pipecat import loop_lag
+from api.services.observability import loop_lag
 
 
 @pytest.fixture(autouse=True)

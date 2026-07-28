@@ -14,7 +14,7 @@ also needs TURN if `FORCE_TURN_RELAY` is set. It cannot be run on a laptop.
 
 ## Prerequisites (operational)
 1. **Loop-lag gauge deployed** — the pod must expose `loop_lag_p95_ms` on
-   `GET /api/v1/health/active-calls` (added in `api/services/pipecat/loop_lag.py`).
+   `GET /api/v1/health/active-calls` (added in `api/services/observability/loop_lag.py`).
 2. **Test org:** raise `CONCURRENT_CALL_LIMIT` (e.g. 500) so the concurrency gate
    never trips before the pod knee; ensure it has quota; point it at the **real
    prod provider config**.

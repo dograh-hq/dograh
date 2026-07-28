@@ -136,7 +136,7 @@ async def health() -> HealthResponse:
 class ActiveCallsResponse(BaseModel):
     active_calls: int
     # Event-loop lag over the recent window (ms). The per-pod saturation signal
-    # for autoscaling load tests; see api/services/pipecat/loop_lag.py.
+    # for autoscaling load tests; see api/services/observability/loop_lag.py.
     loop_lag_p95_ms: float = 0.0
     loop_lag_max_ms: float = 0.0
 
@@ -182,11 +182,11 @@ async def active_calls(
     sending SIGTERM, because uvicorn force-closes live call WebSockets (close
     code 1012) on SIGTERM and would cut calls mid-conversation otherwise. The
     count is per-process: one uvicorn per VM port (scripts/rolling_update.sh)
-    or per Kubernetes pod (preStop hook). See api/services/pipecat/active_calls.py.
+    or per Kubernetes pod (preStop hook). See api/services/observability/active_calls.py.
     """
     from api.constants import DOGRAH_DEVOPS_SECRET
-    from api.services.pipecat import loop_lag
-    from api.services.pipecat.active_calls import active_call_count
+    from api.services.observability import loop_lag
+    from api.services.observability.active_calls import active_call_count
 
     _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
     lag = loop_lag.stats()

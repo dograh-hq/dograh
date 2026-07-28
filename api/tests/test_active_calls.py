@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import main as main_routes
-from api.services.pipecat import active_calls
+from api.services.observability import active_calls
 from api.services.pipecat import run_pipeline as run_pipeline_module
 
 

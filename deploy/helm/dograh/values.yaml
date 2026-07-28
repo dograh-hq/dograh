@@ -525,12 +525,12 @@ autoscaling:
       maxReplicas: 20
       # K — safe concurrent calls per pod. PLACEHOLDER: measure via the load
       # test (see scripts/loadtest) before trusting it.
-      callsPerPod: 10
+      callsPerPod: 2
       # B — warm buffer, in calls. Keeps ceil(B/callsPerPod) spare pods ready to
       # absorb a burst while a new pod cold-starts.
       bufferCalls: 10
       # Seconds between metric scrapes of /health/autoscale-metric.
-      pollingInterval: 15
+      pollingInterval: 10
       # Fast up, slow down: long calls make aggressive scale-down risky. This
       # only avoids thrash — call-SAFE scale-down is the preStop drain
       # (scripts/drain_web.sh).

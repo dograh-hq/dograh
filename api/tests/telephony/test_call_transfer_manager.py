@@ -26,6 +26,14 @@ class _FakeRedis:
     async def setex(self, key: str, ttl: int, value: str) -> None:
         self._store[key] = value
 
+    async def set(
+        self, key: str, value: str, *, ex: int | None = None, nx: bool = False
+    ):
+        if nx and key in self._store:
+            return None
+        self._store[key] = value
+        return True
+
     async def get(self, key: str):
         return self._store.get(key)
 
@@ -103,3 +111,14 @@ class TestFindTransferContextByCallSid:
 
         assert found is None
         assert fake.keys_call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_claim_transfer_step_is_atomic_and_idempotent():
+    from api.services.telephony.call_transfer_manager import CallTransferManager
+
+    manager = CallTransferManager(redis_client=_FakeRedis())
+
+    assert await manager.claim_transfer_step("tx-1", "bridge_requested") is True
+    assert await manager.claim_transfer_step("tx-1", "bridge_requested") is False
+    assert await manager.claim_transfer_step("tx-1", "aleg_joined") is True

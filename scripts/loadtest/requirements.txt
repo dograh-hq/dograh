@@ -1,4 +1,0 @@
-# Load-driver deps — NOT part of the app image. Install in a throwaway
-# venv on the load-generator host: pip install -r requirements.txt
-aiortc>=1.6
-aiohttp>=3.9

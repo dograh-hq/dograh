@@ -523,8 +523,8 @@ autoscaling:
       enabled: false
       minReplicas: 2
       maxReplicas: 20
-      # K — safe concurrent calls per pod. PLACEHOLDER: measure via the load
-      # test (see scripts/loadtest) before trusting it.
+      # K — safe concurrent calls per pod. PLACEHOLDER: measure via a load
+      # test before trusting it.
       callsPerPod: 2
       # B — warm buffer, in calls. Keeps ceil(B/callsPerPod) spare pods ready to
       # absorb a burst while a new pod cold-starts.

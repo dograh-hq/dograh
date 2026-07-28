@@ -8,9 +8,9 @@ close the pod is to its real ceiling — unlike CPU%, which is measured against 
 2-core limit and reads ~50% at true saturation, and unlike turn latency, which is
 dominated by external STT/LLM/TTS round-trips.
 
-The autoscaling load test (scripts/loadtest) ramps concurrent calls against one
-pod and reads this gauge to find the knee — the ``active_calls`` count where p95
-lag climbs — from which the KEDA callsPerPod (K) value is derived.
+An autoscaling load test ramps concurrent calls against one pod and reads this
+gauge to find the knee — the ``active_calls`` count where p95 lag climbs — from
+which the KEDA callsPerPod (K) value is derived.
 
 The gauge is a module global updated by one background task and read (peek) off
 ``GET /api/v1/health/active-calls``. Single event loop, so no lock is needed.

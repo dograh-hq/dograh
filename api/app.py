@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
         set_worker_sync_manager(sync_manager)
 
         # Event-loop lag gauge — per-pod saturation signal read off
-        # /health/active-calls during autoscaling load tests (scripts/loadtest).
+        # /health/active-calls during autoscaling load tests.
         from api.services.observability import loop_lag
 
         loop_lag.start()

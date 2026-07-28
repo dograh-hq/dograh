@@ -15,7 +15,9 @@ async def test_acquire_org_slot_logs_post_acquire_count_and_limit():
 
     with (
         patch("api.services.call_concurrency.service.db_client") as mock_db,
-        patch("api.services.call_concurrency.service.rate_limiter") as mock_rate_limiter,
+        patch(
+            "api.services.call_concurrency.service.rate_limiter"
+        ) as mock_rate_limiter,
         patch("api.services.call_concurrency.service.logger") as mock_logger,
     ):
         mock_db.get_configuration = AsyncMock(return_value=None)
@@ -49,7 +51,9 @@ async def test_acquire_org_slot_logs_warning_when_limit_reached():
 
     with (
         patch("api.services.call_concurrency.service.db_client") as mock_db,
-        patch("api.services.call_concurrency.service.rate_limiter") as mock_rate_limiter,
+        patch(
+            "api.services.call_concurrency.service.rate_limiter"
+        ) as mock_rate_limiter,
         patch("api.services.call_concurrency.service.logger") as mock_logger,
     ):
         mock_db.get_configuration = AsyncMock(return_value=None)
@@ -85,7 +89,9 @@ async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reac
 
     with (
         patch("api.services.call_concurrency.service.db_client") as mock_db,
-        patch("api.services.call_concurrency.service.rate_limiter") as mock_rate_limiter,
+        patch(
+            "api.services.call_concurrency.service.rate_limiter"
+        ) as mock_rate_limiter,
         patch("api.services.call_concurrency.service.capture_event") as mock_capture,
     ):
         mock_db.get_configuration = AsyncMock(return_value=None)
@@ -120,7 +126,9 @@ async def test_acquire_org_slot_passes_scope_to_rate_limiter():
 
     with (
         patch("api.services.call_concurrency.service.db_client") as mock_db,
-        patch("api.services.call_concurrency.service.rate_limiter") as mock_rate_limiter,
+        patch(
+            "api.services.call_concurrency.service.rate_limiter"
+        ) as mock_rate_limiter,
     ):
         mock_db.get_configuration = AsyncMock(return_value=None)
         mock_rate_limiter.try_acquire_concurrent_slot_details = AsyncMock(
@@ -151,7 +159,9 @@ async def test_acquire_org_slot_passes_scope_to_rate_limiter():
 async def test_release_workflow_run_slot_keeps_mapping_on_redis_error():
     service = CallConcurrencyService()
 
-    with patch("api.services.call_concurrency.service.rate_limiter") as mock_rate_limiter:
+    with patch(
+        "api.services.call_concurrency.service.rate_limiter"
+    ) as mock_rate_limiter:
         mock_rate_limiter.get_workflow_slot_mapping = AsyncMock(
             return_value=(11, "slot-1", None)
         )
@@ -172,7 +182,9 @@ async def test_release_workflow_run_slot_keeps_mapping_on_redis_error():
 async def test_release_workflow_run_slot_deletes_mapping_when_slot_already_gone():
     service = CallConcurrencyService()
 
-    with patch("api.services.call_concurrency.service.rate_limiter") as mock_rate_limiter:
+    with patch(
+        "api.services.call_concurrency.service.rate_limiter"
+    ) as mock_rate_limiter:
         mock_rate_limiter.get_workflow_slot_mapping = AsyncMock(
             return_value=(11, "slot-1", "campaign:42")
         )
@@ -192,7 +204,9 @@ async def test_release_workflow_run_slot_deletes_mapping_when_slot_already_gone(
 async def test_unregister_active_call_never_raises():
     service = CallConcurrencyService()
 
-    with patch("api.services.call_concurrency.service.rate_limiter") as mock_rate_limiter:
+    with patch(
+        "api.services.call_concurrency.service.rate_limiter"
+    ) as mock_rate_limiter:
         mock_rate_limiter.get_workflow_slot_mapping = AsyncMock(
             side_effect=RuntimeError("redis down")
         )
@@ -295,7 +309,11 @@ async def test_fleet_count_tracks_acquire_and_release_without_double_count():
             org_b, 10, scope_key=scope, scope_max_concurrent=5
         )
         assert a1 and a2 and b1
-        slots = [(org_a, a1.slot_id, None), (org_a, a2.slot_id, None), (org_b, b1.slot_id, scope)]
+        slots = [
+            (org_a, a1.slot_id, None),
+            (org_a, a2.slot_id, None),
+            (org_b, b1.slot_id, scope),
+        ]
 
         # Three calls fleet-wide; the scoped call is counted once, not twice.
         assert await rl.get_fleet_concurrent_count() == baseline + 3
@@ -306,7 +324,9 @@ async def test_fleet_count_tracks_acquire_and_release_without_double_count():
 
         # Release drains the fleet count back down.
         for org_id, slot_id, scope_key in slots:
-            assert await rl.release_concurrent_slot(org_id, slot_id, scope_key=scope_key)
+            assert await rl.release_concurrent_slot(
+                org_id, slot_id, scope_key=scope_key
+            )
         slots = []
         assert await rl.get_fleet_concurrent_count() == baseline
     finally:

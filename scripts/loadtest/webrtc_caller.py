@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Headless WebRTC synthetic caller — Phase 0 load driver for finding K.
+"""Headless WebRTC synthetic caller — load driver for finding K.
 
 Drives N concurrent live calls against ONE pinned `web` pod over the WebRTC
 signaling path (the only no-PSTN live-audio origination), so we can ramp
-concurrency and read the pod's saturation knee. See AUTOSCALING_PLAN.md /
-plans/make-a-plan-for-agile-pony.md.
+concurrency and read the pod's saturation knee. See README.md in this directory
+for the methodology.
 
 This is standalone tooling — NOT shipped in the app image. It needs `aiortc`
 (see requirements.txt in this dir) and must run against a real dev server with
@@ -22,7 +22,7 @@ Per call it:
 The x-axis + saturation signals are polled separately from
 GET /api/v1/health/active-calls (active_calls, loop_lag_p95_ms, loop_lag_max_ms).
 
-Turn cadence lives in the WAV, not code (ponytail: no custom audio-track
+Turn cadence lives in the WAV, not code (no custom audio-track
 frame-injection). Prepare a loopable clip: a spoken utterance followed by
 ~0.7s of silence so Silero VAD fires a real end-of-turn each loop.
 
@@ -250,7 +250,7 @@ def _parse_ice(specs):
 
 
 async def main():
-    ap = argparse.ArgumentParser(description="WebRTC synthetic caller (Phase 0 K load test)")
+    ap = argparse.ArgumentParser(description="WebRTC synthetic caller (K load test)")
     ap.add_argument("--base-url", required=True, help="e.g. https://dev.dograh.com")
     ap.add_argument("--api-key", required=True, help="test-org API key")
     ap.add_argument("--workflow-id", type=int, required=True)

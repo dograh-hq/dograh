@@ -1,7 +1,7 @@
-# Phase 0 load test — finding K (safe concurrent calls per web pod)
+# Load test — finding K (safe concurrent calls per web pod)
 
-Standalone tooling for the call-based autoscaling work. See `AUTOSCALING_PLAN.md`
-at the repo root for the full methodology. **Not shipped in the app image.**
+Standalone tooling for the call-based autoscaling work (KEDA `callsPerPod` in
+`deploy/helm/dograh/values.yaml`). **Not shipped in the app image.**
 
 `webrtc_caller.py` ramps N concurrent synthetic WebRTC calls against ONE pinned
 `web` pod and, per step, records the pod's saturation signals so you can locate
@@ -12,7 +12,7 @@ Every synthetic call runs the real in-pod pipeline (Silero VAD + STT/LLM/TTS +
 turn analyzer) against **real provider keys** — there is no mock provider. It
 also needs TURN if `FORCE_TURN_RELAY` is set. It cannot be run on a laptop.
 
-## Prerequisites (operational — see the plan §3)
+## Prerequisites (operational)
 1. **Loop-lag gauge deployed** — the pod must expose `loop_lag_p95_ms` on
    `GET /api/v1/health/active-calls` (added in `api/services/pipecat/loop_lag.py`).
 2. **Test org:** raise `CONCURRENT_CALL_LIMIT` (e.g. 500) so the concurrency gate

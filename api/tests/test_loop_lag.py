@@ -1,4 +1,4 @@
-"""Unit tests for the event-loop lag gauge (AUTOSCALING_PLAN.md Phase 0).
+"""Unit tests for the event-loop lag gauge.
 
 The gauge is the per-pod saturation signal surfaced on /health/active-calls.
 It imports only asyncio, so these run anywhere with no external services.

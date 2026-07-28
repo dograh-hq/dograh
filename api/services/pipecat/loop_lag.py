@@ -8,9 +8,9 @@ close the pod is to its real ceiling — unlike CPU%, which is measured against 
 2-core limit and reads ~50% at true saturation, and unlike turn latency, which is
 dominated by external STT/LLM/TTS round-trips.
 
-Phase 0 of the call-based autoscaling work (AUTOSCALING_PLAN.md) ramps concurrent
-calls against one pod and reads this gauge to find the knee — the ``active_calls``
-count where p95 lag climbs.
+The autoscaling load test (scripts/loadtest) ramps concurrent calls against one
+pod and reads this gauge to find the knee — the ``active_calls`` count where p95
+lag climbs — from which the KEDA callsPerPod (K) value is derived.
 
 The gauge is a module global updated by one background task and read (peek) off
 ``GET /api/v1/health/active-calls``. Single event loop, so no lock is needed.
@@ -19,8 +19,8 @@ The gauge is a module global updated by one background task and read (peek) off
 import asyncio
 import math
 
-# ponytail: single in-process gauge — exactly the unit (one event loop) we're
-# sizing. A window of recent lag samples is enough for a p95; no metrics library.
+# Single in-process gauge — exactly the unit (one event loop) we're sizing. A
+# window of recent lag samples is enough for a p95; no metrics library.
 _INTERVAL = 0.1  # seconds between probes
 _WINDOW = 600  # ~60s of samples at 0.1s cadence
 _samples: list[float] = []

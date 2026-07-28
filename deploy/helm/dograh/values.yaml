@@ -523,8 +523,8 @@ autoscaling:
       enabled: false
       minReplicas: 2
       maxReplicas: 20
-      # K — safe concurrent calls per pod. PLACEHOLDER: measure via the Phase 0
-      # load test (see AUTOSCALING_PLAN.md / scripts/loadtest) before trusting it.
+      # K — safe concurrent calls per pod. PLACEHOLDER: measure via the load
+      # test (see scripts/loadtest) before trusting it.
       callsPerPod: 10
       # B — warm buffer, in calls. Keeps ceil(B/callsPerPod) spare pods ready to
       # absorb a burst while a new pod cold-starts.
@@ -532,7 +532,8 @@ autoscaling:
       # Seconds between metric scrapes of /health/autoscale-metric.
       pollingInterval: 15
       # Fast up, slow down: long calls make aggressive scale-down risky. This
-      # only avoids thrash — call-SAFE scale-down (drain preStop) is Phase 4.
+      # only avoids thrash — call-SAFE scale-down is the preStop drain
+      # (scripts/drain_web.sh).
       scaleDownStabilizationSeconds: 600
   workers:
     enabled: false

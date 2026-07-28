@@ -1,5 +1,5 @@
 """Unit tests for RateLimiter.get_fleet_concurrent_count — the fleet-wide
-autoscaling signal (AUTOSCALING_PLAN.md Phase 1).
+autoscaling signal.
 
 Fakes the Redis client (scored sorted sets) so no real Redis is needed. The
 behaviors that matter:
@@ -7,7 +7,9 @@ behaviors that matter:
     lives in both keys, so counting scope keys would double-count);
   - stale slots (older than stale_call_timeout) are excluded via ZCOUNT-by-score,
     so an orphaned call can't keep the metric high and block scale-down;
-  - duplicate keys from a SCAN pass are counted once.
+  - duplicate keys from a SCAN pass are counted once;
+  - Redis errors propagate (the endpoint 503s) instead of reading as an idle
+    fleet, which would be a scale-to-minimum instruction.
 """
 
 import time
@@ -91,11 +93,14 @@ async def test_empty_fleet_is_zero():
 
 
 @pytest.mark.asyncio
-async def test_redis_error_returns_zero():
+async def test_redis_error_propagates():
     class _Boom:
         async def scan_iter(self, match, count=100):
             raise ConnectionError("redis down")
             yield  # pragma: no cover — makes this an async generator
 
-    # The method swallows the error and logs it; assert the safe default.
-    assert await _rl_with(_Boom()).get_fleet_concurrent_count() == 0
+    # A failed read must NOT report 0 (an idle fleet scales to minimum); it
+    # propagates so the autoscale-metric endpoint can respond 503 and KEDA's
+    # HPA holds the current replica count.
+    with pytest.raises(ConnectionError):
+        await _rl_with(_Boom()).get_fleet_concurrent_count()

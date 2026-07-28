@@ -212,11 +212,22 @@ async def autoscale_metric(
     ScaledObject. ``buffer`` (query param, in calls) is the warm headroom: KEDA
     divides value by the per-pod target K, giving desiredPods =
     ceil((calls + buffer) / K). All scaling policy — K, buffer, min/max — lives
-    in the ScaledObject; this endpoint is pure signal. See AUTOSCALING_PLAN.md.
+    in the ScaledObject; this endpoint is pure signal.
+
+    When the fleet count cannot be read (Redis down) this responds 503, NOT 0:
+    a failed scrape makes KEDA's HPA hold the current replica count, while a
+    successful scrape of 0 would instruct it to scale toward minReplicas.
     """
     from api.constants import DOGRAH_DEVOPS_SECRET
     from api.services.call_concurrency import call_concurrency
 
     _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
-    calls = await call_concurrency.get_fleet_active_calls()
+    try:
+        calls = await call_concurrency.get_fleet_active_calls()
+    except Exception as e:
+        logger.error(f"Fleet active-call count unavailable: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Fleet call count unavailable",
+        )
     return AutoscaleMetricResponse(value=calls + max(0, buffer))

@@ -255,7 +255,7 @@ class RateLimiter:
     async def get_fleet_concurrent_count(self) -> int:
         """Total active calls across every org — the fleet-wide autoscaling signal.
 
-        Sums ZCARD over the org concurrency counters. Scope counters
+        Sums the fresh slots in the org concurrency counters. Scope counters
         (``concurrent_calls:campaign:<id>``, written by
         ``try_acquire_concurrent_slot_details``) are skipped: a scoped call is
         already counted in its ``concurrent_calls:<org_id>`` set, so summing
@@ -267,24 +267,25 @@ class RateLimiter:
         excluded without writing — a read-only scrape then can't keep the metric
         high past the timeout and block scale-down when a call is orphaned,
         matching get_concurrent_count's cleanup semantics.
+
+        Unlike the sibling methods, Redis errors are NOT swallowed here: for an
+        autoscaling signal, 0 is the most aggressive scale-down instruction, so
+        a failed read must surface as an error (the autoscale-metric endpoint
+        turns it into a 503) rather than masquerade as an idle fleet.
         """
         redis_client = await self._get_redis()
         prefix = "concurrent_calls:"
         stale_cutoff = time.time() - self.stale_call_timeout
-        try:
-            total = 0
-            seen: set[str] = set()
-            async for key in redis_client.scan_iter(match=f"{prefix}*", count=100):
-                # SCAN can return a key more than once (rehash) — skip scope
-                # keys (campaign:<id>) and already-counted keys.
-                if not key[len(prefix):].isdigit() or key in seen:
-                    continue
-                seen.add(key)
-                total += await redis_client.zcount(key, stale_cutoff, "+inf")
-            return total
-        except Exception as e:
-            logger.error(f"Error getting fleet concurrent count: {e}")
-            return 0
+        total = 0
+        seen: set[str] = set()
+        async for key in redis_client.scan_iter(match=f"{prefix}*", count=100):
+            # SCAN can return a key more than once (rehash) — skip scope
+            # keys (campaign:<id>) and already-counted keys.
+            if not key[len(prefix):].isdigit() or key in seen:
+                continue
+            seen.add(key)
+            total += await redis_client.zcount(key, stale_cutoff, "+inf")
+        return total
 
     async def store_workflow_slot_mapping(
         self, workflow_run_id: int, organization_id: int, slot_id: str

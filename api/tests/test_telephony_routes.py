@@ -28,6 +28,11 @@ def _workflow(*, workflow_id: int = 33, user_id: int = 99):
         user_id=user_id,
         organization_id=11,
         template_context_variables={"template_key": "template-value"},
+        released_definition=SimpleNamespace(
+            id=77,
+            template_context_variables={"template_key": "template-value"},
+        ),
+        current_definition=None,
     )
 
 
@@ -84,6 +89,7 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
             return_value=SimpleNamespace(id=55)
         )
         mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_draft_version = AsyncMock(return_value=None)
         mock_db.create_workflow_run = AsyncMock(
             return_value=SimpleNamespace(
                 id=501,
@@ -113,6 +119,7 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
     assert create_args[1] == workflow.id
     assert create_kwargs["user_id"] == workflow.user_id
     assert create_kwargs["organization_id"] == workflow.organization_id
+    assert create_kwargs["definition_id"] == 77
     assert create_kwargs["initial_context"]["template_key"] == "template-value"
     mock_concurrency.acquire_org_slot.assert_awaited_once_with(
         workflow.organization_id,
@@ -130,6 +137,79 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
     # The answer URL carries no workflow owner: nothing downstream scopes on it.
     assert "user_id=" not in webhook_url
     mock_db.get_user_configurations.assert_not_called()
+
+
+def test_initiate_call_uses_draft_template_context_with_provider_overrides():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    workflow = _workflow()
+    draft = SimpleNamespace(
+        id=88,
+        template_context_variables={
+            "phone_number": "template-phone",
+            "called_number": "template-called",
+            "provider": "template-provider",
+            "draft_only": "kept",
+        },
+    )
+    provider = _provider()
+    quota_mock = AsyncMock(
+        return_value=SimpleNamespace(has_quota=True, error_message="")
+    )
+
+    with (
+        patch("api.routes.telephony.db_client") as mock_db,
+        patch("api.routes.telephony.call_concurrency") as mock_concurrency,
+        patch(
+            "api.routes.telephony.authorize_workflow_run_start",
+            new=quota_mock,
+        ),
+        patch(
+            "api.routes.telephony.get_default_telephony_provider",
+            new=AsyncMock(return_value=provider),
+        ),
+        patch(
+            "api.routes.telephony.get_backend_endpoints",
+            new=AsyncMock(return_value=("https://api.example.com", "wss://ignored")),
+        ),
+    ):
+        slot = object()
+        mock_concurrency.acquire_org_slot = AsyncMock(return_value=slot)
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_slot = AsyncMock()
+        mock_concurrency.release_workflow_run_slot = AsyncMock()
+
+        mock_db.get_user_configurations = AsyncMock(
+            return_value=SimpleNamespace(test_phone_number=None)
+        )
+        mock_db.get_default_telephony_configuration = AsyncMock(
+            return_value=SimpleNamespace(id=55)
+        )
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_draft_version = AsyncMock(return_value=draft)
+        mock_db.create_workflow_run = AsyncMock(
+            return_value=SimpleNamespace(
+                id=501,
+                name="WR-TEL-OUT-00000001",
+                initial_context={},
+            )
+        )
+        mock_db.update_workflow_run = AsyncMock()
+
+        response = client.post(
+            "/telephony/initiate-call",
+            json={"workflow_id": workflow.id, "phone_number": "+15551234567"},
+        )
+
+    assert response.status_code == 200
+    mock_db.get_draft_version.assert_awaited_once_with(workflow.id)
+    create_kwargs = mock_db.create_workflow_run.await_args.kwargs
+    assert create_kwargs["definition_id"] == draft.id
+    assert create_kwargs["initial_context"]["phone_number"] == "+15551234567"
+    assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
+    assert create_kwargs["initial_context"]["provider"] == provider.PROVIDER_NAME
+    assert create_kwargs["initial_context"]["draft_only"] == "kept"
 
 
 def test_initiate_call_uses_organization_preference_phone_number():
@@ -173,6 +253,7 @@ def test_initiate_call_uses_organization_preference_phone_number():
             return_value=SimpleNamespace(id=55)
         )
         mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_draft_version = AsyncMock(return_value=None)
         mock_db.create_workflow_run = AsyncMock(
             return_value=SimpleNamespace(
                 id=501,

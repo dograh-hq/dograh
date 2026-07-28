@@ -23,6 +23,7 @@ from api.services.telephony.factory import (
     get_default_telephony_provider,
     get_telephony_provider_by_id,
 )
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/public/agent")
@@ -260,14 +261,21 @@ async def _execute_resolved_target(
         )
 
     try:
+        run_inputs = await prepare_workflow_run_inputs(
+            db_client,
+            target.workflow,
+            initial_context=initial_context,
+            use_draft=use_draft,
+            include_template_context=use_draft,
+        )
         workflow_run = await db_client.create_workflow_run(
             name=workflow_run_name,
             workflow_id=target.workflow.id,
             mode=workflow_run_mode,
-            initial_context=initial_context,
+            initial_context=run_inputs.initial_context,
             user_id=execution_user_id,
-            use_draft=use_draft,
             organization_id=target.organization_id,
+            definition_id=run_inputs.definition_id,
         )
         await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
     except Exception:
@@ -312,7 +320,7 @@ async def _execute_resolved_target(
     # (e.g. Telnyx, Cloudonix); without them the URL contains "None/None" and
     # the stream connection fails.
     try:
-        await provider.initiate_call(
+        result = await provider.initiate_call(
             to_number=request.phone_number,
             webhook_url=webhook_url,
             workflow_run_id=workflow_run.id,
@@ -327,6 +335,25 @@ async def _execute_resolved_target(
         raise HTTPException(
             status_code=400,
             detail=f"Failed to initiate call: {e}",
+        )
+
+    gathered_context = {
+        "provider": provider.PROVIDER_NAME,
+        "triggered_by": "api",
+        **(result.provider_metadata or {}),
+    }
+    if target.identifier_type == "trigger_path":
+        gathered_context["trigger_uuid"] = target.identifier_value
+
+    try:
+        await db_client.update_workflow_run(
+            run_id=workflow_run.id,
+            gathered_context=gathered_context,
+        )
+    except Exception as e:
+        logger.warning(
+            f"Call initiated for workflow run {workflow_run.id}, but failed to "
+            f"persist provider metadata: {e}"
         )
 
     logger.info(

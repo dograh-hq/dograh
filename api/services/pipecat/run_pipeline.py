@@ -163,7 +163,6 @@ def _create_non_realtime_user_turn_start_strategies(
 
     if turn_start_strategy == "provisional_vad":
         return [
-            TranscriptionUserTurnStartStrategy(),
             ProvisionalVADUserTurnStartStrategy(
                 pause_secs=_resolve_provisional_vad_pause_secs(run_configs)
             ),

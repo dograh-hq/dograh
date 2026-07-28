@@ -31,6 +31,22 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class ProviderUIOption:
+    """One selectable value for a provider configuration field."""
+
+    value: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ProviderUICondition:
+    """Display a field only when another form value matches ``equals``."""
+
+    field: str
+    equals: Any
+
+
+@dataclass(frozen=True)
 class ProviderUIField:
     """One form field for the telephony configuration UI.
 
@@ -46,6 +62,10 @@ class ProviderUIField:
     sensitive: bool = False  # If true, mask when displaying stored value
     description: Optional[str] = None
     placeholder: Optional[str] = None
+    options: Optional[List[ProviderUIOption]] = None
+    visible_when: Optional[ProviderUICondition] = None
+    section: Optional[str] = None
+    feature_gate: Optional[str] = None
 
 
 @dataclass(frozen=True)

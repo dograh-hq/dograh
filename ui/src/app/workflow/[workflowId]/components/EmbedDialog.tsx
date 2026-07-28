@@ -1,5 +1,6 @@
 import { Check, Copy, ExternalLink, Loader2, Mic, Plus, Rocket, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import {
     createOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPost,
@@ -26,6 +27,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface EmbedDialogProps {
     open: boolean;
@@ -150,10 +152,14 @@ export function EmbedDialog({
         }
     };
 
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+    const copyToClipboard = async (text: string) => {
+        try {
+            await copyTextToClipboard(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            toast.error("Failed to copy embed code");
+        }
     };
 
     const addDomain = () => {

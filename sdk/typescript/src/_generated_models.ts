@@ -313,6 +313,34 @@ export interface components {
             disposition_codes: string[];
         };
         /**
+         * ContextDestinationMappingConfig
+         * @description Resolve an external-PBX destination from gathered context.
+         */
+        ContextDestinationMappingConfig: {
+            /**
+             * Context Path
+             * @description Gathered-context path or extracted-variable name used for routing.
+             */
+            context_path: string;
+            /** Routes */
+            routes: components["schemas"]["ContextDestinationRoute"][];
+            /**
+             * Fallback Destination
+             * @description Optional provider-native fallback destination.
+             */
+            fallback_destination?: string | null;
+        };
+        /**
+         * ContextDestinationRoute
+         * @description Map one gathered-context value to an external-PBX destination.
+         */
+        ContextDestinationRoute: {
+            /** Context Value */
+            context_value: string;
+            /** Destination */
+            destination: string;
+        };
+        /**
          * CreateToolRequest
          * @description Request schema for creating a reusable tool.
          */
@@ -537,6 +565,16 @@ export interface components {
             type: "end_call";
             /** @description End Call configuration. */
             config: components["schemas"]["EndCallConfig"];
+        };
+        /**
+         * ExternalPBXFieldMapping
+         * @description Map one gathered-context value to a provider-native field.
+         */
+        ExternalPBXFieldMapping: {
+            /** Context Path */
+            context_path: string;
+            /** Destination Field */
+            destination_field: string;
         };
         /**
          * GraphConstraints
@@ -1092,11 +1130,11 @@ export interface components {
         TransferCallConfig: {
             /**
              * Destination Source
-             * @description Whether transfer destination is static/template or resolved by HTTP.
+             * @description Whether the destination is static/template, resolved by HTTP, or mapped from gathered context to an external-PBX destination.
              * @default static
              * @enum {string}
              */
-            destination_source: "static" | "dynamic";
+            destination_source: "static" | "dynamic" | "context_mapping";
             /**
              * Destination
              * @description Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
@@ -1133,6 +1171,8 @@ export interface components {
             parameters?: components["schemas"]["ToolParameter"][] | null;
             /** @description Optional resolver that determines transfer routing at call time. */
             resolver?: components["schemas"]["HttpTransferResolverConfig"] | null;
+            /** @description Optional gathered-context to external-PBX destination mapping. */
+            context_mapping?: components["schemas"]["ContextDestinationMappingConfig"] | null;
         };
         /**
          * TransferCallToolDefinition
@@ -1230,6 +1270,8 @@ export interface components {
              * @default false
              */
             context_compaction_enabled: boolean;
+            /** External Pbx Field Mappings */
+            external_pbx_field_mappings?: components["schemas"]["ExternalPBXFieldMapping"][];
         } & {
             [key: string]: unknown;
         };
@@ -1303,6 +1345,8 @@ export interface components {
 export type AmbientNoiseConfigurationDefaults = components['schemas']['AmbientNoiseConfigurationDefaults'];
 export type CalculatorToolDefinition = components['schemas']['CalculatorToolDefinition'];
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
+export type ContextDestinationMappingConfig = components['schemas']['ContextDestinationMappingConfig'];
+export type ContextDestinationRoute = components['schemas']['ContextDestinationRoute'];
 export type CreateToolRequest = components['schemas']['CreateToolRequest'];
 export type CreateWorkflowRequest = components['schemas']['CreateWorkflowRequest'];
 export type CreatedByResponse = components['schemas']['CreatedByResponse'];
@@ -1312,6 +1356,7 @@ export type DocumentListResponseSchema = components['schemas']['DocumentListResp
 export type DocumentResponseSchema = components['schemas']['DocumentResponseSchema'];
 export type EndCallConfig = components['schemas']['EndCallConfig'];
 export type EndCallToolDefinition = components['schemas']['EndCallToolDefinition'];
+export type ExternalPbxFieldMapping = components['schemas']['ExternalPBXFieldMapping'];
 export type GraphConstraints = components['schemas']['GraphConstraints'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HttpApiConfig = components['schemas']['HttpApiConfig'];

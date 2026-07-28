@@ -42,6 +42,7 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_helper import (
     generic_hangup_response,
@@ -173,27 +174,29 @@ async def initiate_call(
 
     try:
         if not workflow_run_id:
-            # Merge template context variables (e.g. caller_number, called_number
-            # set in workflow settings for testing pre-call data fetch).
-            template_vars = workflow.template_context_variables or {}
-
             numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
             workflow_run_name = f"WR-TEL-OUT-{numeric_suffix:08d}"
-            workflow_run = await db_client.create_workflow_run(
-                workflow_run_name,
-                workflow.id,
-                workflow_run_mode,
-                user_id=execution_user_id,
-                call_type=CallType.OUTBOUND,
+            run_inputs = await prepare_workflow_run_inputs(
+                db_client,
+                workflow,
                 initial_context={
-                    **template_vars,
                     "phone_number": phone_number,
                     "called_number": phone_number,
                     "provider": provider.PROVIDER_NAME,
                     "telephony_configuration_id": telephony_configuration_id,
                 },
                 use_draft=True,
+                include_template_context=True,
+            )
+            workflow_run = await db_client.create_workflow_run(
+                workflow_run_name,
+                workflow.id,
+                workflow_run_mode,
+                user_id=execution_user_id,
+                call_type=CallType.OUTBOUND,
+                initial_context=run_inputs.initial_context,
                 organization_id=user.selected_organization_id,
+                definition_id=run_inputs.definition_id,
             )
             workflow_run_id = workflow_run.id
         else:
@@ -463,6 +466,12 @@ async def _create_inbound_workflow_run(
     call_id = normalized_data.call_id
     numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
     workflow_run_name = f"WR-TEL-IN-{numeric_suffix:08d}"
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=organization_id
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
 
     workflow_run = await db_client.create_workflow_run(
         workflow_run_name,
@@ -490,6 +499,7 @@ async def _create_inbound_workflow_run(
             },
         },
         organization_id=organization_id,
+        definition_id=run_inputs.definition_id,
     )
 
     logger.info(

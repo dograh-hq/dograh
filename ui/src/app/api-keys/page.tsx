@@ -2,6 +2,7 @@
 
 import { Copy, Eye, EyeOff, Key, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 import {
     archiveApiKeyApiV1UserApiKeysApiKeyIdDelete,
@@ -21,12 +22,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppConfig } from '@/context/AppConfigContext';
+import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
+import { copyTextToClipboard } from '@/lib/clipboard';
+import { formatDateTime } from '@/lib/dateTime';
 import logger from '@/lib/logger';
 
 export default function APIKeysPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const { config } = useAppConfig();
+    const organizationTimezone = useOrganizationTimezone();
     const isOSS = config?.deploymentMode === 'oss';
 
     logger.debug('[APIKeysPage] Component render', {
@@ -284,21 +289,17 @@ export default function APIKeysPage() {
 
     const copyToClipboard = async (text: string) => {
         try {
-            await navigator.clipboard.writeText(text);
+            await copyTextToClipboard(text);
+            toast.success('Key copied to clipboard');
         } catch (err) {
             console.error('Failed to copy to clipboard:', err);
+            toast.error('Failed to copy key');
         }
     };
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return 'Never';
-        return new Date(dateString).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        return formatDateTime(dateString, organizationTimezone);
     };
 
     // Don't render content until auth is loaded

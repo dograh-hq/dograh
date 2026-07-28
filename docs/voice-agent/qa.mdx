@@ -3,12 +3,99 @@ title: "QA"
 description: "QA node allows you to run post-call quality analysis on your Voice Agent runs"
 ---
 
-The QA node lets you define quality analysis criteria that are automatically evaluated after each call ends. Use it to score agent performance, check compliance, or extract structured insights from conversations.
+## Video Tutorial
 
-### Creating a QA Node
+<iframe 
+  width="560" 
+  height="315" 
+  src="https://www.youtube.com/embed/-_almqt7uBw" 
+  title="QA Node Tutorial" 
+  frameBorder="0" 
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+  referrerPolicy="strict-origin-when-cross-origin" 
+  allowFullScreen
+></iframe>
 
-You can add a QA node to your workflow from the Voice Agent Builder. Once added, configure the analysis criteria that you want to evaluate for each call.
+The QA node runs an LLM quality review on the call transcript after each conversation ends. Use it to score agent performance, flag compliance issues, and surface patterns across calls, without listening to recordings manually.
 
-### Viewing QA Results
+## When it runs
+
+QA Node runs post-call only. It is not part of the live call flow - it reads the completed transcript after the conversation ends. It has no edges and cannot connect to any other node in the workflow.
+
+This means QA does not affect call behavior. It only measures it.
+
+## Where it sits on the canvas
+
+Add QA Node anywhere on the canvas. It does not need to connect to other nodes - most builders place it off to the side to make clear it is a standalone evaluator. The node runs automatically for every eligible call once the workflow is published.
+
+## Configuring the System Prompt
+
+The core configuration is a single **System Prompt**: instructions to the reviewer LLM that describe how to evaluate each call. The LLM reads the transcript and returns a structured JSON result.
+
+The default prompt already covers common quality dimensions out of the box:
+
+- **Tags**: named issues detected in the transcript. The default tag set includes `DEAD_AIR`, `USER_FRUSTRATED`, `ASSISTANT_IN_LOOP`, `ASSISTANT_REPLY_IMPROPER`, `USER_NOT_UNDERSTANDING`, `HEARING_ISSUES`, `UNCLEAR_CONVERSATION`, `USER_REQUESTING_FEATURE`, `ASSISTANT_LACKS_EMPATHY`, and `USER_DETECTS_AI`
+- **Call quality score**: 1-10 rating
+- **Overall sentiment**: positive, neutral, or negative
+- **Summary**: 1-2 sentence description of the call segment
+
+You can replace the default System Prompt with your own instructions when you need domain-specific evaluation. Write the prompt as instructions to the QA reviewer LLM, and specify the JSON structure you want it to return.
+
+For compliance use cases, for example:
+
+```text
+You are a compliance reviewer for a debt collection workflow.
+
+Review the transcript and return a JSON object with the following fields:
+- "identity_verified": true or false — did the agent confirm the caller's identity before discussing the account?
+- "options_presented": true or false — did the agent offer all three payment options before accepting a decision?
+- "tone_score": 1-5 — how calm and professional was the agent throughout?
+- "summary": one sentence describing the call outcome.
+```
+
+<Tip>
+Be specific about what counts as a pass or a valid score. Include the exact behaviors you want the LLM to look for. Vague instructions produce inconsistent results across calls.
+</Tip>
+
+## Additional settings
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Enabled | On | Toggle to disable QA without removing the node |
+| Use Workflow's LLM | Off | When on, uses the same LLM configured for the workflow instead of the default QA model |
+| Minimum Call Duration (seconds) | 15 | Calls shorter than this are skipped |
+| Include Voicemail Calls | Off | When off, voicemail calls are skipped |
+| Sample Rate (%) | 100 | Run QA on a percentage of calls rather than all of them |
+
+## Viewing QA Results
 
 After a call completes, the QA analysis runs automatically. You can view the results on the **Run Detail** page for each individual run.
+
+Open a run and scroll to the **QA Analysis** section. The result shows the full JSON output your QA System Prompt requested - tags, scores, sentiment, and summary for the default prompt, or whatever structure you defined.
+
+## Common mistakes
+
+**Expecting QA to affect the live call.** QA Node is read-only at runtime. It evaluates what happened; it does not change what happens.
+
+**Connecting QA Node to other nodes.** QA has no edges. Drawing a connection from QA to another node is not possible - edges will snap back when you try.
+
+**Writing a vague System Prompt.** "Was the agent good?" produces unhelpful scores. Define specific, observable behaviors and the exact JSON fields you want back.
+
+**Not specifying output format.** The LLM follows your instructions, but if you do not specify a return format, the output may be inconsistent across calls. Always describe the exact JSON structure in the System Prompt.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Node" href="./agent">
+    Configure the conversation logic that QA evaluates.
+  </Card>
+  <Card title="Webhook Node" href="./webhook">
+    Send call outcomes to external systems after the call ends.
+  </Card>
+  <Card title="Context and Variables" href="../core-concepts/context-and-variables">
+    Learn how `gathered_context` is built during the call.
+  </Card>
+  <Card title="End Call Node" href="./end-call">
+    Configure the final message before the call drops.
+  </Card>
+</CardGroup>

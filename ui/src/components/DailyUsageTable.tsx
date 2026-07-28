@@ -9,6 +9,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { formatCalendarDate } from '@/lib/dateTime';
 
 interface DailyUsageTableProps {
     data: DailyUsageBreakdownResponse | null;
@@ -16,16 +17,6 @@ interface DailyUsageTableProps {
 }
 
 export function DailyUsageTable({ data, isLoading }: DailyUsageTableProps) {
-    // Format date for display
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
-    };
-
     if (isLoading) {
         return (
             <Card>
@@ -79,7 +70,7 @@ export function DailyUsageTable({ data, isLoading }: DailyUsageTableProps) {
                             {data.breakdown.map((day) => (
                                 <TableRow key={day.date}>
                                     <TableCell className="font-medium">
-                                        {formatDate(day.date)}
+                                        {formatCalendarDate(day.date)}
                                     </TableCell>
                                     <TableCell className="text-right">
                                         {day.minutes.toFixed(1)}

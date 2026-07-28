@@ -21,28 +21,18 @@ You can have multiple Webhook Nodes for a single Voice Agent, if you want to syn
 </Note>
 
 ### Creating the Webhook Payload
-The payload can contain a valid JSON, and you can reference variables while constructing that payload. You can reference below variables while constructing the payload. 
-
-- `{{workflow_run_id}}` Unique ID of the Agent run
-- `{{workflow_id}}` ID of the Agent
-- `{{workflow_name}}` Name of the workflow
-- `{{campaign_id}}` ID of the campaign this run belongs to (empty for ad-hoc runs)
-- `{{call_time}}` ISO-8601 UTC timestamp of when the call was initiated
-- `{{initial_context.*}}` [Initial context variables](/core-concepts/context-and-variables#initial_context)
-- `{{gathered_context.*}}` [Extracted variables](/core-concepts/context-and-variables#gathered_context)
-- `{{cost_info.call_duration_seconds}}` Call duration
-- `{{recording_url}}` Call recording URL
-- `{{transcript_url}}` Transcript URL
+The payload can contain a valid JSON, and you can reference context variables while constructing it using double-brace syntax — for example `{{workflow_run_id}}`, [`{{initial_context.*}}`](/core-concepts/context-and-variables#initial_context), and [`{{gathered_context.*}}`](/core-concepts/context-and-variables#gathered_context), including the final call outcome `{{gathered_context.call_disposition}}`.
 
 For the full list of available variables, authentication options, and receiver examples, see the [Webhook Payloads developer reference](/developer/webhooks).
 
 An example of the payload is given below
 
-```
+```json
 {
   "call_id": "{{workflow_run_id}}",
   "first_name": "{{initial_context.first_name}}",
   "rsvp": "{{gathered_context.rsvp}}",
+  "disposition": "{{gathered_context.call_disposition}}",
   "duration": "{{cost_info.call_duration_seconds}}",
   "recording_url": "{{recording_url}}",
   "transcript_url": "{{transcript_url}}"

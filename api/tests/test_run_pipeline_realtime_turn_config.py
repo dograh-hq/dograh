@@ -1,8 +1,11 @@
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import BotStartedSpeakingFrame, TranscriptionFrame
+from pipecat.turns.types import ProcessFrameResult
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
     MinWordsUserTurnStartStrategy,
     ProvisionalVADUserTurnStartStrategy,
+    TranscriptionUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
     VADUserTurnStartStrategy,
@@ -134,14 +137,15 @@ def test_non_realtime_default_uses_external_start_for_external_turn_stt():
     assert strategies[0]._enable_interruptions is True
 
 
-def test_non_realtime_default_uses_vad_start_for_standard_stt():
+def test_non_realtime_default_uses_transcription_fallback_and_vad_for_standard_stt():
     strategies = _create_non_realtime_user_turn_start_strategies(
         {},
         uses_external_turns=False,
     )
 
-    assert len(strategies) == 1
-    assert isinstance(strategies[0], VADUserTurnStartStrategy)
+    assert len(strategies) == 2
+    assert isinstance(strategies[0], TranscriptionUserTurnStartStrategy)
+    assert isinstance(strategies[1], VADUserTurnStartStrategy)
 
 
 def test_non_realtime_can_use_min_words_start_strategy():
@@ -197,6 +201,28 @@ def test_non_realtime_provisional_vad_uses_configured_pause_secs():
     assert len(strategies) == 1
     assert isinstance(strategies[0], ProvisionalVADUserTurnStartStrategy)
     assert strategies[0]._pause_secs == 0.4
+
+
+async def test_non_realtime_provisional_vad_starts_on_transcript_without_vad():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "provisional_vad"},
+        uses_external_turns=False,
+    )
+    strategy = strategies[0]
+    turn_started = False
+
+    @strategy.event_handler("on_user_turn_started")
+    async def on_user_turn_started(strategy, params):
+        nonlocal turn_started
+        turn_started = True
+
+    await strategy.process_frame(BotStartedSpeakingFrame())
+    result = await strategy.process_frame(
+        TranscriptionFrame(text="Hello", user_id="user", timestamp="")
+    )
+
+    assert result == ProcessFrameResult.STOP
+    assert turn_started is True
 
 
 def test_non_realtime_uses_external_stop_for_external_turn_stt():

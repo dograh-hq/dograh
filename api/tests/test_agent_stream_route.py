@@ -28,6 +28,8 @@ async def test_agent_stream_uses_provider_path_param_not_query_param():
         user_id=22,
         organization_id=33,
         template_context_variables={"existing": "context"},
+        released_definition=SimpleNamespace(id=55, template_context_variables={}),
+        current_definition=None,
     )
     workflow_run = SimpleNamespace(id=44)
     provider = SimpleNamespace(handle_external_websocket=AsyncMock())
@@ -72,10 +74,10 @@ async def test_agent_stream_uses_provider_path_param_not_query_param():
     assert create_args[2] == "cloudonix"
     assert create_kwargs["organization_id"] == workflow.organization_id
     assert create_kwargs["initial_context"] == {
-        "existing": "context",
         "provider": "cloudonix",
         "direction": "inbound",
     }
+    assert create_kwargs["definition_id"] == 55
     provider.handle_external_websocket.assert_awaited_once()
     _, provider_kwargs = provider.handle_external_websocket.await_args
     assert provider_kwargs["params"] == {"custom": "value"}
@@ -92,6 +94,8 @@ async def test_agent_stream_rejects_when_concurrency_limit_reached():
         user_id=22,
         organization_id=33,
         template_context_variables={},
+        released_definition=SimpleNamespace(id=55, template_context_variables={}),
+        current_definition=None,
     )
     spec = SimpleNamespace(provider_cls=lambda _config: object())
 

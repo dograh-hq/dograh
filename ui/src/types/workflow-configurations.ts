@@ -64,6 +64,11 @@ export interface TranscriptConfiguration {
     include_end_timestamps: boolean;
 }
 
+export interface ExternalPBXFieldMapping {
+    context_path: string;
+    destination_field: string;
+}
+
 export const DEFAULT_TRANSCRIPT_CONFIGURATION: TranscriptConfiguration = {
     include_end_timestamps: false,
 };
@@ -110,6 +115,7 @@ type WorkflowConfigurationBase = Omit<
     | "turn_stop_strategy"
     | "dictionary"
     | "context_compaction_enabled"
+    | "external_pbx_field_mappings"
 >;
 
 export type WorkflowConfigurations = WorkflowConfigurationBase & {
@@ -125,6 +131,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     voicemail_detection?: VoicemailDetectionConfiguration;
     transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
+    external_pbx_field_mappings: ExternalPBXFieldMapping[];
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
     [key: string]: unknown;  // Allow additional properties for future configurations
@@ -145,6 +152,7 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     dictionary: '',
     transcript_configuration: DEFAULT_TRANSCRIPT_CONFIGURATION,
     context_compaction_enabled: false,
+    external_pbx_field_mappings: [],
 };
 
 export function resolveWorkflowConfigurations(
@@ -196,6 +204,10 @@ export function resolveWorkflowConfigurations(
             configurations?.context_compaction_enabled
             ?? defaults?.context_compaction_enabled
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
+        external_pbx_field_mappings:
+            configurations?.external_pbx_field_mappings
+            ?? defaults?.external_pbx_field_mappings
+            ?? FALLBACK_WORKFLOW_CONFIGURATIONS.external_pbx_field_mappings,
         transcript_configuration: {
             ...DEFAULT_TRANSCRIPT_CONFIGURATION,
             ...(defaults?.transcript_configuration as Partial<TranscriptConfiguration> | undefined),

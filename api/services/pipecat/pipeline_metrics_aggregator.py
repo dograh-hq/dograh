@@ -113,10 +113,10 @@ class PipelineMetricsAggregator(FrameProcessor):
         """Get the aggregated STT usage metrics grouped by processor|||model."""
         return self._stt_usage_metrics
 
-    def get_call_duration(self) -> float:
+    def get_call_duration(self) -> int:
         """Get call duration"""
         if self._start_time is None:
-            return 0.0
+            return 0
 
         if self._stop_time is None:
             call_duration = time.time() - self._start_time

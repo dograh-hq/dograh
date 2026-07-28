@@ -26,12 +26,10 @@ import {
 import { useUserConfig } from '@/context/UserConfigContext';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
+import { formatDateTime, getLocalTimezone } from '@/lib/dateTime';
 import { usageFilterAttributes } from '@/lib/filterAttributes';
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import type { ActiveFilter, DateRangeValue, FilterAttribute, NumberFilterOption } from '@/types/filters';
-
-// Get local timezone
-const getLocalTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const buildAgentFilterAttributes = (
     agentOptions: NumberFilterOption[] | null,
@@ -390,22 +388,8 @@ export default function UsagePage() {
         router.push(`/workflow/${run.workflow_id}/run/${run.id}`);
     };
 
-    // Format datetime for display with timezone support
-    const formatDateTime = (dateString: string) => {
-        const date = new Date(dateString);
-        const tzValue = typeof selectedTimezone === 'string' ? selectedTimezone : selectedTimezone.value;
-        // Use local timezone if none selected (during loading)
-        const effectiveTz = tzValue || localTimezone;
-        return date.toLocaleString('en-US', {
-            timeZone: effectiveTz,
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
-    };
+    const timezoneValue = typeof selectedTimezone === 'string' ? selectedTimezone : selectedTimezone.value;
+    const effectiveTimezone = timezoneValue || localTimezone;
 
     // Format duration for display
     const formatDuration = (seconds: number) => {
@@ -602,7 +586,7 @@ export default function UsagePage() {
                                                             <span className="text-sm text-muted-foreground">-</span>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell>{formatDateTime(run.created_at)}</TableCell>
+                                                    <TableCell>{formatDateTime(run.created_at, effectiveTimezone)}</TableCell>
                                                     <TableCell className="text-right">
                                                         {formatDuration(run.call_duration_seconds)}
                                                     </TableCell>

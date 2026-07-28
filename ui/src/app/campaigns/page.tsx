@@ -17,10 +17,13 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
+import { formatDate } from '@/lib/dateTime';
 
 export default function CampaignsPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
+    const organizationTimezone = useOrganizationTimezone();
     const router = useRouter();
 
     const [campaignsData, setCampaignsData] = useState<CampaignsResponse | null>(null);
@@ -70,10 +73,6 @@ export default function CampaignsPage() {
 
     const handleCreateCampaign = () => {
         router.push('/campaigns/new');
-    };
-
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString();
     };
 
     const getStateBadgeVariant = (state: string) => {
@@ -152,7 +151,9 @@ export default function CampaignsPage() {
                                                 <TableCell>
                                                     {campaign.executed_count} / {campaign.total_queued_count}
                                                 </TableCell>
-                                                <TableCell>{formatDate(campaign.created_at)}</TableCell>
+                                                <TableCell>
+                                                    {formatDate(campaign.created_at, organizationTimezone)}
+                                                </TableCell>
                                                 <TableCell className="text-right">
                                                     <Button
                                                         variant="outline"

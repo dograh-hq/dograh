@@ -198,6 +198,11 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
         workflow_definition=workflow_definition,
         suffix="bootstrap",
     )
+    draft = await db_session.save_workflow_draft(
+        workflow_id=workflow.id,
+        workflow_definition=workflow_definition,
+        template_context_variables={"name": "draft", "draft_only": "kept"},
+    )
 
     llm = MockLLMService(
         mock_steps=[
@@ -219,7 +224,7 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
         ):
             create_response = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
-                json={},
+                json={"initial_context": {"name": "explicit"}},
             )
             assert create_response.status_code == 200
             created = create_response.json()
@@ -242,6 +247,15 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
     assert "Start" in (created["gathered_context"] or {}).get("nodes_visited", [])
     workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
     assert workflow_run is not None
+    assert workflow_run.definition_id == draft.id
+    assert workflow_run.initial_context == {
+        "name": "explicit",
+        "draft_only": "kept",
+        "runtime_configuration": {
+            "llm_provider": "openai",
+            "llm_model": "gpt-4.1",
+        },
+    }
     assert "call_duration_seconds" in workflow_run.usage_info
     assert _log_texts(run_payload["logs"], "rtf-bot-text") == [
         "Hello from the workflow tester."

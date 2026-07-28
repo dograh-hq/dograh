@@ -11,6 +11,7 @@ from api.db.models import UserModel, WorkflowRunTextSessionModel
 from api.enums import WorkflowRunMode
 from api.services.auth.depends import get_user_with_selected_organization
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
     TextChatSessionExecutionError,
@@ -164,14 +165,26 @@ async def create_text_chat_session(
 ) -> WorkflowRunTextSessionResponse:
     session_name = request.name or f"WR-TEXT-{uuid4().hex[:6].upper()}"
     try:
+        workflow = await db_client.get_workflow(
+            workflow_id, organization_id=user.selected_organization_id
+        )
+        if not workflow:
+            raise ValueError(f"Workflow with ID {workflow_id} not found")
+        run_inputs = await prepare_workflow_run_inputs(
+            db_client,
+            workflow,
+            initial_context=request.initial_context,
+            use_draft=True,
+            include_template_context=True,
+        )
         workflow_run = await db_client.create_workflow_run(
             name=session_name,
             workflow_id=workflow_id,
             mode=WorkflowRunMode.TEXTCHAT.value,
             user_id=user.id,
-            initial_context=request.initial_context,
-            use_draft=True,
+            initial_context=run_inputs.initial_context,
             organization_id=user.selected_organization_id,
+            definition_id=run_inputs.definition_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

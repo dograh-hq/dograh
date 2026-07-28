@@ -1,3 +1,4 @@
+import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -6,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useOrgConfig } from "@/context/OrgConfigContext";
 import {
     AmbientNoiseConfiguration,
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
+    ExternalPBXFieldMapping,
     resolveWorkflowConfigurations,
     TURN_START_STRATEGY_OPTIONS,
     TurnStartStrategy,
@@ -32,6 +35,7 @@ export const ConfigurationsDialog = ({
     workflowName,
     onSave
 }: ConfigurationsDialogProps) => {
+    const { externalPbxIntegrationsEnabled } = useOrgConfig();
     const resolvedWorkflowConfigurations = resolveWorkflowConfigurations(workflowConfigurations);
     const [name, setName] = useState<string>(workflowName);
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
@@ -61,9 +65,17 @@ export const ConfigurationsDialog = ({
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState<boolean>(
         resolvedWorkflowConfigurations.context_compaction_enabled
     );
+    const [externalPbxFieldMappings, setExternalPbxFieldMappings] = useState<ExternalPBXFieldMapping[]>(
+        resolvedWorkflowConfigurations.external_pbx_field_mappings
+    );
     const [isSaving, setIsSaving] = useState(false);
     const selectedTurnStartStrategy = TURN_START_STRATEGY_OPTIONS.find(
         (option) => option.value === turnStartStrategy
+    );
+    const externalPbxFieldMappingsValid = externalPbxFieldMappings.every(
+        (mapping) =>
+            Boolean(mapping.context_path.trim()) &&
+            /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(mapping.destination_field.trim())
     );
 
     const handleSave = async () => {
@@ -80,6 +92,7 @@ export const ConfigurationsDialog = ({
                 turn_stop_strategy: turnStopStrategy,
                 transcript_configuration: resolvedWorkflowConfigurations.transcript_configuration,
                 context_compaction_enabled: contextCompactionEnabled,
+                external_pbx_field_mappings: externalPbxFieldMappings,
             }, name);
             onOpenChange(false);
         } catch (error) {
@@ -103,12 +116,13 @@ export const ConfigurationsDialog = ({
             setProvisionalVadPauseSecs(nextWorkflowConfigurations.provisional_vad_pause_secs);
             setTurnStopStrategy(nextWorkflowConfigurations.turn_stop_strategy);
             setContextCompactionEnabled(nextWorkflowConfigurations.context_compaction_enabled);
+            setExternalPbxFieldMappings(nextWorkflowConfigurations.external_pbx_field_mappings);
         }
     }, [open, workflowName, workflowConfigurations]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Configurations</DialogTitle>
                 </DialogHeader>
@@ -401,13 +415,92 @@ export const ConfigurationsDialog = ({
                             </div>
                         </div>
                     </div>
+
+                    {externalPbxIntegrationsEnabled && (
+                        <div className="space-y-4 border-t pt-4">
+                            <div>
+                                <h3 className="text-sm font-semibold mb-1">External PBX Field Updates</h3>
+                                <p className="text-xs text-muted-foreground">
+                                    Optionally copy final gathered-context values into provider-native fields before transfer or hangup.
+                                </p>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <Label className="text-sm">Field Mappings</Label>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setExternalPbxFieldMappings((current) => [
+                                        ...current,
+                                        { context_path: "", destination_field: "" },
+                                    ])}
+                                >
+                                    <Plus className="mr-1 h-4 w-4" /> Add mapping
+                                </Button>
+                            </div>
+                            <div className="space-y-2">
+                                {externalPbxFieldMappings.map((mapping, index) => (
+                                    <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                                        <Input
+                                            aria-label={`Gathered context field ${index + 1}`}
+                                            value={mapping.context_path}
+                                            onChange={(event) => setExternalPbxFieldMappings((current) =>
+                                                current.map((item, itemIndex) =>
+                                                    itemIndex === index
+                                                        ? { ...item, context_path: event.target.value }
+                                                        : item
+                                                )
+                                            )}
+                                            placeholder="qualified"
+                                        />
+                                        <Input
+                                            aria-label={`External PBX destination field ${index + 1}`}
+                                            value={mapping.destination_field}
+                                            onChange={(event) => setExternalPbxFieldMappings((current) =>
+                                                current.map((item, itemIndex) =>
+                                                    itemIndex === index
+                                                        ? { ...item, destination_field: event.target.value }
+                                                        : item
+                                                )
+                                            )}
+                                            placeholder="address3"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label={`Remove external PBX field mapping ${index + 1}`}
+                                            onClick={() => setExternalPbxFieldMappings((current) =>
+                                                current.filter((_, itemIndex) => itemIndex !== index)
+                                            )}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                                {externalPbxFieldMappings.length === 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                        No external fields will be updated. Context names may be direct extracted-variable names or paths such as extracted_variables.qualified.
+                                    </p>
+                                )}
+                                {!externalPbxFieldMappingsValid && (
+                                    <p className="text-xs text-destructive">
+                                        Each mapping needs a context field and a destination field containing only letters, numbers, and underscores.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSave} disabled={isSaving}>
+                    <Button
+                        onClick={handleSave}
+                        disabled={isSaving || (externalPbxIntegrationsEnabled && !externalPbxFieldMappingsValid)}
+                    >
                         {isSaving ? "Saving..." : "Save"}
                     </Button>
                 </DialogFooter>

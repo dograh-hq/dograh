@@ -11,6 +11,7 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.workflow.tools.custom_tool import _resolve_preset_parameters
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
@@ -120,6 +121,70 @@ def _resolve_static_transfer(
             config.get("destination", ""), call_context_vars, gathered_context_vars
         ),
         timeout_seconds=_base_timeout(config),
+    )
+
+
+def _context_value(
+    path: str,
+    call_context_vars: Optional[Dict[str, Any]],
+    gathered_context_vars: Optional[Dict[str, Any]],
+) -> Any:
+    initial = call_context_vars or {}
+    gathered = gathered_context_vars or {}
+    normalized = path.strip()
+    if normalized.startswith("initial_context."):
+        current: Any = initial
+        parts = normalized.removeprefix("initial_context.").split(".")
+    elif normalized.startswith("gathered_context."):
+        current = gathered
+        parts = normalized.removeprefix("gathered_context.").split(".")
+    else:
+        current = gathered
+        parts = normalized.split(".")
+
+    for part in parts:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    if current is None and "." not in normalized:
+        extracted = gathered.get("extracted_variables")
+        if isinstance(extracted, dict):
+            current = extracted.get(normalized)
+    return current
+
+
+def _resolve_context_mapping_transfer(
+    config: dict[str, Any],
+    call_context_vars: Optional[Dict[str, Any]],
+    gathered_context_vars: Optional[Dict[str, Any]],
+) -> ResolvedTransferConfig:
+    mapping = config.get("context_mapping")
+    if not isinstance(mapping, dict):
+        raise TransferResolutionError(
+            "invalid_context_mapping", "Transfer context mapping is missing"
+        )
+    path = str(mapping.get("context_path", "")).strip()
+    raw_value = _context_value(path, call_context_vars, gathered_context_vars)
+    match_value = "" if raw_value is None else str(raw_value).strip().casefold()
+    destination = ""
+    for route in mapping.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        if str(route.get("context_value", "")).strip().casefold() == match_value:
+            destination = str(route.get("destination", "")).strip()
+            break
+    if not destination:
+        destination = str(mapping.get("fallback_destination") or "").strip()
+    if not destination:
+        raise TransferResolutionError(
+            "no_context_mapping_match",
+            f"No destination mapping matched gathered context path '{path}'",
+        )
+    return ResolvedTransferConfig(
+        destination=destination,
+        timeout_seconds=_base_timeout(config),
+        source="context_mapping",
+        metadata={"context_path": path, "matched": bool(match_value)},
     )
 
 
@@ -275,6 +340,25 @@ async def resolve_transfer_config(
     workflow_run_id: Optional[int],
 ) -> ResolvedTransferConfig:
     """Resolve transfer destination and options for a transfer tool call."""
+
+    destination_source = config.get("destination_source", "static")
+    if destination_source == "context_mapping":
+        if not organization_id or not await external_pbx_integrations_enabled(
+            organization_id
+        ):
+            raise TransferResolutionError(
+                "external_pbx_feature_disabled",
+                "External PBX integrations are disabled for this organization",
+            )
+        resolved = _resolve_context_mapping_transfer(
+            config, call_context_vars, gathered_context_vars
+        )
+        logger.info(
+            "Transfer destination resolved from context mapping "
+            f"context_path={resolved.metadata.get('context_path')} "
+            f"source={resolved.source} destination={resolved.destination}"
+        )
+        return resolved
 
     resolver = config.get("resolver")
     if config.get("destination_source", "static") != "dynamic" or not isinstance(

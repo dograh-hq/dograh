@@ -30,12 +30,15 @@ from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
 )
+from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.providers.ari.external_pbx import create_adapter
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 # Redis key pattern and TTL for channel-to-run mapping
 _CHANNEL_KEY_PREFIX = "ari:channel:"
@@ -56,6 +59,7 @@ class ARIConnection:
         app_name: str,
         app_password: str,
         ws_client_name: str = "",
+        external_pbx_config: Optional[dict] = None,
     ):
         self.organization_id = organization_id
         self.telephony_configuration_id = telephony_configuration_id
@@ -63,6 +67,8 @@ class ARIConnection:
         self.app_name = app_name
         self.app_password = app_password
         self.ws_client_name = ws_client_name
+        self.external_pbx_config = external_pbx_config
+        self.external_pbx_adapter = create_adapter(external_pbx_config)
 
         self._ws: Optional[websockets.ClientConnection] = None
         self._task: Optional[asyncio.Task] = None
@@ -287,7 +293,7 @@ class ARIConnection:
         channel_state = channel.get("state", "unknown")
 
         # Log all events for each channel
-        logger.debug(
+        logger.trace(
             f"[ARI EVENT org={self.organization_id}] {event_type}: channel={channel_id}, state={channel_state}"
         )
 
@@ -413,7 +419,7 @@ class ARIConnection:
             )
 
         else:
-            logger.debug(
+            logger.trace(
                 f"[ARI org={self.organization_id}] Event: {event_type} "
                 f"channel={channel_id}"
             )
@@ -428,9 +434,9 @@ class ARIConnection:
             async with session.request(method, url, auth=auth, **kwargs) as response:
                 response_text = await response.text()
                 if response.status not in (200, 201, 204):
-                    logger.error(
+                    logger.warning(
                         f"[ARI org={self.organization_id}] REST API error: "
-                        f"{method} {path} -> {response.status}: {response_text}"
+                        f"{method} {path} {kwargs} -> {response.status}: {response_text}"
                     )
                     return {}
                 if response_text:
@@ -443,6 +449,41 @@ class ARIConnection:
         # answer returns 204 No Content on success, so empty dict is OK
         logger.info(f"[ARI org={self.organization_id}] Answered channel {channel_id}")
         return True
+
+    async def _get_channel_var(self, channel_id: str, variable: str) -> str:
+        """Read a channel variable/function via ARI. Returns '' if unset."""
+        result = await self._ari_request(
+            "GET", f"/channels/{channel_id}/variable", params={"variable": variable}
+        )
+        return (result or {}).get("value", "") or ""
+
+    async def _capture_external_pbx_call(
+        self, channel_id: str, channel_name: str = ""
+    ) -> Optional[dict]:
+        """Capture adapter-defined identity from inbound SIP headers."""
+        if self.external_pbx_adapter is None:
+            return None
+        # PJSIP_HEADER() only works on a PJSIP channel; on any other technology
+        # (Local, WebSocket, etc.) Asterisk returns a 500 ("This function
+        # requires a PJSIP channel"). Non-PJSIP legs carry no SIP headers to
+        # capture anyway, so skip the reads quietly instead of spamming errors.
+        if not channel_name.startswith("PJSIP/"):
+            logger.debug(
+                f"[ARI org={self.organization_id}] Skipping external PBX capture "
+                f"for non-PJSIP channel {channel_id} ({channel_name or 'unknown'})"
+            )
+            return None
+
+        async def read_header(name: str) -> str:
+            return await self._get_channel_var(channel_id, f"PJSIP_HEADER(read,{name})")
+
+        identity = await self.external_pbx_adapter.capture_call_identity(read_header)
+        if identity:
+            logger.info(
+                f"[ARI org={self.organization_id}] Captured "
+                f"{self.external_pbx_adapter.type} call identity for channel {channel_id} identity: {identity}"
+            )
+        return identity
 
     async def _create_external_media(
         self,
@@ -593,6 +634,11 @@ class ARIConnection:
 
             # 3. Create workflow run
             call_id = channel_id
+            run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
+            # Capture the configured external PBX identity from SIP headers.
+            external_pbx_call = await self._capture_external_pbx_call(
+                channel_id, channel.get("name", "")
+            )
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
                 workflow_id=inbound_workflow_id,
@@ -605,11 +651,13 @@ class ARIConnection:
                     "direction": "inbound",
                     "provider": "ari",
                     "telephony_configuration_id": self.telephony_configuration_id,
+                    "external_pbx_call": external_pbx_call,
                 },
                 gathered_context={
                     "call_id": call_id,
                 },
                 organization_id=self.organization_id,
+                definition_id=run_inputs.definition_id,
             )
             await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
 
@@ -1151,6 +1199,7 @@ class ARIManager:
             app_name = config["app_name"]
             app_password = config["app_password"]
             ws_client_name = config["ws_client_name"]
+            external_pbx_config = config.get("external_pbx")
 
             conn = ARIConnection(
                 org_id,
@@ -1159,6 +1208,7 @@ class ARIManager:
                 app_name,
                 app_password,
                 ws_client_name,
+                external_pbx_config,
             )
             key = conn.connection_key
 
@@ -1183,6 +1233,7 @@ class ARIManager:
                     or existing.app_name != app_name
                     or existing.app_password != app_password
                     or existing.ws_client_name != ws_client_name
+                    or existing.external_pbx_config != external_pbx_config
                 ):
                     logger.info(
                         f"[ARI Manager] Config {telephony_configuration_id} "
@@ -1220,6 +1271,11 @@ class ARIManager:
             app_name = credentials.get("app_name")
             app_password = credentials.get("app_password")
             ws_client_name = credentials.get("ws_client_name", "")
+            external_pbx = credentials.get("external_pbx")
+            if external_pbx and not await external_pbx_integrations_enabled(
+                row.organization_id
+            ):
+                external_pbx = None
 
             if not all([ari_endpoint, app_name, app_password]):
                 logger.warning(
@@ -1242,6 +1298,7 @@ class ARIManager:
                     "app_name": app_name,
                     "app_password": app_password,
                     "ws_client_name": ws_client_name,
+                    "external_pbx": external_pbx,
                 }
             )
 

@@ -446,3 +446,18 @@ class TelephonyProvider(ABC):
             True if provider supports call transfers, False otherwise
         """
         pass
+
+    async def transfer_external_pbx_call(
+        self,
+        *,
+        identity: Dict[str, Any],
+        destination: str,
+        field_updates: Optional[Dict[str, str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Handle an external-PBX-owned customer leg when one is present.
+
+        Providers without an external PBX return ``None`` so the ordinary
+        telephony transfer path continues unchanged.
+        """
+
+        return None

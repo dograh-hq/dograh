@@ -24,6 +24,7 @@ from api.services.call_concurrency import (
 )
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony import registry as telephony_registry
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 router = APIRouter(prefix="/agent-stream")
 
@@ -68,11 +69,11 @@ async def agent_stream_websocket(
     numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
     workflow_run_name = f"WR-AGS-{numeric_suffix:08d}"
     initial_context = {
-        **(workflow.template_context_variables or {}),
         "provider": provider_name,
         "direction": "inbound",
     }
     try:
+        run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
         workflow_run = await db_client.create_workflow_run(
             workflow_run_name,
             workflow.id,
@@ -81,6 +82,7 @@ async def agent_stream_websocket(
             call_type=CallType.INBOUND,
             initial_context=initial_context,
             organization_id=workflow.organization_id,
+            definition_id=run_inputs.definition_id,
         )
         await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
     except Exception:

@@ -275,6 +275,55 @@ async def test_scoped_acquisition_enforces_scope_limit_independently_of_org():
 
 @requires_redis
 @pytest.mark.asyncio
+async def test_fleet_count_tracks_acquire_and_release_without_double_count():
+    """The fleet zset mirrors org slots one-to-one: a scoped call contributes
+    exactly one member (via its org slot), and release removes it — so the
+    autoscaling signal (get_fleet_concurrent_count) tracks live calls."""
+    rl = RateLimiter()
+    org_a, org_b = _unique_org_id(), _unique_org_id()
+    scope = f"campaign:{org_b}"
+    redis_client = await rl._get_redis()
+    slots = []
+
+    try:
+        # Shared test Redis: assert deltas against the pre-test count.
+        baseline = await rl.get_fleet_concurrent_count()
+
+        a1 = await rl.try_acquire_concurrent_slot_details(org_a, 10)
+        a2 = await rl.try_acquire_concurrent_slot_details(org_a, 10)
+        b1 = await rl.try_acquire_concurrent_slot_details(
+            org_b, 10, scope_key=scope, scope_max_concurrent=5
+        )
+        assert a1 and a2 and b1
+        slots = [(org_a, a1.slot_id, None), (org_a, a2.slot_id, None), (org_b, b1.slot_id, scope)]
+
+        # Three calls fleet-wide; the scoped call is counted once, not twice.
+        assert await rl.get_fleet_concurrent_count() == baseline + 3
+
+        # A rejected acquisition must not leak a fleet member.
+        assert await rl.try_acquire_concurrent_slot_details(org_a, 2) is None
+        assert await rl.get_fleet_concurrent_count() == baseline + 3
+
+        # Release drains the fleet count back down.
+        for org_id, slot_id, scope_key in slots:
+            assert await rl.release_concurrent_slot(org_id, slot_id, scope_key=scope_key)
+        slots = []
+        assert await rl.get_fleet_concurrent_count() == baseline
+    finally:
+        from api.services.call_concurrency.rate_limiter import FLEET_CONCURRENT_KEY
+
+        for org_id, slot_id, _scope in slots:  # only on assertion failure
+            await redis_client.zrem(FLEET_CONCURRENT_KEY, f"{org_id}:{slot_id}")
+        await redis_client.delete(
+            f"concurrent_calls:{org_a}",
+            f"concurrent_calls:{org_b}",
+            f"concurrent_calls:{scope}",
+        )
+        await rl.close()
+
+
+@requires_redis
+@pytest.mark.asyncio
 async def test_org_limit_still_binds_scoped_acquisition():
     rl = RateLimiter()
     org_id = _unique_org_id()

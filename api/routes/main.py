@@ -215,8 +215,8 @@ async def autoscale_metric(
     in the ScaledObject; this endpoint is pure signal. See AUTOSCALING_PLAN.md.
     """
     from api.constants import DOGRAH_DEVOPS_SECRET
-    from api.services.campaign.rate_limiter import rate_limiter
+    from api.services.call_concurrency import call_concurrency
 
     _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
-    calls = await rate_limiter.get_fleet_concurrent_count()
+    calls = await call_concurrency.get_fleet_active_calls()
     return AutoscaleMetricResponse(value=calls + max(0, buffer))

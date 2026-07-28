@@ -56,7 +56,7 @@ def test_exclude_unset_round_trip_stays_sparse():
 def test_cap_stays_within_concurrency_stale_timeout():
     """A call outliving the rate limiter's stale window has its concurrency
     slot purged mid-call, so the cap must never exceed it."""
-    from api.services.campaign.rate_limiter import rate_limiter
+    from api.services.call_concurrency.rate_limiter import rate_limiter
 
     assert MAX_CALL_DURATION_SECONDS <= rate_limiter.stale_call_timeout
 

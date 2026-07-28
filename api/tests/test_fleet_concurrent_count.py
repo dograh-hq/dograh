@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from api.services.campaign.rate_limiter import RateLimiter
+from api.services.call_concurrency.rate_limiter import RateLimiter
 
 _NOW = time.time()
 

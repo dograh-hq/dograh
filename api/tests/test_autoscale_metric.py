@@ -24,8 +24,8 @@ from api.routes.main import autoscale_metric
 async def test_value_is_fleet_plus_clamped_buffer(fleet, buffer, expected):
     with (
         patch("api.routes.main._verify_devops_secret"),  # skip auth
-        patch("api.services.campaign.rate_limiter.rate_limiter") as mock_rl,
+        patch("api.services.call_concurrency.call_concurrency") as mock_cc,
     ):
-        mock_rl.get_fleet_concurrent_count = AsyncMock(return_value=fleet)
+        mock_cc.get_fleet_active_calls = AsyncMock(return_value=fleet)
         resp = await autoscale_metric(buffer=buffer, x_dograh_devops_secret="ok")
     assert resp.value == expected

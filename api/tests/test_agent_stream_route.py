@@ -129,9 +129,7 @@ async def test_agent_stream_marks_run_failed_when_quota_exceeded():
         await agent_stream_websocket(websocket, "cloudonix", "agent-uuid")
 
     mark_failed_mock.assert_awaited_once_with(workflow_run.id, "Quota exceeded")
-    mock_concurrency.release_workflow_run_slot.assert_awaited_once_with(
-        workflow_run.id
-    )
+    mock_concurrency.release_workflow_run_slot.assert_awaited_once_with(workflow_run.id)
     websocket.close.assert_awaited_once_with(code=1008, reason="Quota exceeded")
     db_client.update_workflow_run.assert_not_awaited()
 

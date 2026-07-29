@@ -13,12 +13,12 @@ from pipecat.utils.run_context import set_current_run_id
 from starlette.responses import HTMLResponse
 
 from api.db import db_client
+from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
 )
-from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,

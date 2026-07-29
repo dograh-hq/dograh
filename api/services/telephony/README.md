@@ -28,7 +28,7 @@ provider = await get_telephony_provider_by_id(config_id, organization_id)
 result = await provider.initiate_call(
     to_number="+1987654321",
     webhook_url="https://your-app.com/webhook",
-    workflow_run_id=123
+    workflow_run_id=123,
 )
 ```
 
@@ -91,10 +91,10 @@ The `factory.py` loads configuration from the database:
    value: {
        "provider": "twilio",  # or "vonage"
        "account_sid": "xxx",  # for Twilio
-       "auth_token": "xxx",   # for Twilio
+       "auth_token": "xxx",  # for Twilio
        "application_id": "xxx",  # for Vonage
-       "private_key": "xxx",     # for Vonage
-       "from_numbers": [...]
+       "private_key": "xxx",  # for Vonage
+       "from_numbers": [...],
    }
    ```
 
@@ -106,14 +106,15 @@ The `factory.py` loads configuration from the database:
 class MockProvider(TelephonyProvider):
     async def initiate_call(self, to_number, webhook_url, **kwargs):
         return {"call_id": "mock_123", "status": "initiated"}
-    
+
     async def get_call_status(self, call_id):
         return {"call_id": call_id, "status": "completed"}
-    
+
     # Implement other required methods...
 
+
 # In tests
-@patch('api.services.telephony.factory.get_default_telephony_provider')
+@patch("api.services.telephony.factory.get_default_telephony_provider")
 async def test_call_initiation(mock_get_provider):
     mock_get_provider.return_value = MockProvider()
     # Test your business logic
@@ -141,6 +142,7 @@ pytest tests/integration/test_telephony.py
 Old code:
 ```python
 from api.services.telephony.twilio import TwilioService
+
 service = TwilioService(org_id)
 await service.initiate_call(...)
 ```
@@ -148,6 +150,7 @@ await service.initiate_call(...)
 New code:
 ```python
 from api.services.telephony.factory import get_default_telephony_provider
+
 provider = await get_default_telephony_provider(org_id)
 await provider.initiate_call(...)
 ```

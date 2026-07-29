@@ -265,9 +265,7 @@ async def initiate_call(
             **keywords,
         )
     except Exception as e:
-        await mark_workflow_run_failed(
-            workflow_run_id, f"Failed to initiate call: {e}"
-        )
+        await mark_workflow_run_failed(workflow_run_id, f"Failed to initiate call: {e}")
         await call_concurrency.release_workflow_run_slot(workflow_run_id)
         raise
 

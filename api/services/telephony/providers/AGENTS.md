@@ -42,15 +42,15 @@ If you find yourself editing anything else, re-read the registry plumbing first:
 
 ```python
 SPEC = ProviderSpec(
-    name="<name>",                                  # registry key, WorkflowRunMode value, stored discriminator
+    name="<name>",  # registry key, WorkflowRunMode value, stored discriminator
     provider_cls=YourProvider,
-    config_loader=_config_loader,                   # raw dict from DB → constructor dict
+    config_loader=_config_loader,  # raw dict from DB → constructor dict
     transport_factory=create_transport,
-    transport_sample_rate=8000,                     # wire-format rate; pipecat derives the full AudioConfig
+    transport_sample_rate=8000,  # wire-format rate; pipecat derives the full AudioConfig
     config_request_cls=YourProviderConfigurationRequest,
     config_response_cls=YourProviderConfigurationResponse,
-    ui_metadata=ProviderUIMetadata(...),            # drives the form UI
-    account_id_credential_field="api_key",          # "" if provider has no account-id concept
+    ui_metadata=ProviderUIMetadata(...),  # drives the form UI
+    account_id_credential_field="api_key",  # "" if provider has no account-id concept
 )
 register(SPEC)
 ```
@@ -77,7 +77,9 @@ Always:
 from api.services.telephony.factory import load_credentials_for_transport
 
 config = await load_credentials_for_transport(
-    organization_id, telephony_configuration_id, expected_provider="<name>",
+    organization_id,
+    telephony_configuration_id,
+    expected_provider="<name>",
 )
 ```
 

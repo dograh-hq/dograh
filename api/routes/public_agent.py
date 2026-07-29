@@ -335,9 +335,7 @@ async def _execute_resolved_target(
         logger.warning(
             f"Failed to initiate call for workflow run {workflow_run.id}: {e}"
         )
-        await mark_workflow_run_failed(
-            workflow_run.id, f"Failed to initiate call: {e}"
-        )
+        await mark_workflow_run_failed(workflow_run.id, f"Failed to initiate call: {e}")
         await call_concurrency.release_workflow_run_slot(workflow_run.id)
         raise HTTPException(
             status_code=400,

@@ -85,6 +85,56 @@ async def test_agent_stream_uses_provider_path_param_not_query_param():
 
 
 @pytest.mark.asyncio
+async def test_agent_stream_marks_run_failed_when_quota_exceeded():
+    from api.routes.agent_stream import agent_stream_websocket
+
+    websocket = _FakeWebSocket()
+    workflow = SimpleNamespace(
+        id=11,
+        user_id=22,
+        organization_id=33,
+        template_context_variables={},
+        released_definition=SimpleNamespace(id=55, template_context_variables={}),
+        current_definition=None,
+    )
+    workflow_run = SimpleNamespace(id=44)
+    spec = SimpleNamespace(provider_cls=lambda _config: object())
+    mark_failed_mock = AsyncMock()
+
+    with (
+        patch("api.routes.agent_stream.telephony_registry") as registry,
+        patch("api.routes.agent_stream.db_client") as db_client,
+        patch("api.routes.agent_stream.call_concurrency") as mock_concurrency,
+        patch(
+            "api.routes.agent_stream.authorize_workflow_run_start",
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    has_quota=False, error_message="Quota exceeded"
+                )
+            ),
+        ),
+        patch(
+            "api.routes.agent_stream.mark_workflow_run_failed",
+            new=mark_failed_mock,
+        ),
+    ):
+        registry.get_optional.return_value = spec
+        db_client.get_workflow_by_uuid_unscoped = AsyncMock(return_value=workflow)
+        db_client.create_workflow_run = AsyncMock(return_value=workflow_run)
+        db_client.update_workflow_run = AsyncMock()
+        mock_concurrency.acquire_org_slot = AsyncMock(return_value=object())
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_workflow_run_slot = AsyncMock()
+
+        await agent_stream_websocket(websocket, "cloudonix", "agent-uuid")
+
+    mark_failed_mock.assert_awaited_once_with(workflow_run.id, "Quota exceeded")
+    mock_concurrency.release_workflow_run_slot.assert_awaited_once_with(workflow_run.id)
+    websocket.close.assert_awaited_once_with(code=1008, reason="Quota exceeded")
+    db_client.update_workflow_run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_agent_stream_rejects_when_concurrency_limit_reached():
     from api.routes.agent_stream import agent_stream_websocket
 

@@ -24,6 +24,7 @@ from api.services.telephony.factory import (
     get_telephony_provider_by_id,
 )
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/public/agent")
@@ -297,6 +298,9 @@ async def _execute_resolved_target(
         workflow_run_id=workflow_run.id,
     )
     if not quota_result.has_quota:
+        await mark_workflow_run_failed(
+            workflow_run.id, quota_result.error_message or "Quota exceeded"
+        )
         await call_concurrency.release_workflow_run_slot(workflow_run.id)
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
@@ -331,6 +335,7 @@ async def _execute_resolved_target(
         logger.warning(
             f"Failed to initiate call for workflow run {workflow_run.id}: {e}"
         )
+        await mark_workflow_run_failed(workflow_run.id, f"Failed to initiate call: {e}")
         await call_concurrency.release_workflow_run_slot(workflow_run.id)
         raise HTTPException(
             status_code=400,

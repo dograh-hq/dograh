@@ -38,8 +38,8 @@ PACKAGE = register_package(
         name="<package_name>",
         nodes=(NODE,),
         create_runtime_sessions=create_runtime_sessions,  # optional
-        run_completion=run_completion,                    # optional
-        routers=(router,),                               # optional
+        run_completion=run_completion,  # optional
+        routers=(router,),  # optional
     )
 )
 ```

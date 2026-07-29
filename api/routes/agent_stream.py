@@ -25,6 +25,7 @@ from api.services.call_concurrency import (
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow_run_failure import mark_workflow_run_failed
 
 router = APIRouter(prefix="/agent-stream")
 
@@ -101,6 +102,9 @@ async def agent_stream_websocket(
         logger.warning(
             f"agent-stream quota exceeded for user {workflow.user_id}: "
             f"{quota_result.error_message}"
+        )
+        await mark_workflow_run_failed(
+            workflow_run.id, quota_result.error_message or "Quota exceeded"
         )
         await call_concurrency.release_workflow_run_slot(workflow_run.id)
         await websocket.close(

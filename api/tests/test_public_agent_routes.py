@@ -513,6 +513,7 @@ def test_trigger_route_releases_concurrency_slot_when_quota_fails():
     quota_mock = AsyncMock(
         return_value=SimpleNamespace(has_quota=False, error_message="Quota exceeded")
     )
+    mark_failed_mock = AsyncMock()
 
     with (
         patch("api.routes.public_agent.db_client") as mock_db,
@@ -520,6 +521,10 @@ def test_trigger_route_releases_concurrency_slot_when_quota_fails():
         patch(
             "api.routes.public_agent.authorize_workflow_run_start",
             new=quota_mock,
+        ),
+        patch(
+            "api.routes.public_agent.mark_workflow_run_failed",
+            new=mark_failed_mock,
         ),
         patch(
             "api.routes.public_agent.get_default_telephony_provider",
@@ -554,6 +559,7 @@ def test_trigger_route_releases_concurrency_slot_when_quota_fails():
         )
 
     assert response.status_code == 402
+    mark_failed_mock.assert_awaited_once_with(501, "Quota exceeded")
     mock_concurrency.release_workflow_run_slot.assert_awaited_once_with(501)
     provider.initiate_call.assert_not_awaited()
 

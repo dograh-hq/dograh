@@ -43,6 +43,7 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEventType,
 )
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_helper import (
     generic_hangup_response,
@@ -231,6 +232,9 @@ async def initiate_call(
         actor_user=user,
     )
     if not quota_result.has_quota:
+        await mark_workflow_run_failed(
+            workflow_run_id, quota_result.error_message or "Quota exceeded"
+        )
         await call_concurrency.release_workflow_run_slot(workflow_run_id)
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
@@ -260,7 +264,8 @@ async def initiate_call(
             from_number=from_number,
             **keywords,
         )
-    except Exception:
+    except Exception as e:
+        await mark_workflow_run_failed(workflow_run_id, f"Failed to initiate call: {e}")
         await call_concurrency.release_workflow_run_slot(workflow_run_id)
         raise
 
@@ -867,6 +872,9 @@ async def handle_inbound_run(request: Request):
                 logger.warning(
                     f"User {user_id} has exceeded quota: {quota_result.error_message}"
                 )
+                await mark_workflow_run_failed(
+                    workflow_run_id, quota_result.error_message or "Quota exceeded"
+                )
                 await call_concurrency.release_workflow_run_slot(workflow_run_id)
                 return provider_class.generate_validation_error_response(
                     TelephonyError.QUOTA_EXCEEDED
@@ -888,8 +896,11 @@ async def handle_inbound_run(request: Request):
             return provider_class.generate_validation_error_response(
                 TelephonyError.CONCURRENT_CALL_LIMIT
             )
-        except Exception:
+        except Exception as e:
             if workflow_run_id:
+                await mark_workflow_run_failed(
+                    workflow_run_id, f"Inbound call failed to start: {e}"
+                )
                 await call_concurrency.release_workflow_run_slot(workflow_run_id)
             else:
                 await call_concurrency.release_slot(concurrency_slot)
@@ -1034,6 +1045,9 @@ async def handle_inbound_telephony(
                     f"User {user_id} has exceeded quota for inbound calls: "
                     f"{quota_result.error_message}"
                 )
+                await mark_workflow_run_failed(
+                    workflow_run_id, quota_result.error_message or "Quota exceeded"
+                )
                 await call_concurrency.release_workflow_run_slot(workflow_run_id)
                 return provider_class.generate_validation_error_response(
                     TelephonyError.QUOTA_EXCEEDED
@@ -1056,8 +1070,11 @@ async def handle_inbound_telephony(
             return provider_class.generate_validation_error_response(
                 TelephonyError.CONCURRENT_CALL_LIMIT
             )
-        except Exception:
+        except Exception as e:
             if workflow_run_id:
+                await mark_workflow_run_failed(
+                    workflow_run_id, f"Inbound call failed to start: {e}"
+                )
                 await call_concurrency.release_workflow_run_slot(workflow_run_id)
             else:
                 await call_concurrency.release_slot(concurrency_slot)

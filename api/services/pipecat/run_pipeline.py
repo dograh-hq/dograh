@@ -965,12 +965,14 @@ async def _run_pipeline_impl(
             voicemail_llm = create_llm_service(
                 user_config,
                 correlation_id=mps_correlation_id,
+                usage_context="voicemail_detection",
             )
         else:
             voicemail_llm = create_llm_service_from_provider(
                 provider=voicemail_config.get("provider", "openai"),
                 model=voicemail_config.get("model", "gpt-4.1"),
                 api_key=voicemail_config.get("api_key", ""),
+                usage_context="voicemail_detection",
             )
 
         long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)

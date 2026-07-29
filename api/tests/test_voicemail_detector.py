@@ -10,12 +10,14 @@ import asyncio
 import pytest
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.frames.frames import (
+    CancelFrame,
     EndWorkerFrame,
     Frame,
     FunctionCallFromLLM,
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     FunctionCallsStartedFrame,
+    LLMContextFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -239,6 +241,69 @@ class TestVoicemailDetectorWithUserAggregator:
         assert voicemail_detector._classifier_upstream_gate._gate_open is False, (
             "Expected classifier upstream gate to be closed after CONVERSATION classification"
         )
+
+    @pytest.mark.asyncio
+    async def test_voicemail_drops_context_frames_created_during_teardown(self):
+        """A late context flush after voicemail detection must not run the main LLM."""
+        main_context = LLMContext()
+        main_context.add_message({"role": "user", "content": "Please leave a message"})
+        main_llm = MockLLMService(
+            mock_steps=[
+                MockLLMService.create_text_chunks("This must not be generated.")
+            ],
+            chunk_delay=0.001,
+        )
+        voicemail_llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("VOICEMAIL")],
+            chunk_delay=0.001,
+        )
+        voicemail_detector = VoicemailDetector(llm=voicemail_llm)
+
+        injector = FrameInjector()
+        teardown_context_injector = FrameInjector()
+        pipeline = Pipeline(
+            [
+                injector,
+                voicemail_detector.detector(),
+                teardown_context_injector,
+                voicemail_detector.llm_gate(),
+                main_llm,
+            ]
+        )
+        task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
+        teardown_context_injected = asyncio.Event()
+
+        @voicemail_detector.event_handler("on_voicemail_detected")
+        async def on_voicemail_detected(_processor):
+            # CancelFrame handling can flush pending user text into an
+            # LLMContextFrame after the voicemail decision has already been made.
+            async with asyncio.timeout(1.0):
+                while voicemail_detector._llm_gate._gating_active:
+                    await asyncio.sleep(0)
+            await teardown_context_injector.inject_frame(LLMContextFrame(main_context))
+            teardown_context_injected.set()
+
+        async def inject_frames():
+            await asyncio.sleep(0.05)
+            await injector.inject_frame(UserStartedSpeakingFrame())
+            await injector.inject_frame(
+                TranscriptionFrame(
+                    "Your service is not available right now.",
+                    "user-123",
+                    time_now_iso8601(),
+                )
+            )
+            await injector.inject_frame(UserStoppedSpeakingFrame())
+
+            async with asyncio.timeout(1.0):
+                await teardown_context_injected.wait()
+            await asyncio.sleep(0.05)
+            await task.queue_frame(CancelFrame(reason="voicemail_detected"))
+
+        await asyncio.gather(run_pipeline_worker(task), inject_frames())
+
+        assert voicemail_llm.get_current_step() == 1
+        assert main_llm.get_current_step() == 0
 
     @pytest.mark.asyncio
     async def test_function_result_after_conversation_does_not_retrigger_classifier(

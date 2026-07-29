@@ -39,6 +39,7 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEventType,
 )
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow_run_failure import mark_workflow_run_failed
 
 # Redis key pattern and TTL for channel-to-run mapping
 _CHANNEL_KEY_PREFIX = "ari:channel:"
@@ -679,6 +680,9 @@ class ARIConnection:
                     f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "
                     f"— hanging up inbound call {channel_id}"
                 )
+                await mark_workflow_run_failed(
+                    workflow_run.id, quota_result.error_message or "Quota exceeded"
+                )
                 await call_concurrency.release_workflow_run_slot(workflow_run.id)
                 await self._delete_channel(channel_id)
                 return
@@ -695,6 +699,9 @@ class ARIConnection:
             )
         except Exception as e:
             if workflow_run:
+                await mark_workflow_run_failed(
+                    workflow_run.id, f"Inbound call failed to start: {e}"
+                )
                 await call_concurrency.release_workflow_run_slot(workflow_run.id)
             elif concurrency_slot:
                 await call_concurrency.release_slot(concurrency_slot)

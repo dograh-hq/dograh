@@ -4,7 +4,6 @@ Vonage (Nexmo) implementation of the TelephonyProvider interface.
 
 import hashlib
 import json
-import random
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -54,6 +53,7 @@ class VonageProvider(TelephonyProvider):
         self.private_key = config.get("private_key")
         self.signature_secret = config.get("signature_secret")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
 
         # Handle both single number (string) and multiple numbers (list)
         if isinstance(self.from_numbers, str):
@@ -93,9 +93,7 @@ class VonageProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/v1/calls"
 
-        # Use provided from_number or select a random one
-        if from_number is None:
-            from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number(from_number)
         # Remove '+' prefix for Vonage
         from_number = from_number.replace("+", "")
         to_number = to_number.replace("+", "")

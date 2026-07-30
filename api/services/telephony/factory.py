@@ -204,7 +204,9 @@ async def _normalize_with_phone_numbers(
     row: TelephonyConfigurationModel,
 ) -> Dict[str, Any]:
     """Run the provider's config_loader over the credentials, then attach the
-    active phone numbers as a ``from_numbers`` list (raw address strings)."""
+    active phone numbers as a ``from_numbers`` list (raw address strings) and
+    the default caller ID (when one is flagged and active) as
+    ``default_from_number``."""
     spec = registry.get(row.provider)
     raw = dict(row.credentials or {})
     raw["provider"] = row.provider
@@ -212,6 +214,12 @@ async def _normalize_with_phone_numbers(
 
     addresses = await db_client.list_active_normalized_addresses_for_config(row.id)
     base["from_numbers"] = addresses
+
+    default_row = await db_client.get_default_caller_id(row.id)
+    # Membership in the active-address list also guards against a default
+    # flag left on a deactivated number.
+    if default_row and default_row.address_normalized in addresses:
+        base["default_from_number"] = default_row.address_normalized
     return base
 
 

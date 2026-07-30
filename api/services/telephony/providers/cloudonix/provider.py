@@ -4,7 +4,6 @@ Cloudonix implementation of the TelephonyProvider interface.
 
 import asyncio
 import json
-import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
@@ -57,6 +56,7 @@ class CloudonixProvider(TelephonyProvider):
         self.domain_id = self._normalize_domain(config.get("domain_id"))
         self.application_name = config.get("application_name")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
 
         # Handle both single number (string) and multiple numbers (list)
         if isinstance(self.from_numbers, str):
@@ -108,15 +108,14 @@ class CloudonixProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/calls/{self.domain_id}/application"
 
-        # Use provided from_number or select a random one (REQUIRED by Cloudonix)
+        # A caller-id is REQUIRED by Cloudonix
+        from_number = self.select_from_number(from_number)
         if from_number is None:
-            if not self.from_numbers:
-                raise ValueError(
-                    "No phone numbers configured for Cloudonix provider. "
-                    "At least one phone number is required as 'caller-id' for outbound calls. "
-                    "Please configure phone numbers in the telephony settings."
-                )
-            from_number = random.choice(self.from_numbers)
+            raise ValueError(
+                "No phone numbers configured for Cloudonix provider. "
+                "At least one phone number is required as 'caller-id' for outbound calls. "
+                "Please configure phone numbers in the telephony settings."
+            )
         logger.info(
             f"Selected phone number {from_number} for outbound call to {to_number}"
         )
@@ -1103,12 +1102,12 @@ class CloudonixProvider(TelephonyProvider):
         if not self.validate_config():
             raise ValueError("Cloudonix provider not properly configured")
 
-        if not self.from_numbers:
+        from_number = self.select_from_number()
+        if from_number is None:
             raise ValueError(
                 "No phone numbers configured for Cloudonix provider; a caller-id "
                 "is required to place the transfer call."
             )
-        from_number = random.choice(self.from_numbers)
 
         backend_endpoint, _ = await get_backend_endpoints()
         callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"

@@ -3,7 +3,6 @@ Twilio implementation of the TelephonyProvider interface.
 """
 
 import json
-import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
@@ -48,6 +47,7 @@ class TwilioProvider(TelephonyProvider):
         self.account_sid = config.get("account_sid")
         self.auth_token = config.get("auth_token")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
         self.amd_enabled: bool = bool(config.get("amd_enabled", False))
 
         # Handle both single number (string) and multiple numbers (list)
@@ -72,9 +72,7 @@ class TwilioProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/Calls.json"
 
-        # Use provided from_number or select a random one
-        if from_number is None:
-            from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number(from_number)
         logger.info(f"Selected phone number {from_number} for outbound call")
         logger.info(f"Webhook url received - {webhook_url}")
 
@@ -613,8 +611,7 @@ class TwilioProvider(TelephonyProvider):
         if not self.validate_config():
             raise ValueError("Twilio provider not properly configured")
 
-        # Select a random phone number for the transfer
-        from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number()
         logger.info(f"Selected phone number {from_number} for transfer call")
 
         backend_endpoint, _ = await get_backend_endpoints()

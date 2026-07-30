@@ -6,7 +6,6 @@ import base64
 import hashlib
 import hmac
 import json
-import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import quote, urlparse, urlunparse
 
@@ -53,6 +52,7 @@ class VobizProvider(TelephonyProvider):
         self.auth_token = config.get("auth_token")
         self.application_id = config.get("application_id")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
 
         # Handle both single number (string) and multiple numbers (list)
         if isinstance(self.from_numbers, str):
@@ -82,9 +82,7 @@ class VobizProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/v1/Account/{self.auth_id}/Call/"
 
-        # Use provided from_number or select a random one
-        if from_number is None:
-            from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number(from_number)
         logger.info(f"Selected Vobiz phone number {from_number} for outbound call")
 
         # Remove + prefix if present (Vobiz expects E.164 without +)

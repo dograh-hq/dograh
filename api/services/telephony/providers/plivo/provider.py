@@ -6,7 +6,6 @@ import base64
 import hashlib
 import hmac
 import json
-import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse, urlunparse
 
@@ -42,6 +41,7 @@ class PlivoProvider(TelephonyProvider):
         self.auth_token = config.get("auth_token")
         self.application_id = config.get("application_id")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
 
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
@@ -61,8 +61,7 @@ class PlivoProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/Call/"
 
-        if from_number is None:
-            from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number(from_number)
 
         data = {
             "from": from_number.lstrip("+"),
@@ -553,7 +552,7 @@ class PlivoProvider(TelephonyProvider):
         if not self.validate_config():
             raise ValueError("Plivo provider not properly configured")
 
-        from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number()
         logger.info(f"Selected phone number {from_number} for transfer call")
 
         backend_endpoint, _ = await get_backend_endpoints()

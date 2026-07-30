@@ -52,6 +52,7 @@ class ARIProvider(TelephonyProvider):
         self.app_name = config.get("app_name", "")
         self.app_password = config.get("app_password", "")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
         self.external_pbx_adapter = create_adapter(config.get("external_pbx"))
 
         if isinstance(self.from_numbers, str):
@@ -106,6 +107,9 @@ class ARIProvider(TelephonyProvider):
             ),
         }
 
+        # ARI omits callerId entirely when nothing is requested (the trunk
+        # decides), so only fall back to the config's default — never random.
+        from_number = from_number or self.default_from_number
         if from_number:
             params["callerId"] = from_number
 

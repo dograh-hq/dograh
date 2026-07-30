@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.services.telephony.factory import (
+    _normalize_with_phone_numbers,
     get_telephony_provider_for_run,
     load_credentials_for_transport,
     load_telephony_config_by_id,
@@ -94,3 +95,63 @@ async def test_load_telephony_config_by_id_casts_numeric_string_before_db_lookup
     assert result == {"provider": "twilio"}
     get_config.assert_awaited_once_with(213, 2617)
     normalize.assert_awaited_once_with(row)
+
+
+def _config_row() -> SimpleNamespace:
+    return SimpleNamespace(id=14, provider="twilio", credentials={"account_sid": "AC1"})
+
+
+def _normalize_patches(addresses, default_row):
+    fake_spec = SimpleNamespace(config_loader=lambda raw: dict(raw))
+    return (
+        patch(
+            "api.services.telephony.factory.registry.get",
+            return_value=fake_spec,
+        ),
+        patch(
+            "api.services.telephony.factory.db_client.list_active_normalized_addresses_for_config",
+            new_callable=AsyncMock,
+            return_value=addresses,
+        ),
+        patch(
+            "api.services.telephony.factory.db_client.get_default_caller_id",
+            new_callable=AsyncMock,
+            return_value=default_row,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_normalize_attaches_default_from_number_when_flagged_and_active():
+    addresses = ["+19789911885", "+18158552169"]
+    default_row = SimpleNamespace(address_normalized="+18158552169")
+
+    registry_p, addresses_p, default_p = _normalize_patches(addresses, default_row)
+    with registry_p, addresses_p, default_p:
+        config = await _normalize_with_phone_numbers(_config_row())
+
+    assert config["from_numbers"] == addresses
+    assert config["default_from_number"] == "+18158552169"
+
+
+@pytest.mark.asyncio
+async def test_normalize_skips_default_from_number_when_not_in_active_pool():
+    # A default flag left on a deactivated number must not become the caller ID.
+    default_row = SimpleNamespace(address_normalized="+18158552169")
+
+    registry_p, addresses_p, default_p = _normalize_patches(
+        ["+19789911885"], default_row
+    )
+    with registry_p, addresses_p, default_p:
+        config = await _normalize_with_phone_numbers(_config_row())
+
+    assert "default_from_number" not in config
+
+
+@pytest.mark.asyncio
+async def test_normalize_skips_default_from_number_when_none_flagged():
+    registry_p, addresses_p, default_p = _normalize_patches(["+19789911885"], None)
+    with registry_p, addresses_p, default_p:
+        config = await _normalize_with_phone_numbers(_config_row())
+
+    assert "default_from_number" not in config

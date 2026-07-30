@@ -25,7 +25,10 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
+from api.services.pipecat.realtime.static_greeting import (
+    format_say_verbatim_prompt,
+    format_static_greeting_prompt,
+)
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -89,10 +92,20 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
                 else:
                     await self._handle_context(self._context)
             else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame after initial context already "
-                    "handled — OpenAI Realtime owns audio generation, ignoring"
-                )
+                # Fixed-text messages queued after the greeting — end-call
+                # goodbye messages and node-transition lines — must still be
+                # spoken. The realtime model owns audio generation, so we can't
+                # route them through TTS; instead ask the model to say the text
+                # verbatim. Previously these frames were dropped, so the caller
+                # heard nothing even though the message was still written to the
+                # transcript (#583).
+                text = frame.text.strip() if frame.text else ""
+                if text:
+                    await self._speak_verbatim(text)
+                else:
+                    logger.debug(
+                        f"{self}: empty TTSSpeakFrame after initial context, ignoring"
+                    )
             # Don't forward the frame; the audio path is owned by the realtime
             # service itself.
             return
@@ -157,6 +170,31 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         self._handled_initial_context = True
         self._context = context
         await self._create_initial_greeting_response(greeting_text)
+
+    async def _speak_verbatim(self, text: str):
+        """Have the realtime model say a fixed mid-call line (end-call goodbye
+        or node-transition message) out loud, since these can't go through TTS.
+
+        The end-call flow ends the call with ``abort_immediately=False`` when a
+        message is queued, so the existing wait-for-bot-to-stop-speaking path
+        handles hanging up only after this response finishes.
+        """
+        if self._disconnecting:
+            return
+        if not self._api_session_ready:
+            # No deferral queue for post-greeting messages; a message that
+            # arrives before the session is ready is rare (the greeting has
+            # already completed by then). Log rather than silently drop.
+            logger.warning(
+                f"{self}: verbatim message received before session ready, "
+                f"skipping: {text!r}"
+            )
+            return
+        await self._ensure_conversation_setup()
+        await self._send_manual_response_create(
+            instructions=format_say_verbatim_prompt(text),
+            tool_choice="none",
+        )
 
     async def _create_initial_greeting_response(self, greeting_text: str):
         if self._disconnecting:

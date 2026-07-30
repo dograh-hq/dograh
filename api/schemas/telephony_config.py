@@ -32,6 +32,10 @@ from api.services.telephony.providers.twilio.config import (
     TwilioConfigurationRequest,
     TwilioConfigurationResponse,
 )
+from api.services.telephony.providers.tryvox.config import (
+    TryVoxConfigurationRequest,
+    TryVoxConfigurationResponse,
+)
 from api.services.telephony.providers.vobiz.config import (
     VobizConfigurationRequest,
     VobizConfigurationResponse,
@@ -51,6 +55,7 @@ TelephonyConfigRequest = Annotated[
         PlivoConfigurationRequest,
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
+        TryVoxConfigurationRequest,
         VobizConfigurationRequest,
         VonageConfigurationRequest,
     ],
@@ -67,6 +72,7 @@ class TelephonyConfigurationResponse(BaseModel):
     """
 
     twilio: Optional[TwilioConfigurationResponse] = None
+    tryvox: Optional[TryVoxConfigurationResponse] = None
     plivo: Optional[PlivoConfigurationResponse] = None
     vonage: Optional[VonageConfigurationResponse] = None
     vobiz: Optional[VobizConfigurationResponse] = None

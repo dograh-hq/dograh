@@ -79,9 +79,7 @@ class TelephonyProvider(ABC):
     from_numbers: List[str] = []
     default_from_number: Optional[str] = None
 
-    def select_from_number(
-        self, from_number: Optional[str] = None
-    ) -> Optional[str]:
+    def select_from_number(self, from_number: Optional[str] = None) -> Optional[str]:
         """Resolve the caller ID for a one-off outbound call.
 
         Preference order: explicit ``from_number`` > the configuration's

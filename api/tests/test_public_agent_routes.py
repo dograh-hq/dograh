@@ -135,6 +135,7 @@ def test_trigger_route_executes_as_workflow_owner():
     assert create_kwargs["initial_context"]["workflow_uuid"] == workflow.workflow_uuid
     assert create_kwargs["initial_context"]["api_key_id"] == 7
     assert create_kwargs["initial_context"]["api_key_created_by"] == 22
+    assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
     assert create_kwargs["definition_id"] == 77
     assert "name" not in create_kwargs["initial_context"]
     assert not mock_db.get_draft_version.called
@@ -150,6 +151,10 @@ def test_trigger_route_executes_as_workflow_owner():
             "triggered_by": "api",
             "call_id": "CA123",
             "trigger_uuid": "trigger-uuid-123",
+        },
+        initial_context={
+            "called_number": "+15551234567",
+            "caller_number": "+15550000000",
         },
     )
 
@@ -221,6 +226,7 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
         create_kwargs["initial_context"]["agent_identifier"] == workflow.workflow_uuid
     )
     assert create_kwargs["initial_context"]["agent_identifier_type"] == "workflow_uuid"
+    assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
     assert "agent_uuid" not in create_kwargs["initial_context"]
     assert create_kwargs["definition_id"] == 77
     assert "name" not in create_kwargs["initial_context"]
@@ -231,6 +237,10 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
             "provider": "twilio",
             "triggered_by": "api",
             "call_id": "CA123",
+        },
+        initial_context={
+            "called_number": "+15551234567",
+            "caller_number": "+15550000000",
         },
     )
 
@@ -295,7 +305,11 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
             headers={"X-API-Key": "test-api-key"},
             json={
                 "phone_number": "+15551234567",
-                "initial_context": {"name": "tom", "age": 10},
+                "initial_context": {
+                    "name": "tom",
+                    "age": 10,
+                    "called_number": "+15559999999",
+                },
             },
         )
 
@@ -307,6 +321,7 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
     assert create_kwargs["initial_context"]["age"] == 10
     assert create_kwargs["initial_context"]["rank"] == 2
     assert create_kwargs["initial_context"]["trigger_mode"] == "test"
+    assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
     mock_db.update_workflow_run.assert_awaited_once_with(
         run_id=501,
         gathered_context={
@@ -314,6 +329,10 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
             "triggered_by": "api",
             "call_id": "CA123",
             "trigger_uuid": "trigger-uuid-123",
+        },
+        initial_context={
+            "called_number": "+15551234567",
+            "caller_number": "+15550000000",
         },
     )
 
@@ -383,12 +402,17 @@ def test_workflow_uuid_test_route_uses_draft_and_template_context():
     assert create_kwargs["initial_context"]["age"] == 12
     assert create_kwargs["initial_context"]["rank"] == 2
     assert create_kwargs["initial_context"]["trigger_mode"] == "test"
+    assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
     mock_db.update_workflow_run.assert_awaited_once_with(
         run_id=501,
         gathered_context={
             "provider": "twilio",
             "triggered_by": "api",
             "call_id": "CA123",
+        },
+        initial_context={
+            "called_number": "+15551234567",
+            "caller_number": "+15550000000",
         },
     )
 

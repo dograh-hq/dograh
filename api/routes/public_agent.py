@@ -248,6 +248,9 @@ async def _execute_resolved_target(
     if api_key_created_by is not None:
         initial_context["api_key_created_by"] = api_key_created_by
     initial_context.update(request.initial_context or {})
+    # The destination describes the actual call and must not be overridden by
+    # caller-supplied context.
+    initial_context["called_number"] = request.phone_number
 
     try:
         concurrency_slot = await call_concurrency.acquire_org_slot(
@@ -350,15 +353,20 @@ async def _execute_resolved_target(
     if target.identifier_type == "trigger_path":
         gathered_context["trigger_uuid"] = target.identifier_value
 
+    telephony_context = {"called_number": request.phone_number}
+    if result.caller_number:
+        telephony_context["caller_number"] = result.caller_number
+
     try:
         await db_client.update_workflow_run(
             run_id=workflow_run.id,
             gathered_context=gathered_context,
+            initial_context=telephony_context,
         )
     except Exception as e:
         logger.warning(
             f"Call initiated for workflow run {workflow_run.id}, but failed to "
-            f"persist provider metadata: {e}"
+            f"persist call metadata and telephony context: {e}"
         )
 
     logger.info(

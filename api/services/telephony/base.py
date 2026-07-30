@@ -4,6 +4,7 @@ This allows easy switching between different providers (Twilio, Vonage, etc.)
 while keeping business logic decoupled from specific implementations.
 """
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -74,6 +75,28 @@ class TelephonyProvider(ABC):
     PROVIDER_NAME = None
     WEBHOOK_ENDPOINT = None
 
+    # Populated by provider constructors from the factory-normalized config.
+    from_numbers: List[str] = []
+    default_from_number: Optional[str] = None
+
+    def select_from_number(self, from_number: Optional[str] = None) -> Optional[str]:
+        """Resolve the caller ID for a one-off outbound call.
+
+        Preference order: explicit ``from_number`` > the configuration's
+        default caller ID > random pick from the pool. Callers that want
+        rotation across the pool (e.g. the campaign dispatcher) must pass an
+        explicit ``from_number`` — the default caller ID only applies when no
+        number was requested. Returns None when the pool is empty and no
+        default is set.
+        """
+        if from_number:
+            return from_number
+        if self.default_from_number:
+            return self.default_from_number
+        if self.from_numbers:
+            return random.choice(self.from_numbers)
+        return None
+
     @abstractmethod
     async def initiate_call(
         self,
@@ -90,7 +113,9 @@ class TelephonyProvider(ABC):
             to_number: The destination phone number
             webhook_url: The URL to receive call events
             workflow_run_id: Optional workflow run ID for tracking
-            from_number: Optional caller ID to use. If None, provider selects randomly.
+            from_number: Optional caller ID to use. If None, the config's
+                default caller ID is used when set, else one is selected
+                randomly from the pool.
             **kwargs: Provider-specific additional parameters
 
         Returns:

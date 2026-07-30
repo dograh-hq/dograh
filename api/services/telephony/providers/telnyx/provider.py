@@ -7,7 +7,6 @@ inline WebSocket media streaming.
 import base64
 import binascii
 import json
-import random
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -70,6 +69,7 @@ class TelnyxProvider(TelephonyProvider):
         self.connection_id = config.get("connection_id")
         self.webhook_public_key = config.get("webhook_public_key")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
 
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
@@ -93,8 +93,7 @@ class TelnyxProvider(TelephonyProvider):
         if not self.validate_config():
             raise ValueError("Telnyx provider not properly configured")
 
-        if from_number is None:
-            from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number(from_number)
         logger.info(f"Selected phone number {from_number} for outbound call")
 
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
@@ -725,7 +724,7 @@ class TelnyxProvider(TelephonyProvider):
         if not self.validate_config():
             raise ValueError("Telnyx provider not properly configured")
 
-        from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number()
         logger.info(f"Selected phone number {from_number} for Telnyx transfer call")
 
         backend_endpoint, _ = await get_backend_endpoints()

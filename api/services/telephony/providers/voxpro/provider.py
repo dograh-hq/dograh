@@ -30,6 +30,11 @@ from api.utils.common import get_backend_endpoints
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
+# Contract with the transfer tool: `api/services/workflow/pipecat_engine_custom_tools.py`
+# names the transfer conference `transfer-{original_call_sid}`. This constant makes
+# that coupling explicit — keep it in sync if the convention changes upstream.
+TRANSFER_CONFERENCE_PREFIX = "transfer-"
+
 
 class VoxProProvider(TelephonyProvider):
     """VoxPro managed-carrier implementation of TelephonyProvider."""
@@ -285,8 +290,8 @@ class VoxProProvider(TelephonyProvider):
         # transfer that real call directly rather than using the conference
         # bridge cloud providers rely on.
         call_id = kwargs.get("call_id")
-        if not call_id and conference_name and conference_name.startswith("transfer-"):
-            call_id = conference_name[len("transfer-"):]
+        if not call_id and conference_name and conference_name.startswith(TRANSFER_CONFERENCE_PREFIX):
+            call_id = conference_name[len(TRANSFER_CONFERENCE_PREFIX):]
         if not call_id:
             raise ValueError(
                 "VoxPro transfer_call could not resolve the active call id "

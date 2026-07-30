@@ -8,7 +8,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from api.services.telephony.providers.voxpro.provider import VoxProProvider
+from api.services.telephony.providers.voxpro.provider import (
+    TRANSFER_CONFERENCE_PREFIX,
+    VoxProProvider,
+)
 
 
 def _provider(**over):
@@ -122,7 +125,7 @@ async def test_transfer_call_decodes_conference_name():
                return_value=session):
         out = await _provider().transfer_call(
             destination="+918888888888", transfer_id="tid-uuid",
-            conference_name="transfer-CARRIER123",
+            conference_name=f"{TRANSFER_CONFERENCE_PREFIX}CARRIER123",
         )
     assert out["call_sid"] == "CARRIER123"
     _, url, body, _ = session.calls[0]

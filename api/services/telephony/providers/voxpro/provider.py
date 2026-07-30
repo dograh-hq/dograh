@@ -204,8 +204,15 @@ class VoxProProvider(TelephonyProvider):
             await db_client.update_workflow_run(
                 run_id=workflow_run_id, gathered_context={"call_id": call_id}
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[VoxPro] could not persist call_id to gathered_context: {exc}")
+        except Exception:  # noqa: BLE001
+            # Deliberately broad: a transient DB hiccup must not drop a live call.
+            # Log the full traceback (not just the message) so a persistent
+            # failure — which would break transfer_call's call_id recovery — is
+            # diagnosable rather than silent.
+            logger.opt(exception=True).warning(
+                f"[VoxPro] could not persist call_id={call_id} to gathered_context "
+                f"for run {workflow_run_id}; transfer_call may be unable to recover it"
+            )
 
         await run_pipeline_telephony(
             websocket,
@@ -315,12 +322,25 @@ class VoxProProvider(TelephonyProvider):
                 "(expected conference_name 'transfer-<call_id>' or kwargs['call_id'])"
             )
 
+        # The shared transfer flow (pipecat_engine_custom_tools) mutes the
+        # pipeline after transfer_call returns and blocks on
+        # wait_for_transfer_completion() until a TransferEvent is published for
+        # this transfer_id. A blind carrier transfer completes asynchronously in
+        # Asterisk, so — exactly like Telnyx's transfer webhook_url — we hand the
+        # connector a result_url it POSTs the outcome to. providers/voxpro/routes.py
+        # then publishes DESTINATION_ANSWERED / TRANSFER_FAILED, unblocking the wait.
+        # Publishing from here would race the subscriber (it subscribes only
+        # after we return), so the callback route is the correct seam.
+        backend_endpoint, _ = await get_backend_endpoints()
+        result_url = f"{backend_endpoint}/api/v1/telephony/voxpro/transfer-result/{transfer_id}"
+
         endpoint = f"{self.api_base}/v1/calls/{call_id}/transfer"
         payload = {
             "destination": destination.lstrip("+"),
             "blind": kwargs.get("blind", True),
             "transfer_id": transfer_id,
             "timeout": timeout,
+            "result_url": result_url,
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(endpoint, json=payload, headers=self._headers()) as resp:

@@ -6,7 +6,7 @@ import { getServerBackendUrl } from '@/lib/apiClient';
 const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 
 // Paths that don't require authentication in OSS mode
-const PUBLIC_PATHS = ['/auth/login', '/auth/signup'];
+const PUBLIC_PATHS = ['/auth/login', '/auth/signup', '/embed'];
 
 let cachedAuthProvider: string | null = null;
 
@@ -50,8 +50,9 @@ export async function middleware(request: NextRequest) {
   const token = request.cookies.get(OSS_TOKEN_COOKIE)?.value;
   const { pathname } = request.nextUrl;
 
-  // Allow public paths without auth
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  // Allow public paths without auth, (exact match or subpaths like '/embed or /embed/*, 
+  // slash boundary to block sibling protected paths like /embedded)
+  if (PUBLIC_PATHS.some((p) => pathname === p ||  pathname.startsWith(`${p}/`))) {
     return NextResponse.next();
   }
 

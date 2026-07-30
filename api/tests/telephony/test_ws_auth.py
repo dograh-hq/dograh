@@ -50,6 +50,27 @@ def test_verify_roundtrip_and_tamper(secret):
     assert ws_auth.verify_ws_token(7, 3, 42, "") is False
 
 
+def test_non_ascii_token_is_invalid_not_error(secret):
+    # `token` is attacker-controlled from the query string; a non-ASCII value
+    # must return False, not raise (which would 500 the socket and skip the
+    # audit/enforcement path). Regression for cubic P2 on #599.
+    tok = ws_auth.mint_ws_token(7, 3, 42)
+    assert ws_auth.verify_ws_token(7, 3, 42, "café☕") is False
+    assert ws_auth.verify_ws_token(7, 3, 42, "🔑" * 10) is False
+    # A genuine token still verifies after the byte-compare change.
+    assert ws_auth.verify_ws_token(7, 3, 42, tok) is True
+
+
+def test_str_and_int_ids_produce_same_token(secret):
+    # The ARI path mints with string ids (v() dial params) while the shared
+    # handler verifies with int path/query params. f-string rendering makes them
+    # identical, so the ARI token must verify under the int triple. Regression
+    # for cubic P1 on #599 (ARI enforcement outage).
+    ari_token = ws_auth.mint_ws_token("7", 3, "42")   # ARI: workflow_id/run are str
+    assert ari_token == ws_auth.mint_ws_token(7, 3, 42)
+    assert ws_auth.verify_ws_token(7, 3, 42, ari_token) is True
+
+
 def test_token_bound_to_secret(monkeypatch):
     monkeypatch.setattr(constants, "TELEPHONY_WS_TOKEN_SECRET", "secret-a")
     a = ws_auth.mint_ws_token(7, 3, 42)

@@ -59,7 +59,13 @@ def verify_ws_token(workflow_id, organization_id, workflow_run_id, token) -> boo
     expected = mint_ws_token(workflow_id, organization_id, workflow_run_id)
     if not expected or not token:
         return False
-    return hmac.compare_digest(expected, token)
+    try:
+        # Compare as bytes: hmac.compare_digest rejects non-ASCII *str* args with
+        # TypeError, and ``token`` is attacker-controlled from the query string.
+        # Anything that can't be compared is simply an invalid token, not a 500.
+        return hmac.compare_digest(expected.encode("utf-8"), token.encode("utf-8"))
+    except (TypeError, UnicodeError):
+        return False
 
 
 def build_media_ws_url(wss_base, workflow_id, organization_id, workflow_run_id) -> str:

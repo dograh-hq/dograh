@@ -117,7 +117,12 @@ class VoxProProvider(TelephonyProvider):
             call_id=call_id,
             status=data.get("state", "initiated"),
             caller_number=from_number,
-            provider_metadata={"session_uuid": data.get("session_uuid")},
+            # Persisting call_id here is important: the dispatcher merges
+            # provider_metadata into gathered_context, and transfer_call recovers
+            # the active call id from gathered_context['call_id'] (via
+            # conference_name). VoxPro has no status-callback path that would
+            # otherwise populate it (cf. Telnyx, which does the same).
+            provider_metadata={"call_id": call_id, "session_uuid": data.get("session_uuid")},
             raw_response=data,
         )
 
@@ -189,6 +194,18 @@ class VoxProProvider(TelephonyProvider):
             logger.error(f"[VoxPro] missing streamId/callId in start event: {start_data}")
             await websocket.close(code=4400, reason="Missing streamId or callId")
             return
+
+        # VoxPro has no status-callback route, so persist the connector's call_id
+        # here (merged into gathered_context) — this is what transfer_call reads
+        # back via conference_name. Covers inbound, where initiate_call never ran.
+        try:
+            from api.db import db_client
+
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id, gathered_context={"call_id": call_id}
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[VoxPro] could not persist call_id to gathered_context: {exc}")
 
         await run_pipeline_telephony(
             websocket,

@@ -95,6 +95,9 @@ async def test_initiate_call_posts_to_connector():
 
     assert result.call_id == "sess-abc"
     assert result.caller_number == "08071661528"
+    # call_id must ride in provider_metadata so the dispatcher merges it into
+    # gathered_context['call_id'] for transfer_call to recover later.
+    assert result.provider_metadata["call_id"] == "sess-abc"
     method, url, body, headers = session.calls[0]
     assert url.endswith("/v1/calls/originate")
     assert headers["X-API-Key"] == "vpk_test_123"

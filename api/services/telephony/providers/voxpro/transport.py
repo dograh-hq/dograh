@@ -46,7 +46,12 @@ async def create_transport(
         stream_id=stream_id,
         call_id=call_id,
         params=VoxProFrameSerializer.InputParams(
+            plivo_sample_rate=8000,
             sample_rate=audio_config.pipeline_sample_rate,
+            # VoxPro terminates the call through its own connector (Asterisk),
+            # not via the serializer's Plivo REST hang-up — so no auth_id/auth_token
+            # are needed and auto_hang_up must be disabled (else __init__ raises).
+            auto_hang_up=False,
         ),
     )
 

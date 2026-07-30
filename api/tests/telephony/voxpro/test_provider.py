@@ -70,8 +70,10 @@ def test_supports_transfers():
     assert _provider().supports_transfers() is True
 
 
-def test_get_available_phone_numbers():
-    assert _provider().get_available_phone_numbers.__name__  # coroutine fn exists
+@pytest.mark.asyncio
+async def test_get_available_phone_numbers():
+    p = _provider()
+    assert await p.get_available_phone_numbers() == p.from_numbers
 
 
 @pytest.mark.asyncio
@@ -84,8 +86,8 @@ async def test_initiate_call_posts_to_connector():
          patch("api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
                new=AsyncMock(return_value=("https://api.dograh.example", "wss://api.dograh.example"))):
         result = await _provider().initiate_call(
-            to_number="+919513049206", webhook_url="https://api.dograh.example/status",
-            workflow_run_id=42,
+            to_number="+919513049206", webhook_url="https://api.dograh.example/x",
+            workflow_run_id=42, workflow_id=7, organization_id=3,
         )
 
     assert result.call_id == "sess-abc"
@@ -93,9 +95,39 @@ async def test_initiate_call_posts_to_connector():
     method, url, body, headers = session.calls[0]
     assert url.endswith("/v1/calls/originate")
     assert headers["X-API-Key"] == "vpk_test_123"
+    assert headers["X-Tenant-ID"] == "AI_Katha_1783948668"
     assert body["to_number"] == "919513049206"           # + stripped
-    assert body["ws_url"].startswith("wss://api.dograh.example")
+    assert body["ws_url"].endswith("/api/v1/telephony/ws/7/3/42")   # generic mounted route
     assert body["workflow_run_id"] == "42"
+    assert "status_url" not in body
+
+
+@pytest.mark.asyncio
+async def test_initiate_call_requires_ids():
+    with patch("api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
+               new=AsyncMock(return_value=("https://x", "wss://x"))):
+        with pytest.raises(ValueError):
+            await _provider().initiate_call(
+                to_number="+91", webhook_url="u", workflow_run_id=None,
+                workflow_id=7, organization_id=3,
+            )
+
+
+@pytest.mark.asyncio
+async def test_transfer_call_decodes_conference_name():
+    # conference_name is "transfer-{original_call_sid}"; VoxPro must transfer the
+    # real carrier call, not the generated transfer_id.
+    session = _FakeSession(_FakeResp(200, {"ok": True}))
+    with patch("api.services.telephony.providers.voxpro.provider.aiohttp.ClientSession",
+               return_value=session):
+        out = await _provider().transfer_call(
+            destination="+918888888888", transfer_id="tid-uuid",
+            conference_name="transfer-CARRIER123",
+        )
+    assert out["call_sid"] == "CARRIER123"
+    _, url, body, _ = session.calls[0]
+    assert url.endswith("/v1/calls/CARRIER123/transfer")
+    assert body["destination"] == "918888888888"
 
 
 def test_parse_inbound_webhook():

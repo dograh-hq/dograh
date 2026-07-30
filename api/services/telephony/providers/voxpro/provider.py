@@ -35,7 +35,9 @@ class VoxProProvider(TelephonyProvider):
     """VoxPro managed-carrier implementation of TelephonyProvider."""
 
     PROVIDER_NAME = WorkflowRunMode.VOXPRO.value
-    WEBHOOK_ENDPOINT = "voxpro-status"
+    # Call-control provider (like ARI): the call lifecycle is driven by the media
+    # WebSocket + the VoxPro connector, so there is no HTTP status-callback route.
+    WEBHOOK_ENDPOINT = None
 
     def __init__(self, config: Dict[str, Any]):
         self.api_key = config.get("api_key")
@@ -47,7 +49,11 @@ class VoxProProvider(TelephonyProvider):
             self.from_numbers = [self.from_numbers]
 
     def _headers(self) -> Dict[str, str]:
-        return {"X-API-Key": self.api_key or "", "Content-Type": "application/json"}
+        return {
+            "X-API-Key": self.api_key or "",
+            "X-Tenant-ID": self.tenant_id or "",
+            "Content-Type": "application/json",
+        }
 
     # ── Outbound ────────────────────────────────────────────────────────
     async def initiate_call(
@@ -63,18 +69,28 @@ class VoxProProvider(TelephonyProvider):
 
         from_number = self.select_from_number(from_number)
 
-        # VoxPro is call-control: hand the connector the Dograh media WS URL to
-        # stream to, plus a status callback. The connector originates on our
-        # carrier and connects the media leg to this WS.
-        _, ws_base = await get_backend_endpoints()
-        ws_url = f"{ws_base}/api/v1/telephony/voxpro/ws/{workflow_run_id}"
+        # Media flows over Dograh's generic telephony WebSocket route, which
+        # dispatches to VoxProProvider.handle_websocket. It needs all three ids;
+        # workflow_id + organization_id arrive via kwargs (as for Telnyx).
+        workflow_id = kwargs.pop("workflow_id", None)
+        organization_id = kwargs.pop("organization_id", None)
+        if not workflow_run_id or workflow_id is None or organization_id is None:
+            raise ValueError(
+                "VoxPro initiate_call requires workflow_run_id, workflow_id and organization_id"
+            )
 
+        _, ws_base = await get_backend_endpoints()
+        ws_url = (
+            f"{ws_base}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}"
+        )
+
+        # The connector originates on VoxPro's carrier and connects the media leg
+        # to this WebSocket, streaming Plivo/Twilio-standard mu-law audio.
         payload = {
             "to_number": to_number.lstrip("+"),
             "from_number": (from_number or "").lstrip("+"),
             "ws_url": ws_url,
-            "status_url": webhook_url,
-            "workflow_run_id": str(workflow_run_id) if workflow_run_id else None,
+            "workflow_run_id": str(workflow_run_id),
         }
         payload.update(kwargs)
 
@@ -263,9 +279,27 @@ class VoxProProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        call_id = kwargs.get("call_id") or transfer_id
+        # Dograh does not pass the active call id to transfer_call, but
+        # conference_name is "transfer-{original_call_sid}" (see
+        # workflow/pipecat_engine_custom_tools). VoxPro controls Asterisk, so we
+        # transfer that real call directly rather than using the conference
+        # bridge cloud providers rely on.
+        call_id = kwargs.get("call_id")
+        if not call_id and conference_name and conference_name.startswith("transfer-"):
+            call_id = conference_name[len("transfer-"):]
+        if not call_id:
+            raise ValueError(
+                "VoxPro transfer_call could not resolve the active call id "
+                "(expected conference_name 'transfer-<call_id>' or kwargs['call_id'])"
+            )
+
         endpoint = f"{self.api_base}/v1/calls/{call_id}/transfer"
-        payload = {"destination": destination, "blind": kwargs.get("blind", True)}
+        payload = {
+            "destination": destination.lstrip("+"),
+            "blind": kwargs.get("blind", True),
+            "transfer_id": transfer_id,
+            "timeout": timeout,
+        }
         async with aiohttp.ClientSession() as session:
             async with session.post(endpoint, json=payload, headers=self._headers()) as resp:
                 if resp.status not in (200, 202):
@@ -273,8 +307,8 @@ class VoxProProvider(TelephonyProvider):
                     raise HTTPException(status_code=resp.status,
                                         detail=f"VoxPro transfer failed: {body}")
                 data = await resp.json()
-        return {"call_sid": call_id, "status": "transferring", "provider": self.PROVIDER_NAME,
-                "raw": data}
+        return {"call_sid": call_id, "status": "transferring",
+                "provider": self.PROVIDER_NAME, "raw": data}
 
     def supports_transfers(self) -> bool:
         return True

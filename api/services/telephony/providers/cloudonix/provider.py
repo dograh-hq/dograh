@@ -126,13 +126,18 @@ class CloudonixProvider(TelephonyProvider):
 
         # Prepare call data using Cloudonix callObject schema
         # Note: 'caller-id' is REQUIRED by Cloudonix API
+        from api.services.telephony import ws_auth
+
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
+        ws_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
+        )
         data: Dict[str, Any] = {
             "destination": to_number,
             "cxml": f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}"></Stream>
+        <Stream url="{ws_url}"></Stream>
     </Connect>
     <Pause length="40"/>
 </Response>""",

@@ -169,12 +169,17 @@ class TwilioProvider(TelephonyProvider):
         """
         Generate TwiML response for starting a call session.
         """
+        from api.services.telephony import ws_auth
+
         _, wss_backend_endpoint = await get_backend_endpoints()
+        ws_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
+        )
 
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}"></Stream>
+        <Stream url="{ws_url}"></Stream>
     </Connect>
     <Pause length="40"/>
 </Response>"""

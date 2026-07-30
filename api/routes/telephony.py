@@ -38,6 +38,7 @@ from api.services.telephony.factory import (
     get_telephony_provider_by_id,
     get_telephony_provider_for_run,
 )
+from api.services.telephony import ws_auth
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
@@ -609,6 +610,28 @@ async def _handle_telephony_websocket(
         # Set the run context
         set_current_run_id(workflow_run_id)
 
+        # Capability-token check. The id triple in the URL is otherwise a
+        # guessable bearer capability (see the TODO above and ws_auth.py). This
+        # is a no-op until an operator sets TELEPHONY_WS_TOKEN_SECRET; once set,
+        # invalid tokens are logged, and rejected only when enforcement is on.
+        if ws_auth.token_configured():
+            token = websocket.query_params.get("token")
+            if not ws_auth.verify_ws_token(
+                workflow_id, organization_id, workflow_run_id, token
+            ):
+                if ws_auth.enforcement_enabled():
+                    logger.warning(
+                        f"[telephony ws] rejecting unauthenticated connection for "
+                        f"run {workflow_run_id} (org {organization_id})"
+                    )
+                    await websocket.close(code=4401, reason="Unauthorized")
+                    return
+                logger.warning(
+                    f"[telephony ws] UNVERIFIED media socket for run {workflow_run_id} "
+                    f"(org {organization_id}); allowed because TELEPHONY_WS_TOKEN_ENFORCE "
+                    f"is off — set it to enforce"
+                )
+
         # Get workflow run to determine provider type
         workflow_run = await db_client.get_workflow_run(
             workflow_run_id, organization_id=organization_id
@@ -881,9 +904,8 @@ async def handle_inbound_run(request: Request):
                 )
 
             backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-            websocket_url = (
-                f"{wss_backend_endpoint}/api/v1/telephony/ws/"
-                f"{workflow_id}/{config.organization_id}/{workflow_run_id}"
+            websocket_url = ws_auth.build_media_ws_url(
+                wss_backend_endpoint, workflow_id, config.organization_id, workflow_run_id
             )
 
             return await provider_instance.start_inbound_stream(
@@ -1055,9 +1077,8 @@ async def handle_inbound_telephony(
 
             # Generate response URLs
             backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-            websocket_url = (
-                f"{wss_backend_endpoint}/api/v1/telephony/ws/"
-                f"{workflow_id}/{organization_id}/{workflow_run_id}"
+            websocket_url = ws_auth.build_media_ws_url(
+                wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
             )
 
             response = await provider_instance.start_inbound_stream(

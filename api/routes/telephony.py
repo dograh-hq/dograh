@@ -621,7 +621,7 @@ async def _handle_telephony_websocket(
     *,
     provider_route_authenticated: bool = False,
     on_provider_ready=None,
-    on_provider_failure=None,
+    on_provider_startup_failure=None,
 ):
     """Shared WebSocket handler logic (connection already accepted).
 
@@ -755,7 +755,7 @@ async def _handle_telephony_websocket(
                 organization_id,
                 workflow_run_id,
                 on_media_ready=on_provider_ready,
-                on_media_failure=on_provider_failure,
+                on_media_startup_failure=on_provider_startup_failure,
             )
         else:
             await db_client.update_workflow_run(

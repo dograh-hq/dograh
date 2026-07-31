@@ -436,6 +436,7 @@ async def test_websocket_metadata_starts_pipeline_with_stored_call_id():
         call_id="call-123",
         transport_kwargs={"call_id": "call-123"},
         on_ready=None,
+        on_startup_failure=None,
     )
 
 
@@ -476,7 +477,11 @@ async def test_websocket_rolls_back_media_commit_when_pipeline_fails():
     websocket = _WebSocket({"workflow_run_id": "13"})
     workflow_run = SimpleNamespace(gathered_context={"call_id": "call-123"})
     on_media_ready = AsyncMock(return_value=True)
-    on_media_failure = AsyncMock()
+    on_media_startup_failure = AsyncMock()
+
+    async def fail_during_startup(*args, **kwargs):
+        await kwargs["on_startup_failure"]()
+        raise RuntimeError("pipeline startup failed")
 
     with (
         patch.object(
@@ -488,7 +493,7 @@ async def test_websocket_rolls_back_media_commit_when_pipeline_fails():
         patch(
             "api.services.pipecat.run_pipeline.run_pipeline_telephony",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("pipeline startup failed"),
+            side_effect=fail_during_startup,
         ),
     ):
         with pytest.raises(RuntimeError, match="pipeline startup failed"):
@@ -498,10 +503,10 @@ async def test_websocket_rolls_back_media_commit_when_pipeline_fails():
                 11,
                 13,
                 on_media_ready=on_media_ready,
-                on_media_failure=on_media_failure,
+                on_media_startup_failure=on_media_startup_failure,
             )
 
-    on_media_failure.assert_awaited_once_with()
+    on_media_startup_failure.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

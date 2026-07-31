@@ -279,7 +279,7 @@ class TryVoxProvider(TelephonyProvider):
         organization_id: int,
         workflow_run_id: int,
         on_media_ready: Callable[[], Awaitable[bool]] | None = None,
-        on_media_failure: Callable[[], Awaitable[None]] | None = None,
+        on_media_startup_failure: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         from api.db import db_client
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
@@ -314,27 +314,17 @@ class TryVoxProvider(TelephonyProvider):
             await websocket.close(code=4403, reason="Stream metadata mismatch")
             return
 
-        try:
-            await run_pipeline_telephony(
-                websocket,
-                provider_name=self.PROVIDER_NAME,
-                workflow_id=workflow_id,
-                workflow_run_id=workflow_run_id,
-                organization_id=organization_id,
-                call_id=call_id,
-                transport_kwargs={"call_id": call_id},
-                on_ready=on_media_ready,
-            )
-        except BaseException:
-            if on_media_failure is not None:
-                try:
-                    await asyncio.shield(on_media_failure())
-                except Exception:
-                    logger.exception(
-                        f"[run {workflow_run_id}] Failed to roll back TryVox "
-                        "media startup"
-                    )
-            raise
+        await run_pipeline_telephony(
+            websocket,
+            provider_name=self.PROVIDER_NAME,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            organization_id=organization_id,
+            call_id=call_id,
+            transport_kwargs={"call_id": call_id},
+            on_ready=on_media_ready,
+            on_startup_failure=on_media_startup_failure,
+        )
 
     @classmethod
     def can_handle_webhook(

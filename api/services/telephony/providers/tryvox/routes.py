@@ -84,11 +84,11 @@ async def handle_tryvox_websocket(
         if not committed:
             return
 
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            state=WorkflowRunState.INITIALIZED.value,
-        )
         try:
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id,
+                state=WorkflowRunState.INITIALIZED.value,
+            )
             restored = await tryvox_security.rollback_consumed_stream_token(
                 workflow_id,
                 organization_id,
@@ -103,13 +103,14 @@ async def handle_tryvox_websocket(
                 await asyncio.shield(
                     db_client.update_workflow_run(
                         run_id=workflow_run_id,
-                        state=WorkflowRunState.RUNNING.value,
+                        state=WorkflowRunState.COMPLETED.value,
+                        is_completed=True,
                     )
                 )
             except Exception:
                 logger.exception(
-                    f"[run {workflow_run_id}] Failed to restore running state "
-                    "after TryVox stream rollback failure"
+                    f"[run {workflow_run_id}] Failed to mark run completed "
+                    "after unrecoverable TryVox stream startup failure"
                 )
             raise
         committed = False
@@ -123,7 +124,7 @@ async def handle_tryvox_websocket(
             workflow_run_id,
             provider_route_authenticated=True,
             on_provider_ready=commit_stream,
-            on_provider_failure=rollback_stream,
+            on_provider_startup_failure=rollback_stream,
         )
     finally:
         if not committed:

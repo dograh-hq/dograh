@@ -262,6 +262,7 @@ async def run_pipeline_telephony(
     call_id: str,
     transport_kwargs: dict,
     on_ready: Callable[[], Awaitable[bool]] | None = None,
+    on_startup_failure: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run a pipeline for any telephony provider."""
     # Register before any async setup so deploy drains see calls that are still
@@ -277,6 +278,7 @@ async def run_pipeline_telephony(
             call_id=call_id,
             transport_kwargs=transport_kwargs,
             on_ready=on_ready,
+            on_startup_failure=on_startup_failure,
         )
     finally:
         try:
@@ -295,6 +297,7 @@ async def _run_pipeline_telephony_impl(
     call_id: str,
     transport_kwargs: dict,
     on_ready: Callable[[], Awaitable[bool]] | None = None,
+    on_startup_failure: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run a pipeline for any telephony provider.
 
@@ -387,6 +390,12 @@ async def _run_pipeline_telephony_impl(
         await websocket.close(code=4401, reason="Stream capability unavailable")
         return
 
+    worker_started = False
+
+    def mark_worker_started() -> None:
+        nonlocal worker_started
+        worker_started = True
+
     try:
         await _run_pipeline_impl(
             transport,
@@ -398,10 +407,19 @@ async def _run_pipeline_telephony_impl(
             workflow_run=workflow_run,
             resolved_user_config=user_config,
             organization_id=organization_id,
+            on_worker_started=mark_worker_started,
         )
-    except Exception as e:
+    except BaseException as exc:
+        if not worker_started and on_startup_failure is not None:
+            try:
+                await asyncio.shield(on_startup_failure())
+            except Exception:
+                logger.exception(
+                    f"[run {workflow_run_id}] Failed to roll back "
+                    f"{provider_name} pipeline startup"
+                )
         logger.error(
-            f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
+            f"[run {workflow_run_id}] Error in {provider_name} pipeline: {exc}",
             exc_info=True,
         )
         raise
@@ -566,6 +584,7 @@ async def _run_pipeline_impl(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    on_worker_started: Callable[[], None] | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -1142,6 +1161,8 @@ async def _run_pipeline_impl(
 
     try:
         # Run the pipeline
+        if on_worker_started is not None:
+            on_worker_started()
         await run_pipeline_worker(task)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:

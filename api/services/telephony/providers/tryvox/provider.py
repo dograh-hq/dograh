@@ -135,13 +135,21 @@ class TryVoxProvider(TelephonyProvider):
                 detail="TryVox call response did not include request_uuid",
             )
         if correlation_token is not None:
-            activated = await tryvox_security.activate_call_correlation(
-                workflow_run_id, correlation_token
-            )
-            if not activated:
-                logger.warning(
-                    f"[run {workflow_run_id}] TryVox callback correlation was "
-                    "already retired before call initiation completed"
+            try:
+                activated = await tryvox_security.activate_call_correlation(
+                    workflow_run_id, correlation_token
+                )
+                if not activated:
+                    logger.warning(
+                        f"[run {workflow_run_id}] TryVox callback correlation was "
+                        "already retired before call initiation completed"
+                    )
+            except Exception:
+                # The provider already accepted the call. Propagating a Redis
+                # failure here could make the caller retry and place a duplicate.
+                logger.exception(
+                    f"[run {workflow_run_id}] Failed to activate TryVox "
+                    "callback correlation after call initiation"
                 )
         return CallInitiationResult(
             call_id=call_id,
@@ -271,6 +279,7 @@ class TryVoxProvider(TelephonyProvider):
         organization_id: int,
         workflow_run_id: int,
         on_media_ready: Callable[[], Awaitable[bool]] | None = None,
+        on_media_failure: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         from api.db import db_client
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
@@ -305,16 +314,27 @@ class TryVoxProvider(TelephonyProvider):
             await websocket.close(code=4403, reason="Stream metadata mismatch")
             return
 
-        await run_pipeline_telephony(
-            websocket,
-            provider_name=self.PROVIDER_NAME,
-            workflow_id=workflow_id,
-            workflow_run_id=workflow_run_id,
-            organization_id=organization_id,
-            call_id=call_id,
-            transport_kwargs={"call_id": call_id},
-            on_ready=on_media_ready,
-        )
+        try:
+            await run_pipeline_telephony(
+                websocket,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                organization_id=organization_id,
+                call_id=call_id,
+                transport_kwargs={"call_id": call_id},
+                on_ready=on_media_ready,
+            )
+        except BaseException:
+            if on_media_failure is not None:
+                try:
+                    await asyncio.shield(on_media_failure())
+                except Exception:
+                    logger.exception(
+                        f"[run {workflow_run_id}] Failed to roll back TryVox "
+                        "media startup"
+                    )
+            raise
 
     @classmethod
     def can_handle_webhook(

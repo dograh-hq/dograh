@@ -45,6 +45,14 @@ class _FakeRedis:
             self.expirations[key] = ttl
             return 1
 
+        if len(args) == 3 and "redis.call('EXPIRE'" in script:
+            pending, active, ttl = args
+            if stored not in (pending, active):
+                return 0
+            self.values[key] = active
+            self.expirations[key] = ttl
+            return 1
+
         if len(args) == 3 and "if not stored" in script:
             processing, completed, ttl = args
             if stored is None:
@@ -296,7 +304,7 @@ async def test_call_correlation_is_stable_and_bound_to_run():
     assert await security.activate_call_correlation(13, "callback-token") is True
     key = security._call_correlation_key(13)
     assert redis.values[key] == "__active__:callback-token"
-    assert key not in redis.expirations
+    assert redis.expirations[key] == TryVoxSecurity.ACTIVE_CALL_CORRELATION_TTL_SECONDS
     assert await security.verify_call_correlation(13, "callback-token") is True
 
     assert await security.retire_call_correlation(13, "callback-token") is True

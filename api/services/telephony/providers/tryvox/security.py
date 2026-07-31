@@ -19,6 +19,7 @@ class TryVoxSecurity:
     CALLBACK_REPLAY_TTL_SECONDS = 300
     CALL_CLAIM_TTL_SECONDS = 24 * 60 * 60
     CALL_CORRELATION_TTL_SECONDS = CALL_CLAIM_TTL_SECONDS
+    ACTIVE_CALL_CORRELATION_TTL_SECONDS = 7 * 24 * 60 * 60
     CALL_CORRELATION_RETIRE_TTL_SECONDS = CALLBACK_REPLAY_TTL_SECONDS
     CONSUMED_STREAM_TOKEN_PREFIX = "__consumed__:"
     RESERVED_STREAM_TOKEN_PREFIX = "__reserved__:"
@@ -283,10 +284,11 @@ class TryVoxSecurity:
         script = """
         local stored = redis.call('GET', KEYS[1])
         if stored == ARGV[1] then
-            redis.call('SET', KEYS[1], ARGV[2])
+            redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
             return 1
         end
         if stored == ARGV[2] then
+            redis.call('EXPIRE', KEYS[1], ARGV[3])
             return 1
         end
         return 0
@@ -298,6 +300,7 @@ class TryVoxSecurity:
                 self._call_correlation_key(workflow_run_id),
                 supplied_token,
                 f"{self.ACTIVE_CALL_CORRELATION_PREFIX}{supplied_token}",
+                self.ACTIVE_CALL_CORRELATION_TTL_SECONDS,
             )
         )
 

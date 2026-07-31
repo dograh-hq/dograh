@@ -201,6 +201,48 @@ async def test_initiate_call_uses_tryvox_voice_api_and_signed_callbacks():
 
 
 @pytest.mark.asyncio
+async def test_initiate_call_returns_success_when_correlation_activation_fails():
+    provider = _provider()
+    session = _Session(
+        _Response(
+            201,
+            {"data": {"request_uuid": "call-123", "status": "queued"}},
+        )
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.tryvox.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://dograh.test", "wss://dograh.test"),
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.issue_call_correlation",
+            new_callable=AsyncMock,
+            return_value="callback-token",
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.activate_call_correlation",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Redis unavailable"),
+        ),
+    ):
+        result = await provider.initiate_call(
+            "+15551230002",
+            "https://dograh.test/api/v1/telephony/tryvox/answer?workflow_run_id=9",
+            workflow_run_id=9,
+        )
+
+    assert result.call_id == "call-123"
+
+
+@pytest.mark.asyncio
 async def test_verify_inbound_signature_accepts_exact_raw_body():
     provider = _provider()
     body = '{"call_uuid":"call-123","account_id":"TJaccount"}'
@@ -426,6 +468,40 @@ async def test_websocket_passes_capability_commit_to_pipeline_setup():
 
     on_media_ready.assert_not_awaited()
     assert run_pipeline.await_args.kwargs["on_ready"] is on_media_ready
+
+
+@pytest.mark.asyncio
+async def test_websocket_rolls_back_media_commit_when_pipeline_fails():
+    provider = _provider()
+    websocket = _WebSocket({"workflow_run_id": "13"})
+    workflow_run = SimpleNamespace(gathered_context={"call_id": "call-123"})
+    on_media_ready = AsyncMock(return_value=True)
+    on_media_failure = AsyncMock()
+
+    with (
+        patch.object(
+            db_client,
+            "get_workflow_run",
+            new_callable=AsyncMock,
+            return_value=workflow_run,
+        ),
+        patch(
+            "api.services.pipecat.run_pipeline.run_pipeline_telephony",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("pipeline startup failed"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="pipeline startup failed"):
+            await provider.handle_websocket(
+                websocket,
+                7,
+                11,
+                13,
+                on_media_ready=on_media_ready,
+                on_media_failure=on_media_failure,
+            )
+
+    on_media_failure.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

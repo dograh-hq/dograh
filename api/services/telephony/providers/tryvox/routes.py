@@ -79,6 +79,41 @@ async def handle_tryvox_websocket(
         committed = True
         return True
 
+    async def rollback_stream() -> None:
+        nonlocal committed
+        if not committed:
+            return
+
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            state=WorkflowRunState.INITIALIZED.value,
+        )
+        try:
+            restored = await tryvox_security.rollback_consumed_stream_token(
+                workflow_id,
+                organization_id,
+                workflow_run_id,
+                reservation,
+                token,
+            )
+            if not restored:
+                raise RuntimeError("TryVox stream capability rollback was rejected")
+        except BaseException:
+            try:
+                await asyncio.shield(
+                    db_client.update_workflow_run(
+                        run_id=workflow_run_id,
+                        state=WorkflowRunState.RUNNING.value,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    f"[run {workflow_run_id}] Failed to restore running state "
+                    "after TryVox stream rollback failure"
+                )
+            raise
+        committed = False
+
     try:
         await websocket.accept(subprotocol="audio.drachtio.org")
         await _handle_telephony_websocket(
@@ -88,6 +123,7 @@ async def handle_tryvox_websocket(
             workflow_run_id,
             provider_route_authenticated=True,
             on_provider_ready=commit_stream,
+            on_provider_failure=rollback_stream,
         )
     finally:
         if not committed:

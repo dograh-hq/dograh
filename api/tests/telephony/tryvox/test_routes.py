@@ -4,7 +4,7 @@ import hmac
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from fastapi import HTTPException
@@ -125,6 +125,56 @@ async def test_websocket_accepts_tryvox_media_subprotocol():
     shared_handler.assert_awaited_once()
     assert shared_handler.await_args.kwargs["provider_route_authenticated"] is True
     assert callable(shared_handler.await_args.kwargs["on_provider_ready"])
+    assert callable(shared_handler.await_args.kwargs["on_provider_failure"])
+
+
+@pytest.mark.asyncio
+async def test_websocket_pipeline_failure_restores_run_and_stream_capability():
+    websocket = AsyncMock()
+    websocket.query_params = {"token": "stream-token"}
+
+    async def fail_after_commit(*args, **kwargs):
+        assert await kwargs["on_provider_ready"]() is True
+        await kwargs["on_provider_failure"]()
+        raise RuntimeError("pipeline startup failed")
+
+    with (
+        patch(
+            "api.routes.telephony._handle_telephony_websocket",
+            new_callable=AsyncMock,
+            side_effect=fail_after_commit,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.rollback_consumed_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as rollback,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_stream_token",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(f"{ROUTES_MODULE}.db_client") as route_db,
+    ):
+        route_db.update_workflow_run = AsyncMock()
+        with pytest.raises(RuntimeError, match="pipeline startup failed"):
+            await handle_tryvox_websocket(websocket, 7, 11, 13)
+
+    assert route_db.update_workflow_run.await_args_list == [
+        call(run_id=13, state=WorkflowRunState.RUNNING.value),
+        call(run_id=13, state=WorkflowRunState.INITIALIZED.value),
+    ]
+    rollback.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
 
 
 @pytest.mark.asyncio

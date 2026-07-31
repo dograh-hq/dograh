@@ -15,6 +15,7 @@ class TryVoxSecurity:
 
     STREAM_TOKEN_TTL_SECONDS = 600
     CALLBACK_REPLAY_TTL_SECONDS = 300
+    CONSUMED_STREAM_TOKEN = "__consumed__"
 
     def __init__(self, redis_client: aioredis.Redis | None = None):
         self._redis_client = redis_client
@@ -37,13 +38,15 @@ class TryVoxSecurity:
 
     async def issue_stream_token(
         self, workflow_id: int, organization_id: int, workflow_run_id: int
-    ) -> str:
-        """Return the existing token for a run or atomically create one."""
+    ) -> str | None:
+        """Return a run's active token, without reopening a consumed capability."""
         redis = await self._get_redis()
         key = self._stream_key(workflow_id, organization_id, workflow_run_id)
 
         existing = await redis.get(key)
         if existing:
+            if existing == self.CONSUMED_STREAM_TOKEN:
+                return None
             return str(existing)
 
         for _ in range(2):
@@ -58,6 +61,8 @@ class TryVoxSecurity:
                 return token
             existing = await redis.get(key)
             if existing:
+                if existing == self.CONSUMED_STREAM_TOKEN:
+                    return None
                 return str(existing)
 
         raise RuntimeError("Unable to issue TryVox stream capability")
@@ -79,7 +84,7 @@ class TryVoxSecurity:
         if not stored or stored ~= ARGV[1] then
             return 0
         end
-        redis.call('DEL', KEYS[1])
+        redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
         return 1
         """
         result = await redis.eval(
@@ -87,6 +92,7 @@ class TryVoxSecurity:
             1,
             self._stream_key(workflow_id, organization_id, workflow_run_id),
             supplied_token,
+            self.CONSUMED_STREAM_TOKEN,
         )
         return bool(result)
 

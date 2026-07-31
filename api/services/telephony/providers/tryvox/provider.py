@@ -35,7 +35,20 @@ class TryVoxProvider(TelephonyProvider):
 
     PROVIDER_NAME = "tryvox"
     WEBHOOK_ENDPOINT = "tryvox/answer"
+    REQUIRES_AUTHENTICATED_WEBSOCKET = True
     SIGNATURE_MAX_AGE_SECONDS = 300
+
+    @staticmethod
+    def _voxml_hangup_response(message: str) -> str:
+        return json.dumps(
+            {
+                "voxml_version": "1.0",
+                "instructions": [
+                    {"verb": "Say", "text": message},
+                    {"verb": "Hangup"},
+                ],
+            }
+        )
 
     def __init__(self, config: dict[str, Any]):
         self.auth_id = config.get("auth_id", "")
@@ -157,6 +170,10 @@ class TryVoxProvider(TelephonyProvider):
         stream_token = await tryvox_security.issue_stream_token(
             workflow_id, organization_id, workflow_run_id
         )
+        if stream_token is None:
+            return self._voxml_hangup_response(
+                "This call's media stream has already been connected."
+            )
         stream_query = urlencode({"token": stream_token})
         return json.dumps(
             {
@@ -356,6 +373,14 @@ class TryVoxProvider(TelephonyProvider):
         stream_token = await tryvox_security.issue_stream_token(
             workflow_id, organization_id, workflow_run_id
         )
+        if stream_token is None:
+            return JSONResponse(
+                json.loads(
+                    self._voxml_hangup_response(
+                        "This call's media stream has already been connected."
+                    )
+                )
+            )
         websocket_url = f"{websocket_url}?{urlencode({'token': stream_token})}"
         return JSONResponse(
             {

@@ -397,4 +397,5 @@ def test_validation_error_response_uses_voxml_json():
     payload = json.loads(response.body)
 
     assert payload["voxml_version"] == "1.0"
+    assert any(i["verb"] == "Say" for i in payload["instructions"])
     assert payload["instructions"][-1] == {"verb": "Hangup"}

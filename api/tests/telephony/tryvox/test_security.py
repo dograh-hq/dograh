@@ -18,11 +18,11 @@ class _FakeRedis:
         self.values[key] = value
         return True
 
-    async def eval(self, script, key_count, key, supplied):
+    async def eval(self, script, key_count, key, supplied, consumed):
         assert key_count == 1
         if self.values.get(key) != supplied:
             return 0
-        del self.values[key]
+        self.values[key] = consumed
         return 1
 
 
@@ -43,6 +43,7 @@ async def test_stream_capability_is_stable_and_single_use():
     assert await security.redeem_stream_token(8, 11, 13, "stream-token") is False
     assert await security.redeem_stream_token(7, 11, 13, "stream-token") is True
     assert await security.redeem_stream_token(7, 11, 13, "stream-token") is False
+    assert await security.issue_stream_token(7, 11, 13) is None
 
 
 @pytest.mark.asyncio

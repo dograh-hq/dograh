@@ -592,7 +592,12 @@ async def websocket_endpoint(
 
 
 async def _handle_telephony_websocket(
-    websocket: WebSocket, workflow_id: int, organization_id: int, workflow_run_id: int
+    websocket: WebSocket,
+    workflow_id: int,
+    organization_id: int,
+    workflow_run_id: int,
+    *,
+    provider_route_authenticated: bool = False,
 ):
     """Shared WebSocket handler logic (connection already accepted).
 
@@ -702,6 +707,20 @@ async def _handle_telephony_websocket(
                 f"Provider mismatch: expected {provider_type}, got {provider.PROVIDER_NAME}"
             )
             await websocket.close(code=4400, reason="Provider mismatch")
+            return
+
+        if (
+            getattr(provider, "REQUIRES_AUTHENTICATED_WEBSOCKET", False)
+            and not provider_route_authenticated
+        ):
+            logger.warning(
+                f"Rejected unauthenticated shared WebSocket route for "
+                f"{provider_type} workflow run {workflow_run_id}"
+            )
+            await websocket.close(
+                code=4401,
+                reason="Provider-specific WebSocket authentication required",
+            )
             return
 
         # Set workflow run state to 'running' before starting the pipeline

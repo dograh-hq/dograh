@@ -41,7 +41,11 @@ async def handle_tryvox_websocket(
 
     await websocket.accept(subprotocol="audio.drachtio.org")
     await _handle_telephony_websocket(
-        websocket, workflow_id, organization_id, workflow_run_id
+        websocket,
+        workflow_id,
+        organization_id,
+        workflow_run_id,
+        provider_route_authenticated=True,
     )
 
 
@@ -124,9 +128,14 @@ async def handle_tryvox_answer(
     )
     if workflow.id != workflow_id:
         raise HTTPException(status_code=400, detail="Workflow ID mismatch")
-    await _verify_request(request, provider, callback_data, raw_body)
+    duplicate = await _verify_request(request, provider, callback_data, raw_body)
     _assert_call_matches(workflow_run, callback_data)
 
+    if duplicate:
+        logger.info(
+            f"[run {workflow_run_id}] Returning idempotent Answer response "
+            "for duplicate TryVox callback"
+        )
     response_content = await provider.get_webhook_response(
         workflow_id, organization_id, workflow_run_id
     )

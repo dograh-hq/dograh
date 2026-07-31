@@ -9,7 +9,8 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from api.routes.telephony import handle_inbound_run
+from api.enums import WorkflowRunState
+from api.routes.telephony import _handle_telephony_websocket, handle_inbound_run
 from api.services.telephony.providers.tryvox.provider import TryVoxProvider
 from api.services.telephony.providers.tryvox.routes import (
     handle_tryvox_answer,
@@ -88,7 +89,9 @@ async def test_websocket_accepts_tryvox_media_subprotocol():
 
     redeem.assert_awaited_once_with(7, 11, 13, "stream-token")
     websocket.accept.assert_awaited_once_with(subprotocol="audio.drachtio.org")
-    shared_handler.assert_awaited_once_with(websocket, 7, 11, 13)
+    shared_handler.assert_awaited_once_with(
+        websocket, 7, 11, 13, provider_route_authenticated=True
+    )
 
 
 @pytest.mark.asyncio
@@ -114,6 +117,38 @@ async def test_websocket_rejects_invalid_capability_before_accepting():
         code=4401, reason="Invalid stream capability"
     )
     shared_handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shared_websocket_rejects_tryvox_before_starting_run():
+    websocket = AsyncMock()
+    workflow_run = SimpleNamespace(
+        workflow_id=7,
+        state=WorkflowRunState.INITIALIZED.value,
+        mode="tryvox",
+        initial_context={"provider": "tryvox"},
+        gathered_context={"call_id": "call-123"},
+    )
+    workflow = SimpleNamespace(id=7, organization_id=11)
+    provider = _provider()
+
+    with (
+        patch("api.routes.telephony.db_client") as shared_db,
+        patch(
+            "api.routes.telephony.get_telephony_provider_for_run",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        shared_db.get_workflow_run = AsyncMock(return_value=workflow_run)
+        shared_db.get_workflow = AsyncMock(return_value=workflow)
+        shared_db.update_workflow_run = AsyncMock()
+
+        await _handle_telephony_websocket(websocket, 7, 11, 13)
+
+    websocket.close.assert_awaited_once_with(
+        code=4401, reason="Provider-specific WebSocket authentication required"
+    )
+    shared_db.update_workflow_run.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -165,6 +200,50 @@ async def test_answer_route_verifies_signature_and_returns_voxml():
     payload = json.loads(response.body)
     assert payload["instructions"][0]["verb"] == "Stream"
     assert payload["instructions"][0]["track"] == "inbound_track"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_answer_after_stream_redemption_returns_terminal_voxml():
+    provider = _provider()
+    workflow_run = SimpleNamespace(
+        workflow_id=7,
+        gathered_context={"call_id": "call-123"},
+        initial_context={"telephony_configuration_id": 5},
+    )
+    workflow = SimpleNamespace(id=7, organization_id=11)
+    request = _request(
+        "/api/v1/telephony/tryvox/answer",
+        {"call_uuid": "call-123", "account_id": "TJaccount"},
+    )
+
+    with (
+        patch(f"{ROUTES_MODULE}.db_client") as db_client,
+        patch(
+            f"{ROUTES_MODULE}.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.issue_stream_token",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        db_client.get_workflow_run = AsyncMock(return_value=workflow_run)
+        db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
+        response = await handle_tryvox_answer(request, 7, 13, 11)
+
+    payload = json.loads(response.body)
+    assert payload["instructions"][-1] == {"verb": "Hangup"}
+    assert all(
+        instruction["verb"] != "Stream" for instruction in payload["instructions"]
+    )
 
 
 @pytest.mark.asyncio

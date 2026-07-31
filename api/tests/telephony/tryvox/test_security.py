@@ -21,12 +21,24 @@ class _FakeRedis:
         self.expirations[key] = ex
         return True
 
-    async def eval(self, script, key_count, key, supplied, consumed):
+    async def eval(self, script, key_count, key, *args):
         assert key_count == 1
         stored = self.values.get(key)
-        if stored == consumed or stored != supplied:
+        if "string.sub" in script:
+            supplied, consumed, reserved_prefix, reservation = args
+            if (
+                stored == consumed
+                or (stored or "").startswith(reserved_prefix)
+                or stored != supplied
+            ):
+                return 0
+            self.values[key] = f"{reserved_prefix}{reservation}"
+            return 1
+
+        reserved_prefix, reservation, replacement = args
+        if stored != f"{reserved_prefix}{reservation}":
             return 0
-        self.values[key] = consumed
+        self.values[key] = replacement
         return 1
 
 
@@ -43,17 +55,50 @@ async def test_stream_capability_is_stable_and_single_use():
         second = await security.issue_stream_token(7, 11, 13)
 
     assert first == second == "stream-token"
-    assert await security.redeem_stream_token(7, 11, 13, "wrong") is False
-    assert await security.redeem_stream_token(8, 11, 13, "stream-token") is False
-    assert await security.redeem_stream_token(7, 11, 13, "stream-token") is True
-    assert await security.redeem_stream_token(7, 11, 13, "stream-token") is False
+    assert await security.reserve_stream_token(7, 11, 13, "wrong") is None
+    assert await security.reserve_stream_token(8, 11, 13, "stream-token") is None
+    reservation = await security.reserve_stream_token(7, 11, 13, "stream-token")
+    assert reservation
+    assert await security.reserve_stream_token(7, 11, 13, "stream-token") is None
+    assert await security.consume_stream_token(7, 11, 13, reservation) is True
+    assert await security.consume_stream_token(7, 11, 13, reservation) is False
+    assert await security.reserve_stream_token(7, 11, 13, "stream-token") is None
     assert (
-        await security.redeem_stream_token(
+        await security.reserve_stream_token(
             7, 11, 13, TryVoxSecurity.CONSUMED_STREAM_TOKEN
         )
-        is False
+        is None
     )
     assert await security.issue_stream_token(7, 11, 13) is None
+
+
+@pytest.mark.asyncio
+async def test_stream_capability_can_retry_only_after_reservation_release():
+    redis = _FakeRedis()
+    security = TryVoxSecurity(redis)
+
+    with patch(
+        "api.services.telephony.providers.tryvox.security.secrets.token_urlsafe",
+        side_effect=[
+            "stream-token",
+            "first-reservation",
+            "blocked-reservation",
+            "second-reservation",
+        ],
+    ):
+        token = await security.issue_stream_token(7, 11, 13)
+        first = await security.reserve_stream_token(7, 11, 13, token)
+        blocked = await security.reserve_stream_token(7, 11, 13, token)
+        replacement = await security.issue_stream_token(7, 11, 13)
+        released = await security.release_stream_token(7, 11, 13, first, token)
+        second = await security.reserve_stream_token(7, 11, 13, token)
+
+    assert first == "first-reservation"
+    assert blocked is None
+    assert replacement is None
+    assert released is True
+    assert second == "second-reservation"
+    assert await security.release_stream_token(7, 11, 13, first, token) is False
 
 
 @pytest.mark.asyncio

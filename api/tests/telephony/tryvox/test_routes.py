@@ -81,15 +81,21 @@ async def test_websocket_accepts_tryvox_media_subprotocol():
             new_callable=AsyncMock,
         ) as shared_handler,
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.redeem_stream_token",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ) as reserve,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
             new_callable=AsyncMock,
             return_value=True,
-        ) as redeem,
+        ) as consume,
     ):
         await handle_tryvox_websocket(websocket, 7, 11, 13)
 
-    redeem.assert_awaited_once_with(7, 11, 13, "stream-token")
+    reserve.assert_awaited_once_with(7, 11, 13, "stream-token")
     websocket.accept.assert_awaited_once_with(subprotocol="audio.drachtio.org")
+    consume.assert_awaited_once_with(7, 11, 13, "reservation")
     shared_handler.assert_awaited_once_with(
         websocket, 7, 11, 13, provider_route_authenticated=True
     )
@@ -106,9 +112,9 @@ async def test_websocket_rejects_invalid_capability_before_accepting():
             new_callable=AsyncMock,
         ) as shared_handler,
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.redeem_stream_token",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=None,
         ),
     ):
         await handle_tryvox_websocket(websocket, 7, 11, 13)
@@ -118,6 +124,35 @@ async def test_websocket_rejects_invalid_capability_before_accepting():
         code=4401, reason="Invalid stream capability"
     )
     shared_handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_websocket_accept_failure_releases_reserved_capability():
+    websocket = AsyncMock()
+    websocket.query_params = {"token": "stream-token"}
+    websocket.accept.side_effect = RuntimeError("handshake failed")
+
+    with (
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as release,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
+            new_callable=AsyncMock,
+        ) as consume,
+    ):
+        with pytest.raises(RuntimeError, match="handshake failed"):
+            await handle_tryvox_websocket(websocket, 7, 11, 13)
+
+    release.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
+    consume.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -239,6 +274,11 @@ async def test_concurrent_duplicate_answer_returns_same_unredeemed_capability():
             f"{ROUTES_MODULE}.tryvox_security.claim_callback",
             new_callable=AsyncMock,
             side_effect=[True, False],
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://dograh.test", "wss://dograh.test"),
         ),
         patch(
             "api.services.telephony.providers.tryvox.provider."

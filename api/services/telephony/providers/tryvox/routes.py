@@ -30,16 +30,42 @@ async def handle_tryvox_websocket(
     from api.routes.telephony import _handle_telephony_websocket
 
     token = websocket.query_params.get("token", "")
-    if not await tryvox_security.redeem_stream_token(
+    reservation = await tryvox_security.reserve_stream_token(
         workflow_id,
         organization_id,
         workflow_run_id,
         token,
-    ):
+    )
+    if not reservation:
         await websocket.close(code=4401, reason="Invalid stream capability")
         return
 
-    await websocket.accept(subprotocol="audio.drachtio.org")
+    try:
+        await websocket.accept(subprotocol="audio.drachtio.org")
+    except Exception:
+        try:
+            await tryvox_security.release_stream_token(
+                workflow_id,
+                organization_id,
+                workflow_run_id,
+                reservation,
+                token,
+            )
+        except Exception:
+            logger.exception(
+                f"[run {workflow_run_id}] Failed to release TryVox stream capability"
+            )
+        raise
+
+    if not await tryvox_security.consume_stream_token(
+        workflow_id,
+        organization_id,
+        workflow_run_id,
+        reservation,
+    ):
+        await websocket.close(code=1011, reason="Stream capability state lost")
+        return
+
     await _handle_telephony_websocket(
         websocket,
         workflow_id,
@@ -98,9 +124,7 @@ async def _verify_request(
     )
     if not valid:
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    return provider._signature_timestamp(
-        request.headers.get("x-tryvox-signature", "")
-    )
+    return provider._signature_timestamp(request.headers.get("x-tryvox-signature", ""))
 
 
 def _assert_call_matches(workflow_run, callback_data: dict) -> None:

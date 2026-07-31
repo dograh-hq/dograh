@@ -19,10 +19,13 @@ class TryVoxSecurity:
     CALLBACK_REPLAY_TTL_SECONDS = 300
     CALL_CLAIM_TTL_SECONDS = 24 * 60 * 60
     CALL_CORRELATION_TTL_SECONDS = CALL_CLAIM_TTL_SECONDS
+    CALL_CORRELATION_RETIRE_TTL_SECONDS = CALLBACK_REPLAY_TTL_SECONDS
     CONSUMED_STREAM_TOKEN_PREFIX = "__consumed__:"
     RESERVED_STREAM_TOKEN_PREFIX = "__reserved__:"
     CALLBACK_PROCESSING_PREFIX = "__processing__:"
     CALLBACK_COMPLETED = "__completed__"
+    ACTIVE_CALL_CORRELATION_PREFIX = "__active__:"
+    RETIRING_CALL_CORRELATION_PREFIX = "__retiring__:"
 
     def __init__(self, redis_client: aioredis.Redis | None = None):
         self._redis_client = redis_client
@@ -227,13 +230,23 @@ class TryVoxSecurity:
     def _call_correlation_key(workflow_run_id: int) -> str:
         return f"tryvox:call-correlation:{workflow_run_id}"
 
+    @classmethod
+    def _correlation_token(cls, stored: str) -> str:
+        for prefix in (
+            cls.ACTIVE_CALL_CORRELATION_PREFIX,
+            cls.RETIRING_CALL_CORRELATION_PREFIX,
+        ):
+            if stored.startswith(prefix):
+                return stored[len(prefix) :]
+        return stored
+
     async def issue_call_correlation(self, workflow_run_id: int) -> str:
         """Create the opaque capability included in this run's callback URLs."""
         redis = await self._get_redis()
         key = self._call_correlation_key(workflow_run_id)
         existing = await redis.get(key)
         if existing:
-            return str(existing)
+            return self._correlation_token(str(existing))
 
         for _ in range(2):
             token = secrets.token_urlsafe(32)
@@ -246,7 +259,7 @@ class TryVoxSecurity:
                 return token
             existing = await redis.get(key)
             if existing:
-                return str(existing)
+                return self._correlation_token(str(existing))
 
         raise RuntimeError("Unable to issue TryVox call correlation")
 
@@ -258,7 +271,60 @@ class TryVoxSecurity:
             return False
         redis = await self._get_redis()
         expected = await redis.get(self._call_correlation_key(workflow_run_id))
-        return bool(expected) and secrets.compare_digest(str(expected), supplied_token)
+        return bool(expected) and secrets.compare_digest(
+            self._correlation_token(str(expected)), supplied_token
+        )
+
+    async def activate_call_correlation(
+        self, workflow_run_id: int, supplied_token: str
+    ) -> bool:
+        """Keep a correlation capability until its call reaches a terminal state."""
+        redis = await self._get_redis()
+        script = """
+        local stored = redis.call('GET', KEYS[1])
+        if stored == ARGV[1] then
+            redis.call('SET', KEYS[1], ARGV[2])
+            return 1
+        end
+        if stored == ARGV[2] then
+            return 1
+        end
+        return 0
+        """
+        return bool(
+            await redis.eval(
+                script,
+                1,
+                self._call_correlation_key(workflow_run_id),
+                supplied_token,
+                f"{self.ACTIVE_CALL_CORRELATION_PREFIX}{supplied_token}",
+            )
+        )
+
+    async def retire_call_correlation(
+        self, workflow_run_id: int, supplied_token: str
+    ) -> bool:
+        """Expire a terminal call's capability after the webhook retry window."""
+        redis = await self._get_redis()
+        script = """
+        local stored = redis.call('GET', KEYS[1])
+        if stored ~= ARGV[1] and stored ~= ARGV[2] and stored ~= ARGV[3] then
+            return 0
+        end
+        redis.call('SET', KEYS[1], ARGV[3], 'EX', ARGV[4])
+        return 1
+        """
+        return bool(
+            await redis.eval(
+                script,
+                1,
+                self._call_correlation_key(workflow_run_id),
+                supplied_token,
+                f"{self.ACTIVE_CALL_CORRELATION_PREFIX}{supplied_token}",
+                f"{self.RETIRING_CALL_CORRELATION_PREFIX}{supplied_token}",
+                self.CALL_CORRELATION_RETIRE_TTL_SECONDS,
+            )
+        )
 
     async def claim_call_id(self, workflow_run_id: int, call_id: str) -> str:
         """Atomically bind the first signed call ID seen for a run.

@@ -9,7 +9,7 @@ from pipecat.utils.run_context import set_current_run_id
 from starlette.responses import JSONResponse
 
 from api.db import db_client
-from api.enums import WorkflowRunState
+from api.enums import TelephonyCallStatus, WorkflowRunState
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
@@ -382,6 +382,18 @@ async def handle_tryvox_status(
             timestamp,
             raw_body,
             owner,
+        )
+    if TelephonyCallStatus.from_raw(parsed["status"]) in {
+        TelephonyCallStatus.COMPLETED,
+        TelephonyCallStatus.FAILED,
+        TelephonyCallStatus.BUSY,
+        TelephonyCallStatus.NO_ANSWER,
+        TelephonyCallStatus.CANCELED,
+        TelephonyCallStatus.ERROR,
+    }:
+        await tryvox_security.retire_call_correlation(
+            workflow_run_id,
+            request.query_params["correlation_token"],
         )
     logger.info(
         f"[run {workflow_run_id}] Processed TryVox status "

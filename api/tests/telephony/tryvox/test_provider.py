@@ -164,6 +164,12 @@ async def test_initiate_call_uses_tryvox_voice_api_and_signed_callbacks():
             new_callable=AsyncMock,
             return_value="callback-token",
         ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.activate_call_correlation",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as activate_correlation,
     ):
         result = await provider.initiate_call(
             "+15551230002",
@@ -173,6 +179,7 @@ async def test_initiate_call_uses_tryvox_voice_api_and_signed_callbacks():
 
     assert result.call_id == "call-123"
     assert result.caller_number == "+15551230001"
+    activate_correlation.assert_awaited_once_with(9, "callback-token")
     method, url, kwargs = session.requests[0]
     assert method == "POST"
     assert url == "https://api.tryvox.test/v1/voice/accounts/TJaccount/calls"

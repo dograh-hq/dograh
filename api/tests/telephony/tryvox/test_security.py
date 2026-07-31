@@ -37,6 +37,14 @@ class _FakeRedis:
             self.values[key] = reservation
             return 1
 
+        if len(args) == 4:
+            pending, active, retiring, ttl = args
+            if stored not in (pending, active, retiring):
+                return 0
+            self.values[key] = retiring
+            self.expirations[key] = ttl
+            return 1
+
         if len(args) == 3 and "if not stored" in script:
             processing, completed, ttl = args
             if stored is None:
@@ -70,9 +78,13 @@ class _FakeRedis:
             return 1
 
         expected, replacement = args
+        if "stored == ARGV[2]" in script and stored == replacement:
+            return 1
         if stored != expected:
             return 0
         self.values[key] = replacement
+        if "redis.call('SET', KEYS[1], ARGV[2])" in script:
+            self.expirations.pop(key, None)
         return 1
 
 
@@ -280,6 +292,18 @@ async def test_call_correlation_is_stable_and_bound_to_run():
     assert await security.verify_call_correlation(13, "wrong-token") is False
     assert await security.verify_call_correlation(14, "callback-token") is False
     assert await security.verify_call_correlation(13, "") is False
+
+    assert await security.activate_call_correlation(13, "callback-token") is True
+    key = security._call_correlation_key(13)
+    assert redis.values[key] == "__active__:callback-token"
+    assert key not in redis.expirations
+    assert await security.verify_call_correlation(13, "callback-token") is True
+
+    assert await security.retire_call_correlation(13, "callback-token") is True
+    assert redis.values[key] == "__retiring__:callback-token"
+    assert redis.expirations[key] == TryVoxSecurity.CALL_CORRELATION_RETIRE_TTL_SECONDS
+    assert await security.verify_call_correlation(13, "callback-token") is True
+    assert await security.activate_call_correlation(13, "callback-token") is False
 
 
 @pytest.mark.asyncio

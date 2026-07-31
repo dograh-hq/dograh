@@ -134,6 +134,15 @@ class TryVoxProvider(TelephonyProvider):
                 status_code=502,
                 detail="TryVox call response did not include request_uuid",
             )
+        if correlation_token is not None:
+            activated = await tryvox_security.activate_call_correlation(
+                workflow_run_id, correlation_token
+            )
+            if not activated:
+                logger.warning(
+                    f"[run {workflow_run_id}] TryVox callback correlation was "
+                    "already retired before call initiation completed"
+                )
         return CallInitiationResult(
             call_id=call_id,
             status=call_data.get("status", "queued"),

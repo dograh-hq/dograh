@@ -72,12 +72,19 @@ def _request(path: str, body: dict) -> Request:
 
 @pytest.fixture(autouse=True)
 def _valid_callback_correlation():
-    with patch(
-        f"{ROUTES_MODULE}.tryvox_security.verify_call_correlation",
-        new_callable=AsyncMock,
-        return_value=True,
+    with (
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.verify_call_correlation",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.retire_call_correlation",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as retire_correlation,
     ):
-        yield
+        yield retire_correlation
 
 
 @pytest.mark.asyncio
@@ -691,7 +698,9 @@ async def test_answer_route_rejects_invalid_call_correlation_before_binding():
 
 
 @pytest.mark.asyncio
-async def test_status_route_processes_verified_callback():
+async def test_status_route_processes_verified_callback(
+    _valid_callback_correlation,
+):
     provider = _provider()
     workflow_run = SimpleNamespace(
         workflow_id=7,
@@ -737,6 +746,7 @@ async def test_status_route_processes_verified_callback():
 
     assert result == {"status": "success"}
     process_status.assert_awaited_once()
+    _valid_callback_correlation.assert_awaited_once_with(13, "callback-token")
 
 
 @pytest.mark.asyncio

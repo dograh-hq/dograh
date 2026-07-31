@@ -3323,6 +3323,11 @@ export type InitEmbedResponse = {
     config: {
         [key: string]: unknown;
     };
+    /**
+     * Widget Type
+     */
+    widget_type?: string;
+    chat_session?: PublicEmbedChatSessionResponse | null;
 };
 
 /**
@@ -4799,6 +4804,72 @@ export type ProviderSyncStatus = {
      * Message
      */
     message?: string | null;
+};
+
+/**
+ * PublicEmbedChatMessage
+ */
+export type PublicEmbedChatMessage = {
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+};
+
+/**
+ * PublicEmbedChatMessageRequest
+ */
+export type PublicEmbedChatMessageRequest = {
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
+};
+
+/**
+ * PublicEmbedChatSessionResponse
+ */
+export type PublicEmbedChatSessionResponse = {
+    /**
+     * Revision
+     */
+    revision: number;
+    /**
+     * State
+     */
+    state: string;
+    /**
+     * Is Completed
+     */
+    is_completed: boolean;
+    /**
+     * Turns
+     */
+    turns: Array<PublicEmbedChatTurn>;
+};
+
+/**
+ * PublicEmbedChatTurn
+ */
+export type PublicEmbedChatTurn = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Status
+     */
+    status: string;
+    user_message?: PublicEmbedChatMessage | null;
+    assistant_message?: PublicEmbedChatMessage | null;
 };
 
 /**
@@ -13334,6 +13405,138 @@ export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOpt
      */
     200: unknown;
 };
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}';
+};
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetError = GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors[keyof GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors];
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicEmbedChatSessionResponse;
+};
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponse = GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses[keyof GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses];
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}';
+};
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsError = OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors[keyof OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors];
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/messages';
+};
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsError = OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors[keyof OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors];
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostData = {
+    body: PublicEmbedChatMessageRequest;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/messages';
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostError = PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors[keyof PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors];
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicEmbedChatSessionResponse;
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponse = PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses[keyof PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses];
 
 export type InitiateCallApiV1PublicAgentUuidPostData = {
     body: TriggerCallRequest;

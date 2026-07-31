@@ -1063,8 +1063,7 @@
         type: 'offer',
         pc_id: state.pcId,
         workflow_id: parseInt(state.config.workflowId),
-        workflow_run_id: parseInt(state.workflowRunId),
-        call_context_vars: state.config.contextVariables || {}
+        workflow_run_id: parseInt(state.workflowRunId)
       }
     };
 

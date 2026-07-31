@@ -79,6 +79,7 @@ async def test_public_signaling_accepts_allowed_origin():
 
     # An origin within the allowlist proceeds to the signaling handoff.
     mgr.handle_websocket.assert_awaited_once()
+    assert mgr.handle_websocket.await_args.kwargs["allow_client_context_vars"] is False
 
 
 @pytest.mark.asyncio

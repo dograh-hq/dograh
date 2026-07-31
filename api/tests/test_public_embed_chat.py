@@ -228,6 +228,9 @@ def _patch_db(monkeypatch):
     async def _noop(*_args, **_kwargs):
         return None
 
+    async def _allow(*_args, **_kwargs):
+        return True
+
     for target, fake in [
         ("get_embed_token_by_token", _get_token),
         ("get_embed_token_by_id", _get_token_by_id),
@@ -237,7 +240,7 @@ def _patch_db(monkeypatch):
         ("get_workflow", _get_workflow),
         ("get_user_by_id", _get_user),
         ("create_embed_session", _noop),
-        ("increment_embed_token_usage", _noop),
+        ("reserve_embed_token_usage", _allow),
     ]:
         monkeypatch.setattr(f"api.routes.public_embed.db_client.{target}", fake)
     monkeypatch.setattr(
@@ -253,6 +256,8 @@ def _patch_db(monkeypatch):
     monkeypatch.setattr(
         "api.routes.public_embed_chat.authorize_workflow_run_start", _authorize
     )
+    monkeypatch.setattr("api.routes.public_embed.allow_embed_chat_init", _allow)
+    monkeypatch.setattr("api.routes.public_embed_chat.allow_embed_chat_message", _allow)
 
     async def _start_chat(**_kwargs):
         return _text_session(turns=[_GREETING_TURN], revision=2)
@@ -346,6 +351,40 @@ def test_init_sanitizes_context_variables(_patch_db):
     # The host page can't rewrite the transport the backend picked.
     assert initial_context["provider"] == "smallwebrtc"
     assert len(initial_context["bio"]) == MAX_VALUE_LENGTH
+
+
+def test_init_rejects_exhausted_usage_reservation(monkeypatch, _patch_db):
+    async def _exhausted(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(
+        "api.routes.public_embed.db_client.reserve_embed_token_usage", _exhausted
+    )
+
+    resp = client.post(
+        "/api/v1/public/embed/init",
+        headers={"Origin": ORIGIN},
+        json={"token": "chat"},
+    )
+
+    assert resp.status_code == 403
+    assert _patch_db.created_runs == []
+
+
+def test_init_chat_rate_limit_429(monkeypatch, _patch_db):
+    async def _rate_limited(_embed_token_id):
+        return False
+
+    monkeypatch.setattr("api.routes.public_embed.allow_embed_chat_init", _rate_limited)
+
+    resp = client.post(
+        "/api/v1/public/embed/init",
+        headers={"Origin": ORIGIN},
+        json={"token": "chat"},
+    )
+
+    assert resp.status_code == 429
+    assert _patch_db.created_runs == []
 
 
 def test_init_chat_quota_exhausted_402(monkeypatch):
@@ -496,6 +535,25 @@ def test_post_message_revision_conflict_409(monkeypatch):
     detail = resp.json()["detail"]
     assert detail["expected_revision"] == 3
     assert detail["actual_revision"] == 5
+
+
+def test_post_message_rate_limit_429(monkeypatch):
+    _patch_chat_text_session(monkeypatch, _text_session())
+
+    async def _rate_limited(_workflow_run_id):
+        return False
+
+    monkeypatch.setattr(
+        "api.routes.public_embed_chat.allow_embed_chat_message", _rate_limited
+    )
+
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-chat/messages",
+        headers={"Origin": ORIGIN},
+        json={"text": "hello", "expected_revision": 3},
+    )
+
+    assert resp.status_code == 429
 
 
 def test_post_message_turn_cap_429(monkeypatch):

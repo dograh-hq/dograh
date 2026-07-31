@@ -15,6 +15,8 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
+
 MAX_CONTEXT_VARIABLES = 50
 MAX_KEY_LENGTH = 64
 MAX_VALUE_LENGTH = 2000
@@ -22,7 +24,9 @@ MAX_TOTAL_BYTES = 8192
 
 # Owned by the run pipeline — a page setting these would rewrite what we record
 # about the call itself rather than describe the visitor.
-RESERVED_KEYS = frozenset({"provider", "runtime_configuration"})
+RESERVED_KEYS = frozenset(
+    {"provider", "runtime_configuration", MPS_CORRELATION_ID_CONTEXT_KEY}
+)
 
 _INVALID = object()
 

@@ -47,6 +47,7 @@ def test_reserved_keys_are_dropped():
         {
             "provider": "twilio",
             "runtime_configuration": {"llm_model": "evil"},
+            "mps_correlation_id": "visitor-controlled",
             "customer_name": "Ada",
         }
     )

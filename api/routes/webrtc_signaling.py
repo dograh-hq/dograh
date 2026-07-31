@@ -332,6 +332,7 @@ class SignalingManager:
         organization_id: int,
         enforce_call_concurrency: bool = False,
         call_concurrency_source: str = "webrtc",
+        allow_client_context_vars: bool = True,
     ):
         """Handle WebSocket connection for signaling."""
         await websocket.accept()
@@ -352,6 +353,7 @@ class SignalingManager:
                     connection_key,
                     enforce_call_concurrency,
                     call_concurrency_source,
+                    allow_client_context_vars,
                 )
         except WebSocketDisconnect:
             logger.info(f"WebSocket disconnected for {connection_id}")
@@ -396,6 +398,7 @@ class SignalingManager:
         connection_key: str,
         enforce_call_concurrency: bool,
         call_concurrency_source: str = "webrtc",
+        allow_client_context_vars: bool = True,
     ):
         """Handle incoming WebSocket messages."""
         msg_type = message.get("type")
@@ -412,6 +415,7 @@ class SignalingManager:
                 connection_key,
                 enforce_call_concurrency,
                 call_concurrency_source,
+                allow_client_context_vars,
             )
         elif msg_type == "ice-candidate":
             await self._handle_ice_candidate(payload, connection_key)
@@ -429,12 +433,15 @@ class SignalingManager:
         connection_key: str,
         enforce_call_concurrency: bool,
         call_concurrency_source: str = "webrtc",
+        allow_client_context_vars: bool = True,
     ):
         """Handle offer message and create answer with ICE trickling."""
         pc_id = payload.get("pc_id")
         sdp = payload.get("sdp")
         type_ = payload.get("type")
-        call_context_vars = payload.get("call_context_vars", {})
+        call_context_vars = (
+            payload.get("call_context_vars", {}) if allow_client_context_vars else {}
+        )
 
         if not pc_id or not sdp or not type_:
             await ws.send_json(
@@ -818,4 +825,7 @@ async def public_signaling_websocket(
         embed_token.organization_id,
         enforce_call_concurrency=True,
         call_concurrency_source="public_embed",
+        # Embed context was already sanitized and persisted during /init.
+        # Never let the signaling payload overwrite server-owned run context.
+        allow_client_context_vars=False,
     )

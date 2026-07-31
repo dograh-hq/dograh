@@ -32,6 +32,7 @@ from api.routes.turn_credentials import (
 )
 from api.schemas.embed_chat import PublicEmbedChatSessionResponse
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.embed_chat_limiter import allow_embed_chat_init
 from api.services.workflow.embed_context import sanitize_embed_context_variables
 from api.services.workflow.embed_text_chat_service import (
     build_public_chat_session_response,
@@ -390,10 +391,6 @@ async def initialize_embed_session(
     if embed_token.expires_at and embed_token.expires_at < datetime.now(UTC):
         raise HTTPException(status_code=403, detail="Embed token has expired")
 
-    # Check usage limit
-    if embed_token.usage_limit and embed_token.usage_count >= embed_token.usage_limit:
-        raise HTTPException(status_code=403, detail="Embed token usage limit exceeded")
-
     # Validate domain
     if not validate_origin(origin, embed_token.allowed_domains or []):
         logger.warning(
@@ -410,6 +407,23 @@ async def initialize_embed_session(
         "chat" if (embed_token.settings or {}).get("widgetType") == "chat" else "voice"
     )
     is_chat = widget_type == "chat"
+
+    # Chat initialization immediately performs billable greeting work. Keep it
+    # in an isolated token-scoped rate bucket so anonymous bursts cannot fan
+    # out unbounded LLM work, without consuming organization voice-call slots.
+    if is_chat and not await allow_embed_chat_init(embed_token.id):
+        raise HTTPException(
+            status_code=429, detail="Too many chat sessions. Please try again shortly"
+        )
+
+    # This conditional update is the authoritative usage-limit check. Keeping
+    # the comparison and increment in one statement prevents parallel public
+    # requests from all passing a stale in-memory usage_count check.
+    usage_reserved = await db_client.reserve_embed_token_usage(
+        embed_token.id, embed_token.organization_id
+    )
+    if not usage_reserved:
+        raise HTTPException(status_code=403, detail="Embed token usage limit exceeded")
 
     # Create workflow run
     try:
@@ -473,9 +487,6 @@ async def initialize_embed_session(
     except Exception as e:
         logger.error(f"Failed to create embed session: {e}")
         raise HTTPException(status_code=500, detail="Failed to create session")
-
-    # Increment usage count
-    await db_client.increment_embed_token_usage(embed_token.id)
 
     # For chat widgets, seed the text session and run the greeting turn
     # synchronously so the widget opens with the agent's first message. Quota is

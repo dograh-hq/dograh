@@ -26,6 +26,7 @@ from api.schemas.embed_chat import (
     PublicEmbedChatSessionResponse,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.embed_chat_limiter import allow_embed_chat_message
 from api.services.workflow.embed_text_chat_service import (
     EmbedChatTurnLimitExceededError,
     append_embed_text_chat_message,
@@ -99,6 +100,11 @@ async def post_public_chat_message(
         raise HTTPException(
             status_code=400,
             detail={"code": "chat_completed", "message": "Conversation has ended"},
+        )
+
+    if not await allow_embed_chat_message(workflow_run.id):
+        raise HTTPException(
+            status_code=429, detail="Too many messages. Please try again shortly"
         )
 
     quota_result = await authorize_workflow_run_start(

@@ -100,6 +100,9 @@ def _patch_db(monkeypatch):
     async def _noop(*_args, **_kwargs):
         return None
 
+    async def _allow(*_args, **_kwargs):
+        return True
+
     monkeypatch.setattr(
         "api.routes.public_embed.db_client.get_embed_token_by_token",
         _get_token,
@@ -125,8 +128,8 @@ def _patch_db(monkeypatch):
         _noop,
     )
     monkeypatch.setattr(
-        "api.routes.public_embed.db_client.increment_embed_token_usage",
-        _noop,
+        "api.routes.public_embed.db_client.reserve_embed_token_usage",
+        _allow,
     )
     monkeypatch.setattr("api.routes.public_embed.ENABLE_COTURN", True)
     monkeypatch.setattr("api.routes.public_embed.TURN_SECRET", "test-secret")

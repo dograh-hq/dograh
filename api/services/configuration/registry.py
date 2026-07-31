@@ -1410,7 +1410,7 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     model: str = Field(
         default="nova-3-general",
         description="Deepgram STT model.",
-        json_schema_extra={"examples": DEEPGRAM_STT_MODELS},
+        json_schema_extra={"examples": DEEPGRAM_STT_MODELS, "allow_custom_input": True},
     )
     language: str = Field(
         default="multi",
@@ -1420,8 +1420,10 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
         ),
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
+            "allow_custom_input": True,
             "model_options": {
                 "nova-3-general": DEEPGRAM_LANGUAGES,
+                "nova-3-medical": DEEPGRAM_LANGUAGES,
                 "flux-general-en": ("en",),
                 "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },

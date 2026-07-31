@@ -49,8 +49,9 @@ Expected sequence:
 1. Dograh sends `POST /v1/voice/accounts/{auth_id}/calls`.
 2. TryVox sends a signed POST to `/api/v1/telephony/tryvox/answer`.
 3. Dograh returns VoxML containing an `inbound_track` Stream.
-4. TryVox opens Dograh's TryVox WSS route using the `audio.drachtio.org`
-   subprotocol and sends metadata followed by binary PCM16 at 8 kHz.
+4. TryVox opens Dograh's TryVox WSS route with its short-lived, single-use
+   capability and the `audio.drachtio.org` subprotocol, then sends metadata
+   followed by binary PCM16 at 8 kHz.
 5. Dograh sends `playAudio` JSON messages containing Base64 PCM16.
 6. TryVox plays those messages on the call leg.
 7. Signed status callbacks update the Dograh workflow run through ringing, answered, and hangup states.
@@ -96,6 +97,11 @@ true
 
 - Change one byte of a captured Answer or status body without changing its signature: Dograh must return `401`.
 - Reuse a signed request after five minutes: Dograh must return `401`.
+- Replay the same valid status callback inside five minutes: Dograh must
+  acknowledge it without processing the status twice.
 - Send a valid callback for a different call ID: Dograh must return `403`.
+- Connect to the media WebSocket without its capability, with the wrong
+  capability, or reuse a redeemed capability: Dograh must reject the socket
+  before starting the workflow run.
 - Connect the media WebSocket without metadata for ten seconds: Dograh must close it with code `4408`.
 - Send metadata containing another workflow run ID: Dograh must close it with code `4403`.

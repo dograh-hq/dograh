@@ -9,6 +9,7 @@ import pytest
 
 from api.db import db_client
 from api.enums import TelephonyCallStatus
+from api.errors.telephony_errors import TelephonyError
 from api.services.telephony.providers.tryvox.provider import TryVoxProvider
 
 
@@ -149,14 +150,11 @@ async def test_initiate_call_uses_tryvox_voice_api_and_signed_callbacks():
         "from": "+15551230001",
         "to": "+15551230002",
         "answer_url": (
-            "https://dograh.test/api/v1/telephony/tryvox/answer"
-            "?workflow_run_id=9"
+            "https://dograh.test/api/v1/telephony/tryvox/answer?workflow_run_id=9"
         ),
         "answer_method": "POST",
         "webhook_secret": "account-webhook-secret",
-        "status_callback_url": (
-            "https://dograh.test/api/v1/telephony/tryvox/status/9"
-        ),
+        "status_callback_url": ("https://dograh.test/api/v1/telephony/tryvox/status/9"),
         "status_callback_method": "POST",
     }
 
@@ -196,10 +194,18 @@ async def test_verify_inbound_signature_rejects_tampering_and_replay():
 @pytest.mark.asyncio
 async def test_get_webhook_response_is_native_voxml_stream():
     provider = _provider()
-    with patch(
-        "api.services.telephony.providers.tryvox.provider.get_backend_endpoints",
-        new_callable=AsyncMock,
-        return_value=("https://dograh.test", "wss://dograh.test"),
+    with (
+        patch(
+            "api.services.telephony.providers.tryvox.provider.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://dograh.test", "wss://dograh.test"),
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.issue_stream_token",
+            new_callable=AsyncMock,
+            return_value="stream-token",
+        ),
     ):
         response = json.loads(await provider.get_webhook_response(7, 11, 13))
 
@@ -208,7 +214,10 @@ async def test_get_webhook_response_is_native_voxml_stream():
         "instructions": [
             {
                 "verb": "Stream",
-                "url": "wss://dograh.test/api/v1/telephony/tryvox/ws/7/11/13",
+                "url": (
+                    "wss://dograh.test/api/v1/telephony/tryvox/ws/7/11/13"
+                    "?token=stream-token"
+                ),
                 "track": "inbound_track",
                 "parameters": {
                     "provider": "tryvox",
@@ -222,16 +231,22 @@ async def test_get_webhook_response_is_native_voxml_stream():
 @pytest.mark.asyncio
 async def test_inbound_stream_uses_tryvox_subprotocol_route():
     provider = _provider()
-    response = await provider.start_inbound_stream(
-        websocket_url="wss://dograh.test/api/v1/telephony/ws/7/11/13",
-        workflow_run_id=13,
-        normalized_data=SimpleNamespace(),
-        backend_endpoint="https://dograh.test",
-    )
+    with patch(
+        "api.services.telephony.providers.tryvox.provider."
+        "tryvox_security.issue_stream_token",
+        new_callable=AsyncMock,
+        return_value="stream-token",
+    ):
+        response = await provider.start_inbound_stream(
+            websocket_url="wss://dograh.test/api/v1/telephony/ws/7/11/13",
+            workflow_run_id=13,
+            normalized_data=SimpleNamespace(),
+            backend_endpoint="https://dograh.test",
+        )
 
     payload = json.loads(response.body)
     assert payload["instructions"][0]["url"] == (
-        "wss://dograh.test/api/v1/telephony/tryvox/ws/7/11/13"
+        "wss://dograh.test/api/v1/telephony/tryvox/ws/7/11/13?token=stream-token"
     )
 
 
@@ -287,9 +302,7 @@ async def test_configure_inbound_updates_application_then_assigns_number():
             "https://api.tryvox.test/v1/voice/applications/app_123",
             {
                 "json": {
-                    "answer_url": (
-                        "https://dograh.test/api/v1/telephony/inbound/run"
-                    ),
+                    "answer_url": ("https://dograh.test/api/v1/telephony/inbound/run"),
                     "answer_method": "POST",
                     "webhook_secret": "account-webhook-secret",
                 },
@@ -357,3 +370,31 @@ async def test_websocket_rejects_wrong_run_metadata():
         await provider.handle_websocket(websocket, 7, 11, 13)
 
     assert websocket.closed == (4403, "Stream metadata mismatch")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata", [{}, [], {"provider": "tryvox"}])
+async def test_websocket_requires_object_metadata_with_exact_run_id(metadata):
+    provider = _provider()
+    websocket = _WebSocket(metadata)
+    workflow_run = SimpleNamespace(gathered_context={"call_id": "call-123"})
+
+    with patch.object(
+        db_client,
+        "get_workflow_run",
+        new_callable=AsyncMock,
+        return_value=workflow_run,
+    ):
+        await provider.handle_websocket(websocket, 7, 11, 13)
+
+    assert websocket.closed == (4403, "Stream metadata mismatch")
+
+
+def test_validation_error_response_uses_voxml_json():
+    response = TryVoxProvider.generate_validation_error_response(
+        TelephonyError.PHONE_NUMBER_NOT_CONFIGURED
+    )
+    payload = json.loads(response.body)
+
+    assert payload["voxml_version"] == "1.0"
+    assert payload["instructions"][-1] == {"verb": "Hangup"}

@@ -5,7 +5,6 @@ import json
 
 import aiohttp
 from loguru import logger
-
 from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import (
     AudioRawFrame,
@@ -130,7 +129,8 @@ class TryVoxFrameSerializer(FrameSerializer):
             f"{self._auth_id}/calls/{self._call_id}"
         )
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=5.0, connect=2.0)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 auth = aiohttp.BasicAuth(self._auth_id, self._auth_token)
                 async with session.delete(endpoint, auth=auth) as response:
                     if response.status in (204, 404, 409):
@@ -140,7 +140,7 @@ class TryVoxFrameSerializer(FrameSerializer):
                         f"TryVox call hangup failed: "
                         f"status={response.status} body={body}"
                     )
-        except Exception as exc:
+        except (aiohttp.ClientError, TimeoutError) as exc:
             logger.error(f"TryVox call hangup failed: {exc}")
 
 

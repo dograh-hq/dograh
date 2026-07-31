@@ -7,8 +7,8 @@ import hashlib
 import hmac
 import json
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from urllib.parse import quote
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, urlencode, urlparse
 
 import aiohttp
 from fastapi import HTTPException
@@ -24,6 +24,8 @@ from api.services.telephony.base import (
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
+from .security import tryvox_security
+
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
@@ -35,7 +37,7 @@ class TryVoxProvider(TelephonyProvider):
     WEBHOOK_ENDPOINT = "tryvox/answer"
     SIGNATURE_MAX_AGE_SECONDS = 300
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.auth_id = config.get("auth_id", "")
         self.auth_token = config.get("auth_token", "")
         self.webhook_secret = config.get("webhook_secret", "")
@@ -59,8 +61,8 @@ class TryVoxProvider(TelephonyProvider):
         self,
         to_number: str,
         webhook_url: str,
-        workflow_run_id: Optional[int] = None,
-        from_number: Optional[str] = None,
+        workflow_run_id: int | None = None,
+        from_number: str | None = None,
         **kwargs: Any,
     ) -> CallInitiationResult:
         if not self.validate_config():
@@ -70,7 +72,7 @@ class TryVoxProvider(TelephonyProvider):
         if not selected_from:
             raise ValueError("TryVox outbound call requires an account phone number")
 
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "from": selected_from,
             "to": to_number,
             "answer_url": webhook_url,
@@ -89,16 +91,16 @@ class TryVoxProvider(TelephonyProvider):
                 }
             )
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                self._call_url(), json=data, auth=self._auth()
-            ) as response:
-                response_data = await self._json_response(response)
-                if response.status != 201:
-                    raise HTTPException(
-                        status_code=response.status,
-                        detail=f"TryVox call initiation failed: {response_data}",
-                    )
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(self._call_url(), json=data, auth=self._auth()) as response,
+        ):
+            response_data = await self._json_response(response)
+            if response.status != 201:
+                raise HTTPException(
+                    status_code=response.status,
+                    detail=f"TryVox call initiation failed: {response_data}",
+                )
 
         call_data = response_data.get("data", response_data)
         call_id = call_data.get("request_uuid")
@@ -115,22 +117,22 @@ class TryVoxProvider(TelephonyProvider):
             raw_response=response_data,
         )
 
-    async def get_call_status(self, call_id: str) -> Dict[str, Any]:
+    async def get_call_status(self, call_id: str) -> dict[str, Any]:
         if not self.validate_config():
             raise ValueError("TryVox provider not properly configured")
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                self._call_url(call_id), auth=self._auth()
-            ) as response:
-                data = await self._json_response(response)
-                if response.status != 200:
-                    raise HTTPException(
-                        status_code=response.status,
-                        detail=f"TryVox call lookup failed: {data}",
-                    )
-                return data.get("data", data)
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(self._call_url(call_id), auth=self._auth()) as response,
+        ):
+            data = await self._json_response(response)
+            if response.status != 200:
+                raise HTTPException(
+                    status_code=response.status,
+                    detail=f"TryVox call lookup failed: {data}",
+                )
+            return data.get("data", data)
 
-    async def get_available_phone_numbers(self) -> List[str]:
+    async def get_available_phone_numbers(self) -> list[str]:
         return self.from_numbers
 
     def validate_config(self) -> bool:
@@ -142,7 +144,7 @@ class TryVoxProvider(TelephonyProvider):
         )
 
     async def verify_webhook_signature(
-        self, url: str, params: Dict[str, Any], signature: str
+        self, url: str, params: dict[str, Any], signature: str
     ) -> bool:
         timestamp = self._signature_timestamp(signature)
         body = json.dumps(params, separators=(",", ":"), ensure_ascii=False)
@@ -152,6 +154,10 @@ class TryVoxProvider(TelephonyProvider):
         self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         _, websocket_endpoint = await get_backend_endpoints()
+        stream_token = await tryvox_security.issue_stream_token(
+            workflow_id, organization_id, workflow_run_id
+        )
+        stream_query = urlencode({"token": stream_token})
         return json.dumps(
             {
                 "voxml_version": "1.0",
@@ -161,6 +167,7 @@ class TryVoxProvider(TelephonyProvider):
                         "url": (
                             f"{websocket_endpoint}/api/v1/telephony/tryvox/ws/"
                             f"{workflow_id}/{organization_id}/{workflow_run_id}"
+                            f"?{stream_query}"
                         ),
                         "track": "inbound_track",
                         "parameters": {
@@ -172,7 +179,7 @@ class TryVoxProvider(TelephonyProvider):
             }
         )
 
-    async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
+    async def get_call_cost(self, call_id: str) -> dict[str, Any]:
         try:
             call = await self.get_call_status(call_id)
             return {
@@ -181,7 +188,13 @@ class TryVoxProvider(TelephonyProvider):
                 "status": call.get("status", "unknown"),
                 "raw_response": call,
             }
-        except Exception as exc:
+        except (
+            aiohttp.ClientError,
+            HTTPException,
+            TimeoutError,
+            TypeError,
+            ValueError,
+        ) as exc:
             logger.error(f"TryVox call status lookup failed: {exc}")
             return {
                 "cost_usd": 0.0,
@@ -190,7 +203,7 @@ class TryVoxProvider(TelephonyProvider):
                 "error": str(exc),
             }
 
-    def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_status_callback(self, data: dict[str, Any]) -> dict[str, Any]:
         raw_status = data.get("Status") or data.get("status") or ""
         raw_duration = data.get("Duration") or data.get("duration")
         status_map = {
@@ -215,7 +228,7 @@ class TryVoxProvider(TelephonyProvider):
 
     async def handle_websocket(
         self,
-        websocket: "WebSocket",
+        websocket: WebSocket,
         workflow_id: int,
         organization_id: int,
         workflow_run_id: int,
@@ -247,8 +260,9 @@ class TryVoxProvider(TelephonyProvider):
             await websocket.close(code=4400, reason="Invalid Stream metadata")
             return
 
-        metadata_run_id = metadata.get("workflow_run_id")
-        if metadata_run_id and str(metadata_run_id) != str(workflow_run_id):
+        if not isinstance(metadata, dict) or str(
+            metadata.get("workflow_run_id")
+        ) != str(workflow_run_id):
             await websocket.close(code=4403, reason="Stream metadata mismatch")
             return
 
@@ -264,26 +278,21 @@ class TryVoxProvider(TelephonyProvider):
 
     @classmethod
     def can_handle_webhook(
-        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+        cls, webhook_data: dict[str, Any], headers: dict[str, str]
     ) -> bool:
         normalized_headers = {key.lower(): value for key, value in headers.items()}
         user_agent = normalized_headers.get("user-agent", "").lower()
         return (
-            "tryvox" in user_agent
-            or "x-tryvox-signature" in normalized_headers
-        ) and bool(
-            webhook_data.get("call_uuid") or webhook_data.get("CallUUID")
-        )
+            "tryvox" in user_agent or "x-tryvox-signature" in normalized_headers
+        ) and bool(webhook_data.get("call_uuid") or webhook_data.get("CallUUID"))
 
     @staticmethod
-    def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+    def parse_inbound_webhook(webhook_data: dict[str, Any]) -> NormalizedInboundData:
         from_raw = webhook_data.get("from") or webhook_data.get("From") or ""
         to_raw = webhook_data.get("to") or webhook_data.get("To") or ""
         return NormalizedInboundData(
             provider=TryVoxProvider.PROVIDER_NAME,
-            call_id=webhook_data.get("call_uuid")
-            or webhook_data.get("CallUUID")
-            or "",
+            call_id=webhook_data.get("call_uuid") or webhook_data.get("CallUUID") or "",
             from_number=normalize_telephony_address(from_raw).canonical
             if from_raw
             else "",
@@ -291,9 +300,7 @@ class TryVoxProvider(TelephonyProvider):
             direction=webhook_data.get("direction")
             or webhook_data.get("Direction")
             or "",
-            call_status=webhook_data.get("status")
-            or webhook_data.get("Status")
-            or "",
+            call_status=webhook_data.get("status") or webhook_data.get("Status") or "",
             account_id=webhook_data.get("account_id")
             or webhook_data.get("AccountID")
             or webhook_data.get("AccountId"),
@@ -302,15 +309,16 @@ class TryVoxProvider(TelephonyProvider):
 
     @staticmethod
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
-        return bool(webhook_account_id) and config_data.get(
-            "auth_id"
-        ) == webhook_account_id
+        return (
+            bool(webhook_account_id)
+            and config_data.get("auth_id") == webhook_account_id
+        )
 
     async def verify_inbound_signature(
         self,
         url: str,
-        webhook_data: Dict[str, Any],
-        headers: Dict[str, str],
+        webhook_data: dict[str, Any],
+        headers: dict[str, str],
         body: str = "",
     ) -> bool:
         normalized_headers = {key.lower(): value for key, value in headers.items()}
@@ -337,6 +345,18 @@ class TryVoxProvider(TelephonyProvider):
             "/api/v1/telephony/tryvox/ws/",
             1,
         )
+        path_parts = urlparse(websocket_url).path.rstrip("/").split("/")
+        try:
+            workflow_id, organization_id, url_run_id = map(int, path_parts[-3:])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Invalid TryVox media WebSocket URL") from exc
+        if url_run_id != workflow_run_id:
+            raise ValueError("TryVox media WebSocket run ID mismatch")
+
+        stream_token = await tryvox_security.issue_stream_token(
+            workflow_id, organization_id, workflow_run_id
+        )
+        websocket_url = f"{websocket_url}?{urlencode({'token': stream_token})}"
         return JSONResponse(
             {
                 "voxml_version": "1.0",
@@ -355,7 +375,7 @@ class TryVoxProvider(TelephonyProvider):
         )
 
     async def configure_inbound(
-        self, address: str, webhook_url: Optional[str]
+        self, address: str, webhook_url: str | None
     ) -> ProviderSyncResult:
         if not self.application_id:
             return ProviderSyncResult(
@@ -391,8 +411,7 @@ class TryVoxProvider(TelephonyProvider):
                     return ProviderSyncResult(ok=True)
 
                 application_url = (
-                    f"{self.api_base_url}/v1/voice/applications/"
-                    f"{self.application_id}"
+                    f"{self.api_base_url}/v1/voice/applications/{self.application_id}"
                 )
                 async with session.patch(
                     application_url,
@@ -426,7 +445,7 @@ class TryVoxProvider(TelephonyProvider):
                             ),
                         )
                 return ProviderSyncResult(ok=True)
-        except Exception as exc:
+        except (aiohttp.ClientError, TimeoutError) as exc:
             logger.error(f"TryVox inbound configuration failed: {exc}")
             return ProviderSyncResult(
                 ok=False, message=f"TryVox inbound configuration failed: {exc}"
@@ -449,6 +468,19 @@ class TryVoxProvider(TelephonyProvider):
             }
         )
 
+    @staticmethod
+    def generate_validation_error_response(error_type):
+        from api.errors.telephony_errors import (
+            TELEPHONY_ERROR_MESSAGES,
+            TelephonyError,
+        )
+
+        message = TELEPHONY_ERROR_MESSAGES.get(
+            error_type,
+            TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED],
+        )
+        return TryVoxProvider.generate_error_response(str(error_type), message)
+
     async def transfer_call(
         self,
         destination: str,
@@ -456,7 +488,7 @@ class TryVoxProvider(TelephonyProvider):
         conference_name: str,
         timeout: int = 30,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         raise NotImplementedError("TryVox transfer is not enabled in Dograh")
 
     def supports_transfers(self) -> bool:
@@ -479,7 +511,7 @@ class TryVoxProvider(TelephonyProvider):
             return False
         expected = hmac.new(
             self.webhook_secret.encode("utf-8"),
-            f"{timestamp}.{body}".encode("utf-8"),
+            f"{timestamp}.{body}".encode(),
             hashlib.sha256,
         ).hexdigest()
         return hmac.compare_digest(expected, supplied)
@@ -501,8 +533,12 @@ class TryVoxProvider(TelephonyProvider):
         return ""
 
     @staticmethod
-    async def _json_response(response: aiohttp.ClientResponse) -> Dict[str, Any]:
+    async def _json_response(response: aiohttp.ClientResponse) -> dict[str, Any]:
         try:
             return await response.json()
-        except Exception:
+        except (
+            aiohttp.ContentTypeError,
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+        ):
             return {"message": await response.text()}

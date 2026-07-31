@@ -1,8 +1,8 @@
 import base64
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from pipecat.frames.frames import AudioRawFrame, InputAudioRawFrame, InterruptionFrame
 
 from api.services.telephony.providers.tryvox.serializers import TryVoxFrameSerializer
@@ -59,3 +59,25 @@ async def test_metadata_and_interruption_do_not_emit_provider_commands():
 
     assert await serializer.deserialize('{"workflow_run_id":"13"}') is None
     assert await serializer.serialize(InterruptionFrame()) is None
+
+
+@pytest.mark.asyncio
+async def test_hangup_uses_short_explicit_timeout():
+    serializer = _serializer()
+    response = MagicMock(status=204)
+    response.__aenter__ = AsyncMock(return_value=response)
+    response.__aexit__ = AsyncMock(return_value=False)
+    session = MagicMock()
+    session.delete.return_value = response
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+
+    with patch(
+        "api.services.telephony.providers.tryvox.serializers.aiohttp.ClientSession",
+        return_value=session,
+    ) as client_session:
+        await serializer._hang_up_call()
+
+    timeout = client_session.call_args.kwargs["timeout"]
+    assert timeout.total == 5.0
+    assert timeout.connect == 2.0

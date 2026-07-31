@@ -14,6 +14,8 @@ from api.services.telephony.status_processor import (
     _process_status_update,
 )
 
+from .security import tryvox_security
+
 router = APIRouter()
 
 
@@ -24,8 +26,18 @@ async def handle_tryvox_websocket(
     organization_id: int,
     workflow_run_id: int,
 ):
-    """Accept TryVox's required media subprotocol, then use Dograh's handler."""
+    """Redeem a one-shot capability, then accept TryVox's media protocol."""
     from api.routes.telephony import _handle_telephony_websocket
+
+    token = websocket.query_params.get("token", "")
+    if not await tryvox_security.redeem_stream_token(
+        workflow_id,
+        organization_id,
+        workflow_run_id,
+        token,
+    ):
+        await websocket.close(code=4401, reason="Invalid stream capability")
+        return
 
     await websocket.accept(subprotocol="audio.drachtio.org")
     await _handle_telephony_websocket(
@@ -76,12 +88,18 @@ async def _verify_request(
     provider,
     callback_data: dict,
     raw_body: str,
-) -> None:
+) -> bool:
     valid = await provider.verify_inbound_signature(
         str(request.url), callback_data, dict(request.headers), raw_body
     )
     if not valid:
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    timestamp = provider._signature_timestamp(
+        request.headers.get("x-tryvox-signature", "")
+    )
+    return not await tryvox_security.claim_callback(
+        provider.auth_id, timestamp, raw_body
+    )
 
 
 def _assert_call_matches(workflow_run, callback_data: dict) -> None:
@@ -124,8 +142,10 @@ async def handle_tryvox_status(
     set_current_run_id(workflow_run_id)
     callback_data, raw_body = await _read_signed_json(request)
     workflow_run, _, provider = await _resolve_provider(workflow_run_id)
-    await _verify_request(request, provider, callback_data, raw_body)
+    duplicate = await _verify_request(request, provider, callback_data, raw_body)
     _assert_call_matches(workflow_run, callback_data)
+    if duplicate:
+        return {"status": "success", "duplicate": True}
 
     parsed = provider.parse_status_callback(callback_data)
     if not parsed["call_id"]:

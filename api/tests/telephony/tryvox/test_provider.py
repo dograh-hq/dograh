@@ -158,6 +158,12 @@ async def test_initiate_call_uses_tryvox_voice_api_and_signed_callbacks():
             new_callable=AsyncMock,
             return_value=("https://dograh.test", "wss://dograh.test"),
         ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.issue_call_correlation",
+            new_callable=AsyncMock,
+            return_value="callback-token",
+        ),
     ):
         result = await provider.initiate_call(
             "+15551230002",
@@ -175,10 +181,14 @@ async def test_initiate_call_uses_tryvox_voice_api_and_signed_callbacks():
         "to": "+15551230002",
         "answer_url": (
             "https://dograh.test/api/v1/telephony/tryvox/answer?workflow_run_id=9"
+            "&correlation_token=callback-token"
         ),
         "answer_method": "POST",
         "webhook_secret": "account-webhook-secret",
-        "status_callback_url": ("https://dograh.test/api/v1/telephony/tryvox/status/9"),
+        "status_callback_url": (
+            "https://dograh.test/api/v1/telephony/tryvox/status/9"
+            "?correlation_token=callback-token"
+        ),
         "status_callback_method": "POST",
     }
 

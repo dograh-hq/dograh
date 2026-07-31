@@ -45,6 +45,14 @@ class _FakeRedis:
                 return 1
             return 2 if stored == completed else 0
 
+        if len(args) == 3 and "local stored" in script:
+            expected, completed, ttl = args
+            if stored not in (None, expected, completed):
+                return 0
+            self.values[key] = completed
+            self.expirations[key] = ttl
+            return 1
+
         if len(args) == 3:
             expected, completed, ttl = args
             if stored != expected:
@@ -202,6 +210,9 @@ async def test_callback_claim_is_atomic_and_retry_safe():
         await security.reserve_callback("acct-1", "status", 13, "123", '{"call":"one"}')
     )[0] == "completed"
     assert (
+        await security.reserve_callback("acct-1", "status", 13, "124", '{"call":"one"}')
+    )[0] == "completed"
+    assert (
         await security.reserve_callback("acct-1", "answer", 13, "123", '{"call":"one"}')
     )[0] == "acquired"
     assert (
@@ -253,7 +264,26 @@ async def test_claim_call_id_binds_first_caller_and_rejects_conflicts():
 
 
 @pytest.mark.asyncio
-async def test_force_complete_callback_overwrites_any_prior_state():
+async def test_call_correlation_is_stable_and_bound_to_run():
+    redis = _FakeRedis()
+    security = TryVoxSecurity(redis)
+
+    with patch(
+        "api.services.telephony.providers.tryvox.security.secrets.token_urlsafe",
+        return_value="callback-token",
+    ):
+        first = await security.issue_call_correlation(13)
+        second = await security.issue_call_correlation(13)
+
+    assert first == second == "callback-token"
+    assert await security.verify_call_correlation(13, "callback-token") is True
+    assert await security.verify_call_correlation(13, "wrong-token") is False
+    assert await security.verify_call_correlation(14, "callback-token") is False
+    assert await security.verify_call_correlation(13, "") is False
+
+
+@pytest.mark.asyncio
+async def test_safe_completion_preserves_a_newer_owner():
     redis = _FakeRedis()
     security = TryVoxSecurity(redis)
     args = ("acct-1", "status", 13, "123", '{"call":"one"}')
@@ -262,9 +292,16 @@ async def test_force_complete_callback_overwrites_any_prior_state():
     assert state == "acquired"
     assert owner
 
-    # The owning worker's finalize claim is lost (e.g. TTL expiry), but the
-    # side effect already succeeded -- force the completion marker anyway.
-    await security.force_complete_callback(*args)
+    callback_key = next(
+        key for key in redis.values if key.startswith("tryvox:callback:")
+    )
+    redis.values[callback_key] = f"{TryVoxSecurity.CALLBACK_PROCESSING_PREFIX}new-owner"
+
+    assert await security.complete_callback_if_unclaimed(*args, owner) is False
+    assert redis.values[callback_key].endswith("new-owner")
+
+    del redis.values[callback_key]
+    assert await security.complete_callback_if_unclaimed(*args, owner) is True
 
     assert (await security.reserve_callback(*args))[0] == "completed"
 

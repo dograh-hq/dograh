@@ -85,6 +85,17 @@ class TryVoxProvider(TelephonyProvider):
         if not selected_from:
             raise ValueError("TryVox outbound call requires an account phone number")
 
+        correlation_token = None
+        if workflow_run_id is not None:
+            correlation_token = await tryvox_security.issue_call_correlation(
+                workflow_run_id
+            )
+            separator = "&" if "?" in webhook_url else "?"
+            webhook_url = (
+                f"{webhook_url}{separator}"
+                f"correlation_token={quote(correlation_token, safe='')}"
+            )
+
         data: dict[str, Any] = {
             "from": selected_from,
             "to": to_number,
@@ -92,13 +103,14 @@ class TryVoxProvider(TelephonyProvider):
             "answer_method": "POST",
             "webhook_secret": self.webhook_secret,
         }
-        if workflow_run_id:
+        if workflow_run_id is not None:
             backend_endpoint, _ = await get_backend_endpoints()
+            status_query = urlencode({"correlation_token": correlation_token})
             data.update(
                 {
                     "status_callback_url": (
                         f"{backend_endpoint}/api/v1/telephony/"
-                        f"tryvox/status/{workflow_run_id}"
+                        f"tryvox/status/{workflow_run_id}?{status_query}"
                     ),
                     "status_callback_method": "POST",
                 }

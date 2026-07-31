@@ -222,6 +222,12 @@ async def _assert_call_matches(
     workflow_run.gathered_context = gathered_context
 
 
+async def _assert_call_correlation(request: Request, workflow_run_id: int) -> None:
+    supplied = request.query_params.get("correlation_token", "")
+    if not await tryvox_security.verify_call_correlation(workflow_run_id, supplied):
+        raise HTTPException(status_code=403, detail="Invalid callback correlation")
+
+
 @router.post("/tryvox/answer", include_in_schema=False)
 async def handle_tryvox_answer(
     request: Request,
@@ -238,6 +244,7 @@ async def handle_tryvox_answer(
     if workflow.id != workflow_id:
         raise HTTPException(status_code=400, detail="Workflow ID mismatch")
     timestamp = await _verify_request(request, provider, callback_data, raw_body)
+    await _assert_call_correlation(request, workflow_run_id)
     await _assert_call_matches(workflow_run, workflow_run_id, callback_data)
     claim_state, owner = await tryvox_security.reserve_callback(
         provider.auth_id,
@@ -283,16 +290,19 @@ async def handle_tryvox_answer(
         owner,
     )
     if not finalized:
-        # The response was already generated successfully; releasing the
-        # reservation here would let a provider retry regenerate it (and,
-        # worse, reissue a stream capability) instead of reusing it. Force
-        # the completion marker so a retry is treated as a duplicate.
+        # Record completion only if the claim expired without being acquired
+        # by a retry. Never overwrite a newer worker's active reservation.
         logger.warning(
             f"[run {workflow_run_id}] Lost TryVox answer callback claim "
-            "after generating the response; forcing completion marker"
+            "after generating the response; attempting safe completion"
         )
-        await tryvox_security.force_complete_callback(
-            provider.auth_id, "answer", workflow_run_id, timestamp, raw_body
+        await tryvox_security.complete_callback_if_unclaimed(
+            provider.auth_id,
+            "answer",
+            workflow_run_id,
+            timestamp,
+            raw_body,
+            owner,
         )
     return JSONResponse(json.loads(response_content))
 
@@ -307,6 +317,7 @@ async def handle_tryvox_status(
     callback_data, raw_body = await _read_signed_json(request)
     workflow_run, _, provider = await _resolve_provider(workflow_run_id)
     timestamp = await _verify_request(request, provider, callback_data, raw_body)
+    await _assert_call_correlation(request, workflow_run_id)
     await _assert_call_matches(workflow_run, workflow_run_id, callback_data)
     parsed = provider.parse_status_callback(callback_data)
     if not parsed["call_id"]:
@@ -358,15 +369,19 @@ async def handle_tryvox_status(
         owner,
     )
     if not finalized:
-        # The status update already applied; releasing the reservation here
-        # would let a provider retry reprocess the same lifecycle transition.
-        # Force the completion marker so a retry is treated as a duplicate.
+        # Record completion only if the claim expired without being acquired
+        # by a retry. Never overwrite a newer worker's active reservation.
         logger.warning(
             f"[run {workflow_run_id}] Lost TryVox status callback claim "
-            "after processing; forcing completion marker"
+            "after processing; attempting safe completion"
         )
-        await tryvox_security.force_complete_callback(
-            provider.auth_id, "status", workflow_run_id, timestamp, raw_body
+        await tryvox_security.complete_callback_if_unclaimed(
+            provider.auth_id,
+            "status",
+            workflow_run_id,
+            timestamp,
+            raw_body,
+            owner,
         )
     logger.info(
         f"[run {workflow_run_id}] Processed TryVox status "

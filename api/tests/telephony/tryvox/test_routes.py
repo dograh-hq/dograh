@@ -56,7 +56,7 @@ def _request(path: str, body: dict) -> Request:
             "scheme": "https",
             "server": ("dograh.test", 443),
             "path": path,
-            "query_string": b"",
+            "query_string": b"correlation_token=callback-token",
             "headers": [
                 (b"content-type", b"application/json"),
                 (b"x-tryvox-timestamp", timestamp.encode()),
@@ -68,6 +68,16 @@ def _request(path: str, body: dict) -> Request:
         },
         receive,
     )
+
+
+@pytest.fixture(autouse=True)
+def _valid_callback_correlation():
+    with patch(
+        f"{ROUTES_MODULE}.tryvox_security.verify_call_correlation",
+        new_callable=AsyncMock,
+        return_value=True,
+    ):
+        yield
 
 
 @pytest.mark.asyncio
@@ -520,11 +530,11 @@ async def test_duplicate_answer_after_stream_redemption_returns_terminal_voxml()
 
 
 @pytest.mark.asyncio
-async def test_answer_route_forces_completion_when_finalize_claim_is_lost():
+async def test_answer_route_attempts_safe_completion_when_claim_is_lost():
     """If the response was already generated but `finalize_callback` loses
     its claim (e.g. TTL expiry under slow processing), the route must not
-    release the reservation for a retry to reprocess -- it should force the
-    completion marker and still return the already-generated response."""
+    release the reservation for a retry to reprocess. It should attempt the
+    ownership-safe completion marker and return the generated response."""
     provider = _provider()
     workflow_run = SimpleNamespace(
         workflow_id=7,
@@ -560,7 +570,7 @@ async def test_answer_route_forces_completion_when_finalize_claim_is_lost():
             return_value=False,
         ),
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.force_complete_callback",
+            f"{ROUTES_MODULE}.tryvox_security.complete_callback_if_unclaimed",
             new_callable=AsyncMock,
         ) as force_complete,
         patch(
@@ -585,7 +595,7 @@ async def test_answer_route_forces_completion_when_finalize_claim_is_lost():
 
 
 @pytest.mark.asyncio
-async def test_status_route_forces_completion_when_finalize_claim_is_lost():
+async def test_status_route_attempts_safe_completion_when_claim_is_lost():
     provider = _provider()
     workflow_run = SimpleNamespace(
         workflow_id=7,
@@ -620,7 +630,7 @@ async def test_status_route_forces_completion_when_finalize_claim_is_lost():
             return_value=False,
         ),
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.force_complete_callback",
+            f"{ROUTES_MODULE}.tryvox_security.complete_callback_if_unclaimed",
             new_callable=AsyncMock,
         ) as force_complete,
         patch(
@@ -636,6 +646,48 @@ async def test_status_route_forces_completion_when_finalize_claim_is_lost():
     process_status.assert_awaited_once()
     force_complete.assert_awaited_once()
     release_callback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_answer_route_rejects_invalid_call_correlation_before_binding():
+    provider = _provider()
+    workflow_run = SimpleNamespace(
+        workflow_id=7,
+        gathered_context={},
+        initial_context={"telephony_configuration_id": 5},
+    )
+    workflow = SimpleNamespace(id=7, organization_id=11)
+    request = _request(
+        "/api/v1/telephony/tryvox/answer",
+        {"call_uuid": "call-foreign", "account_id": "TJaccount"},
+    )
+
+    with (
+        patch(f"{ROUTES_MODULE}.db_client") as db_client,
+        patch(
+            f"{ROUTES_MODULE}.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.verify_call_correlation",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.claim_call_id",
+            new_callable=AsyncMock,
+        ) as claim_call_id,
+    ):
+        db_client.get_workflow_run = AsyncMock(return_value=workflow_run)
+        db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
+
+        with pytest.raises(HTTPException) as exc:
+            await handle_tryvox_answer(request, 7, 13, 11)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Invalid callback correlation"
+    claim_call_id.assert_not_awaited()
 
 
 @pytest.mark.asyncio

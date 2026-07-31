@@ -18,6 +18,7 @@ class TryVoxSecurity:
     STREAM_RESERVATION_TTL_SECONDS = STREAM_TOKEN_TTL_SECONDS
     CALLBACK_REPLAY_TTL_SECONDS = 300
     CALL_CLAIM_TTL_SECONDS = 24 * 60 * 60
+    CALL_CORRELATION_TTL_SECONDS = CALL_CLAIM_TTL_SECONDS
     CONSUMED_STREAM_TOKEN_PREFIX = "__consumed__:"
     RESERVED_STREAM_TOKEN_PREFIX = "__reserved__:"
     CALLBACK_PROCESSING_PREFIX = "__processing__:"
@@ -222,6 +223,43 @@ class TryVoxSecurity:
     def _call_claim_key(workflow_run_id: int) -> str:
         return f"tryvox:call-claim:{workflow_run_id}"
 
+    @staticmethod
+    def _call_correlation_key(workflow_run_id: int) -> str:
+        return f"tryvox:call-correlation:{workflow_run_id}"
+
+    async def issue_call_correlation(self, workflow_run_id: int) -> str:
+        """Create the opaque capability included in this run's callback URLs."""
+        redis = await self._get_redis()
+        key = self._call_correlation_key(workflow_run_id)
+        existing = await redis.get(key)
+        if existing:
+            return str(existing)
+
+        for _ in range(2):
+            token = secrets.token_urlsafe(32)
+            if await redis.set(
+                key,
+                token,
+                ex=self.CALL_CORRELATION_TTL_SECONDS,
+                nx=True,
+            ):
+                return token
+            existing = await redis.get(key)
+            if existing:
+                return str(existing)
+
+        raise RuntimeError("Unable to issue TryVox call correlation")
+
+    async def verify_call_correlation(
+        self, workflow_run_id: int, supplied_token: str
+    ) -> bool:
+        """Verify that a callback URL was minted for this workflow run."""
+        if not supplied_token:
+            return False
+        redis = await self._get_redis()
+        expected = await redis.get(self._call_correlation_key(workflow_run_id))
+        return bool(expected) and secrets.compare_digest(str(expected), supplied_token)
+
     async def claim_call_id(self, workflow_run_id: int, call_id: str) -> str:
         """Atomically bind the first signed call ID seen for a run.
 
@@ -246,14 +284,11 @@ class TryVoxSecurity:
         account_id: str,
         callback_type: str,
         workflow_run_id: int,
-        timestamp: str,
+        _timestamp: str,
         raw_body: str,
     ) -> str:
         digest = hashlib.sha256(
-            (
-                f"{account_id}.{callback_type}.{workflow_run_id}."
-                f"{timestamp}.{raw_body}"
-            ).encode()
+            f"{account_id}.{callback_type}.{workflow_run_id}.{raw_body}".encode()
         ).hexdigest()
         return f"tryvox:callback:{digest}"
 
@@ -337,31 +372,46 @@ class TryVoxSecurity:
             )
         )
 
-    async def force_complete_callback(
+    async def complete_callback_if_unclaimed(
         self,
         account_id: str,
         callback_type: str,
         workflow_run_id: int,
         timestamp: str,
         raw_body: str,
-    ) -> None:
-        """Mark a callback completed unconditionally after it was processed.
+        owner: str,
+    ) -> bool:
+        """Mark completion only if no newer worker owns the callback.
 
         Used when the processing side effect (e.g. a status transition) has
         already succeeded but the ownership-scoped ``finalize_callback`` call
-        lost its claim (expired or replaced). Releasing the reservation in
-        that situation would invite the provider's retry to reprocess an
-        already-applied side effect, so this best-effort write dedupes
-        instead without gating on ownership.
+        lost its claim. A newer reservation must be preserved because its
+        worker may still be applying the same callback.
         """
         redis = await self._get_redis()
-        await redis.set(
-            self._callback_key(
-                account_id, callback_type, workflow_run_id, timestamp, raw_body
-            ),
-            self.CALLBACK_COMPLETED,
-            ex=self.CALLBACK_REPLAY_TTL_SECONDS,
-            nx=False,
+        script = """
+        local stored = redis.call('GET', KEYS[1])
+        if stored and stored ~= ARGV[1] and stored ~= ARGV[2] then
+            return 0
+        end
+        redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+        return 1
+        """
+        return bool(
+            await redis.eval(
+                script,
+                1,
+                self._callback_key(
+                    account_id,
+                    callback_type,
+                    workflow_run_id,
+                    timestamp,
+                    raw_body,
+                ),
+                f"{self.CALLBACK_PROCESSING_PREFIX}{owner}",
+                self.CALLBACK_COMPLETED,
+                self.CALLBACK_REPLAY_TTL_SECONDS,
+            )
         )
 
     async def release_callback(

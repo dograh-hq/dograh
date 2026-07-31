@@ -31,6 +31,7 @@ from api.services.call_concurrency import (
     call_concurrency,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.telephony import registry
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
@@ -585,6 +586,27 @@ async def websocket_endpoint(
     websocket: WebSocket, workflow_id: int, organization_id: int, workflow_run_id: int
 ):
     """WebSocket endpoint for real-time call handling - routes to provider-specific handlers."""
+    workflow_run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=organization_id
+    )
+    if workflow_run:
+        provider_type = (workflow_run.initial_context or {}).get("provider") or getattr(
+            workflow_run, "mode", None
+        )
+        spec = registry.get_optional(provider_type) if provider_type else None
+        if spec and getattr(
+            spec.provider_cls, "REQUIRES_AUTHENTICATED_WEBSOCKET", False
+        ):
+            logger.warning(
+                f"Rejected generic WebSocket route for {provider_type} "
+                f"workflow run {workflow_run_id}"
+            )
+            await websocket.close(
+                code=4401,
+                reason="Provider-specific WebSocket authentication required",
+            )
+            return
+
     await websocket.accept()
     await _handle_telephony_websocket(
         websocket, workflow_id, organization_id, workflow_run_id

@@ -7,7 +7,12 @@ from fastapi.testclient import TestClient
 
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
-from api.routes.telephony import _handle_telephony_websocket, handle_inbound_run, router
+from api.routes.telephony import (
+    _handle_telephony_websocket,
+    handle_inbound_run,
+    router,
+    websocket_endpoint,
+)
 from api.services.auth.depends import get_user
 from api.services.call_concurrency import CallConcurrencyLimitError
 
@@ -482,3 +487,27 @@ async def test_smallwebrtc_run_reaching_telephony_websocket_closes_without_runni
     assert mock_db.update_workflow_run.await_count == 0
     assert provider_lookup.await_count == 0
     mock_concurrency.unregister_active_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generic_websocket_behavior_is_unchanged_for_other_providers():
+    websocket = AsyncMock()
+    workflow_run = SimpleNamespace(
+        mode=WorkflowRunMode.PLIVO.value,
+        initial_context={"provider": WorkflowRunMode.PLIVO.value},
+    )
+
+    with (
+        patch("api.routes.telephony.db_client") as mock_db,
+        patch(
+            "api.routes.telephony._handle_telephony_websocket",
+            new_callable=AsyncMock,
+        ) as shared_handler,
+    ):
+        mock_db.get_workflow_run = AsyncMock(return_value=workflow_run)
+
+        await websocket_endpoint(websocket, 33, 11, 501)
+
+    websocket.accept.assert_awaited_once_with()
+    websocket.close.assert_not_awaited()
+    shared_handler.assert_awaited_once_with(websocket, 33, 11, 501)

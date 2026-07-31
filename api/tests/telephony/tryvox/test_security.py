@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -8,6 +9,7 @@ from api.services.telephony.providers.tryvox.security import TryVoxSecurity
 class _FakeRedis:
     def __init__(self):
         self.values: dict[str, str] = {}
+        self.expirations: dict[str, int] = {}
 
     async def get(self, key):
         return self.values.get(key)
@@ -16,6 +18,7 @@ class _FakeRedis:
         if nx and key in self.values:
             return False
         self.values[key] = value
+        self.expirations[key] = ex
         return True
 
     async def eval(self, script, key_count, key, supplied, consumed):
@@ -58,23 +61,29 @@ async def test_callback_claim_is_atomic_and_retry_safe():
     redis = _FakeRedis()
     security = TryVoxSecurity(redis)
 
-    assert (
-        await security.claim_callback("acct-1", 13, "123", '{"call":"one"}')
-        is True
+    assert await security.claim_callback("acct-1", 13, "123", '{"call":"one"}') is True
+    assert await security.claim_callback("acct-1", 13, "123", '{"call":"one"}') is False
+    assert await security.claim_callback("acct-1", 14, "123", '{"call":"one"}') is True
+    assert await security.claim_callback("acct-2", 13, "123", '{"call":"one"}') is True
+    assert await security.claim_callback("acct-1", 13, "123", '{"call":"two"}') is True
+    callback_keys = [key for key in redis.values if key.startswith("tryvox:callback:")]
+    assert callback_keys
+    assert all(
+        redis.expirations[key] == TryVoxSecurity.CALLBACK_REPLAY_TTL_SECONDS
+        for key in callback_keys
     )
-    assert (
-        await security.claim_callback("acct-1", 13, "123", '{"call":"one"}')
-        is False
+
+
+@pytest.mark.asyncio
+async def test_concurrent_callback_claim_allows_one_winner():
+    security = TryVoxSecurity(_FakeRedis())
+
+    results = await asyncio.gather(
+        *[
+            security.claim_callback("acct-1", 13, "123", '{"call":"one"}')
+            for _ in range(8)
+        ]
     )
-    assert (
-        await security.claim_callback("acct-1", 14, "123", '{"call":"one"}')
-        is True
-    )
-    assert (
-        await security.claim_callback("acct-2", 13, "123", '{"call":"one"}')
-        is True
-    )
-    assert (
-        await security.claim_callback("acct-1", 13, "123", '{"call":"two"}')
-        is True
-    )
+
+    assert results.count(True) == 1
+    assert results.count(False) == 7

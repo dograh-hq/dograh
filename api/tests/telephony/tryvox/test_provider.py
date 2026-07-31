@@ -376,7 +376,39 @@ async def test_websocket_metadata_starts_pipeline_with_stored_call_id():
         organization_id=11,
         call_id="call-123",
         transport_kwargs={"call_id": "call-123"},
+        on_ready=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_websocket_passes_capability_commit_to_pipeline_setup():
+    provider = _provider()
+    websocket = _WebSocket({"workflow_run_id": "13"})
+    workflow_run = SimpleNamespace(gathered_context={"call_id": "call-123"})
+    on_media_ready = AsyncMock(return_value=True)
+
+    with (
+        patch.object(
+            db_client,
+            "get_workflow_run",
+            new_callable=AsyncMock,
+            return_value=workflow_run,
+        ),
+        patch(
+            "api.services.pipecat.run_pipeline.run_pipeline_telephony",
+            new_callable=AsyncMock,
+        ) as run_pipeline,
+    ):
+        await provider.handle_websocket(
+            websocket,
+            7,
+            11,
+            13,
+            on_media_ready=on_media_ready,
+        )
+
+    on_media_ready.assert_not_awaited()
+    assert run_pipeline.await_args.kwargs["on_ready"] is on_media_ready
 
 
 @pytest.mark.asyncio

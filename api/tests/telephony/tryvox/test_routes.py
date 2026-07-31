@@ -75,10 +75,14 @@ async def test_websocket_accepts_tryvox_media_subprotocol():
     websocket = AsyncMock()
     websocket.query_params = {"token": "stream-token"}
 
+    async def start_media(*args, **kwargs):
+        assert await kwargs["on_provider_ready"]() is True
+
     with (
         patch(
             "api.routes.telephony._handle_telephony_websocket",
             new_callable=AsyncMock,
+            side_effect=start_media,
         ) as shared_handler,
         patch(
             f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
@@ -90,15 +94,20 @@ async def test_websocket_accepts_tryvox_media_subprotocol():
             new_callable=AsyncMock,
             return_value=True,
         ) as consume,
+        patch(f"{ROUTES_MODULE}.db_client") as route_db,
     ):
+        route_db.update_workflow_run = AsyncMock()
         await handle_tryvox_websocket(websocket, 7, 11, 13)
 
     reserve.assert_awaited_once_with(7, 11, 13, "stream-token")
     websocket.accept.assert_awaited_once_with(subprotocol="audio.drachtio.org")
     consume.assert_awaited_once_with(7, 11, 13, "reservation")
-    shared_handler.assert_awaited_once_with(
-        websocket, 7, 11, 13, provider_route_authenticated=True
+    route_db.update_workflow_run.assert_awaited_once_with(
+        run_id=13, state=WorkflowRunState.RUNNING.value
     )
+    shared_handler.assert_awaited_once()
+    assert shared_handler.await_args.kwargs["provider_route_authenticated"] is True
+    assert callable(shared_handler.await_args.kwargs["on_provider_ready"])
 
 
 @pytest.mark.asyncio
@@ -153,6 +162,80 @@ async def test_websocket_accept_failure_releases_reserved_capability():
 
     release.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
     consume.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_websocket_pre_media_rejection_releases_reserved_capability():
+    websocket = AsyncMock()
+    websocket.query_params = {"token": "stream-token"}
+
+    with (
+        patch(
+            "api.routes.telephony._handle_telephony_websocket",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as release,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
+            new_callable=AsyncMock,
+        ) as consume,
+    ):
+        await handle_tryvox_websocket(websocket, 7, 11, 13)
+
+    release.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
+    consume.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_websocket_run_state_failure_restores_consumed_capability():
+    websocket = AsyncMock()
+    websocket.query_params = {"token": "stream-token"}
+
+    async def fail_run_update(*args, **kwargs):
+        await kwargs["on_provider_ready"]()
+
+    with (
+        patch(
+            "api.routes.telephony._handle_telephony_websocket",
+            new_callable=AsyncMock,
+            side_effect=fail_run_update,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.rollback_consumed_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as rollback,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_stream_token",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(f"{ROUTES_MODULE}.db_client") as route_db,
+    ):
+        route_db.update_workflow_run = AsyncMock(side_effect=RuntimeError("DB failed"))
+        with pytest.raises(RuntimeError, match="DB failed"):
+            await handle_tryvox_websocket(websocket, 7, 11, 13)
+
+    rollback.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
 
 
 @pytest.mark.asyncio

@@ -24,19 +24,21 @@ class _FakeRedis:
     async def eval(self, script, key_count, key, *args):
         assert key_count == 1
         stored = self.values.get(key)
-        if "string.sub" in script:
-            supplied, consumed, reserved_prefix, reservation = args
-            if (
-                stored == consumed
-                or (stored or "").startswith(reserved_prefix)
-                or stored != supplied
-            ):
+        if len(args) == 5:
+            supplied, consumed_prefix, reserved_prefix, now, reservation = args
+            if not stored or stored.startswith(consumed_prefix):
                 return 0
-            self.values[key] = f"{reserved_prefix}{reservation}"
+            if stored.startswith(reserved_prefix):
+                _, expires_at, reserved_token, _ = stored.split(":", 3)
+                if int(expires_at) > now or reserved_token != supplied:
+                    return 0
+            elif stored != supplied:
+                return 0
+            self.values[key] = reservation
             return 1
 
-        reserved_prefix, reservation, replacement = args
-        if stored != f"{reserved_prefix}{reservation}":
+        expected, replacement = args
+        if stored != expected:
             return 0
         self.values[key] = replacement
         return 1
@@ -65,7 +67,7 @@ async def test_stream_capability_is_stable_and_single_use():
     assert await security.reserve_stream_token(7, 11, 13, "stream-token") is None
     assert (
         await security.reserve_stream_token(
-            7, 11, 13, TryVoxSecurity.CONSUMED_STREAM_TOKEN
+            7, 11, 13, TryVoxSecurity.CONSUMED_STREAM_TOKEN_PREFIX
         )
         is None
     )
@@ -77,14 +79,20 @@ async def test_stream_capability_can_retry_only_after_reservation_release():
     redis = _FakeRedis()
     security = TryVoxSecurity(redis)
 
-    with patch(
-        "api.services.telephony.providers.tryvox.security.secrets.token_urlsafe",
-        side_effect=[
-            "stream-token",
-            "first-reservation",
-            "blocked-reservation",
-            "second-reservation",
-        ],
+    with (
+        patch(
+            "api.services.telephony.providers.tryvox.security.secrets.token_urlsafe",
+            side_effect=[
+                "stream-token",
+                "first-reservation",
+                "blocked-reservation",
+                "second-reservation",
+            ],
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.security.time.time",
+            return_value=100,
+        ),
     ):
         token = await security.issue_stream_token(7, 11, 13)
         first = await security.reserve_stream_token(7, 11, 13, token)
@@ -93,12 +101,35 @@ async def test_stream_capability_can_retry_only_after_reservation_release():
         released = await security.release_stream_token(7, 11, 13, first, token)
         second = await security.reserve_stream_token(7, 11, 13, token)
 
-    assert first == "first-reservation"
+    assert first.endswith(":stream-token:first-reservation")
     assert blocked is None
     assert replacement is None
     assert released is True
-    assert second == "second-reservation"
+    assert second.endswith(":stream-token:second-reservation")
     assert await security.release_stream_token(7, 11, 13, first, token) is False
+
+
+@pytest.mark.asyncio
+async def test_stale_stream_reservation_can_be_reclaimed():
+    redis = _FakeRedis()
+    security = TryVoxSecurity(redis)
+
+    with (
+        patch(
+            "api.services.telephony.providers.tryvox.security.secrets.token_urlsafe",
+            side_effect=["stream-token", "first", "second"],
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.security.time.time",
+            side_effect=[100, 100, 116, 116],
+        ),
+    ):
+        token = await security.issue_stream_token(7, 11, 13)
+        first = await security.reserve_stream_token(7, 11, 13, token)
+        second = await security.reserve_stream_token(7, 11, 13, token)
+
+    assert first != second
+    assert second.endswith(":stream-token:second")
 
 
 @pytest.mark.asyncio

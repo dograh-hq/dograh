@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from fastapi import HTTPException
 from loguru import logger
@@ -261,6 +261,7 @@ async def run_pipeline_telephony(
     organization_id: int,
     call_id: str,
     transport_kwargs: dict,
+    on_ready: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
     """Run a pipeline for any telephony provider."""
     # Register before any async setup so deploy drains see calls that are still
@@ -275,6 +276,7 @@ async def run_pipeline_telephony(
             organization_id=organization_id,
             call_id=call_id,
             transport_kwargs=transport_kwargs,
+            on_ready=on_ready,
         )
     finally:
         try:
@@ -292,6 +294,7 @@ async def _run_pipeline_telephony_impl(
     organization_id: int,
     call_id: str,
     transport_kwargs: dict,
+    on_ready: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
     """Run a pipeline for any telephony provider.
 
@@ -372,6 +375,10 @@ async def _run_pipeline_telephony_impl(
         is_realtime=is_realtime,
         **transport_kwargs,
     )
+
+    if on_ready is not None and not await on_ready():
+        await websocket.close(code=4401, reason="Stream capability unavailable")
+        return
 
     try:
         await _run_pipeline_impl(

@@ -1,5 +1,6 @@
 """TryVox Answer and lifecycle webhook routes."""
 
+import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket
@@ -8,6 +9,7 @@ from pipecat.utils.run_context import set_current_run_id
 from starlette.responses import JSONResponse
 
 from api.db import db_client
+from api.enums import WorkflowRunState
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
@@ -40,39 +42,62 @@ async def handle_tryvox_websocket(
         await websocket.close(code=4401, reason="Invalid stream capability")
         return
 
-    try:
-        await websocket.accept(subprotocol="audio.drachtio.org")
-    except Exception:
+    committed = False
+
+    async def commit_stream() -> bool:
+        nonlocal committed
+        consumed = await tryvox_security.consume_stream_token(
+            workflow_id,
+            organization_id,
+            workflow_run_id,
+            reservation,
+        )
+        if not consumed:
+            return False
         try:
-            await tryvox_security.release_stream_token(
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id,
+                state=WorkflowRunState.RUNNING.value,
+            )
+        except Exception:
+            await tryvox_security.rollback_consumed_stream_token(
                 workflow_id,
                 organization_id,
                 workflow_run_id,
                 reservation,
                 token,
             )
-        except Exception:
-            logger.exception(
-                f"[run {workflow_run_id}] Failed to release TryVox stream capability"
-            )
-        raise
+            raise
+        committed = True
+        return True
 
-    if not await tryvox_security.consume_stream_token(
-        workflow_id,
-        organization_id,
-        workflow_run_id,
-        reservation,
-    ):
-        await websocket.close(code=1011, reason="Stream capability state lost")
-        return
-
-    await _handle_telephony_websocket(
-        websocket,
-        workflow_id,
-        organization_id,
-        workflow_run_id,
-        provider_route_authenticated=True,
-    )
+    try:
+        await websocket.accept(subprotocol="audio.drachtio.org")
+        await _handle_telephony_websocket(
+            websocket,
+            workflow_id,
+            organization_id,
+            workflow_run_id,
+            provider_route_authenticated=True,
+            on_provider_ready=commit_stream,
+        )
+    finally:
+        if not committed:
+            try:
+                await asyncio.shield(
+                    tryvox_security.release_stream_token(
+                        workflow_id,
+                        organization_id,
+                        workflow_run_id,
+                        reservation,
+                        token,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    f"[run {workflow_run_id}] Failed to release "
+                    "TryVox stream capability"
+                )
 
 
 async def _read_signed_json(request: Request) -> tuple[dict, str]:

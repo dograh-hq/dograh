@@ -620,6 +620,7 @@ async def _handle_telephony_websocket(
     workflow_run_id: int,
     *,
     provider_route_authenticated: bool = False,
+    on_provider_ready=None,
 ):
     """Shared WebSocket handler logic (connection already accepted).
 
@@ -745,19 +746,26 @@ async def _handle_telephony_websocket(
             )
             return
 
-        # Set workflow run state to 'running' before starting the pipeline
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id, state=WorkflowRunState.RUNNING.value
-        )
-
-        logger.info(
-            f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_type} provider"
-        )
-
         # Delegate to provider-specific handler
-        await provider.handle_websocket(
-            websocket, workflow_id, organization_id, workflow_run_id
-        )
+        if on_provider_ready is not None:
+            await provider.handle_websocket(
+                websocket,
+                workflow_id,
+                organization_id,
+                workflow_run_id,
+                on_media_ready=on_provider_ready,
+            )
+        else:
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id, state=WorkflowRunState.RUNNING.value
+            )
+            logger.info(
+                f"[run {workflow_run_id}] Set workflow run state to 'running' "
+                f"for {provider_type} provider"
+            )
+            await provider.handle_websocket(
+                websocket, workflow_id, organization_id, workflow_run_id
+            )
 
     except WebSocketDisconnect as e:
         logger.info(f"WebSocket disconnected: code={e.code}, reason={e.reason}")

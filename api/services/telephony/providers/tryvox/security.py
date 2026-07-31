@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import time
 
 import redis.asyncio as aioredis
 
@@ -14,8 +15,9 @@ class TryVoxSecurity:
     """Issue one-shot stream capabilities and deduplicate signed callbacks."""
 
     STREAM_TOKEN_TTL_SECONDS = 600
+    STREAM_RESERVATION_TTL_SECONDS = 15
     CALLBACK_REPLAY_TTL_SECONDS = 300
-    CONSUMED_STREAM_TOKEN = "__consumed__"
+    CONSUMED_STREAM_TOKEN_PREFIX = "__consumed__:"
     RESERVED_STREAM_TOKEN_PREFIX = "__reserved__:"
 
     def __init__(self, redis_client: aioredis.Redis | None = None):
@@ -46,8 +48,11 @@ class TryVoxSecurity:
 
         existing = await redis.get(key)
         if existing:
-            if existing == self.CONSUMED_STREAM_TOKEN or str(existing).startswith(
-                self.RESERVED_STREAM_TOKEN_PREFIX
+            if str(existing).startswith(
+                (
+                    self.CONSUMED_STREAM_TOKEN_PREFIX,
+                    self.RESERVED_STREAM_TOKEN_PREFIX,
+                )
             ):
                 return None
             return str(existing)
@@ -64,8 +69,11 @@ class TryVoxSecurity:
                 return token
             existing = await redis.get(key)
             if existing:
-                if existing == self.CONSUMED_STREAM_TOKEN or str(existing).startswith(
-                    self.RESERVED_STREAM_TOKEN_PREFIX
+                if str(existing).startswith(
+                    (
+                        self.CONSUMED_STREAM_TOKEN_PREFIX,
+                        self.RESERVED_STREAM_TOKEN_PREFIX,
+                    )
                 ):
                     return None
                 return str(existing)
@@ -84,15 +92,30 @@ class TryVoxSecurity:
             return None
 
         redis = await self._get_redis()
-        reservation = secrets.token_urlsafe(32)
+        reservation = (
+            f"{self.RESERVED_STREAM_TOKEN_PREFIX}"
+            f"{int(time.time()) + self.STREAM_RESERVATION_TTL_SECONDS}:"
+            f"{supplied_token}:{secrets.token_urlsafe(32)}"
+        )
         script = """
         local stored = redis.call('GET', KEYS[1])
-        if not stored or stored == ARGV[2] or
-           string.sub(stored, 1, string.len(ARGV[3])) == ARGV[3] or
-           stored ~= ARGV[1] then
+        if not stored or string.sub(stored, 1, string.len(ARGV[2])) == ARGV[2] then
             return 0
         end
-        redis.call('SET', KEYS[1], ARGV[3] .. ARGV[4], 'KEEPTTL')
+        if string.sub(stored, 1, string.len(ARGV[3])) == ARGV[3] then
+            local separator = string.find(stored, ':', string.len(ARGV[3]) + 1)
+            local token_end = separator and string.find(stored, ':', separator + 1)
+            local expires_at = separator and tonumber(
+                string.sub(stored, string.len(ARGV[3]) + 1, separator - 1)
+            )
+            if not token_end or not expires_at or expires_at > tonumber(ARGV[4]) or
+               string.sub(stored, separator + 1, token_end - 1) ~= ARGV[1] then
+                return 0
+            end
+        elseif stored ~= ARGV[1] then
+            return 0
+        end
+        redis.call('SET', KEYS[1], ARGV[5], 'KEEPTTL')
         return 1
         """
         result = await redis.eval(
@@ -100,8 +123,9 @@ class TryVoxSecurity:
             1,
             self._stream_key(workflow_id, organization_id, workflow_run_id),
             supplied_token,
-            self.CONSUMED_STREAM_TOKEN,
+            self.CONSUMED_STREAM_TOKEN_PREFIX,
             self.RESERVED_STREAM_TOKEN_PREFIX,
+            int(time.time()),
             reservation,
         )
         return reservation if result else None
@@ -115,21 +139,53 @@ class TryVoxSecurity:
     ) -> bool:
         """Consume a capability owned by this WebSocket reservation."""
         redis = await self._get_redis()
+        consumed = (
+            self.CONSUMED_STREAM_TOKEN_PREFIX
+            + hashlib.sha256(reservation.encode()).hexdigest()
+        )
         script = """
-        local expected = ARGV[1] .. ARGV[2]
-        if redis.call('GET', KEYS[1]) ~= expected then
+        if redis.call('GET', KEYS[1]) ~= ARGV[1] then
             return 0
         end
-        redis.call('SET', KEYS[1], ARGV[3], 'KEEPTTL')
+        redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
         return 1
         """
         result = await redis.eval(
             script,
             1,
             self._stream_key(workflow_id, organization_id, workflow_run_id),
-            self.RESERVED_STREAM_TOKEN_PREFIX,
             reservation,
-            self.CONSUMED_STREAM_TOKEN,
+            consumed,
+        )
+        return bool(result)
+
+    async def rollback_consumed_stream_token(
+        self,
+        workflow_id: int,
+        organization_id: int,
+        workflow_run_id: int,
+        reservation: str,
+        supplied_token: str,
+    ) -> bool:
+        """Restore a just-consumed capability when run startup fails."""
+        redis = await self._get_redis()
+        consumed = (
+            self.CONSUMED_STREAM_TOKEN_PREFIX
+            + hashlib.sha256(reservation.encode()).hexdigest()
+        )
+        script = """
+        if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+            return 0
+        end
+        redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+        return 1
+        """
+        result = await redis.eval(
+            script,
+            1,
+            self._stream_key(workflow_id, organization_id, workflow_run_id),
+            consumed,
+            supplied_token,
         )
         return bool(result)
 
@@ -144,18 +200,16 @@ class TryVoxSecurity:
         """Restore a reservation only when its WebSocket was not accepted."""
         redis = await self._get_redis()
         script = """
-        local expected = ARGV[1] .. ARGV[2]
-        if redis.call('GET', KEYS[1]) ~= expected then
+        if redis.call('GET', KEYS[1]) ~= ARGV[1] then
             return 0
         end
-        redis.call('SET', KEYS[1], ARGV[3], 'KEEPTTL')
+        redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
         return 1
         """
         result = await redis.eval(
             script,
             1,
             self._stream_key(workflow_id, organization_id, workflow_run_id),
-            self.RESERVED_STREAM_TOKEN_PREFIX,
             reservation,
             supplied_token,
         )

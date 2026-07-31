@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import json
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from urllib.parse import quote, urlencode, urlparse
 
 import aiohttp
@@ -249,6 +249,7 @@ class TryVoxProvider(TelephonyProvider):
         workflow_id: int,
         organization_id: int,
         workflow_run_id: int,
+        on_media_ready: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         from api.db import db_client
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
@@ -291,6 +292,7 @@ class TryVoxProvider(TelephonyProvider):
             organization_id=organization_id,
             call_id=call_id,
             transport_kwargs={"call_id": call_id},
+            on_ready=on_media_ready,
         )
 
     @classmethod
@@ -310,9 +312,9 @@ class TryVoxProvider(TelephonyProvider):
         return NormalizedInboundData(
             provider=TryVoxProvider.PROVIDER_NAME,
             call_id=webhook_data.get("call_uuid") or webhook_data.get("CallUUID") or "",
-            from_number=normalize_telephony_address(from_raw).canonical
-            if from_raw
-            else "",
+            from_number=(
+                normalize_telephony_address(from_raw).canonical if from_raw else ""
+            ),
             to_number=normalize_telephony_address(to_raw).canonical if to_raw else "",
             direction=webhook_data.get("direction")
             or webhook_data.get("Direction")

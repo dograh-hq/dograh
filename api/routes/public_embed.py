@@ -16,19 +16,32 @@ from fastapi import (
     Response,
 )
 from loguru import logger
+from pipecat.utils.run_context import set_current_run_id
 from pydantic import BaseModel
-from starlette.datastructures import Headers
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.constants import ENABLE_COTURN, FORCE_TURN_RELAY
 from api.db import db_client
+from api.db.models import EmbedSessionModel, EmbedTokenModel
 from api.enums import WorkflowRunMode
 from api.routes.turn_credentials import (
     TURN_SECRET,
     TurnCredentialsResponse,
     generate_turn_credentials,
 )
+from api.schemas.embed_chat import PublicEmbedChatSessionResponse
+from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.embed_text_chat_service import (
+    build_public_chat_session_response,
+    start_embed_text_chat,
+)
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow.text_chat_session_service import (
+    TextChatPendingTurnLostError,
+    TextChatSessionExecutionError,
+    TextChatSessionRevisionConflictError,
+)
 
 router = APIRouter(prefix="/public/embed")
 
@@ -49,6 +62,10 @@ class InitEmbedResponse(BaseModel):
     session_token: str
     workflow_run_id: int
     config: dict
+    widget_type: str = "voice"
+    # For chat widgets the greeting turn runs synchronously during init, so the
+    # opening transcript rides along and the widget skips a fetch.
+    chat_session: PublicEmbedChatSessionResponse | None = None
 
 
 class EmbedConfigResponse(BaseModel):
@@ -195,24 +212,58 @@ async def _config_preflight_response(token: str, origin: str) -> Response:
     return _cors_response(origin, "GET, OPTIONS")
 
 
-async def _turn_credentials_preflight_response(
+async def resolve_embed_session(
     session_token: str, origin: str
-) -> Response:
+) -> tuple[EmbedSessionModel, EmbedTokenModel]:
+    """Validate the full embed session chain shared by session-scoped endpoints:
+    session token -> session expiry -> embed token exists and is active ->
+    origin against the token's allowed domains. Raises HTTPException on failure.
+    """
     embed_session = await db_client.get_embed_session_by_token(session_token)
     if not embed_session:
-        return Response(status_code=403)
+        raise HTTPException(status_code=404, detail="Invalid session token")
 
     if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
-        return Response(status_code=403)
+        raise HTTPException(status_code=403, detail="Session expired")
 
     embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
     if not embed_token:
-        return Response(status_code=403)
+        raise HTTPException(status_code=404, detail="Invalid embed token")
+
+    if not embed_token.is_active:
+        raise HTTPException(status_code=403, detail="Embed token is inactive")
 
     if not validate_origin(origin, embed_token.allowed_domains or []):
-        return Response(status_code=403)
+        logger.warning(
+            f"Domain validation failed: {origin} not in {embed_token.allowed_domains}"
+        )
+        raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
 
-    return _cors_response(origin, "GET, OPTIONS")
+    return embed_session, embed_token
+
+
+async def _session_preflight_response(
+    session_token: str, origin: str, methods: str
+) -> Response:
+    """Preflight for session-scoped endpoints gates on ORIGIN only.
+
+    Session-state problems (unknown/expired session, inactive token) must NOT
+    fail the preflight: the browser would surface them to the page as an opaque
+    network error. Letting the preflight succeed lets the real request return a
+    readable 4xx (PublicEmbedCORSMiddleware reflects ACAO onto embed responses,
+    including error responses).
+    """
+    embed_session = await db_client.get_embed_session_by_token(session_token)
+    if embed_session:
+        embed_token = await db_client.get_embed_token_by_id(
+            embed_session.embed_token_id
+        )
+        if embed_token and not validate_origin(
+            origin, embed_token.allowed_domains or []
+        ):
+            return Response(status_code=403)
+
+    return _cors_response(origin, methods)
 
 
 async def build_public_embed_preflight_response(
@@ -238,7 +289,16 @@ async def build_public_embed_preflight_response(
         if requested_method.upper() != "GET":
             return Response(status_code=405)
         session_token = path[len(turn_credentials_prefix) :].split("/", 1)[0]
-        return await _turn_credentials_preflight_response(session_token, origin)
+        return await _session_preflight_response(session_token, origin, "GET, OPTIONS")
+
+    chat_prefix = f"{public_embed_prefix}/chat/"
+    if path.startswith(chat_prefix):
+        if requested_method.upper() not in ("GET", "POST"):
+            return Response(status_code=405)
+        session_token = path[len(chat_prefix) :].split("/", 1)[0]
+        return await _session_preflight_response(
+            session_token, origin, "GET, POST, OPTIONS"
+        )
 
     return None
 
@@ -251,21 +311,52 @@ class PublicEmbedCORSMiddleware:
         self.api_prefix = api_prefix
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope.get("method") != "OPTIONS":
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
         headers = Headers(scope=scope)
         origin = headers.get("origin")
-        requested_method = headers.get("access-control-request-method")
 
-        if origin and requested_method:
-            response = await build_public_embed_preflight_response(
-                scope.get("path", ""), origin, requested_method, self.api_prefix
-            )
-            if response is not None:
-                await response(scope, receive, send)
-                return
+        if scope.get("method") == "OPTIONS":
+            requested_method = headers.get("access-control-request-method")
+            if origin and requested_method:
+                response = await build_public_embed_preflight_response(
+                    scope.get("path", ""), origin, requested_method, self.api_prefix
+                )
+                if response is not None:
+                    await response(scope, receive, send)
+                    return
+            await self.app(scope, receive, send)
+            return
+
+        embed_prefix = f"{self.api_prefix.rstrip('/')}/public/embed"
+        if origin and scope.get("path", "").startswith(embed_prefix):
+            # Reflect ACAO on every embed response, including error responses.
+            # Routes set ACAO on success via _allow_embed_origin, but raised
+            # HTTPExceptions bypass the injected Response object, so without
+            # this a third-party page can't read e.g. a 403 session-expired and
+            # sees an opaque CORS network error instead. Success data stays
+            # origin-gated in-route by validate_origin — this only makes error
+            # statuses readable.
+            async def send_with_cors(message) -> None:
+                if message["type"] == "http.response.start":
+                    response_headers = MutableHeaders(
+                        raw=message.setdefault("headers", [])
+                    )
+                    if "access-control-allow-origin" not in response_headers:
+                        response_headers.append("Access-Control-Allow-Origin", origin)
+                        vary = response_headers.get("Vary")
+                        if not vary:
+                            response_headers.append("Vary", "Origin")
+                        elif "origin" not in {
+                            value.strip().lower() for value in vary.split(",")
+                        }:
+                            response_headers["Vary"] = f"{vary}, Origin"
+                await send(message)
+
+            await self.app(scope, receive, send_with_cors)
+            return
 
         await self.app(scope, receive, send)
 
@@ -312,6 +403,13 @@ async def initialize_embed_session(
     if origin:
         _allow_embed_origin(response, origin)
 
+    # Widget type is derived from the embed token's settings — never from the
+    # request — so a client can't turn a voice token into a chat session.
+    widget_type = (
+        "chat" if (embed_token.settings or {}).get("widgetType") == "chat" else "voice"
+    )
+    is_chat = widget_type == "chat"
+
     # Create workflow run
     try:
         workflow = await db_client.get_workflow(
@@ -320,18 +418,33 @@ async def initialize_embed_session(
         if not workflow:
             raise ValueError("Workflow not found")
         run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
-        workflow_run = await db_client.create_workflow_run(
-            name=f"Embed Run - {datetime.now(UTC).isoformat()}",
-            workflow_id=embed_token.workflow_id,
-            mode=WorkflowRunMode.SMALLWEBRTC.value,
-            user_id=embed_token.created_by,  # Use token creator as run owner
-            organization_id=embed_token.organization_id,
-            initial_context={
+        if is_chat:
+            mode = WorkflowRunMode.TEXTCHAT.value
+            name = f"Embed Chat - {datetime.now(UTC).isoformat()}"
+            # Text-chat runs carry no transport provider (mirrors the
+            # authenticated text-chat route).
+            initial_context = {**(init_request.context_variables or {})}
+        else:
+            mode = WorkflowRunMode.SMALLWEBRTC.value
+            name = f"Embed Run - {datetime.now(UTC).isoformat()}"
+            initial_context = {
                 **(init_request.context_variables or {}),
                 "provider": WorkflowRunMode.SMALLWEBRTC.value,
-            },
+            }
+        workflow_run = await db_client.create_workflow_run(
+            name=name,
+            workflow_id=embed_token.workflow_id,
+            mode=mode,
+            user_id=embed_token.created_by,  # Use token creator as run owner
+            organization_id=embed_token.organization_id,
+            initial_context=initial_context,
             definition_id=run_inputs.definition_id,
         )
+        if is_chat:
+            workflow_run = await db_client.update_workflow_run(
+                workflow_run.id,
+                annotations={"embed": {"source": "embed_widget", "modality": "text"}},
+            )
     except Exception as e:
         logger.error(f"Failed to create workflow run: {e}")
         raise HTTPException(status_code=500, detail="Failed to create workflow run")
@@ -357,6 +470,38 @@ async def initialize_embed_session(
     # Increment usage count
     await db_client.increment_embed_token_usage(embed_token.id)
 
+    # For chat widgets, seed the text session and run the greeting turn
+    # synchronously so the widget opens with the agent's first message. Quota is
+    # checked first — before any LLM spend — mirroring the authenticated
+    # text-chat create flow. (Voice runs are quota-checked later, on the
+    # signaling WebSocket.)
+    chat_session = None
+    if is_chat:
+        set_current_run_id(workflow_run.id)
+        quota_result = await authorize_workflow_run_start(
+            workflow_id=embed_token.workflow_id,
+            organization_id=embed_token.organization_id,
+            workflow_run_id=workflow_run.id,
+            actor_user=await db_client.get_user_by_id(embed_token.created_by),
+        )
+        if not quota_result.has_quota:
+            raise HTTPException(
+                status_code=402, detail="The agent is unavailable right now"
+            )
+        try:
+            text_session = await start_embed_text_chat(
+                workflow_id=embed_token.workflow_id, run_id=workflow_run.id
+            )
+        except (
+            TextChatSessionRevisionConflictError,
+            TextChatPendingTurnLostError,
+            TextChatSessionExecutionError,
+        ) as e:
+            # Public surface: log the specifics, return a generic detail.
+            logger.error(f"Embed chat greeting failed for run {workflow_run.id}: {e}")
+            raise HTTPException(status_code=500, detail="Assistant failed to respond")
+        chat_session = build_public_chat_session_response(text_session)
+
     # Prepare configuration
     config = {
         "workflow_id": embed_token.workflow_id,
@@ -365,7 +510,11 @@ async def initialize_embed_session(
     }
 
     return InitEmbedResponse(
-        session_token=session_token, workflow_run_id=workflow_run.id, config=config
+        session_token=session_token,
+        workflow_run_id=workflow_run.id,
+        config=config,
+        widget_type=widget_type,
+        chat_session=chat_session,
     )
 
 
@@ -453,26 +602,7 @@ async def get_public_turn_credentials(
     """
     origin = get_request_origin(request)
 
-    # Validate session token
-    embed_session = await db_client.get_embed_session_by_token(session_token)
-    if not embed_session:
-        raise HTTPException(status_code=404, detail="Invalid session token")
-
-    # Check if session is expired
-    if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
-        raise HTTPException(status_code=403, detail="Session expired")
-
-    # Get the embed token to check allowed domains
-    embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
-    if not embed_token:
-        raise HTTPException(status_code=404, detail="Invalid embed token")
-
-    # Validate domain (empty allowed_domains means allow all)
-    if not validate_origin(origin, embed_token.allowed_domains or []):
-        logger.warning(
-            f"Domain validation failed for TURN credentials: {origin} not in {embed_token.allowed_domains}"
-        )
-        raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
+    await resolve_embed_session(session_token, origin)
 
     if origin:
         _allow_embed_origin(response, origin)
@@ -502,6 +632,6 @@ async def get_public_turn_credentials(
 async def options_turn_credentials(request: Request, session_token: str):
     """Fallback OPTIONS handler for TURN credentials endpoint."""
     # Browser preflights are handled by PublicEmbedCORSMiddleware before global CORS.
-    return await _turn_credentials_preflight_response(
-        session_token, request.headers.get("origin", "")
+    return await _session_preflight_response(
+        session_token, request.headers.get("origin", ""), "GET, OPTIONS"
     )

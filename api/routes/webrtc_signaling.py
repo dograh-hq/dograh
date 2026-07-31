@@ -32,7 +32,7 @@ from starlette.websockets import WebSocketState
 from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import Environment
+from api.enums import Environment, WorkflowRunMode
 from api.routes.turn_credentials import (
     TURN_HOST,
     TURN_PORT,
@@ -781,6 +781,11 @@ async def public_signaling_websocket(
         return
     if workflow_run.workflow_id != embed_token.workflow_id:
         await websocket.close(code=1008, reason="workflow_run_workflow_mismatch")
+        return
+    # A chat-widget session token must not be able to open a voice pipeline on
+    # its textchat run — chat sessions speak REST (public_embed_chat), not this.
+    if workflow_run.mode != WorkflowRunMode.SMALLWEBRTC.value:
+        await websocket.close(code=1008, reason="Not a voice session")
         return
 
     # Enforce the embed token's allowed-domain policy on the public signaling

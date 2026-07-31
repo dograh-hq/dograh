@@ -327,3 +327,52 @@ def test_options_turn_credentials_rejects_disallowed_origin():
         },
     )
     assert resp.status_code == 403
+
+
+def test_options_chat_messages_returns_acao_for_allowed_origin():
+    origin = "https://mysite.vercel.app"
+    resp = client.options(
+        "/api/v1/public/embed/chat/session-valid/messages",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert resp.status_code == 200
+    _assert_embed_cors(resp, origin)
+    assert resp.headers.get("access-control-allow-methods") == "GET, POST, OPTIONS"
+
+
+def test_options_chat_session_returns_acao_for_allowed_origin():
+    origin = "https://mysite.vercel.app"
+    resp = client.options(
+        "/api/v1/public/embed/chat/session-valid",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp.status_code == 200
+    _assert_embed_cors(resp, origin)
+
+
+def test_options_chat_rejects_disallowed_origin():
+    resp = client.options(
+        "/api/v1/public/embed/chat/session-restricted/messages",
+        headers={
+            "Origin": "https://notallowed.example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert resp.status_code == 403
+
+
+def test_options_chat_rejects_unsupported_method():
+    resp = client.options(
+        "/api/v1/public/embed/chat/session-valid/messages",
+        headers={
+            "Origin": "https://mysite.vercel.app",
+            "Access-Control-Request-Method": "DELETE",
+        },
+    )
+    assert resp.status_code == 405

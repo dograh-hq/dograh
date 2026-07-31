@@ -128,11 +128,20 @@ class TryVoxProvider(TelephonyProvider):
                 )
 
         call_data = response_data.get("data", response_data)
-        call_id = call_data.get("request_uuid")
+        # Answer and status callbacks carry TryVox's call UUID (``call_uuid`` /
+        # ``CallUUID``), which is not guaranteed to equal the ``request_uuid``
+        # from this REST response. Prefer the callback-compatible identifier
+        # so `_assert_call_matches` isn't comparing two different IDs; fall
+        # back to `request_uuid` only if the response didn't include one.
+        call_id = (
+            call_data.get("call_uuid")
+            or call_data.get("CallUUID")
+            or call_data.get("request_uuid")
+        )
         if not call_id:
             raise HTTPException(
                 status_code=502,
-                detail="TryVox call response did not include request_uuid",
+                detail="TryVox call response did not include a call ID",
             )
         if correlation_token is not None:
             try:

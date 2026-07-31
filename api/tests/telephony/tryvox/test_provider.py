@@ -243,6 +243,59 @@ async def test_initiate_call_returns_success_when_correlation_activation_fails()
 
 
 @pytest.mark.asyncio
+async def test_initiate_call_prefers_callback_compatible_call_uuid():
+    """Answer/status callbacks carry `call_uuid`/`CallUUID`, which TryVox does
+    not guarantee equals the REST response's `request_uuid`. The stored
+    `call_id` must be the identifier callbacks will actually send, or
+    `_assert_call_matches` permanently rejects the real call."""
+    provider = _provider()
+    session = _Session(
+        _Response(
+            201,
+            {
+                "data": {
+                    "request_uuid": "request-123",
+                    "call_uuid": "call-456",
+                    "status": "queued",
+                }
+            },
+        )
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.tryvox.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://dograh.test", "wss://dograh.test"),
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.issue_call_correlation",
+            new_callable=AsyncMock,
+            return_value="callback-token",
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.activate_call_correlation",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+    ):
+        result = await provider.initiate_call(
+            "+15551230002",
+            "https://dograh.test/api/v1/telephony/tryvox/answer?workflow_run_id=9",
+            workflow_run_id=9,
+        )
+
+    assert result.call_id == "call-456"
+    assert result.provider_metadata == {"call_id": "call-456"}
+
+
+@pytest.mark.asyncio
 async def test_verify_inbound_signature_accepts_exact_raw_body():
     provider = _provider()
     body = '{"call_uuid":"call-123","account_id":"TJaccount"}'

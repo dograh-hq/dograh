@@ -57,6 +57,64 @@ These apply to all three modes:
 - If you set **Allowed Domains** in the dashboard, include your test origin (e.g. `localhost`) — otherwise the widget's requests are rejected. Leave the list empty to allow all domains.
 - The embed snippet you copy from the dashboard is a single `<script>` tag that loads `dograh-widget.js` **asynchronously**. The widget auto-initializes once it loads and exposes `window.DograhWidget`. Code that registers callbacks must wait for the widget to be available.
 
+## Pass context to the agent
+
+Your page usually knows something about the visitor — their name, plan, cart value, the article they were reading. Pass it along and your agent can use it from the first word.
+
+The snippet you copy from the dashboard carries a `data-dograh-context` attribute — a JSON object of details about the visitor. It ships with two examples you can edit or replace:
+
+```js
+js.setAttribute('data-dograh-context', JSON.stringify({
+  page_url: window.location.href,
+  today: new Date().toISOString().slice(0, 10)
+}));
+```
+
+Because it's built in JavaScript at page load, you can put anything your page knows in it — a logged-in customer's name, their plan, cart contents:
+
+```js
+js.setAttribute('data-dograh-context', JSON.stringify({
+  customer_name: currentUser.firstName,
+  plan: currentUser.plan,
+  cart: { items: cart.length, total: cart.total }
+}));
+```
+
+Each key is then available in any node prompt as `{{initial_context.<name>}}`:
+
+```text
+Greet {{initial_context.customer_name | there}} and mention their {{initial_context.plan}} plan.
+```
+
+Values can be strings, numbers, booleans, or nested objects. This works for voice and chat widgets alike, and the values are recorded on the conversation so you can see what the agent was given.
+
+### Update context after the page loads
+
+The attribute is fixed at page load, which doesn't fit a single-page app — the visitor logs in, changes route, or fills a cart long after the snippet ran. For that, call `setContext()`:
+
+```js
+window.DograhWidget.setContext({
+  customer_name: user.firstName,
+  plan: user.plan
+});
+```
+
+Each call merges into the context already collected, so you can add details as they arrive and re-send a name to correct it. `getContext()` returns the current set.
+
+Context is read when a conversation starts, so `setContext()` applies to the **next** conversation — calling it mid-call or mid-chat doesn't change the one in progress (the widget logs a console warning if you do). For chat widgets, "next" includes the fresh conversation started by **Start new chat** after a session expires.
+
+<Note>
+The widget script loads asynchronously, so `window.DograhWidget` may not exist yet when your app's code first runs. Call `setContext()` from an event that fires after load — a `window.load` listener, or a user action like clicking your own "Chat with us" button. See [Lifecycle callbacks](#lifecycle-callbacks-all-modes) for the same timing rule.
+</Note>
+
+Use whichever fits: `data-dograh-context` for what the page knows at render, `setContext()` for what it learns later. They merge, and `setContext()` wins on a repeated name.
+
+<Warning>
+Context comes from the page, so a visitor can both read it and change it before it reaches your agent. Never pass secrets, and don't let it gate what the agent will do or disclose — treat `plan: "pro"` as a hint for phrasing, not proof of entitlement. For data the agent must trust, pass an opaque id like `customer_id` and let Dograh fetch the real details from your API with [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch) (voice widgets).
+</Warning>
+
+Limits, applied per conversation: up to 50 variables, 64 characters per name, 2000 characters per value, and 8 KB in total. Anything past a limit is dropped and the conversation still starts. The names `provider` and `runtime_configuration` are reserved and ignored.
+
 ## Floating Widget
 
 ![Floating widget shown in the corner of a host page](../images/floating-widget-example.png)
@@ -145,6 +203,7 @@ In Headless mode the widget injects no UI of its own. You render whatever button
 | `window.DograhWidget.onCallEnd(cb)`            | Fires whenever the call session is torn down (including failed-to-connect attempts). No payload.                                                             |
 | `window.DograhWidget.onStatusChange(cb)`       | Fires on every status change. Callback receives `(status, text, subtext)`. Status values: `idle`, `connecting`, `connected`, `failed`.                       |
 | `window.DograhWidget.onError(cb)`              | Fires on errors (mic permission denied, server error, etc.). Callback receives an `Error` object.                                                            |
+| `window.DograhWidget.setContext(vars)`         | Merge visitor context for the next call — see [Pass context to the agent](#pass-context-to-the-agent). Works in every embed mode, not just headless.         |
 
 All `on*` setters are single-listener — calling the same one again replaces the previous handler.
 
@@ -158,6 +217,7 @@ All `on*` setters are single-listener — calling the same one again replaces th
 | `window.DograhWidget.onMessage(cb)`            | Fires once per new agent reply. Callback receives `(text, turn)`.                                                                                            |
 | `window.DograhWidget.onChatStateChange(cb)`    | Fires on every chat state change. States: `idle`, `starting`, `ready`, `waiting` (agent is replying), `ended`, `expired`, `error`.                           |
 | `window.DograhWidget.onError(cb)`              | Fires on errors. Callback receives an `Error` object.                                                                                                        |
+| `window.DograhWidget.setContext(vars)`         | Merge visitor context for the next conversation — see [Pass context to the agent](#pass-context-to-the-agent). Works in every embed mode, not just headless. |
 
 In chat mode `start()` aliases `startChat()` and `end()` is a no-op teardown (chat sessions need none), so generic snippets keep working. Sends are serialized — `sendMessage` while a reply is pending (`waiting`) resolves to `null`.
 

@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { WIDGET_CONTEXT_DOC_URL, WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface EmbedDialogProps {
@@ -557,6 +557,7 @@ export function EmbedDialog({
                                                     <li>• Call <code className="text-xs">window.DograhWidget.sendMessage(text)</code> to send a visitor message; it resolves with the updated transcript.</li>
                                                     <li>• Use <code className="text-xs">getMessages()</code> to read the transcript at any time.</li>
                                                     <li>• Subscribe to <code className="text-xs">onMessage</code> and <code className="text-xs">onChatStateChange</code> to drive your UI. States are <code className="text-xs">idle</code>, <code className="text-xs">starting</code>, <code className="text-xs">ready</code>, <code className="text-xs">waiting</code>, <code className="text-xs">ended</code>, <code className="text-xs">expired</code>, <code className="text-xs">error</code>.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.setContext({"{ ... }"})</code> before <code className="text-xs">startChat()</code> to pass visitor details the page learned after load.</li>
                                                 </ul>
                                             </div>
 
@@ -600,6 +601,7 @@ document.getElementById('send-btn').addEventListener('click', async () => {
                                                     <li>• Call <code className="text-xs">window.DograhWidget.end()</code> to end it.</li>
                                                     <li>• Subscribe to <code className="text-xs">onCallStart</code>, <code className="text-xs">onCallEnd</code>, <code className="text-xs">onStatusChange</code>, <code className="text-xs">onError</code> to drive your UI.</li>
                                                     <li>• <code className="text-xs">start()</code> must run inside a user-gesture handler (click) so the browser grants microphone access.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.setContext({"{ ... }"})</code> before <code className="text-xs">start()</code> to pass visitor details the page learned after load.</li>
                                                 </ul>
                                             </div>
 
@@ -764,6 +766,21 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                             <p className="text-xs text-muted-foreground">
                                                 Add this script to your website&apos;s HTML to enable the widget.
                                                 Configuration changes will apply automatically without re-embedding.
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">
+                                                To pass visitor details to the agent, edit the{" "}
+                                                <code className="text-xs">data-dograh-context</code> values above — or call{" "}
+                                                <code className="text-xs">{"window.DograhWidget.setContext({ ... })"}</code> for
+                                                details your page learns later. Each one is available in your prompts as{" "}
+                                                <code className="text-xs">{"{{initial_context.page_url}}"}</code>.{" "}
+                                                <a
+                                                    href={WIDGET_CONTEXT_DOC_URL}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="underline underline-offset-2 hover:text-foreground"
+                                                >
+                                                    Learn more
+                                                </a>
                                             </p>
                                         </div>
                                     </>

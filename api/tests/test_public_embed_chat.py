@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from api.routes.public_embed import PublicEmbedCORSMiddleware
 from api.routes.public_embed import router as public_embed_router
 from api.routes.public_embed_chat import router as public_embed_chat_router
+from api.services.workflow.embed_context import MAX_VALUE_LENGTH
 from api.services.workflow.embed_text_chat_service import (
     EMBED_CHAT_MAX_TURNS,
     EmbedChatTurnLimitExceededError,
@@ -323,6 +324,28 @@ def test_init_voice_token_keeps_smallwebrtc(_patch_db):
     body = resp.json()
     assert body["widget_type"] == "voice"
     assert body["chat_session"] is None
+
+
+def test_init_sanitizes_context_variables(_patch_db):
+    resp = client.post(
+        "/api/v1/public/embed/init",
+        headers={"Origin": ORIGIN},
+        json={
+            "token": "voice",
+            "context_variables": {
+                "  customer_name  ": "Abhishek",
+                "provider": "twilio",
+                "bio": "a" * (MAX_VALUE_LENGTH + 500),
+            },
+        },
+    )
+    assert resp.status_code == 200
+
+    initial_context = _patch_db.created_runs[0]["initial_context"]
+    assert initial_context["customer_name"] == "Abhishek"
+    # The host page can't rewrite the transport the backend picked.
+    assert initial_context["provider"] == "smallwebrtc"
+    assert len(initial_context["bio"]) == MAX_VALUE_LENGTH
 
 
 def test_init_chat_quota_exhausted_402(monkeypatch):

@@ -32,6 +32,7 @@ from api.routes.turn_credentials import (
 )
 from api.schemas.embed_chat import PublicEmbedChatSessionResponse
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.embed_context import sanitize_embed_context_variables
 from api.services.workflow.embed_text_chat_service import (
     build_public_chat_session_response,
     start_embed_text_chat,
@@ -418,17 +419,23 @@ async def initialize_embed_session(
         if not workflow:
             raise ValueError("Workflow not found")
         run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
+        # Visitor context comes from the host page (script URL params or the
+        # data-dograh-context attribute) and is addressable from prompts as
+        # {{initial_context.<name>}}.
+        context_variables = sanitize_embed_context_variables(
+            init_request.context_variables
+        )
         if is_chat:
             mode = WorkflowRunMode.TEXTCHAT.value
             name = f"Embed Chat - {datetime.now(UTC).isoformat()}"
             # Text-chat runs carry no transport provider (mirrors the
             # authenticated text-chat route).
-            initial_context = {**(init_request.context_variables or {})}
+            initial_context = {**context_variables}
         else:
             mode = WorkflowRunMode.SMALLWEBRTC.value
             name = f"Embed Run - {datetime.now(UTC).isoformat()}"
             initial_context = {
-                **(init_request.context_variables or {}),
+                **context_variables,
                 "provider": WorkflowRunMode.SMALLWEBRTC.value,
             }
         workflow_run = await db_client.create_workflow_run(

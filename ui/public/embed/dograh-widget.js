@@ -105,8 +105,15 @@
       token: token,
       apiBaseUrl: apiBaseUrl,
       environment: environment || 'production',
-      // Allow data attributes to override fetched config
-      contextVariables: parseContextVariables(script.getAttribute('data-dograh-context'))
+      // Visitor context the host page attached to the script tag. It lands in
+      // the run's initial_context, addressable from prompts as
+      // {{initial_context.<name>}}. setContext() can run before this config
+      // assignment (init awaits a fetch), so anything already set is merged
+      // back on top rather than overwritten.
+      contextVariables: {
+        ...parseContextVariables(script.getAttribute('data-dograh-context')),
+        ...(state.config.contextVariables || {})
+      }
     };
 
     try {
@@ -197,6 +204,40 @@
       console.warn('Dograh Widget: Invalid context variables', e);
       return {};
     }
+  }
+
+  /**
+   * True while a conversation is live and its context is already fixed
+   */
+  function isConversationActive() {
+    if (isChatWidget()) {
+      return ['starting', 'ready', 'waiting'].indexOf(state.chat.status) !== -1;
+    }
+    return ['connecting', 'connected'].indexOf(state.connectionStatus) !== -1;
+  }
+
+  /**
+   * Merge visitor context supplied by the host page after the script loaded.
+   *
+   * The context is read when a conversation starts, so this applies to the next
+   * one — a conversation already under way keeps what it was created with.
+   */
+  function setContextVariables(vars) {
+    if (!vars || typeof vars !== 'object' || Array.isArray(vars)) {
+      console.warn('Dograh Widget: setContext expects a plain object');
+      return { ...(state.config.contextVariables || {}) };
+    }
+
+    state.config.contextVariables = {
+      ...(state.config.contextVariables || {}),
+      ...vars
+    };
+
+    if (isConversationActive()) {
+      console.warn('Dograh Widget: context set during a conversation applies to the next one');
+    }
+
+    return { ...state.config.contextVariables };
   }
 
   /**
@@ -1862,6 +1903,11 @@
     stop: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
     end: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
     retry: retryCall,
+
+    // Visitor context (voice and chat, every embed mode). Merges into whatever
+    // data-dograh-context supplied; applies to the next conversation started.
+    setContext: setContextVariables,
+    getContext: () => ({ ...(state.config.contextVariables || {}) }),
 
     // Floating widget specific
     open: openWidget,

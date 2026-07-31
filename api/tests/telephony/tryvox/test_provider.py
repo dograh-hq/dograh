@@ -10,6 +10,7 @@ import pytest
 from api.db import db_client
 from api.enums import TelephonyCallStatus
 from api.errors.telephony_errors import TelephonyError
+from api.services.telephony import registry
 from api.services.telephony.providers.tryvox.provider import TryVoxProvider
 
 
@@ -24,6 +25,29 @@ def _provider(**overrides) -> TryVoxProvider:
     }
     config.update(overrides)
     return TryVoxProvider(config)
+
+
+def test_config_loader_leaves_phone_number_attachment_to_factory():
+    config = registry.get("tryvox").config_loader(
+        {
+            "auth_id": "TJaccount",
+            "auth_token": "account-token",
+            "webhook_secret": "account-webhook-secret",
+            "application_id": "app_123",
+            "api_base_url": "https://api.tryvox.test",
+            "from_numbers": ["+15559999999"],
+        }
+    )
+
+    assert "from_numbers" not in config
+    assert config == {
+        "provider": "tryvox",
+        "auth_id": "TJaccount",
+        "auth_token": "account-token",
+        "webhook_secret": "account-webhook-secret",
+        "application_id": "app_123",
+        "api_base_url": "https://api.tryvox.test",
+    }
 
 
 def _signed_headers(body: str, *, timestamp: int | None = None) -> dict[str, str]:

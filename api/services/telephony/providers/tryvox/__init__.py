@@ -22,7 +22,6 @@ def _config_loader(value: dict[str, Any]) -> dict[str, Any]:
         "webhook_secret": value.get("webhook_secret"),
         "application_id": value.get("application_id"),
         "api_base_url": value.get("api_base_url") or "https://api.tryvox.io",
-        "from_numbers": value.get("from_numbers", []),
     }
 
 

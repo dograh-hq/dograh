@@ -5,8 +5,11 @@ import { getServerBackendUrl } from '@/lib/apiClient';
 
 const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 
-// Paths that don't require authentication in OSS mode
-const PUBLIC_PATHS = ['/auth/login', '/auth/signup'];
+// Paths that don't require authentication in OSS mode.
+// `/embed` serves the public website widget (e.g. /embed/dograh-widget.js),
+// which must be fetchable without a session cookie so third-party sites can
+// embed it — otherwise the middleware 307-redirects the asset to /auth/login.
+const PUBLIC_PATHS = ['/auth/login', '/auth/signup', '/embed'];
 
 let cachedAuthProvider: string | null = null;
 

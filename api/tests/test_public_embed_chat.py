@@ -18,6 +18,9 @@ from api.routes.public_embed import PublicEmbedCORSMiddleware
 from api.routes.public_embed import router as public_embed_router
 from api.routes.public_embed_chat import router as public_embed_chat_router
 from api.services.workflow.embed_context import MAX_VALUE_LENGTH
+from api.services.workflow.embed_session_service import (
+    authorize_embed_workflow_run_start,
+)
 from api.services.workflow.embed_text_chat_service import (
     EMBED_CHAT_MAX_TURNS,
     EmbedChatTurnLimitExceededError,
@@ -244,20 +247,22 @@ def _patch_db(monkeypatch):
     ]:
         monkeypatch.setattr(f"api.routes.public_embed.db_client.{target}", fake)
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.db_client.get_user_by_id", _get_user
+        "api.services.workflow.embed_session_service.db_client.get_user_by_id",
+        _get_user,
     )
 
     async def _authorize(**_kwargs):
         return _quota(True)
 
     monkeypatch.setattr(
-        "api.routes.public_embed.authorize_workflow_run_start", _authorize
-    )
-    monkeypatch.setattr(
-        "api.routes.public_embed_chat.authorize_workflow_run_start", _authorize
+        "api.services.workflow.embed_session_service.authorize_workflow_run_start",
+        _authorize,
     )
     monkeypatch.setattr("api.routes.public_embed.allow_embed_chat_init", _allow)
-    monkeypatch.setattr("api.routes.public_embed_chat.allow_embed_chat_message", _allow)
+    monkeypatch.setattr(
+        "api.services.workflow.embed_text_chat_service.allow_embed_chat_message",
+        _allow,
+    )
 
     async def _start_chat(**_kwargs):
         return _text_session(turns=[_GREETING_TURN], revision=2)
@@ -273,7 +278,8 @@ def _patch_chat_text_session(monkeypatch, text_session):
         return text_session
 
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.db_client.get_workflow_run_text_session", _get
+        "api.services.workflow.embed_text_chat_service.db_client.get_workflow_run_text_session",
+        _get,
     )
 
 
@@ -398,7 +404,7 @@ def test_init_chat_quota_exhausted_402(monkeypatch):
         return _text_session()
 
     monkeypatch.setattr(
-        "api.routes.public_embed.authorize_workflow_run_start", _authorize
+        "api.routes.public_embed.authorize_embed_workflow_run_start", _authorize
     )
     monkeypatch.setattr("api.routes.public_embed.start_embed_text_chat", _start_chat)
 
@@ -494,7 +500,8 @@ def test_post_message_happy_path(monkeypatch):
         return _text_session(turns=[_GREETING_TURN, reply_turn], revision=4)
 
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.append_embed_text_chat_message", _append
+        "api.services.workflow.embed_text_chat_service.append_embed_text_chat_message",
+        _append,
     )
 
     resp = client.post(
@@ -523,7 +530,8 @@ def test_post_message_revision_conflict_409(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.append_embed_text_chat_message", _append
+        "api.services.workflow.embed_text_chat_service.append_embed_text_chat_message",
+        _append,
     )
 
     resp = client.post(
@@ -544,7 +552,8 @@ def test_post_message_rate_limit_429(monkeypatch):
         return False
 
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.allow_embed_chat_message", _rate_limited
+        "api.services.workflow.embed_text_chat_service.allow_embed_chat_message",
+        _rate_limited,
     )
 
     resp = client.post(
@@ -563,7 +572,8 @@ def test_post_message_turn_cap_429(monkeypatch):
         raise EmbedChatTurnLimitExceededError()
 
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.append_embed_text_chat_message", _append
+        "api.services.workflow.embed_text_chat_service.append_embed_text_chat_message",
+        _append,
     )
 
     resp = client.post(
@@ -581,7 +591,8 @@ def test_post_message_quota_402(monkeypatch):
         return _quota(False)
 
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.authorize_workflow_run_start", _authorize
+        "api.services.workflow.embed_text_chat_service.authorize_embed_workflow_run_start",
+        _authorize,
     )
 
     resp = client.post(
@@ -599,7 +610,8 @@ def test_post_message_execution_error_generic_500(monkeypatch):
         raise TextChatSessionExecutionError("Traceback: secret internals")
 
     monkeypatch.setattr(
-        "api.routes.public_embed_chat.append_embed_text_chat_message", _append
+        "api.services.workflow.embed_text_chat_service.append_embed_text_chat_message",
+        _append,
     )
 
     resp = client.post(
@@ -708,8 +720,43 @@ def test_post_message_empty_text_422():
 
 
 # ---------------------------------------------------------------------------
-# Turn cap (service-level)
+# Service authorization and turn cap
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_embed_authorization_resolves_token_creator_with_org_scope(monkeypatch):
+    actor = SimpleNamespace(id=7)
+    captured = {}
+
+    async def _get_user(user_id):
+        assert user_id == _CHAT_TOKEN.created_by
+        return actor
+
+    async def _authorize(**kwargs):
+        captured.update(kwargs)
+        return _quota(True)
+
+    monkeypatch.setattr(
+        "api.services.workflow.embed_session_service.db_client.get_user_by_id",
+        _get_user,
+    )
+    monkeypatch.setattr(
+        "api.services.workflow.embed_session_service.authorize_workflow_run_start",
+        _authorize,
+    )
+
+    result = await authorize_embed_workflow_run_start(
+        embed_token=_CHAT_TOKEN, workflow_run_id=123
+    )
+
+    assert result.has_quota is True
+    assert captured == {
+        "workflow_id": _CHAT_TOKEN.workflow_id,
+        "organization_id": _CHAT_TOKEN.organization_id,
+        "workflow_run_id": 123,
+        "actor_user": actor,
+    }
 
 
 @pytest.mark.asyncio

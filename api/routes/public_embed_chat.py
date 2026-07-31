@@ -9,28 +9,31 @@ this surface is reachable from any third-party page.
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from loguru import logger
-from pipecat.utils.run_context import set_current_run_id
 
-from api.db import db_client
-from api.db.models import EmbedTokenModel, WorkflowRunTextSessionModel
-from api.enums import WorkflowRunMode
 from api.routes.public_embed import (
     _allow_embed_origin,
     _session_preflight_response,
     get_request_origin,
-    resolve_embed_session,
 )
 from api.schemas.embed_chat import (
     PublicEmbedChatMessageRequest,
     PublicEmbedChatSessionResponse,
 )
-from api.services.quota_service import authorize_workflow_run_start
-from api.services.workflow.embed_chat_limiter import allow_embed_chat_message
+from api.services.workflow.embed_session_service import (
+    EmbedSessionNotFoundError,
+    EmbedSessionValidationError,
+    EmbedTokenNotFoundError,
+)
 from api.services.workflow.embed_text_chat_service import (
+    EmbedChatCompletedError,
+    EmbedChatModeError,
+    EmbedChatQuotaExceededError,
+    EmbedChatRateLimitExceededError,
+    EmbedChatSessionNotFoundError,
     EmbedChatTurnLimitExceededError,
-    append_embed_text_chat_message,
     build_public_chat_session_response,
+    load_embed_text_chat_session,
+    process_embed_text_chat_message,
 )
 from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
@@ -39,31 +42,6 @@ from api.services.workflow.text_chat_session_service import (
 )
 
 router = APIRouter(prefix="/public/embed/chat")
-
-
-async def _load_chat_session(
-    session_token: str, request: Request, response: Response
-) -> tuple[EmbedTokenModel, WorkflowRunTextSessionModel]:
-    origin = get_request_origin(request)
-    embed_session, embed_token = await resolve_embed_session(session_token, origin)
-    if origin:
-        _allow_embed_origin(response, origin)
-
-    run_id = embed_session.workflow_run_id
-    if run_id is None:
-        raise HTTPException(status_code=404, detail="Chat session not found")
-    set_current_run_id(run_id)
-
-    text_session = await db_client.get_workflow_run_text_session(
-        run_id, organization_id=embed_token.organization_id
-    )
-    if not text_session or not text_session.workflow_run:
-        raise HTTPException(status_code=404, detail="Chat session not found")
-    if text_session.workflow_run.workflow_id != embed_token.workflow_id:
-        raise HTTPException(status_code=404, detail="Chat session not found")
-    if text_session.workflow_run.mode != WorkflowRunMode.TEXTCHAT.value:
-        raise HTTPException(status_code=400, detail="Not a chat session")
-    return embed_token, text_session
 
 
 def _revision_conflict_detail(
@@ -81,7 +59,22 @@ async def get_public_chat_session(
     session_token: str, request: Request, response: Response
 ) -> PublicEmbedChatSessionResponse:
     """Current transcript for an embed chat session (used for 409 resync)."""
-    _, text_session = await _load_chat_session(session_token, request, response)
+    origin = get_request_origin(request)
+    try:
+        _, text_session = await load_embed_text_chat_session(
+            session_token=session_token, origin=origin
+        )
+    except (EmbedSessionNotFoundError, EmbedTokenNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedSessionValidationError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except EmbedChatSessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedChatModeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if origin:
+        _allow_embed_origin(response, origin)
     return build_public_chat_session_response(text_session)
 
 
@@ -92,50 +85,44 @@ async def post_public_chat_message(
     request: Request,
     response: Response,
 ) -> PublicEmbedChatSessionResponse:
-    embed_token, text_session = await _load_chat_session(
-        session_token, request, response
-    )
-    workflow_run = text_session.workflow_run
-    if workflow_run.is_completed:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "chat_completed", "message": "Conversation has ended"},
-        )
-
-    if not await allow_embed_chat_message(workflow_run.id):
-        raise HTTPException(
-            status_code=429, detail="Too many messages. Please try again shortly"
-        )
-
-    quota_result = await authorize_workflow_run_start(
-        workflow_id=embed_token.workflow_id,
-        organization_id=embed_token.organization_id,
-        workflow_run_id=workflow_run.id,
-        actor_user=await db_client.get_user_by_id(embed_token.created_by),
-    )
-    if not quota_result.has_quota:
-        raise HTTPException(
-            status_code=402, detail="The agent is unavailable right now"
-        )
-
+    origin = get_request_origin(request)
     try:
-        text_session = await append_embed_text_chat_message(
-            workflow_id=embed_token.workflow_id,
-            run_id=workflow_run.id,
-            text_session=text_session,
+        text_session = await process_embed_text_chat_message(
+            session_token=session_token,
+            origin=origin,
             text=body.text,
             expected_revision=body.expected_revision,
         )
-    except EmbedChatTurnLimitExceededError:
+    except (EmbedSessionNotFoundError, EmbedTokenNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedSessionValidationError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except EmbedChatSessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedChatModeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except EmbedChatCompletedError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "chat_completed", "message": str(e)},
+        ) from e
+    except EmbedChatRateLimitExceededError as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
+    except EmbedChatQuotaExceededError as e:
+        raise HTTPException(status_code=402, detail=str(e)) from e
+    except EmbedChatTurnLimitExceededError as e:
         raise HTTPException(
             status_code=429, detail="Message limit reached for this conversation"
-        )
+        ) from e
     except TextChatSessionRevisionConflictError as e:
-        raise HTTPException(status_code=409, detail=_revision_conflict_detail(e))
+        raise HTTPException(status_code=409, detail=_revision_conflict_detail(e)) from e
     except (TextChatPendingTurnLostError, TextChatSessionExecutionError) as e:
-        logger.error(f"Embed chat turn failed for run {workflow_run.id}: {e}")
-        raise HTTPException(status_code=500, detail="Assistant failed to respond")
+        raise HTTPException(
+            status_code=500, detail="Assistant failed to respond"
+        ) from e
 
+    if origin:
+        _allow_embed_origin(response, origin)
     return build_public_chat_session_response(text_session)
 
 

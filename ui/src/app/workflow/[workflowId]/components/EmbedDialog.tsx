@@ -554,7 +554,7 @@ export function EmbedDialog({
                                                     <li>• Add the embed script tag to your page (see below).</li>
                                                     <li>• The widget renders no UI - render your own chat interface.</li>
                                                     <li>• Call <code className="text-xs">window.DograhWidget.startChat()</code> to start a conversation (the agent greeting arrives via <code className="text-xs">onMessage</code>).</li>
-                                                    <li>• Call <code className="text-xs">window.DograhWidget.sendMessage(text)</code> to send a visitor message; it resolves with the updated transcript.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.sendMessage(text)</code> to send a visitor message; it resolves with the updated transcript, or <code className="text-xs">null</code> if the message could not be delivered.</li>
                                                     <li>• Use <code className="text-xs">getMessages()</code> to read the transcript at any time.</li>
                                                     <li>• Subscribe to <code className="text-xs">onMessage</code> and <code className="text-xs">onChatStateChange</code> to drive your UI. States are <code className="text-xs">idle</code>, <code className="text-xs">starting</code>, <code className="text-xs">ready</code>, <code className="text-xs">waiting</code>, <code className="text-xs">ended</code>, <code className="text-xs">expired</code>, <code className="text-xs">error</code>.</li>
                                                     <li>• Call <code className="text-xs">window.DograhWidget.setContext({"{ ... }"})</code> before <code className="text-xs">startChat()</code> to pass visitor details the page learned after load.</li>
@@ -581,8 +581,8 @@ document.getElementById('open-chat').addEventListener('click', () => {
 document.getElementById('send-btn').addEventListener('click', async () => {
   const input = document.getElementById('chat-input');
   appendVisitorBubble(input.value);
-  await window.DograhWidget.sendMessage(input.value);
-  input.value = '';
+  const transcript = await window.DograhWidget.sendMessage(input.value);
+  if (transcript !== null) input.value = '';
 });`}</code>
                                                 </pre>
                                             </div>

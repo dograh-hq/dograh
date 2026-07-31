@@ -61,23 +61,34 @@ These apply to all three modes:
 
 Your page usually knows something about the visitor — their name, plan, cart value, the article they were reading. Pass it along and your agent can use it from the first word.
 
-The snippet you copy from the dashboard carries a `data-dograh-context` attribute — a JSON object of details about the visitor. It ships with two examples you can edit or replace:
+The snippet you copy from the dashboard carries a `data-dograh-context` attribute — a JSON object of details about the visitor. The snippet is a small bootstrap function: `js` is the widget `<script>` element it creates, and the context is attached to that element before it is added to the page. The relevant part of the generated snippet looks like this (keep the generated `js.src` value, which contains your embed token):
 
-```js
-js.setAttribute('data-dograh-context', JSON.stringify({
-  page_url: window.location.href,
-  today: new Date().toISOString().slice(0, 10)
-}));
+```html
+<script>
+  (function(d, s, id) {
+    var js, fjs = d.getElementsByTagName(s)[0];
+    if (d.getElementById(id)) return;
+    js = d.createElement(s);
+    js.id = id;
+    js.src = '<dashboard-generated widget URL>';
+    js.setAttribute('data-dograh-context', JSON.stringify({
+      page_url: window.location.href,
+      today: new Date().toISOString().slice(0, 10)
+    }));
+    js.async = true;
+    fjs.parentNode.insertBefore(js, fjs);
+  }(document, 'script', 'dograh-widget'));
+</script>
 ```
 
-Because it's built in JavaScript at page load, you can put anything your page knows in it — a logged-in customer's name, their plan, cart contents:
+Because it's built in JavaScript at page load, you can put anything your page knows in it — a logged-in customer's name, their plan, cart contents. Replace the object inside `JSON.stringify(...)` in the generated snippet, for example:
 
 ```js
-js.setAttribute('data-dograh-context', JSON.stringify({
+{
   customer_name: currentUser.firstName,
   plan: currentUser.plan,
   cart: { items: cart.length, total: cart.total }
-}));
+}
 ```
 
 Each key is then available in any node prompt as `{{initial_context.<name>}}`:

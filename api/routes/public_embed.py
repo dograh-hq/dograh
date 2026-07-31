@@ -7,7 +7,6 @@ They handle CORS, domain validation, and session management for embedded workflo
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Optional
-from urllib.parse import urlsplit
 
 from fastapi import (
     APIRouter,
@@ -23,7 +22,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.constants import ENABLE_COTURN, FORCE_TURN_RELAY
 from api.db import db_client
-from api.db.models import EmbedSessionModel, EmbedTokenModel
 from api.enums import WorkflowRunMode
 from api.routes.turn_credentials import (
     TURN_SECRET,
@@ -31,9 +29,16 @@ from api.routes.turn_credentials import (
     generate_turn_credentials,
 )
 from api.schemas.embed_chat import PublicEmbedChatSessionResponse
-from api.services.quota_service import authorize_workflow_run_start
 from api.services.workflow.embed_chat_limiter import allow_embed_chat_init
 from api.services.workflow.embed_context import sanitize_embed_context_variables
+from api.services.workflow.embed_session_service import (
+    EmbedSessionNotFoundError,
+    EmbedSessionValidationError,
+    EmbedTokenNotFoundError,
+    authorize_embed_workflow_run_start,
+    resolve_embed_session,
+    validate_embed_origin,
+)
 from api.services.workflow.embed_text_chat_service import (
     build_public_chat_session_response,
     start_embed_text_chat,
@@ -49,6 +54,11 @@ router = APIRouter(prefix="/public/embed")
 
 EMBED_CORS_ALLOW_HEADERS = "Content-Type, Origin"
 EMBED_CORS_MAX_AGE = "86400"
+
+
+def _turn_credentials_available() -> bool:
+    """Return whether the public endpoint can mint TURN credentials."""
+    return ENABLE_COTURN and bool(TURN_SECRET)
 
 
 class InitEmbedRequest(BaseModel):
@@ -89,81 +99,6 @@ class EmbedConfigResponse(BaseModel):
     # restrict ICE to relay candidates for TURN diagnostics.
     turn_enabled: bool
     force_turn_relay: bool
-
-
-def validate_origin(origin: str, allowed_domains: list) -> bool:
-    """Validate if the origin is in the allowed domains list.
-
-    Args:
-        origin: The origin header from the request
-        allowed_domains: List of allowed domain patterns
-
-    Returns:
-        True if origin is allowed, False otherwise
-    """
-    if not allowed_domains:
-        # If no domains specified, allow all origins
-        return True
-
-    domain, origin_port = _parse_origin_host_port(origin)
-    if not domain:
-        return False
-
-    # Normalize domain for www matching
-    def normalize_www(d: str) -> tuple[str, str]:
-        """Return both www and non-www versions of a domain"""
-        if d.startswith("www."):
-            return (d, d[4:])  # (www.x.com, x.com)
-        else:
-            return (d, f"www.{d}")  # (x.com, www.x.com)
-
-    domain_variants = normalize_www(domain)
-
-    for allowed in allowed_domains:
-        allowed = str(allowed).strip().lower()
-        if allowed == "*":
-            return True
-        allowed_domain, allowed_port = _parse_origin_host_port(allowed)
-        if not allowed_domain:
-            continue
-        if allowed_port is not None and allowed_port != origin_port:
-            continue
-
-        if allowed_domain.startswith("*."):
-            # Wildcard subdomain matching
-            base_domain = allowed_domain[2:]
-            if domain == base_domain or domain.endswith("." + base_domain):
-                return True
-        else:
-            # Check both www and non-www versions
-            allowed_variants = normalize_www(allowed_domain)
-            # If any variant of domain matches any variant of allowed, it's valid
-            if any(
-                dv in allowed_variants or av in domain_variants
-                for dv in domain_variants
-                for av in allowed_variants
-            ):
-                return True
-
-    return False
-
-
-def _parse_origin_host_port(value: str) -> tuple[str, str | None]:
-    candidate = value.strip().lower()
-    if not candidate:
-        return "", None
-
-    if "://" not in candidate and not candidate.startswith("//"):
-        candidate = f"//{candidate}"
-
-    parsed = urlsplit(candidate)
-    try:
-        parsed_port = parsed.port
-    except ValueError:
-        parsed_port = None
-
-    port = str(parsed_port) if parsed_port is not None else None
-    return (parsed.hostname or "").rstrip("."), port
 
 
 def generate_session_token() -> str:
@@ -208,40 +143,10 @@ async def _config_preflight_response(token: str, origin: str) -> Response:
     if not embed_token or not embed_token.is_active:
         return Response(status_code=403)
 
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         return Response(status_code=403)
 
     return _cors_response(origin, "GET, OPTIONS")
-
-
-async def resolve_embed_session(
-    session_token: str, origin: str
-) -> tuple[EmbedSessionModel, EmbedTokenModel]:
-    """Validate the full embed session chain shared by session-scoped endpoints:
-    session token -> session expiry -> embed token exists and is active ->
-    origin against the token's allowed domains. Raises HTTPException on failure.
-    """
-    embed_session = await db_client.get_embed_session_by_token(session_token)
-    if not embed_session:
-        raise HTTPException(status_code=404, detail="Invalid session token")
-
-    if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
-        raise HTTPException(status_code=403, detail="Session expired")
-
-    embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
-    if not embed_token:
-        raise HTTPException(status_code=404, detail="Invalid embed token")
-
-    if not embed_token.is_active:
-        raise HTTPException(status_code=403, detail="Embed token is inactive")
-
-    if not validate_origin(origin, embed_token.allowed_domains or []):
-        logger.warning(
-            f"Domain validation failed: {origin} not in {embed_token.allowed_domains}"
-        )
-        raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
-
-    return embed_session, embed_token
 
 
 async def _session_preflight_response(
@@ -260,7 +165,7 @@ async def _session_preflight_response(
         embed_token = await db_client.get_embed_token_by_id(
             embed_session.embed_token_id
         )
-        if embed_token and not validate_origin(
+        if embed_token and not validate_embed_origin(
             origin, embed_token.allowed_domains or []
         ):
             return Response(status_code=403)
@@ -339,7 +244,7 @@ class PublicEmbedCORSMiddleware:
             # HTTPExceptions bypass the injected Response object, so without
             # this a third-party page can't read e.g. a 403 session-expired and
             # sees an opaque CORS network error instead. Success data stays
-            # origin-gated in-route by validate_origin — this only makes error
+            # origin-gated in-route by validate_embed_origin — this only makes error
             # statuses readable.
             async def send_with_cors(message) -> None:
                 if message["type"] == "http.response.start":
@@ -392,7 +297,7 @@ async def initialize_embed_session(
         raise HTTPException(status_code=403, detail="Embed token has expired")
 
     # Validate domain
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         logger.warning(
             f"Domain validation failed: {origin} not in {embed_token.allowed_domains}"
         )
@@ -496,11 +401,9 @@ async def initialize_embed_session(
     chat_session = None
     if is_chat:
         set_current_run_id(workflow_run.id)
-        quota_result = await authorize_workflow_run_start(
-            workflow_id=embed_token.workflow_id,
-            organization_id=embed_token.organization_id,
+        quota_result = await authorize_embed_workflow_run_start(
+            embed_token=embed_token,
             workflow_run_id=workflow_run.id,
-            actor_user=await db_client.get_user_by_id(embed_token.created_by),
         )
         if not quota_result.has_quota:
             raise HTTPException(
@@ -566,7 +469,7 @@ async def get_embed_config(token: str, request: Request, response: Response):
         raise HTTPException(status_code=403, detail="Embed token is inactive")
 
     # Validate domain
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
 
     # Set CORS header explicitly; the global CORSMiddleware covers only
@@ -586,7 +489,7 @@ async def get_embed_config(token: str, request: Request, response: Response):
         button_color=settings.get("buttonColor", "#3B82F6"),
         size=settings.get("size", "medium"),
         auto_start=settings.get("autoStart", False),
-        turn_enabled=ENABLE_COTURN,
+        turn_enabled=_turn_credentials_available(),
         force_turn_relay=FORCE_TURN_RELAY,
     )
 
@@ -620,7 +523,12 @@ async def get_public_turn_credentials(
     """
     origin = get_request_origin(request)
 
-    await resolve_embed_session(session_token, origin)
+    try:
+        await resolve_embed_session(session_token, origin)
+    except (EmbedSessionNotFoundError, EmbedTokenNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedSessionValidationError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
 
     if origin:
         _allow_embed_origin(response, origin)
@@ -628,7 +536,7 @@ async def get_public_turn_credentials(
     # Check if TURN is configured. Both conditions matter: ENABLE_COTURN is what
     # the config endpoint advertised, and without a secret there is nothing to
     # sign credentials with.
-    if not ENABLE_COTURN or not TURN_SECRET:
+    if not _turn_credentials_available():
         raise HTTPException(
             status_code=503,
             detail="TURN server not configured",

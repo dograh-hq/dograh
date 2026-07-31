@@ -1,20 +1,31 @@
-"""Embed-widget orchestration over the text-chat session service.
+"""Public embed-widget orchestration over the text-chat session service.
 
-The embed chat endpoints are public (token-gated, anonymous visitors), so this
-module adds the two things the authenticated flow doesn't need: a per-session
-turn cap and an allowlist projection of the session state.
+The embed chat endpoints are token-gated but anonymous, so this module owns
+their authenticated session loading, per-session limits, quota authorization,
+turn execution, and allowlist projection.
 """
 
 from typing import Any
 
+from loguru import logger
+from pipecat.utils.run_context import set_current_run_id
+
 from api.db import db_client
-from api.db.models import WorkflowRunTextSessionModel
+from api.db.models import EmbedTokenModel, WorkflowRunTextSessionModel
+from api.enums import WorkflowRunMode
 from api.schemas.embed_chat import (
     PublicEmbedChatMessage,
     PublicEmbedChatSessionResponse,
     PublicEmbedChatTurn,
 )
+from api.services.workflow.embed_chat_limiter import allow_embed_chat_message
+from api.services.workflow.embed_session_service import (
+    authorize_embed_workflow_run_start,
+    resolve_embed_session,
+)
 from api.services.workflow.text_chat_session_service import (
+    TextChatPendingTurnLostError,
+    TextChatSessionExecutionError,
     append_text_chat_user_message,
     default_text_chat_checkpoint,
     default_text_chat_session_data,
@@ -28,6 +39,89 @@ EMBED_CHAT_MAX_TURNS = 50
 
 class EmbedChatTurnLimitExceededError(Exception):
     """Raised when an embed chat session reaches EMBED_CHAT_MAX_TURNS."""
+
+
+class EmbedChatSessionNotFoundError(Exception):
+    """Raised when an embed session does not own a usable text-chat session."""
+
+
+class EmbedChatModeError(Exception):
+    """Raised when an embed session points at a non-text-chat workflow run."""
+
+
+class EmbedChatCompletedError(Exception):
+    """Raised when a visitor tries to append to a completed chat."""
+
+
+class EmbedChatRateLimitExceededError(Exception):
+    """Raised when an embed chat exceeds its per-session message rate."""
+
+
+class EmbedChatQuotaExceededError(Exception):
+    """Raised when an embed chat is not authorized to perform billable work."""
+
+
+async def load_embed_text_chat_session(
+    *, session_token: str, origin: str
+) -> tuple[EmbedTokenModel, WorkflowRunTextSessionModel]:
+    """Authenticate and load the org-scoped text session for a public token."""
+    embed_session, embed_token = await resolve_embed_session(session_token, origin)
+    run_id = embed_session.workflow_run_id
+    if run_id is None:
+        raise EmbedChatSessionNotFoundError("Chat session not found")
+
+    set_current_run_id(run_id)
+    text_session = await db_client.get_workflow_run_text_session(
+        run_id, organization_id=embed_token.organization_id
+    )
+    if not text_session or not text_session.workflow_run:
+        raise EmbedChatSessionNotFoundError("Chat session not found")
+    if text_session.workflow_run.workflow_id != embed_token.workflow_id:
+        raise EmbedChatSessionNotFoundError("Chat session not found")
+    if text_session.workflow_run.mode != WorkflowRunMode.TEXTCHAT.value:
+        raise EmbedChatModeError("Not a chat session")
+
+    return embed_token, text_session
+
+
+async def process_embed_text_chat_message(
+    *,
+    session_token: str,
+    origin: str,
+    text: str,
+    expected_revision: int | None,
+) -> WorkflowRunTextSessionModel:
+    """Authorize and execute one visitor message for an embed chat session."""
+    embed_token, text_session = await load_embed_text_chat_session(
+        session_token=session_token, origin=origin
+    )
+    workflow_run = text_session.workflow_run
+
+    if workflow_run.is_completed:
+        raise EmbedChatCompletedError("Conversation has ended")
+
+    if not await allow_embed_chat_message(workflow_run.id):
+        raise EmbedChatRateLimitExceededError(
+            "Too many messages. Please try again shortly"
+        )
+
+    quota_result = await authorize_embed_workflow_run_start(
+        embed_token=embed_token, workflow_run_id=workflow_run.id
+    )
+    if not quota_result.has_quota:
+        raise EmbedChatQuotaExceededError("The agent is unavailable right now")
+
+    try:
+        return await append_embed_text_chat_message(
+            workflow_id=embed_token.workflow_id,
+            run_id=workflow_run.id,
+            text_session=text_session,
+            text=text,
+            expected_revision=expected_revision,
+        )
+    except (TextChatPendingTurnLostError, TextChatSessionExecutionError) as e:
+        logger.error(f"Embed chat turn failed for run {workflow_run.id}: {e}")
+        raise
 
 
 async def start_embed_text_chat(

@@ -58,12 +58,26 @@
     }
   };
 
-  /**
-   * Initialize the widget
-   */
-  async function init() {
-    if (state.isInitialized) return;
+  // Initialization is single-flight so API calls made while configuration is
+  // loading can await the same request instead of guessing the widget type.
+  let initializationPromise = null;
 
+  /**
+   * Initialize the widget once and expose the in-flight work to public APIs.
+   */
+  function init() {
+    if (state.isInitialized) return Promise.resolve();
+    if (!initializationPromise) {
+      initializationPromise = initializeWidget().finally(() => {
+        if (!state.isInitialized) {
+          initializationPromise = null;
+        }
+      });
+    }
+    return initializationPromise;
+  }
+
+  async function initializeWidget() {
     // Get token from script URL
     const script = document.currentScript || document.querySelector('script[src*="dograh-widget.js"]');
     if (!script) {
@@ -191,6 +205,19 @@
     if (state.config.autoStart) {
       setTimeout(() => (isChatWidget() ? startChat() : startCall()), 1000);
     }
+  }
+
+  /**
+   * Generic public start alias. Widget type comes from async server config, so
+   * never dispatch to voice/chat until initialization has resolved.
+   */
+  async function startWidget(...args) {
+    await init();
+    if (!state.isInitialized) {
+      console.warn('Dograh Widget: Cannot start before initialization succeeds');
+      return;
+    }
+    return isChatWidget() ? startChat() : startCall(...args);
   }
 
   /**
@@ -1499,7 +1526,7 @@
 
   /**
    * Create inline chat widget — pre-chat CTA screen in the host container; the
-   * session (and its LLM greeting) only starts on click.
+   * CTA, autoStart, and public API all open the same panel/session lifecycle.
    */
   function createInlineChatWidget() {
     const container = document.getElementById(state.config.containerId);
@@ -1532,18 +1559,37 @@
     startBtn.type = 'button';
     startBtn.style.backgroundColor = state.config.buttonColor;
     startBtn.textContent = state.config.buttonText || 'Chat with Agent';
-    startBtn.onclick = () => {
-      container.removeChild(cta);
-      const panel = buildChatPanel({ withClose: false });
-      panel.classList.add('dograh-chat-panel--inline');
-      container.appendChild(panel);
-      state.chat.panelOpen = true;
-      startChatSession();
-    };
+    startBtn.onclick = () => startChat();
     cta.appendChild(startBtn);
 
     container.appendChild(cta);
     state.isOpen = true;
+  }
+
+  /**
+   * Replace the inline CTA with the chat panel. Keeping this in the shared
+   * startChat path ensures autoStart and the public API never create a hidden
+   * session behind the CTA.
+   */
+  function openInlineChatPanel() {
+    const container = document.getElementById(state.config.containerId);
+    if (!container) {
+      console.error(`Dograh Widget: Container element with id "${state.config.containerId}" not found`);
+      return false;
+    }
+
+    const cta = container.querySelector('.dograh-chat-inline-cta');
+    if (cta) {
+      cta.remove();
+    }
+
+    if (!state.chatEls || !state.chatEls.panel || !container.contains(state.chatEls.panel)) {
+      const panel = buildChatPanel({ withClose: false });
+      panel.classList.add('dograh-chat-panel--inline');
+      container.appendChild(panel);
+    }
+
+    return true;
   }
 
   function toggleChatPanel() {
@@ -1563,11 +1609,14 @@
 
   /**
    * Open the chat (public API). Shows the panel (if any) and starts the
-   * session on first open — page loads cost nothing until the visitor engages.
+   * session on first open, including an open requested by autoStart.
    */
   async function startChat() {
     if (!isChatWidget()) {
       console.warn('Dograh Widget: startChat() called on a voice widget');
+      return;
+    }
+    if (state.config.embedMode === 'inline' && !openInlineChatPanel()) {
       return;
     }
     state.chat.panelOpen = true;
@@ -1898,7 +1947,7 @@
     // Core methods. In chat mode start()/stop() degrade sensibly: start opens
     // the chat, stop closes the panel (REST sessions need no teardown).
     init: init,
-    start: (...args) => (isChatWidget() ? startChat() : startCall(...args)),
+    start: startWidget,
     stop: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
     end: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
     retry: retryCall,

@@ -237,6 +237,25 @@ def test_get_config_reports_turn_disabled_when_unconfigured(monkeypatch):
     assert body["force_turn_relay"] is False
 
 
+def test_get_config_reports_turn_disabled_without_secret(monkeypatch):
+    # ENABLE_COTURN alone cannot satisfy the credential endpoint: without the
+    # shared secret it cannot sign credentials, so the widget must skip it.
+    monkeypatch.setattr("api.routes.public_embed.ENABLE_COTURN", True)
+    monkeypatch.setattr("api.routes.public_embed.TURN_SECRET", None)
+    resp = client.get(
+        "/api/v1/public/embed/config/valid",
+        headers={"Origin": "https://mysite.vercel.app"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["turn_enabled"] is False
+
+    credentials_resp = client.get(
+        "/api/v1/public/embed/turn-credentials/session-valid",
+        headers={"Origin": "https://mysite.vercel.app"},
+    )
+    assert credentials_resp.status_code == 503
+
+
 def test_get_config_accepts_allowed_localhost_port():
     origin = "http://localhost:3020"
     resp = client.get(

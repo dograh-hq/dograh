@@ -51,6 +51,7 @@ from api.services.pipecat.ws_sender_registry import (
     unregister_ws_sender,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.embed_session_service import validate_embed_origin
 
 router = APIRouter(prefix="/ws")
 
@@ -798,10 +799,8 @@ async def public_signaling_websocket(
     # Enforce the embed token's allowed-domain policy on the public signaling
     # path, mirroring the HTTP embed endpoints (issue #330). Without this a
     # leaked or replayed session token could attach from an arbitrary origin.
-    from api.routes.public_embed import validate_origin
-
     origin = websocket.headers.get("origin") or websocket.headers.get("referer", "")
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         logger.warning(
             f"Domain validation failed for public signaling: {origin} "
             f"not in {embed_token.allowed_domains}"

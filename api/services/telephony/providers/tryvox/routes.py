@@ -186,11 +186,40 @@ async def _release_callback_reservation(
         )
 
 
-def _assert_call_matches(workflow_run, callback_data: dict) -> None:
-    expected = (workflow_run.gathered_context or {}).get("call_id")
+async def _assert_call_matches(
+    workflow_run, workflow_run_id: int, callback_data: dict
+) -> None:
+    """Verify the callback's call ID against the run, claiming it on first contact.
+
+    Outbound call initiation persists ``call_id`` on the run only after the
+    provider's REST call returns, but TryVox can deliver its signed Answer
+    (or an early status) callback before that write lands. Rejecting those
+    callbacks outright drops a genuine call. Since the caller already
+    verified the request signature, the first signed callback for a run is
+    trusted to claim the call ID; every later callback must match it exactly.
+    """
     received = callback_data.get("call_uuid") or callback_data.get("CallUUID")
-    if not expected or not received or str(expected) != str(received):
+    if not received:
         raise HTTPException(status_code=403, detail="Webhook call does not match run")
+    received = str(received)
+
+    expected = (workflow_run.gathered_context or {}).get("call_id")
+    if expected:
+        if str(expected) != received:
+            raise HTTPException(
+                status_code=403, detail="Webhook call does not match run"
+            )
+        return
+
+    bound = await tryvox_security.claim_call_id(workflow_run_id, received)
+    if bound != received:
+        raise HTTPException(status_code=403, detail="Webhook call does not match run")
+
+    gathered_context = {**(workflow_run.gathered_context or {}), "call_id": received}
+    await db_client.update_workflow_run(
+        run_id=workflow_run_id, gathered_context=gathered_context
+    )
+    workflow_run.gathered_context = gathered_context
 
 
 @router.post("/tryvox/answer", include_in_schema=False)
@@ -209,7 +238,7 @@ async def handle_tryvox_answer(
     if workflow.id != workflow_id:
         raise HTTPException(status_code=400, detail="Workflow ID mismatch")
     timestamp = await _verify_request(request, provider, callback_data, raw_body)
-    _assert_call_matches(workflow_run, callback_data)
+    await _assert_call_matches(workflow_run, workflow_run_id, callback_data)
     claim_state, owner = await tryvox_security.reserve_callback(
         provider.auth_id,
         "answer",
@@ -234,16 +263,6 @@ async def handle_tryvox_answer(
         response_content = await provider.get_webhook_response(
             workflow_id, organization_id, workflow_run_id
         )
-        finalized = await tryvox_security.finalize_callback(
-            provider.auth_id,
-            "answer",
-            workflow_run_id,
-            timestamp,
-            raw_body,
-            owner,
-        )
-        if not finalized:
-            raise HTTPException(status_code=503, detail="Callback claim expired")
     except BaseException:
         await _release_callback_reservation(
             provider,
@@ -254,6 +273,27 @@ async def handle_tryvox_answer(
             owner,
         )
         raise
+
+    finalized = await tryvox_security.finalize_callback(
+        provider.auth_id,
+        "answer",
+        workflow_run_id,
+        timestamp,
+        raw_body,
+        owner,
+    )
+    if not finalized:
+        # The response was already generated successfully; releasing the
+        # reservation here would let a provider retry regenerate it (and,
+        # worse, reissue a stream capability) instead of reusing it. Force
+        # the completion marker so a retry is treated as a duplicate.
+        logger.warning(
+            f"[run {workflow_run_id}] Lost TryVox answer callback claim "
+            "after generating the response; forcing completion marker"
+        )
+        await tryvox_security.force_complete_callback(
+            provider.auth_id, "answer", workflow_run_id, timestamp, raw_body
+        )
     return JSONResponse(json.loads(response_content))
 
 
@@ -267,7 +307,7 @@ async def handle_tryvox_status(
     callback_data, raw_body = await _read_signed_json(request)
     workflow_run, _, provider = await _resolve_provider(workflow_run_id)
     timestamp = await _verify_request(request, provider, callback_data, raw_body)
-    _assert_call_matches(workflow_run, callback_data)
+    await _assert_call_matches(workflow_run, workflow_run_id, callback_data)
     parsed = provider.parse_status_callback(callback_data)
     if not parsed["call_id"]:
         raise HTTPException(status_code=400, detail="Callback missing CallUUID")
@@ -298,16 +338,6 @@ async def handle_tryvox_status(
                 extra=parsed.get("extra", {}),
             ),
         )
-        finalized = await tryvox_security.finalize_callback(
-            provider.auth_id,
-            "status",
-            workflow_run_id,
-            timestamp,
-            raw_body,
-            owner,
-        )
-        if not finalized:
-            raise HTTPException(status_code=503, detail="Callback claim expired")
     except BaseException:
         await _release_callback_reservation(
             provider,
@@ -318,6 +348,26 @@ async def handle_tryvox_status(
             owner,
         )
         raise
+
+    finalized = await tryvox_security.finalize_callback(
+        provider.auth_id,
+        "status",
+        workflow_run_id,
+        timestamp,
+        raw_body,
+        owner,
+    )
+    if not finalized:
+        # The status update already applied; releasing the reservation here
+        # would let a provider retry reprocess the same lifecycle transition.
+        # Force the completion marker so a retry is treated as a duplicate.
+        logger.warning(
+            f"[run {workflow_run_id}] Lost TryVox status callback claim "
+            "after processing; forcing completion marker"
+        )
+        await tryvox_security.force_complete_callback(
+            provider.auth_id, "status", workflow_run_id, timestamp, raw_body
+        )
     logger.info(
         f"[run {workflow_run_id}] Processed TryVox status "
         f"{parsed['status']} for call {parsed['call_id']}"

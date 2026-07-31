@@ -17,6 +17,7 @@ class TryVoxSecurity:
     STREAM_TOKEN_TTL_SECONDS = 600
     STREAM_RESERVATION_TTL_SECONDS = STREAM_TOKEN_TTL_SECONDS
     CALLBACK_REPLAY_TTL_SECONDS = 300
+    CALL_CLAIM_TTL_SECONDS = 24 * 60 * 60
     CONSUMED_STREAM_TOKEN_PREFIX = "__consumed__:"
     RESERVED_STREAM_TOKEN_PREFIX = "__reserved__:"
     CALLBACK_PROCESSING_PREFIX = "__processing__:"
@@ -218,6 +219,29 @@ class TryVoxSecurity:
         return bool(result)
 
     @staticmethod
+    def _call_claim_key(workflow_run_id: int) -> str:
+        return f"tryvox:call-claim:{workflow_run_id}"
+
+    async def claim_call_id(self, workflow_run_id: int, call_id: str) -> str:
+        """Atomically bind the first signed call ID seen for a run.
+
+        Outbound call initiation and TryVox's Answer callback race to persist
+        the provider call ID: TryVox can deliver a signed callback before the
+        initiating request has stored ``call_id`` on the run. This lets the
+        first signed callback (of either kind) claim the call ID immediately
+        so a legitimate callback is never rejected while the DB write is
+        still in flight; a later callback with a different call ID is not
+        the same call and is rejected by the caller.
+        """
+        redis = await self._get_redis()
+        key = self._call_claim_key(workflow_run_id)
+        claimed = await redis.set(key, call_id, ex=self.CALL_CLAIM_TTL_SECONDS, nx=True)
+        if claimed:
+            return call_id
+        existing = await redis.get(key)
+        return str(existing) if existing else call_id
+
+    @staticmethod
     def _callback_key(
         account_id: str,
         callback_type: str,
@@ -311,6 +335,33 @@ class TryVoxSecurity:
                 self.CALLBACK_COMPLETED,
                 self.CALLBACK_REPLAY_TTL_SECONDS,
             )
+        )
+
+    async def force_complete_callback(
+        self,
+        account_id: str,
+        callback_type: str,
+        workflow_run_id: int,
+        timestamp: str,
+        raw_body: str,
+    ) -> None:
+        """Mark a callback completed unconditionally after it was processed.
+
+        Used when the processing side effect (e.g. a status transition) has
+        already succeeded but the ownership-scoped ``finalize_callback`` call
+        lost its claim (expired or replaced). Releasing the reservation in
+        that situation would invite the provider's retry to reprocess an
+        already-applied side effect, so this best-effort write dedupes
+        instead without gating on ownership.
+        """
+        redis = await self._get_redis()
+        await redis.set(
+            self._callback_key(
+                account_id, callback_type, workflow_run_id, timestamp, raw_body
+            ),
+            self.CALLBACK_COMPLETED,
+            ex=self.CALLBACK_REPLAY_TTL_SECONDS,
+            nx=False,
         )
 
     async def release_callback(

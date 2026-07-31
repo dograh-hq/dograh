@@ -237,6 +237,39 @@ async def test_concurrent_callback_claim_allows_one_winner():
 
 
 @pytest.mark.asyncio
+async def test_claim_call_id_binds_first_caller_and_rejects_conflicts():
+    redis = _FakeRedis()
+    security = TryVoxSecurity(redis)
+
+    first = await security.claim_call_id(13, "call-123")
+    same = await security.claim_call_id(13, "call-123")
+    conflicting = await security.claim_call_id(13, "call-other")
+    other_run = await security.claim_call_id(14, "call-other")
+
+    assert first == "call-123"
+    assert same == "call-123"
+    assert conflicting == "call-123"
+    assert other_run == "call-other"
+
+
+@pytest.mark.asyncio
+async def test_force_complete_callback_overwrites_any_prior_state():
+    redis = _FakeRedis()
+    security = TryVoxSecurity(redis)
+    args = ("acct-1", "status", 13, "123", '{"call":"one"}')
+
+    state, owner = await security.reserve_callback(*args)
+    assert state == "acquired"
+    assert owner
+
+    # The owning worker's finalize claim is lost (e.g. TTL expiry), but the
+    # side effect already succeeded -- force the completion marker anyway.
+    await security.force_complete_callback(*args)
+
+    assert (await security.reserve_callback(*args))[0] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_callback_release_and_finalize_require_matching_owner():
     security = TryVoxSecurity(_FakeRedis())
     args = ("acct-1", "status", 13, "123", '{"call":"one"}')

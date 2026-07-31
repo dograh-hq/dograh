@@ -20,7 +20,8 @@ class _FakeRedis:
 
     async def eval(self, script, key_count, key, supplied, consumed):
         assert key_count == 1
-        if self.values.get(key) != supplied:
+        stored = self.values.get(key)
+        if stored == consumed or stored != supplied:
             return 0
         self.values[key] = consumed
         return 1
@@ -43,6 +44,12 @@ async def test_stream_capability_is_stable_and_single_use():
     assert await security.redeem_stream_token(8, 11, 13, "stream-token") is False
     assert await security.redeem_stream_token(7, 11, 13, "stream-token") is True
     assert await security.redeem_stream_token(7, 11, 13, "stream-token") is False
+    assert (
+        await security.redeem_stream_token(
+            7, 11, 13, TryVoxSecurity.CONSUMED_STREAM_TOKEN
+        )
+        is False
+    )
     assert await security.issue_stream_token(7, 11, 13) is None
 
 
@@ -51,7 +58,23 @@ async def test_callback_claim_is_atomic_and_retry_safe():
     redis = _FakeRedis()
     security = TryVoxSecurity(redis)
 
-    assert await security.claim_callback("acct-1", "123", '{"call":"one"}') is True
-    assert await security.claim_callback("acct-1", "123", '{"call":"one"}') is False
-    assert await security.claim_callback("acct-2", "123", '{"call":"one"}') is True
-    assert await security.claim_callback("acct-1", "123", '{"call":"two"}') is True
+    assert (
+        await security.claim_callback("acct-1", 13, "123", '{"call":"one"}')
+        is True
+    )
+    assert (
+        await security.claim_callback("acct-1", 13, "123", '{"call":"one"}')
+        is False
+    )
+    assert (
+        await security.claim_callback("acct-1", 14, "123", '{"call":"one"}')
+        is True
+    )
+    assert (
+        await security.claim_callback("acct-2", 13, "123", '{"call":"one"}')
+        is True
+    )
+    assert (
+        await security.claim_callback("acct-1", 13, "123", '{"call":"two"}')
+        is True
+    )

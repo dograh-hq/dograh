@@ -354,7 +354,7 @@ async def test_answer_route_rejects_call_id_mismatch():
             f"{ROUTES_MODULE}.tryvox_security.claim_callback",
             new_callable=AsyncMock,
             return_value=True,
-        ),
+        ) as claim_callback,
     ):
         db_client.get_workflow_run = AsyncMock(return_value=workflow_run)
         db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
@@ -362,6 +362,42 @@ async def test_answer_route_rejects_call_id_mismatch():
             await handle_tryvox_answer(request, 7, 13, 11)
 
     assert exc.value.status_code == 403
+    claim_callback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_answer_route_rejects_missing_call_id_before_replay_claim():
+    provider = _provider()
+    workflow_run = SimpleNamespace(
+        workflow_id=7,
+        gathered_context={"call_id": "call-expected"},
+        initial_context={"telephony_configuration_id": 5},
+    )
+    workflow = SimpleNamespace(id=7, organization_id=11)
+    request = _request(
+        "/api/v1/telephony/tryvox/answer",
+        {"account_id": "TJaccount"},
+    )
+
+    with (
+        patch(f"{ROUTES_MODULE}.db_client") as db_client,
+        patch(
+            f"{ROUTES_MODULE}.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            new_callable=AsyncMock,
+        ) as claim_callback,
+    ):
+        db_client.get_workflow_run = AsyncMock(return_value=workflow_run)
+        db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
+        with pytest.raises(HTTPException) as exc:
+            await handle_tryvox_answer(request, 7, 13, 11)
+
+    assert exc.value.status_code == 403
+    claim_callback.assert_not_awaited()
 
 
 @pytest.mark.asyncio

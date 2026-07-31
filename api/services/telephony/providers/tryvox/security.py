@@ -81,7 +81,7 @@ class TryVoxSecurity:
         redis = await self._get_redis()
         script = """
         local stored = redis.call('GET', KEYS[1])
-        if not stored or stored ~= ARGV[1] then
+        if not stored or stored == ARGV[2] or stored ~= ARGV[1] then
             return 0
         end
         redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
@@ -97,11 +97,15 @@ class TryVoxSecurity:
         return bool(result)
 
     async def claim_callback(
-        self, account_id: str, timestamp: str, raw_body: str
+        self,
+        account_id: str,
+        workflow_run_id: int,
+        timestamp: str,
+        raw_body: str,
     ) -> bool:
-        """Atomically claim a signed callback payload for its replay window."""
+        """Atomically claim a signed, run-bound callback for its replay window."""
         digest = hashlib.sha256(
-            f"{account_id}.{timestamp}.{raw_body}".encode()
+            f"{account_id}.{workflow_run_id}.{timestamp}.{raw_body}".encode()
         ).hexdigest()
         redis = await self._get_redis()
         return bool(

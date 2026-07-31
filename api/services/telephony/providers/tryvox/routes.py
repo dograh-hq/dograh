@@ -92,24 +92,21 @@ async def _verify_request(
     provider,
     callback_data: dict,
     raw_body: str,
-) -> bool:
+) -> str:
     valid = await provider.verify_inbound_signature(
         str(request.url), callback_data, dict(request.headers), raw_body
     )
     if not valid:
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    timestamp = provider._signature_timestamp(
+    return provider._signature_timestamp(
         request.headers.get("x-tryvox-signature", "")
-    )
-    return not await tryvox_security.claim_callback(
-        provider.auth_id, timestamp, raw_body
     )
 
 
 def _assert_call_matches(workflow_run, callback_data: dict) -> None:
     expected = (workflow_run.gathered_context or {}).get("call_id")
     received = callback_data.get("call_uuid") or callback_data.get("CallUUID")
-    if expected and received and str(expected) != str(received):
+    if not expected or not received or str(expected) != str(received):
         raise HTTPException(status_code=403, detail="Webhook call does not match run")
 
 
@@ -128,8 +125,14 @@ async def handle_tryvox_answer(
     )
     if workflow.id != workflow_id:
         raise HTTPException(status_code=400, detail="Workflow ID mismatch")
-    duplicate = await _verify_request(request, provider, callback_data, raw_body)
+    timestamp = await _verify_request(request, provider, callback_data, raw_body)
     _assert_call_matches(workflow_run, callback_data)
+    duplicate = not await tryvox_security.claim_callback(
+        provider.auth_id,
+        workflow_run_id,
+        timestamp,
+        raw_body,
+    )
 
     if duplicate:
         logger.info(
@@ -151,8 +154,14 @@ async def handle_tryvox_status(
     set_current_run_id(workflow_run_id)
     callback_data, raw_body = await _read_signed_json(request)
     workflow_run, _, provider = await _resolve_provider(workflow_run_id)
-    duplicate = await _verify_request(request, provider, callback_data, raw_body)
+    timestamp = await _verify_request(request, provider, callback_data, raw_body)
     _assert_call_matches(workflow_run, callback_data)
+    duplicate = not await tryvox_security.claim_callback(
+        provider.auth_id,
+        workflow_run_id,
+        timestamp,
+        raw_body,
+    )
     if duplicate:
         return {"status": "success", "duplicate": True}
 

@@ -196,6 +196,39 @@ async def test_websocket_pre_media_rejection_releases_reserved_capability():
 
 
 @pytest.mark.asyncio
+async def test_websocket_pre_media_cancellation_releases_reserved_capability():
+    websocket = AsyncMock()
+    websocket.query_params = {"token": "stream-token"}
+
+    with (
+        patch(
+            "api.routes.telephony._handle_telephony_websocket",
+            new_callable=AsyncMock,
+            side_effect=asyncio.CancelledError,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as release,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
+            new_callable=AsyncMock,
+        ) as consume,
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await handle_tryvox_websocket(websocket, 7, 11, 13)
+
+    release.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
+    consume.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_websocket_run_state_failure_restores_consumed_capability():
     websocket = AsyncMock()
     websocket.query_params = {"token": "stream-token"}
@@ -233,6 +266,49 @@ async def test_websocket_run_state_failure_restores_consumed_capability():
     ):
         route_db.update_workflow_run = AsyncMock(side_effect=RuntimeError("DB failed"))
         with pytest.raises(RuntimeError, match="DB failed"):
+            await handle_tryvox_websocket(websocket, 7, 11, 13)
+
+    rollback.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
+
+
+@pytest.mark.asyncio
+async def test_websocket_run_state_cancellation_restores_consumed_capability():
+    websocket = AsyncMock()
+    websocket.query_params = {"token": "stream-token"}
+
+    async def cancel_run_update(*args, **kwargs):
+        await kwargs["on_provider_ready"]()
+
+    with (
+        patch(
+            "api.routes.telephony._handle_telephony_websocket",
+            new_callable=AsyncMock,
+            side_effect=cancel_run_update,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.rollback_consumed_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as rollback,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_stream_token",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(f"{ROUTES_MODULE}.db_client") as route_db,
+    ):
+        route_db.update_workflow_run = AsyncMock(side_effect=asyncio.CancelledError)
+        with pytest.raises(asyncio.CancelledError):
             await handle_tryvox_websocket(websocket, 7, 11, 13)
 
     rollback.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
@@ -311,7 +387,12 @@ async def test_answer_route_verifies_signature_and_returns_voxml():
             return_value=("https://dograh.test", "wss://dograh.test"),
         ),
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
+            new_callable=AsyncMock,
+            return_value=("acquired", "owner"),
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.finalize_callback",
             new_callable=AsyncMock,
             return_value=True,
         ),
@@ -332,7 +413,7 @@ async def test_answer_route_verifies_signature_and_returns_voxml():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_duplicate_answer_returns_same_unredeemed_capability():
+async def test_duplicate_answer_returns_same_unredeemed_capability():
     provider = _provider()
     workflow_run = SimpleNamespace(
         workflow_id=7,
@@ -354,9 +435,14 @@ async def test_concurrent_duplicate_answer_returns_same_unredeemed_capability():
             return_value=provider,
         ),
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
             new_callable=AsyncMock,
-            side_effect=[True, False],
+            side_effect=[("acquired", "owner"), ("completed", None)],
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.finalize_callback",
+            new_callable=AsyncMock,
+            return_value=True,
         ),
         patch(
             "api.services.telephony.providers.tryvox.provider.get_backend_endpoints",
@@ -372,13 +458,11 @@ async def test_concurrent_duplicate_answer_returns_same_unredeemed_capability():
     ):
         db_client.get_workflow_run = AsyncMock(return_value=workflow_run)
         db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
-        first, duplicate = await asyncio.gather(
-            handle_tryvox_answer(
-                _request("/api/v1/telephony/tryvox/answer", callback), 7, 13, 11
-            ),
-            handle_tryvox_answer(
-                _request("/api/v1/telephony/tryvox/answer", callback), 7, 13, 11
-            ),
+        first = await handle_tryvox_answer(
+            _request("/api/v1/telephony/tryvox/answer", callback), 7, 13, 11
+        )
+        duplicate = await handle_tryvox_answer(
+            _request("/api/v1/telephony/tryvox/answer", callback), 7, 13, 11
         )
 
     first_payload = json.loads(first.body)
@@ -411,9 +495,9 @@ async def test_duplicate_answer_after_stream_redemption_returns_terminal_voxml()
             return_value=provider,
         ),
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=("completed", None),
         ),
         patch(
             "api.services.telephony.providers.tryvox.provider."
@@ -464,7 +548,12 @@ async def test_status_route_processes_verified_callback():
             new_callable=AsyncMock,
         ) as process_status,
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
+            new_callable=AsyncMock,
+            return_value=("acquired", "owner"),
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.finalize_callback",
             new_callable=AsyncMock,
             return_value=True,
         ),
@@ -503,9 +592,9 @@ async def test_duplicate_status_callback_is_acknowledged_without_reprocessing():
             new_callable=AsyncMock,
         ) as process_status,
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=("completed", None),
         ),
     ):
         db_client.get_workflow_run_by_id = AsyncMock(return_value=workflow_run)
@@ -514,6 +603,117 @@ async def test_duplicate_status_callback_is_acknowledged_without_reprocessing():
 
     assert result == {"status": "success", "duplicate": True}
     process_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failed_status_callback_can_be_retried():
+    provider = _provider()
+    workflow_run = SimpleNamespace(
+        workflow_id=7,
+        gathered_context={"call_id": "call-123"},
+        initial_context={"telephony_configuration_id": 5},
+    )
+    workflow = SimpleNamespace(id=7, organization_id=11)
+    body = {"CallUUID": "call-123", "Status": "hangup"}
+
+    with (
+        patch(f"{ROUTES_MODULE}.db_client") as db_client,
+        patch(
+            f"{ROUTES_MODULE}.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            f"{ROUTES_MODULE}._process_status_update",
+            new_callable=AsyncMock,
+            side_effect=[RuntimeError("transient"), None],
+        ) as process_status,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
+            new_callable=AsyncMock,
+            side_effect=[("acquired", "first-owner"), ("acquired", "retry-owner")],
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_callback",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as release,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.finalize_callback",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as finalize,
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(return_value=workflow_run)
+        db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
+
+        with pytest.raises(RuntimeError, match="transient"):
+            await handle_tryvox_status(
+                _request("/api/v1/telephony/tryvox/status/13", body), 13
+            )
+        result = await handle_tryvox_status(
+            _request("/api/v1/telephony/tryvox/status/13", body), 13
+        )
+
+    assert result == {"status": "success"}
+    assert process_status.await_count == 2
+    assert release.await_args.args[-1] == "first-owner"
+    assert finalize.await_args.args[-1] == "retry-owner"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_status_callback_can_be_retried():
+    provider = _provider()
+    workflow_run = SimpleNamespace(
+        workflow_id=7,
+        gathered_context={"call_id": "call-123"},
+        initial_context={"telephony_configuration_id": 5},
+    )
+    workflow = SimpleNamespace(id=7, organization_id=11)
+    body = {"CallUUID": "call-123", "Status": "ringing"}
+
+    with (
+        patch(f"{ROUTES_MODULE}.db_client") as db_client,
+        patch(
+            f"{ROUTES_MODULE}.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            f"{ROUTES_MODULE}._process_status_update",
+            new_callable=AsyncMock,
+            side_effect=[asyncio.CancelledError, None],
+        ) as process_status,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
+            new_callable=AsyncMock,
+            side_effect=[("acquired", "first-owner"), ("acquired", "retry-owner")],
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_callback",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as release,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.finalize_callback",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(return_value=workflow_run)
+        db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
+
+        with pytest.raises(asyncio.CancelledError):
+            await handle_tryvox_status(
+                _request("/api/v1/telephony/tryvox/status/13", body), 13
+            )
+        result = await handle_tryvox_status(
+            _request("/api/v1/telephony/tryvox/status/13", body), 13
+        )
+
+    assert result == {"status": "success"}
+    assert process_status.await_count == 2
+    assert release.await_args.args[-1] == "first-owner"
 
 
 @pytest.mark.asyncio
@@ -538,10 +738,10 @@ async def test_answer_route_rejects_call_id_mismatch():
             return_value=provider,
         ),
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
             new_callable=AsyncMock,
-            return_value=True,
-        ) as claim_callback,
+            return_value=("acquired", "owner"),
+        ) as reserve_callback,
     ):
         db_client.get_workflow_run = AsyncMock(return_value=workflow_run)
         db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
@@ -549,7 +749,7 @@ async def test_answer_route_rejects_call_id_mismatch():
             await handle_tryvox_answer(request, 7, 13, 11)
 
     assert exc.value.status_code == 403
-    claim_callback.assert_not_awaited()
+    reserve_callback.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -574,9 +774,9 @@ async def test_answer_route_rejects_missing_call_id_before_replay_claim():
             return_value=provider,
         ),
         patch(
-            f"{ROUTES_MODULE}.tryvox_security.claim_callback",
+            f"{ROUTES_MODULE}.tryvox_security.reserve_callback",
             new_callable=AsyncMock,
-        ) as claim_callback,
+        ) as reserve_callback,
     ):
         db_client.get_workflow_run = AsyncMock(return_value=workflow_run)
         db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
@@ -584,7 +784,7 @@ async def test_answer_route_rejects_missing_call_id_before_replay_claim():
             await handle_tryvox_answer(request, 7, 13, 11)
 
     assert exc.value.status_code == 403
-    claim_callback.assert_not_awaited()
+    reserve_callback.assert_not_awaited()
 
 
 @pytest.mark.asyncio

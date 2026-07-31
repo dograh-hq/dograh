@@ -377,6 +377,13 @@ async def _run_pipeline_telephony_impl(
     )
 
     if on_ready is not None and not await on_ready():
+        try:
+            await transport.cleanup()
+        except Exception:
+            logger.exception(
+                f"[run {workflow_run_id}] Failed to clean up rejected "
+                f"{provider_name} transport"
+            )
         await websocket.close(code=4401, reason="Stream capability unavailable")
         return
 

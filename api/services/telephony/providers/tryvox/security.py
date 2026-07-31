@@ -15,10 +15,12 @@ class TryVoxSecurity:
     """Issue one-shot stream capabilities and deduplicate signed callbacks."""
 
     STREAM_TOKEN_TTL_SECONDS = 600
-    STREAM_RESERVATION_TTL_SECONDS = 15
+    STREAM_RESERVATION_TTL_SECONDS = STREAM_TOKEN_TTL_SECONDS
     CALLBACK_REPLAY_TTL_SECONDS = 300
     CONSUMED_STREAM_TOKEN_PREFIX = "__consumed__:"
     RESERVED_STREAM_TOKEN_PREFIX = "__reserved__:"
+    CALLBACK_PROCESSING_PREFIX = "__processing__:"
+    CALLBACK_COMPLETED = "__completed__"
 
     def __init__(self, redis_client: aioredis.Redis | None = None):
         self._redis_client = redis_client
@@ -215,24 +217,132 @@ class TryVoxSecurity:
         )
         return bool(result)
 
-    async def claim_callback(
-        self,
+    @staticmethod
+    def _callback_key(
         account_id: str,
+        callback_type: str,
         workflow_run_id: int,
         timestamp: str,
         raw_body: str,
-    ) -> bool:
-        """Atomically claim a signed, run-bound callback for its replay window."""
+    ) -> str:
         digest = hashlib.sha256(
-            f"{account_id}.{workflow_run_id}.{timestamp}.{raw_body}".encode()
+            (
+                f"{account_id}.{callback_type}.{workflow_run_id}."
+                f"{timestamp}.{raw_body}"
+            ).encode()
         ).hexdigest()
+        return f"tryvox:callback:{digest}"
+
+    async def reserve_callback(
+        self,
+        account_id: str,
+        callback_type: str,
+        workflow_run_id: int,
+        timestamp: str,
+        raw_body: str,
+    ) -> tuple[str, str | None]:
+        """Reserve callback processing or report its existing state."""
         redis = await self._get_redis()
+        owner = secrets.token_urlsafe(32)
+        processing = f"{self.CALLBACK_PROCESSING_PREFIX}{owner}"
+        script = """
+        local stored = redis.call('GET', KEYS[1])
+        if not stored then
+            redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+            return 1
+        end
+        if stored == ARGV[2] then
+            return 2
+        end
+        return 0
+        """
+        result = int(
+            await redis.eval(
+                script,
+                1,
+                self._callback_key(
+                    account_id,
+                    callback_type,
+                    workflow_run_id,
+                    timestamp,
+                    raw_body,
+                ),
+                processing,
+                self.CALLBACK_COMPLETED,
+                self.CALLBACK_REPLAY_TTL_SECONDS,
+            )
+        )
+        if result == 1:
+            return "acquired", owner
+        if result == 2:
+            return "completed", None
+        return "in_progress", None
+
+    async def finalize_callback(
+        self,
+        account_id: str,
+        callback_type: str,
+        workflow_run_id: int,
+        timestamp: str,
+        raw_body: str,
+        owner: str,
+    ) -> bool:
+        """Finalize only the callback reservation owned by this worker."""
+        redis = await self._get_redis()
+        script = """
+        if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+            return 0
+        end
+        redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+        return 1
+        """
         return bool(
-            await redis.set(
-                f"tryvox:callback:{digest}",
-                "1",
-                ex=self.CALLBACK_REPLAY_TTL_SECONDS,
-                nx=True,
+            await redis.eval(
+                script,
+                1,
+                self._callback_key(
+                    account_id,
+                    callback_type,
+                    workflow_run_id,
+                    timestamp,
+                    raw_body,
+                ),
+                f"{self.CALLBACK_PROCESSING_PREFIX}{owner}",
+                self.CALLBACK_COMPLETED,
+                self.CALLBACK_REPLAY_TTL_SECONDS,
+            )
+        )
+
+    async def release_callback(
+        self,
+        account_id: str,
+        callback_type: str,
+        workflow_run_id: int,
+        timestamp: str,
+        raw_body: str,
+        owner: str,
+    ) -> bool:
+        """Release only the callback reservation owned by this worker."""
+        redis = await self._get_redis()
+        script = """
+        if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+            return 0
+        end
+        redis.call('DEL', KEYS[1])
+        return 1
+        """
+        return bool(
+            await redis.eval(
+                script,
+                1,
+                self._callback_key(
+                    account_id,
+                    callback_type,
+                    workflow_run_id,
+                    timestamp,
+                    raw_body,
+                ),
+                f"{self.CALLBACK_PROCESSING_PREFIX}{owner}",
             )
         )
 

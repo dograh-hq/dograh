@@ -37,6 +37,30 @@ class _FakeRedis:
             self.values[key] = reservation
             return 1
 
+        if len(args) == 3 and "if not stored" in script:
+            processing, completed, ttl = args
+            if stored is None:
+                self.values[key] = processing
+                self.expirations[key] = ttl
+                return 1
+            return 2 if stored == completed else 0
+
+        if len(args) == 3:
+            expected, completed, ttl = args
+            if stored != expected:
+                return 0
+            self.values[key] = completed
+            self.expirations[key] = ttl
+            return 1
+
+        if len(args) == 1:
+            (expected,) = args
+            if stored != expected:
+                return 0
+            del self.values[key]
+            self.expirations.pop(key, None)
+            return 1
+
         expected, replacement = args
         if stored != expected:
             return 0
@@ -121,7 +145,7 @@ async def test_stale_stream_reservation_can_be_reclaimed():
         ),
         patch(
             "api.services.telephony.providers.tryvox.security.time.time",
-            side_effect=[100, 100, 116, 116],
+            side_effect=[100, 100, 701, 701],
         ),
     ):
         token = await security.issue_stream_token(7, 11, 13)
@@ -133,15 +157,62 @@ async def test_stale_stream_reservation_can_be_reclaimed():
 
 
 @pytest.mark.asyncio
+async def test_live_stream_reservation_survives_slow_setup():
+    redis = _FakeRedis()
+    security = TryVoxSecurity(redis)
+
+    with (
+        patch(
+            "api.services.telephony.providers.tryvox.security.secrets.token_urlsafe",
+            side_effect=["stream-token", "owner", "retry"],
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.security.time.time",
+            side_effect=[100, 100, 116, 116],
+        ),
+    ):
+        token = await security.issue_stream_token(7, 11, 13)
+        reservation = await security.reserve_stream_token(7, 11, 13, token)
+        retry = await security.reserve_stream_token(7, 11, 13, token)
+
+    assert reservation
+    assert retry is None
+    assert await security.consume_stream_token(7, 11, 13, "wrong-reservation") is False
+    assert await security.consume_stream_token(7, 11, 13, reservation) is True
+    assert await security.release_stream_token(7, 11, 13, reservation, token) is False
+
+
+@pytest.mark.asyncio
 async def test_callback_claim_is_atomic_and_retry_safe():
     redis = _FakeRedis()
     security = TryVoxSecurity(redis)
 
-    assert await security.claim_callback("acct-1", 13, "123", '{"call":"one"}') is True
-    assert await security.claim_callback("acct-1", 13, "123", '{"call":"one"}') is False
-    assert await security.claim_callback("acct-1", 14, "123", '{"call":"one"}') is True
-    assert await security.claim_callback("acct-2", 13, "123", '{"call":"one"}') is True
-    assert await security.claim_callback("acct-1", 13, "123", '{"call":"two"}') is True
+    state, owner = await security.reserve_callback(
+        "acct-1", "status", 13, "123", '{"call":"one"}'
+    )
+    assert state == "acquired"
+    assert owner
+    assert (
+        await security.reserve_callback("acct-1", "status", 13, "123", '{"call":"one"}')
+    )[0] == "in_progress"
+    assert await security.finalize_callback(
+        "acct-1", "status", 13, "123", '{"call":"one"}', owner
+    )
+    assert (
+        await security.reserve_callback("acct-1", "status", 13, "123", '{"call":"one"}')
+    )[0] == "completed"
+    assert (
+        await security.reserve_callback("acct-1", "answer", 13, "123", '{"call":"one"}')
+    )[0] == "acquired"
+    assert (
+        await security.reserve_callback("acct-1", "status", 14, "123", '{"call":"one"}')
+    )[0] == "acquired"
+    assert (
+        await security.reserve_callback("acct-2", "status", 13, "123", '{"call":"one"}')
+    )[0] == "acquired"
+    assert (
+        await security.reserve_callback("acct-1", "status", 13, "123", '{"call":"two"}')
+    )[0] == "acquired"
     callback_keys = [key for key in redis.values if key.startswith("tryvox:callback:")]
     assert callback_keys
     assert all(
@@ -156,10 +227,29 @@ async def test_concurrent_callback_claim_allows_one_winner():
 
     results = await asyncio.gather(
         *[
-            security.claim_callback("acct-1", 13, "123", '{"call":"one"}')
+            security.reserve_callback("acct-1", "status", 13, "123", '{"call":"one"}')
             for _ in range(8)
         ]
     )
 
-    assert results.count(True) == 1
-    assert results.count(False) == 7
+    assert [state for state, _ in results].count("acquired") == 1
+    assert [state for state, _ in results].count("in_progress") == 7
+
+
+@pytest.mark.asyncio
+async def test_callback_release_and_finalize_require_matching_owner():
+    security = TryVoxSecurity(_FakeRedis())
+    args = ("acct-1", "status", 13, "123", '{"call":"one"}')
+    state, owner = await security.reserve_callback(*args)
+
+    assert state == "acquired"
+    assert owner
+    assert await security.release_callback(*args, "wrong-owner") is False
+    assert await security.finalize_callback(*args, "wrong-owner") is False
+    assert await security.release_callback(*args, owner) is True
+
+    retry_state, retry_owner = await security.reserve_callback(*args)
+    assert retry_state == "acquired"
+    assert retry_owner
+    assert await security.finalize_callback(*args, retry_owner) is True
+    assert await security.release_callback(*args, retry_owner) is False

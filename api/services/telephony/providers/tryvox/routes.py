@@ -59,14 +59,22 @@ async def handle_tryvox_websocket(
                 run_id=workflow_run_id,
                 state=WorkflowRunState.RUNNING.value,
             )
-        except Exception:
-            await tryvox_security.rollback_consumed_stream_token(
-                workflow_id,
-                organization_id,
-                workflow_run_id,
-                reservation,
-                token,
-            )
+        except BaseException:
+            try:
+                await asyncio.shield(
+                    tryvox_security.rollback_consumed_stream_token(
+                        workflow_id,
+                        organization_id,
+                        workflow_run_id,
+                        reservation,
+                        token,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    f"[run {workflow_run_id}] Failed to roll back consumed "
+                    "TryVox stream capability"
+                )
             raise
         committed = True
         return True
@@ -152,6 +160,32 @@ async def _verify_request(
     return provider._signature_timestamp(request.headers.get("x-tryvox-signature", ""))
 
 
+async def _release_callback_reservation(
+    provider,
+    callback_type: str,
+    workflow_run_id: int,
+    timestamp: str,
+    raw_body: str,
+    owner: str,
+) -> None:
+    try:
+        await asyncio.shield(
+            tryvox_security.release_callback(
+                provider.auth_id,
+                callback_type,
+                workflow_run_id,
+                timestamp,
+                raw_body,
+                owner,
+            )
+        )
+    except Exception:
+        logger.exception(
+            f"[run {workflow_run_id}] Failed to release "
+            f"TryVox {callback_type} callback reservation"
+        )
+
+
 def _assert_call_matches(workflow_run, callback_data: dict) -> None:
     expected = (workflow_run.gathered_context or {}).get("call_id")
     received = callback_data.get("call_uuid") or callback_data.get("CallUUID")
@@ -176,21 +210,50 @@ async def handle_tryvox_answer(
         raise HTTPException(status_code=400, detail="Workflow ID mismatch")
     timestamp = await _verify_request(request, provider, callback_data, raw_body)
     _assert_call_matches(workflow_run, callback_data)
-    duplicate = not await tryvox_security.claim_callback(
+    claim_state, owner = await tryvox_security.reserve_callback(
         provider.auth_id,
+        "answer",
         workflow_run_id,
         timestamp,
         raw_body,
     )
-
-    if duplicate:
+    if claim_state == "in_progress":
+        raise HTTPException(status_code=409, detail="Callback processing in progress")
+    if claim_state == "completed":
         logger.info(
             f"[run {workflow_run_id}] Returning idempotent Answer response "
             "for duplicate TryVox callback"
         )
-    response_content = await provider.get_webhook_response(
-        workflow_id, organization_id, workflow_run_id
-    )
+        response_content = await provider.get_webhook_response(
+            workflow_id, organization_id, workflow_run_id
+        )
+        return JSONResponse(json.loads(response_content))
+
+    assert owner is not None
+    try:
+        response_content = await provider.get_webhook_response(
+            workflow_id, organization_id, workflow_run_id
+        )
+        finalized = await tryvox_security.finalize_callback(
+            provider.auth_id,
+            "answer",
+            workflow_run_id,
+            timestamp,
+            raw_body,
+            owner,
+        )
+        if not finalized:
+            raise HTTPException(status_code=503, detail="Callback claim expired")
+    except BaseException:
+        await _release_callback_reservation(
+            provider,
+            "answer",
+            workflow_run_id,
+            timestamp,
+            raw_body,
+            owner,
+        )
+        raise
     return JSONResponse(json.loads(response_content))
 
 
@@ -205,31 +268,56 @@ async def handle_tryvox_status(
     workflow_run, _, provider = await _resolve_provider(workflow_run_id)
     timestamp = await _verify_request(request, provider, callback_data, raw_body)
     _assert_call_matches(workflow_run, callback_data)
-    duplicate = not await tryvox_security.claim_callback(
-        provider.auth_id,
-        workflow_run_id,
-        timestamp,
-        raw_body,
-    )
-    if duplicate:
-        return {"status": "success", "duplicate": True}
-
     parsed = provider.parse_status_callback(callback_data)
     if not parsed["call_id"]:
         raise HTTPException(status_code=400, detail="Callback missing CallUUID")
 
-    await _process_status_update(
+    claim_state, owner = await tryvox_security.reserve_callback(
+        provider.auth_id,
+        "status",
         workflow_run_id,
-        StatusCallbackRequest(
-            call_id=parsed["call_id"],
-            status=parsed["status"],
-            from_number=parsed.get("from_number"),
-            to_number=parsed.get("to_number"),
-            direction=parsed.get("direction"),
-            duration=parsed.get("duration"),
-            extra=parsed.get("extra", {}),
-        ),
+        timestamp,
+        raw_body,
     )
+    if claim_state == "completed":
+        return {"status": "success", "duplicate": True}
+    if claim_state == "in_progress":
+        raise HTTPException(status_code=409, detail="Callback processing in progress")
+
+    assert owner is not None
+    try:
+        await _process_status_update(
+            workflow_run_id,
+            StatusCallbackRequest(
+                call_id=parsed["call_id"],
+                status=parsed["status"],
+                from_number=parsed.get("from_number"),
+                to_number=parsed.get("to_number"),
+                direction=parsed.get("direction"),
+                duration=parsed.get("duration"),
+                extra=parsed.get("extra", {}),
+            ),
+        )
+        finalized = await tryvox_security.finalize_callback(
+            provider.auth_id,
+            "status",
+            workflow_run_id,
+            timestamp,
+            raw_body,
+            owner,
+        )
+        if not finalized:
+            raise HTTPException(status_code=503, detail="Callback claim expired")
+    except BaseException:
+        await _release_callback_reservation(
+            provider,
+            "status",
+            workflow_run_id,
+            timestamp,
+            raw_body,
+            owner,
+        )
+        raise
     logger.info(
         f"[run {workflow_run_id}] Processed TryVox status "
         f"{parsed['status']} for call {parsed['call_id']}"

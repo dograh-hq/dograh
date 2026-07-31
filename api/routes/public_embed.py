@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from api.constants import ENABLE_COTURN, FORCE_TURN_RELAY
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.routes.turn_credentials import (
@@ -61,6 +62,14 @@ class EmbedConfigResponse(BaseModel):
     button_color: str
     size: str
     auto_start: bool
+    # WebRTC transport hints, mirroring the same fields on /health. The embed
+    # widget is a standalone script on a third-party page — it has no access to
+    # the first-party app config that /health feeds — so these ride along with
+    # the embed config. turn_enabled=False lets the widget skip the
+    # turn-credentials request that would only 503; force_turn_relay tells it to
+    # restrict ICE to relay candidates for TURN diagnostics.
+    turn_enabled: bool
+    force_turn_relay: bool
 
 
 def validate_origin(origin: str, allowed_domains: list) -> bool:
@@ -410,6 +419,8 @@ async def get_embed_config(token: str, request: Request, response: Response):
         button_color=settings.get("buttonColor", "#3B82F6"),
         size=settings.get("size", "medium"),
         auto_start=settings.get("autoStart", False),
+        turn_enabled=ENABLE_COTURN,
+        force_turn_relay=FORCE_TURN_RELAY,
     )
 
 
@@ -466,8 +477,10 @@ async def get_public_turn_credentials(
     if origin:
         _allow_embed_origin(response, origin)
 
-    # Check if TURN is configured
-    if not TURN_SECRET:
+    # Check if TURN is configured. Both conditions matter: ENABLE_COTURN is what
+    # the config endpoint advertised, and without a secret there is nothing to
+    # sign credentials with.
+    if not ENABLE_COTURN or not TURN_SECRET:
         raise HTTPException(
             status_code=503,
             detail="TURN server not configured",

@@ -128,6 +128,7 @@ def _patch_db(monkeypatch):
         "api.routes.public_embed.db_client.increment_embed_token_usage",
         _noop,
     )
+    monkeypatch.setattr("api.routes.public_embed.ENABLE_COTURN", True)
     monkeypatch.setattr("api.routes.public_embed.TURN_SECRET", "test-secret")
     monkeypatch.setattr(
         "api.routes.public_embed.generate_turn_credentials",
@@ -205,6 +206,34 @@ def test_get_config_includes_acao_header():
     _assert_embed_cors(resp, origin)
 
 
+def test_get_config_reports_turn_flags(monkeypatch):
+    monkeypatch.setattr("api.routes.public_embed.ENABLE_COTURN", True)
+    monkeypatch.setattr("api.routes.public_embed.FORCE_TURN_RELAY", True)
+    resp = client.get(
+        "/api/v1/public/embed/config/valid",
+        headers={"Origin": "https://mysite.vercel.app"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["turn_enabled"] is True
+    assert body["force_turn_relay"] is True
+
+
+def test_get_config_reports_turn_disabled_when_unconfigured(monkeypatch):
+    # With coturn disabled the widget must be told to skip the turn-credentials
+    # request, which would only 503.
+    monkeypatch.setattr("api.routes.public_embed.ENABLE_COTURN", False)
+    monkeypatch.setattr("api.routes.public_embed.FORCE_TURN_RELAY", False)
+    resp = client.get(
+        "/api/v1/public/embed/config/valid",
+        headers={"Origin": "https://mysite.vercel.app"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["turn_enabled"] is False
+    assert body["force_turn_relay"] is False
+
+
 def test_get_config_accepts_allowed_localhost_port():
     origin = "http://localhost:3020"
     resp = client.get(
@@ -250,6 +279,17 @@ def test_turn_credentials_includes_acao_header():
     )
     assert resp.status_code == 200
     _assert_embed_cors(resp, origin)
+
+
+def test_turn_credentials_unavailable_when_coturn_disabled(monkeypatch):
+    # A client that ignores turn_enabled=false must get the same answer the
+    # config endpoint advertised, even with a stale TURN_SECRET in the env.
+    monkeypatch.setattr("api.routes.public_embed.ENABLE_COTURN", False)
+    resp = client.get(
+        "/api/v1/public/embed/turn-credentials/session-valid",
+        headers={"Origin": "https://mysite.vercel.app"},
+    )
+    assert resp.status_code == 503
 
 
 def test_options_init_returns_acao_for_allowed_origin():

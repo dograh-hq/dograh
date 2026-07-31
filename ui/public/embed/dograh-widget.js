@@ -120,7 +120,12 @@
         buttonColor: configData.settings?.buttonColor || '#10b981',
         buttonText: configData.settings?.buttonText || 'Talk to Agent',
         callToActionText: configData.settings?.callToActionText || 'Click to start voice conversation',
-        autoStart: configData.auto_start || false
+        autoStart: configData.auto_start || false,
+        // WebRTC transport hints from the server. Left undefined by older
+        // backends that don't send them, in which case we keep the previous
+        // behaviour: attempt the TURN fetch and don't force relay.
+        turnEnabled: configData.turn_enabled,
+        forceTurnRelay: Boolean(configData.force_turn_relay)
       };
     } catch (error) {
       console.error('Dograh Widget: Failed to fetch configuration', error);
@@ -733,6 +738,14 @@
    * Fetch TURN credentials for WebRTC connection
    */
   async function fetchTurnCredentials() {
+    // Skip the request entirely when the server reports no TURN server is
+    // configured — it would only 503. Deployments without coturn (OSS/local)
+    // fall back to STUN.
+    if (state.config.turnEnabled === false) {
+      console.log('Dograh Widget: TURN server disabled in server config, using STUN only');
+      return;
+    }
+
     if (!state.sessionToken) {
       console.warn('Dograh Widget: No session token available for TURN credentials');
       return;
@@ -781,6 +794,15 @@
     const config = {
       iceServers: iceServers
     };
+
+    // Diagnostic: when the backend runs with FORCE_TURN_RELAY=true, restrict the
+    // browser to relay-only candidates so media must traverse TURN. A TURN
+    // misconfiguration then surfaces as an ICE failure instead of silently
+    // falling back to host/srflx.
+    if (state.config.forceTurnRelay) {
+      config.iceTransportPolicy = 'relay';
+      console.log('Dograh Widget: FORCE_TURN_RELAY is on — restricting ICE to relay candidates only');
+    }
 
     state.pc = new RTCPeerConnection(config);
 

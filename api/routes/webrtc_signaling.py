@@ -29,7 +29,7 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENVIRONMENT, FORCE_TURN_RELAY
+from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment
@@ -201,8 +201,11 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     """
     servers: List[RTCIceServer] = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 
-    # Check if TURN is configured
-    if not TURN_HOST:
+    # Check if TURN is configured. ENABLE_COTURN is the deployment's declared
+    # answer to "is there a TURN server?" — the same flag /health advertises to
+    # browsers — so the server side must respect it too, or it would try to
+    # relay through a TURN server the deployment says it doesn't have.
+    if not ENABLE_COTURN or not TURN_HOST:
         return servers
 
     # Use time-limited credentials if TURN_SECRET is configured (recommended)

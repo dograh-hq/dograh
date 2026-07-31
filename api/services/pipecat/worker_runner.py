@@ -29,6 +29,8 @@ async def wait_for_pipeline_worker_started(
         while worker.started_at is None:
             if run_task and run_task.done():
                 await run_task
+                if worker.started_at is not None:
+                    return
             if worker.has_finished():
                 raise RuntimeError("PipelineWorker finished before starting")
             await asyncio.sleep(0.01)

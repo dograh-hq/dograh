@@ -68,7 +68,10 @@ from api.services.pipecat.tracing_config import (
 )
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.pipecat.transport_setup import create_webrtc_transport
-from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.pipecat.worker_runner import (
+    run_pipeline_worker,
+    wait_for_pipeline_worker_started,
+)
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
@@ -1161,9 +1164,17 @@ async def _run_pipeline_impl(
 
     try:
         # Run the pipeline
-        if on_worker_started is not None:
-            on_worker_started()
-        await run_pipeline_worker(task)
+        worker_task = asyncio.create_task(run_pipeline_worker(task))
+        try:
+            await wait_for_pipeline_worker_started(task, run_task=worker_task)
+            if on_worker_started is not None:
+                on_worker_started()
+            await worker_task
+        except BaseException:
+            if not worker_task.done():
+                worker_task.cancel()
+                await asyncio.gather(worker_task, return_exceptions=True)
+            raise
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")

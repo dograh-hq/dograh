@@ -247,10 +247,10 @@ export function HttpApiToolConfig({
                                             value={bodyTemplate}
                                             onChange={onBodyTemplateChange}
                                             onValidityChange={onBodyTemplateValidityChange}
-                                            availableParams={[
-                                                ...parameters.map((p) => p.name).filter(Boolean),
-                                                ...presetParameters.map((p) => p.name).filter(Boolean),
-                                            ]}
+                                            availableParams={Array.from(new Set([
+                                                ...parameters.map((p) => p.name),
+                                                ...presetParameters.map((p) => p.name),
+                                            ].filter(Boolean)))}
                                         />
                                 )}
                             </div>

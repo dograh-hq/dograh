@@ -62,6 +62,13 @@ class ToolParameter(BaseModel):
         description="Whether this parameter is required when the tool is called.",
     )
 
+    @field_validator("name")
+    @classmethod
+    def validate_name_not_reserved(cls, v: str) -> str:
+        if v in {"initial_context", "gathered_context"}:
+            raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
+        return v
+
 
 class PresetToolParameter(BaseModel):
     """A parameter injected by Dograh at runtime."""
@@ -84,6 +91,13 @@ class PresetToolParameter(BaseModel):
         default=True,
         description="Whether the parameter must resolve to a non-empty value.",
     )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name_not_reserved(cls, v: str) -> str:
+        if v in {"initial_context", "gathered_context"}:
+            raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
+        return v
 
 
 class HttpApiConfig(BaseModel):
@@ -179,6 +193,19 @@ class HttpApiConfig(BaseModel):
             raise ValueError(
                 "body_template must be a JSON object (dict), not an array or primitive."
             )
+
+        def _check_depth(node: Any, level: int = 1) -> None:
+            if level > 20:
+                raise ValueError("body_template nesting depth exceeds maximum allowed (20).")
+            if isinstance(node, dict):
+                for val in node.values():
+                    _check_depth(val, level + 1)
+            elif isinstance(node, list):
+                for item in node:
+                    _check_depth(item, level + 1)
+
+        _check_depth(v)
+
         try:
             size = len(json.dumps(v, allow_nan=False))
         except (TypeError, ValueError) as exc:

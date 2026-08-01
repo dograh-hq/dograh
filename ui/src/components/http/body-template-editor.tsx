@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle } from "lucide-react";
-import { useEffect,useState } from "react";
+import { useEffect, useRef,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -36,34 +36,41 @@ export function BodyTemplateEditor({
 }: BodyTemplateEditorProps) {
     const [raw, setRaw] = useState(value ? JSON.stringify(value, null, 2) : "");
     const [error, setError] = useState<string | null>(null);
+    const lastPushedValue = useRef<Record<string, unknown> | null>(value);
+
+    // Sync raw when value changes externally (e.g. switching tools).
+    useEffect(() => {
+        if (JSON.stringify(value) !== JSON.stringify(lastPushedValue.current)) {
+            setRaw(value ? JSON.stringify(value, null, 2) : "");
+            lastPushedValue.current = value;
+            setError(null);
+        }
+    }, [value]);
 
     const handleChange = (text: string) => {
         setRaw(text);
         if (!text.trim()) {
             setError(null);
             onChange(null);
-            onValidityChange?.(true);
+            lastPushedValue.current = null;
             return;
         }
         try {
             const parsed = JSON.parse(text);
             if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
                 setError("Body template must be a JSON object, not an array or primitive.");
-                onValidityChange?.(false);
                 return;
             }
             const size = new TextEncoder().encode(text).length;
             if (size > 65_536) {
                 setError(`Template too large (${(size / 1024).toFixed(1)} KB). Max 64 KB.`);
-                onValidityChange?.(false);
                 return;
             }
             setError(null);
             onChange(parsed);
-            onValidityChange?.(true);
+            lastPushedValue.current = parsed;
         } catch {
             setError("Invalid JSON — please check your syntax.");
-            onValidityChange?.(false);
         }
     };
 

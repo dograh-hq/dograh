@@ -296,11 +296,18 @@ def render_body_template(
 
     # Pre-render required parameter check (fast fail before any HTTP call).
     # 0, False, {}, [] are valid non-missing values — only None and "" trigger this.
+    
+    from api.services.workflow.workflow_graph import extract_template_variables
+    template_str = json.dumps(template) if template else "{}"
+    required_in_template = extract_template_variables(template_str)
+
     for param in parameters or []:
         name = param.get("name", "")
         if not name:
             continue
         if param.get("required", True):
+            if name not in required_in_template:
+                continue
             val = arguments.get(name)
             if val is None or val == "":
                 raise ValueError(

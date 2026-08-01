@@ -397,7 +397,8 @@ export default function ToolDetailPage() {
     const handleSave = async () => {
         if (!tool) return;
 
-        if (tool.category === "http_api" && !isBodyTemplateValid) {
+        const hasBodyTemplate = ['POST', 'PUT', 'PATCH'].includes(httpMethod) && useBodyTemplate;
+        if (tool.category === "http_api" && hasBodyTemplate && !isBodyTemplateValid) {
             setError("Please fix errors in the JSON body template before saving");
             return;
         }

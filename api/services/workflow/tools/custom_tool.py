@@ -224,7 +224,7 @@ def _coerce_typed_leaves(
             # Key collision occurred during rendering, making positional zip unsafe.
             # Skip coercion for this dict level.
             return rendered_node
-            
+
         return {
             rendered_key: _coerce_typed_leaves(
                 orig_v, rendered_v, arguments, param_type_map
@@ -251,7 +251,9 @@ def _coerce_typed_leaves(
             # not appear in param_type_map and defaults to "string" → no coercion.
             declared_type = param_type_map.get(param_name, "string")
             if declared_type != "string":
-                val_to_coerce = arguments[param_name] if param_name in arguments else rendered_node
+                val_to_coerce = (
+                    arguments[param_name] if param_name in arguments else rendered_node
+                )
                 try:
                     return _coerce_parameter_value(val_to_coerce, declared_type)
                 except ValueError:
@@ -320,11 +322,11 @@ def render_body_template(
     # We do NOT spread **call_context_vars flat (unlike _resolve_preset_parameters).
     # In preset templates, that flat spread is safe because no LLM args are present.
     # Here, LLM args ARE present; a flat spread could silently clobber LLM values.
-    
+
     safe_arguments = dict(arguments)
     safe_arguments.pop("initial_context", None)
     safe_arguments.pop("gathered_context", None)
-    
+
     render_context: dict[str, Any] = {
         **safe_arguments,  # LLM + preset values FIRST
         "initial_context": dict(call_context_vars or {}),

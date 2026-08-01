@@ -1147,6 +1147,15 @@ class TestRenderBodyTemplate:
         )
         assert res == {"quantity": "True"}
 
+    def test_reserved_param_name_raises(self):
+        tpl = {"key": "{{initial_context}}"}
+        with pytest.raises(
+            ValueError, match="reserved and cannot be used"
+        ):
+            render_body_template(
+                tpl, {}, [{"name": "initial_context", "type": "string", "required": False}]
+            )
+
 
 class TestCoerceTypedLeaves:
     def test_whole_placeholder_number(self):

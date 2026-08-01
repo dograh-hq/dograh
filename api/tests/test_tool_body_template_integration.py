@@ -20,7 +20,7 @@ def _make_test_app() -> FastAPI:
     return app
 
 
-@patch("api.routes.tool.create_tool_for_user")
+@patch("api.routes.tool.create_tool_for_user", new_callable=AsyncMock)
 def test_create_tool_with_body_template_persists(mock_create):
     app = _make_test_app()
     client = TestClient(app)
@@ -61,7 +61,7 @@ def test_create_tool_with_body_template_persists(mock_create):
     assert passed_tool.definition.config.body_template == {"key": "{{val}}"}
 
 
-@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_test_endpoint_renders_body_template(mock_request, mock_get_tool):
     app = _make_test_app()
@@ -94,7 +94,7 @@ def test_test_endpoint_renders_body_template(mock_request, mock_get_tool):
     assert data["request_body"] == {"nested": 42}
 
 
-@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_test_endpoint_flat_tool_unchanged(mock_request, mock_get_tool):
     app = _make_test_app()
@@ -120,7 +120,7 @@ def test_test_endpoint_flat_tool_unchanged(mock_request, mock_get_tool):
     assert data["request_body"] == {"val": 42}
 
 
-@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_test_endpoint_call_context_not_in_test_mode(mock_request, mock_get_tool):
     app = _make_test_app()
@@ -150,7 +150,7 @@ def test_test_endpoint_call_context_not_in_test_mode(mock_request, mock_get_tool
     assert data["request_body"] == {"phone": ""}
 
 
-@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_llm_arg_wins_over_call_context_key(mock_request, mock_get_tool):
     app = _make_test_app()
@@ -184,7 +184,7 @@ def test_llm_arg_wins_over_call_context_key(mock_request, mock_get_tool):
     assert data["request_body"] == {"val": "LLM_VALUE"}
 
 
-@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_test_endpoint_coerces_deeply_nested_types(mock_request, mock_get_tool):
     app = _make_test_app()
@@ -234,7 +234,7 @@ def test_test_endpoint_coerces_deeply_nested_types(mock_request, mock_get_tool):
     }
 
 
-@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_test_endpoint_reserved_name_collision_is_prevented(
     mock_request, mock_get_tool
@@ -272,11 +272,10 @@ def test_test_endpoint_reserved_name_collision_is_prevented(
     )
     assert res.status_code == 200
     data = res.json()
-    # The LLM parameter "initial_context" should be stripped, so it should not render as "hacked".
-    assert data["request_body"] == {"data": ""}
+    assert "reserved and cannot be used" in data["error"]
 
 
-@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_test_endpoint_rejects_key_collision(
     mock_request, mock_get_tool

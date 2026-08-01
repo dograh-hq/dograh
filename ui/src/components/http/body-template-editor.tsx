@@ -6,6 +6,7 @@ import { useEffect, useRef,useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface BodyTemplateEditorProps {
     value: Record<string, unknown> | null;
@@ -166,11 +167,11 @@ export function BodyTemplateEditor({
                                 title={`Click to copy {{${name}}}`}
                                 tabIndex={0}
                                 role="button"
-                                onClick={() => navigator.clipboard.writeText(`{{${name}}}`)}
+                                onClick={() => copyTextToClipboard(`{{${name}}}`)}
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter" || e.key === " ") {
                                         e.preventDefault();
-                                        navigator.clipboard.writeText(`{{${name}}}`);
+                                        copyTextToClipboard(`{{${name}}}`);
                                     }
                                 }}
                             >

@@ -36,6 +36,29 @@ def _llm_hint(text: str) -> dict[str, str]:
     return {"llm_hint": text}
 
 
+def _validate_param_name_not_reserved(v: str) -> str:
+    if v in {"initial_context", "gathered_context"}:
+        raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
+    # The template renderer resolves current_time and current_weekday (and their
+    # _<TZ> suffixed variants) as built-in variables *before* looking up the
+    # caller-supplied argument.  A parameter with any of these names would be
+    # silently replaced by a generated timestamp/weekday in the outbound payload.
+    _BUILTIN_PREFIXES = ("current_time", "current_weekday")
+    for prefix in _BUILTIN_PREFIXES:
+        if v == prefix or v.startswith(prefix + "_"):
+            raise ValueError(
+                f"Parameter name '{v}' conflicts with a built-in template variable "
+                f"('{prefix}' and '{prefix}_<TZ>' are reserved). "
+                "Use a different name to avoid silent value replacement."
+            )
+    if "." in v:
+        raise ValueError(
+            f"Parameter name '{v}' contains a dot, which is reserved for nested "
+            "path syntax in templates. Use underscores instead."
+        )
+    return v
+
+
 class ToolParameter(BaseModel):
     """A parameter that the tool accepts from the model at call time."""
 
@@ -65,26 +88,7 @@ class ToolParameter(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name_not_reserved(cls, v: str) -> str:
-        if v in {"initial_context", "gathered_context"}:
-            raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
-        # The template renderer resolves current_time and current_weekday (and their
-        # _<TZ> suffixed variants) as built-in variables *before* looking up the
-        # caller-supplied argument.  A parameter with any of these names would be
-        # silently replaced by a generated timestamp/weekday in the outbound payload.
-        _BUILTIN_PREFIXES = ("current_time", "current_weekday")
-        for prefix in _BUILTIN_PREFIXES:
-            if v == prefix or v.startswith(prefix + "_"):
-                raise ValueError(
-                    f"Parameter name '{v}' conflicts with a built-in template variable "
-                    f"('{prefix}' and '{prefix}_<TZ>' are reserved). "
-                    "Use a different name to avoid silent value replacement."
-                )
-        if "." in v:
-            raise ValueError(
-                f"Parameter name '{v}' contains a dot, which is reserved for nested "
-                "path syntax in templates. Use underscores instead."
-            )
-        return v
+        return _validate_param_name_not_reserved(v)
 
 
 class PresetToolParameter(BaseModel):
@@ -112,26 +116,7 @@ class PresetToolParameter(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name_not_reserved(cls, v: str) -> str:
-        if v in {"initial_context", "gathered_context"}:
-            raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
-        # The template renderer resolves current_time and current_weekday (and their
-        # _<TZ> suffixed variants) as built-in variables *before* looking up the
-        # caller-supplied argument.  A parameter with any of these names would be
-        # silently replaced by a generated timestamp/weekday in the outbound payload.
-        _BUILTIN_PREFIXES = ("current_time", "current_weekday")
-        for prefix in _BUILTIN_PREFIXES:
-            if v == prefix or v.startswith(prefix + "_"):
-                raise ValueError(
-                    f"Parameter name '{v}' conflicts with a built-in template variable "
-                    f"('{prefix}' and '{prefix}_<TZ>' are reserved). "
-                    "Use a different name to avoid silent value replacement."
-                )
-        if "." in v:
-            raise ValueError(
-                f"Parameter name '{v}' contains a dot, which is reserved for nested "
-                "path syntax in templates. Use underscores instead."
-            )
-        return v
+        return _validate_param_name_not_reserved(v)
 
 
 class HttpApiConfig(BaseModel):
@@ -244,7 +229,11 @@ class HttpApiConfig(BaseModel):
         _check_depth(v)
 
         try:
-            size = len(json.dumps(v, allow_nan=False))
+            size = len(
+                json.dumps(
+                    v, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                ).encode("utf-8")
+            )
         except (TypeError, ValueError) as exc:
             raise ValueError(f"body_template is not JSON-serialisable: {exc}") from exc
         if size > 65_536:

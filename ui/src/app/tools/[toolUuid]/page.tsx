@@ -759,6 +759,7 @@ export default function ToolDetailPage() {
         const bodyOutput = useBodyTemplate && bodyTemplate ? bodyTemplate : exampleBody;
         const bodyComment = useBodyTemplate
             ? "\n// Note: body below shows the unresolved template. Placeholders are filled at runtime."
+            : "";
 
         return `// ${tool.name}
 // ${tool.description || "HTTP API Tool"}${useBodyTemplate && bodyTemplate ? bodyComment : ""}

@@ -292,6 +292,22 @@ def render_body_template(
     Raises:
         ValueError: If a required parameter has no value.
     """
+    _RESERVED_NAMES = {"initial_context", "gathered_context"}
+    _BUILTIN_PREFIXES = ("current_time", "current_weekday")
+    for p in parameters or []:
+        p_name = p.get("name", "")
+        if p_name in _RESERVED_NAMES:
+            raise ValueError(
+                f"Parameter name '{p_name}' is reserved and cannot be used."
+            )
+        if any(
+            p_name == pref or p_name.startswith(pref + "_")
+            for pref in _BUILTIN_PREFIXES
+        ):
+            raise ValueError(
+                f"Parameter name '{p_name}' conflicts with a built-in template variable."
+            )
+
     # Build param name → declared type for post-render coercion.
     param_type_map: dict[str, str] = {
         p.get("name", ""): p.get("type", "string")
@@ -322,20 +338,45 @@ def render_body_template(
         if "|" not in template_str[m.start():m.end()]  # skip fallback vars (they're optional)
         and m.group(1) not in _SYSTEM_PREFIXES  # skip system-injected prefixes
     }
+    _TMPL_PATH_RE = _re.compile(
+        r"\{\{\s*([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+)\s*\}\}"
+    )
+    required_dotted_paths: set[str] = {
+        m.group(1)
+        for m in _TMPL_PATH_RE.finditer(template_str)
+        if "|" not in template_str[m.start():m.end()]
+        and m.group(1).split(".", 1)[0] not in _SYSTEM_PREFIXES
+    }
+
+    def _get_dotted_val(d: dict[str, Any], path: str) -> Any:
+        curr: Any = d
+        for part in path.split("."):
+            if isinstance(curr, dict) and part in curr:
+                curr = curr[part]
+            else:
+                return None
+        return curr
 
     for param in parameters or []:
         name = param.get("name", "")
         if not name:
             continue
         if param.get("required", True):
-            if name not in required_in_template:
-                continue
-            val = arguments.get(name)
-            if val is None or val == "":
-                raise ValueError(
-                    f"Required parameter '{name}' has no value. "
-                    "The agent must collect this before calling the tool."
-                )
+            if name in required_in_template:
+                val = arguments.get(name)
+                if val is None or val == "":
+                    raise ValueError(
+                        f"Required parameter '{name}' has no value. "
+                        "The agent must collect this before calling the tool."
+                    )
+            for dotted_path in required_dotted_paths:
+                if dotted_path.startswith(f"{name}."):
+                    sub_val = _get_dotted_val(arguments, dotted_path)
+                    if sub_val is None or sub_val == "":
+                        raise ValueError(
+                            f"Required parameter path '{dotted_path}' has no value. "
+                            "The agent must collect this before calling the tool."
+                        )
 
     # Build render context.
     #

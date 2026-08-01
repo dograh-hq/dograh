@@ -63,11 +63,10 @@ async def build_auth_header(credential: "ExternalCredentialModel") -> Dict[str, 
         audience = cred_data.get("audience") or None
 
         if not (token_url and client_id and client_secret and cred_uuid):
-            logger.error(
+            raise ValueError(
                 f"Missing required OAuth2 fields for credential {cred_uuid}. "
                 f"Requires token_url, client_id, and client_secret."
             )
-            return {}
 
         try:
             token = await get_or_fetch_token(
@@ -89,6 +88,19 @@ async def build_auth_header(credential: "ExternalCredentialModel") -> Dict[str, 
             raise ValueError(f"Failed to fetch OAuth2 token for {cred_uuid}: {e}") from e
 
     return {}
+
+
+async def invalidate_and_rebuild_auth(
+    credential: "ExternalCredentialModel",
+) -> Dict[str, str]:
+    """Invalidate cached OAuth2 token and rebuild auth headers for retry after 401."""
+    if getattr(credential, "credential_type", None) == "oauth2_client_credentials":
+        from api.utils.oauth2_token_cache import invalidate_token
+
+        cred_uuid = getattr(credential, "credential_uuid", None)
+        if cred_uuid:
+            await invalidate_token(str(cred_uuid))
+    return await build_auth_header(credential)
 
 
 def build_auth_header_from_data(

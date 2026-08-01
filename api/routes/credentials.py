@@ -97,16 +97,16 @@ def validate_credential_data(
             
     elif credential_type == WebhookCredentialType.OAUTH2_CLIENT_CREDENTIALS:
         required = {"client_id", "client_secret", "token_url"}
-        missing = required - credential_data.keys()
-        if missing:
+        missing_or_empty = [k for k in sorted(required) if not credential_data.get(k)]
+        if missing_or_empty:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"OAuth2 Client Credentials requires fields: "
-                    f"{', '.join(sorted(missing))}"
+                    f"OAuth2 Client Credentials requires non-empty fields: "
+                    f"{', '.join(missing_or_empty)}"
                 ),
             )
-        token_url = credential_data.get("token_url", "")
+        token_url = str(credential_data.get("token_url", ""))
         if not token_url.startswith("https://"):
             raise HTTPException(
                 status_code=400,
@@ -268,7 +268,7 @@ async def update_credential(
         effective_type = None
 
     # Validate credential data against the effective type whenever data is provided.
-    if request.credential_data and effective_type:
+    if request.credential_data is not None and effective_type:
         validate_credential_data(effective_type, request.credential_data)
 
     try:

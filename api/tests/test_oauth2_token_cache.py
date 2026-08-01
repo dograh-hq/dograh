@@ -96,6 +96,28 @@ class TestOAuth2TokenCache:
         mock_redis.setex.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_get_valid_token_omitted_expires_in_skips_cache(self, mock_redis, mock_httpx):
+        """Tokens omitting expires_in are treated as having unknown lifetime and must NOT be cached."""
+        mock_redis.get.return_value = None
+
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "new_token_unknown_expiry",
+        }
+        mock_httpx.post.return_value = mock_response
+
+        token = await OAuth2TokenCache.get_valid_token(
+            credential_uuid="test-uuid",
+            token_url="https://test.example.com/token",
+            client_id="test-client",
+            client_secret="test-secret"
+        )
+
+        assert token == "new_token_unknown_expiry"
+        mock_redis.setex.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_get_valid_token_raises_on_http_error(self, mock_redis, mock_httpx):
         mock_redis.get.return_value = None
 

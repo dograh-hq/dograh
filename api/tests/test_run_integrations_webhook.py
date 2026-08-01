@@ -404,6 +404,26 @@ async def test_deliver_webhook_transient_error_schedules_retry():
 
 
 @pytest.mark.asyncio
+async def test_deliver_webhook_oauth_token_fetch_failure_schedules_retry():
+    delivery = _fake_delivery(attempt_count=0, credential_uuid="test-uuid")
+    db = _delivery_db(delivery)
+    db.get_credential_by_uuid = AsyncMock(return_value=MagicMock(credential_type="oauth2_client_credentials"))
+    enqueue = AsyncMock()
+
+    with (
+        patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.tasks.webhook_delivery.build_auth_header", AsyncMock(side_effect=ValueError("token fetch failed"))),
+        patch("api.tasks.arq.enqueue_job", enqueue),
+    ):
+        await deliver_webhook(None, delivery.id)
+
+    db.schedule_webhook_delivery_retry.assert_awaited_once()
+    assert db.schedule_webhook_delivery_retry.call_args.kwargs["attempt_count"] == 1
+    db.mark_webhook_delivery_dead_letter.assert_not_called()
+    enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_deliver_webhook_permanent_4xx_dead_letters():
     delivery = _fake_delivery()
     db = _delivery_db(delivery)

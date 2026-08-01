@@ -9,7 +9,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.services.configuration.masking import mask_key
-from api.utils.credential_auth import build_auth_header
+from api.utils.credential_auth import build_auth_header, invalidate_and_rebuild_auth
 from api.utils.template_renderer import render_template
 
 # Map tool parameter types to JSON schema types
@@ -273,6 +273,7 @@ async def execute_http_tool(
 
     # Add auth header if credential is configured. Keep track of which headers
     # came from the credential so only those values are masked in test previews.
+    credential = None
     credential_headers: Dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
     if credential_uuid and organization_id:
@@ -288,8 +289,22 @@ async def execute_http_tool(
                 logger.warning(
                     f"Credential {credential_uuid} not found for tool '{tool.name}'"
                 )
+        except ValueError as e:
+            logger.error(f"Authentication failed for tool '{tool.name}': {e}")
+            return build_result(
+                {
+                    "status": "error",
+                    "error": f"Authentication failed: {e}",
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to fetch credential for tool '{tool.name}': {e}")
+            return build_result(
+                {
+                    "status": "error",
+                    "error": f"Tool execution failed: {e}",
+                }
+            )
 
     request_headers: Dict[str, str] = {}
     if include_request_headers:
@@ -351,12 +366,10 @@ async def execute_http_tool(
                 and credential
                 and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
             ):
-                from api.utils.oauth2_token_cache import invalidate_token
-                await invalidate_token(str(credential.credential_uuid))
-                logger.info(f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response. Retrying once...")
-                
-                # Retry once with a fresh token.
-                credential_headers = await build_auth_header(credential)
+                logger.info(
+                    f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response. Retrying once..."
+                )
+                credential_headers = await invalidate_and_rebuild_auth(credential)
                 if credential_headers:
                     headers.update(credential_headers)
                 

@@ -1,7 +1,7 @@
 """add_oauth2_client_credentials
 
 Revision ID: 1236f759fffe
-Revises: hh22ee334455
+Revises: 00b0201ad918
 Create Date: 2026-08-01 17:02:51.904611
 
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '1236f759fffe'
-down_revision: Union[str, None] = 'fec0fb9a8db7'
+down_revision: Union[str, None] = '00b0201ad918'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

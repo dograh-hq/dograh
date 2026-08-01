@@ -1,4 +1,5 @@
-from typing import Optional, TypedDict
+from typing import Optional
+from typing_extensions import TypedDict
 
 import httpx
 import openai

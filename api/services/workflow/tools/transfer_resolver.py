@@ -13,7 +13,7 @@ from loguru import logger
 from api.db import db_client
 from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.workflow.tools.custom_tool import _resolve_preset_parameters
-from api.utils.credential_auth import build_auth_header
+from api.utils.credential_auth import build_auth_header, invalidate_and_rebuild_auth
 from api.utils.template_renderer import render_template
 from api.utils.url_security import validate_user_configured_service_url
 
@@ -219,15 +219,22 @@ async def _execute_http_resolver(
     if method in ("POST", "PUT", "PATCH"):
         headers.setdefault("Content-Type", "application/json")
 
+    credential = None
     credential_uuid = resolver.get("credential_uuid")
     if credential_uuid and organization_id:
         credential = await db_client.get_credential_by_uuid(
             credential_uuid, organization_id
         )
         if credential:
-            auth = await build_auth_header(credential)
-            if auth:
-                headers.update(auth)
+            try:
+                auth = await build_auth_header(credential)
+                if auth:
+                    headers.update(auth)
+            except ValueError as e:
+                raise TransferResolutionError(
+                    "credential_auth_error",
+                    f"Authentication failed for transfer resolver credential: {e}",
+                ) from e
         else:
             raise TransferResolutionError(
                 "credential_not_found",
@@ -260,11 +267,10 @@ async def _execute_http_resolver(
                 and credential
                 and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
             ):
-                from api.utils.oauth2_token_cache import invalidate_token
-                await invalidate_token(str(credential.credential_uuid))
-                logger.info(f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in transfer resolver. Retrying once...")
-                
-                credential_headers = await build_auth_header(credential)
+                logger.info(
+                    f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in transfer resolver. Retrying once..."
+                )
+                credential_headers = await invalidate_and_rebuild_auth(credential)
                 if credential_headers:
                     headers.update(credential_headers)
                 

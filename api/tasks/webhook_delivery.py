@@ -25,7 +25,7 @@ from api.constants import DEFAULT_WEBHOOK_DELIVERY_CONFIG
 from api.db import db_client
 from api.db.models import WebhookDeliveryModel
 from api.tasks.function_names import FunctionNames
-from api.utils.credential_auth import build_auth_header
+from api.utils.credential_auth import build_auth_header, invalidate_and_rebuild_auth
 
 # HTTP statuses that are worth retrying even though the server answered.
 _RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
@@ -88,12 +88,9 @@ async def _build_headers(delivery: WebhookDeliveryModel, attempt: int) -> dict:
                 if auth:
                     headers.update(auth)
             except ValueError as exc:
-                # OAuth2 token fetch failed. Log and continue — the request
-                # will fail with a 401 which ARQ will retry with backoff.
-                logger.warning(
-                    f"OAuth2 token fetch failed for webhook "
-                    f"'{delivery.webhook_name}' credential: {exc}"
-                )
+                raise httpx.RequestError(
+                    f"OAuth2 token fetch failed for webhook '{delivery.webhook_name}': {exc}"
+                ) from exc
         else:
             logger.warning(
                 f"Credential {delivery.credential_uuid} not found for webhook "
@@ -202,8 +199,7 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     delivery.credential_uuid, delivery.organization_id
                 )
                 if credential and credential.credential_type == "oauth2_client_credentials":
-                    from api.utils.oauth2_token_cache import invalidate_token
-                    await invalidate_token(str(credential.credential_uuid))
+                    await invalidate_and_rebuild_auth(credential)
                     # Treat this as a transient failure so the fresh token is used.
                     await _handle_transient_failure(delivery, attempt, error, status_code)
                     return

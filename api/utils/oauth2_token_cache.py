@@ -14,6 +14,7 @@ import redis.asyncio as aioredis
 from loguru import logger
 
 from api.constants import REDIS_URL
+from api.utils.url_security import validate_user_configured_service_url
 
 _MIN_TTL = 30          # Floor: never cache for less than 30s
 _EXPIRY_MARGIN = 60    # Pre-expire: refresh 60s before real expiry
@@ -48,6 +49,13 @@ async def get_or_fetch_token(
             f"OAuth2 token cache read failed for {credential_uuid}: {exc}"
         )
         redis_client = None
+    finally:
+        if redis_client is not None:
+            try:
+                await redis_client.aclose()
+            except Exception:
+                pass
+            redis_client = None
 
     # Cache miss (or Redis down) — fetch a fresh token.
     logger.info(f"Fetching new OAuth2 token for credential {credential_uuid}")
@@ -60,18 +68,35 @@ async def get_or_fetch_token(
     )
 
     # Write to cache if Redis is available.
-    if redis_client is not None:
-        ttl = max(_MIN_TTL, expires_in - _EXPIRY_MARGIN)
+    # Only cache when the token will still be valid after our pre-expiry margin.
+    # Short-lived tokens (expires_in <= _EXPIRY_MARGIN) must not be cached
+    # with the _MIN_TTL floor — that would serve an already-expired token.
+    net_ttl = expires_in - _EXPIRY_MARGIN
+    if net_ttl > 0:
+        cache_ttl = max(_MIN_TTL, net_ttl)
+        redis_client = None
         try:
-            await redis_client.setex(cache_key, ttl, token)
+            redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+            await redis_client.setex(cache_key, cache_ttl, token)
             logger.debug(
                 f"OAuth2 token cached for {credential_uuid} "
-                f"(TTL={ttl}s, provider expires_in={expires_in}s)"
+                f"(TTL={cache_ttl}s, provider expires_in={expires_in}s)"
             )
         except Exception as exc:
             logger.warning(
                 f"OAuth2 token cache write failed for {credential_uuid}: {exc}"
             )
+        finally:
+            if redis_client is not None:
+                try:
+                    await redis_client.aclose()
+                except Exception:
+                    pass
+    else:
+        logger.debug(
+            f"OAuth2 token for {credential_uuid} has expires_in={expires_in}s "
+            f"(<= margin {_EXPIRY_MARGIN}s); skipping cache to avoid serving expired token."
+        )
 
     return token
 
@@ -85,6 +110,7 @@ async def invalidate_token(credential_uuid: str) -> None:
     - A 401 is received from the downstream API.
     """
     cache_key = f"oauth2_token:{credential_uuid}"
+    redis_client = None
     try:
         redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
         await redis_client.delete(cache_key)
@@ -93,6 +119,12 @@ async def invalidate_token(credential_uuid: str) -> None:
         logger.warning(
             f"OAuth2 token cache invalidation failed for {credential_uuid}: {exc}"
         )
+    finally:
+        if redis_client is not None:
+            try:
+                await redis_client.aclose()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +171,12 @@ async def _fetch_token(
     Raises:
         ValueError: on network error, non-200 HTTP, or malformed response.
     """
+    # Guard against SSRF: reject private/loopback/internal addresses in SaaS.
+    try:
+        validate_user_configured_service_url(token_url, field_name="token_url")
+    except ValueError as exc:
+        raise ValueError(f"OAuth2 token_url is not permitted: {exc}") from exc
+
     data: dict = {
         "grant_type": "client_credentials",
         "client_id": client_id,
@@ -162,11 +200,10 @@ async def _fetch_token(
         ) from exc
 
     if response.status_code != 200:
-        # Truncate — never log the full response body (may contain sensitive info)
-        preview = response.text[:200]
+        # Do NOT include the response body in the error — it may contain
+        # sensitive private-service response data.
         raise ValueError(
-            f"OAuth2 token endpoint returned HTTP {response.status_code}. "
-            f"Response preview: {preview}"
+            f"OAuth2 token endpoint returned HTTP {response.status_code}."
         )
 
     try:

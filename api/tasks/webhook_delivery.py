@@ -194,13 +194,9 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
         if status_code in _RETRYABLE_STATUS_CODES:
             await _handle_transient_failure(delivery, attempt, error, status_code)
         else:
-            # Permanent failure. Dead-letter it.
-            await db_client.mark_webhook_delivery_dead_letter(
-                delivery.id, attempt, error, status_code
-            )
-            # If this was a 401 on an OAuth2 credential, invalidate the cache
-            # so the next delivery attempt (if manually retried or re-enqueued)
-            # fetches a fresh token.
+            # 401 on an OAuth2 credential: invalidate the cached token so the
+            # next attempt fetches a fresh one, then schedule a single retry
+            # instead of dead-lettering immediately.
             if status_code == 401 and delivery.credential_uuid:
                 credential = await db_client.get_credential_by_uuid(
                     delivery.credential_uuid, delivery.organization_id
@@ -208,6 +204,14 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                 if credential and credential.credential_type == "oauth2_client_credentials":
                     from api.utils.oauth2_token_cache import invalidate_token
                     await invalidate_token(str(credential.credential_uuid))
+                    # Treat this as a transient failure so the fresh token is used.
+                    await _handle_transient_failure(delivery, attempt, error, status_code)
+                    return
+
+            # Permanent failure for all other 4xx. Dead-letter it.
+            await db_client.mark_webhook_delivery_dead_letter(
+                delivery.id, attempt, error, status_code
+            )
         return
     except httpx.RequestError as e:
         # Connect/read timeouts, DNS, connection resets -- the transient class that

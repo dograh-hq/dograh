@@ -79,9 +79,14 @@ async def build_auth_header(credential: "ExternalCredentialModel") -> Dict[str, 
                 audience=audience,
             )
             return {"Authorization": f"Bearer {token}"}
+        except ValueError:
+            # Re-raise so callers (webhook delivery, tool execution) can treat
+            # this as a retryable failure rather than silently sending without auth.
+            raise
         except Exception as e:
-            logger.error(f"Failed to fetch OAuth2 token for {cred_uuid}: {e}")
-            return {}
+            # Unexpected errors (e.g. import errors) — re-raise as ValueError
+            # so the caller interface is consistent.
+            raise ValueError(f"Failed to fetch OAuth2 token for {cred_uuid}: {e}") from e
 
     return {}
 

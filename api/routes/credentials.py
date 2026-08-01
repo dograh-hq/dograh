@@ -248,9 +248,28 @@ async def update_credential(
             status_code=400, detail="No organization selected for the user"
         )
 
-    # Validate credential data if provided
-    if request.credential_type and request.credential_data:
-        validate_credential_data(request.credential_type, request.credential_data)
+    # Fetch the existing credential so we can resolve the effective type even
+    # when the caller doesn't resend credential_type on a data-only update.
+    existing = await db_client.get_credential_by_uuid(
+        credential_uuid, user.selected_organization_id
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Credential not found")
+
+    # Determine the effective type after this update.
+    effective_type_str = (
+        request.credential_type.value
+        if request.credential_type
+        else existing.credential_type
+    )
+    try:
+        effective_type = WebhookCredentialType(effective_type_str)
+    except ValueError:
+        effective_type = None
+
+    # Validate credential data against the effective type whenever data is provided.
+    if request.credential_data and effective_type:
+        validate_credential_data(effective_type, request.credential_data)
 
     try:
         credential = await db_client.update_credential(
@@ -266,10 +285,15 @@ async def update_credential(
 
         if not credential:
             raise HTTPException(status_code=404, detail="Credential not found")
-        
-        # If credential data/type changed, invalidate any cached tokens
-        if credential.credential_type == "oauth2_client_credentials":
-            from api.utils.oauth2_token_cache import invalidate_token
+
+        # Invalidate cached token if the previous OR resulting type is OAuth2.
+        # This handles both: rotating secrets (data-only update) and switching
+        # away from OAuth2 (type change), which must purge the stale bearer token.
+        from api.utils.oauth2_token_cache import invalidate_token
+        if (
+            existing.credential_type == "oauth2_client_credentials"
+            or credential.credential_type == "oauth2_client_credentials"
+        ):
             await invalidate_token(str(credential.credential_uuid))
 
         return build_credential_response(credential)

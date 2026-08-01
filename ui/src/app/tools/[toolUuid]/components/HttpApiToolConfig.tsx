@@ -243,17 +243,17 @@ export function HttpApiToolConfig({
                                         />
                                     </div>
                                 </div>
-                                {useBodyTemplate && (
-                                        <BodyTemplateEditor
-                                            value={bodyTemplate}
-                                            onChange={onBodyTemplateChange}
-                                            onValidityChange={onBodyTemplateValidityChange}
-                                            availableParams={Array.from(new Set([
-                                                ...parameters.map((p) => p.name),
-                                                ...presetParameters.map((p) => p.name),
-                                            ].filter(Boolean)))}
-                                        />
-                                )}
+                                <div className={useBodyTemplate ? "" : "hidden"}>
+                                    <BodyTemplateEditor
+                                        value={bodyTemplate}
+                                        onChange={onBodyTemplateChange}
+                                        onValidityChange={onBodyTemplateValidityChange}
+                                        availableParams={Array.from(new Set([
+                                            ...parameters.map((p) => p.name),
+                                            ...presetParameters.map((p) => p.name),
+                                        ].filter(Boolean)))}
+                                    />
+                                </div>
                             </div>
                         )}
 

@@ -1116,13 +1116,13 @@ class TestRenderBodyTemplate:
 
         # Exact names
         for bad_name in ("current_time", "current_weekday"):
-            tp = ToolParameter(name=bad_name, type="string", description="x")
-            assert tp.name == f"custom_{bad_name}"
+            with pytest.raises(ValidationError):
+                ToolParameter(name=bad_name, type="string", description="x")
 
         # Timezone-suffixed variants
         for bad_name in ("current_time_Europe/Paris", "current_weekday_Asia/Kolkata"):
-            tp = ToolParameter(name=bad_name, type="string", description="x")
-            assert tp.name == f"custom_{bad_name}"
+            with pytest.raises(ValidationError):
+                ToolParameter(name=bad_name, type="string", description="x")
 
         # Unrelated names must still be accepted
         tp = ToolParameter(name="current_status", type="string", description="x")

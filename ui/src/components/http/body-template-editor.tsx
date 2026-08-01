@@ -39,6 +39,16 @@ function isParamUsed(name: string, raw: string): boolean {
     return new RegExp(`\\{\\{\\s*${escaped}(?:[\\s|}.}])`).test(raw);
 }
 
+function getObjectDepth(value: unknown): number {
+    if (typeof value !== "object" || value === null) return 0;
+    let maxChildDepth = 0;
+    for (const key of Object.keys(value)) {
+        const childDepth = getObjectDepth((value as Record<string, unknown>)[key]);
+        if (childDepth > maxChildDepth) maxChildDepth = childDepth;
+    }
+    return 1 + maxChildDepth;
+}
+
 export function BodyTemplateEditor({
     value,
     onChange,
@@ -80,6 +90,10 @@ export function BodyTemplateEditor({
                 setError(`Template too large (${(size / 1024).toFixed(1)} KB). Max 64 KB.`);
                 return;
             }
+            if (getObjectDepth(parsed) > 20) {
+                setError("Template nesting exceeds maximum depth of 20 levels.");
+                return;
+            }
             setError(null);
             onChange(parsed);
             lastPushedValue.current = parsed;
@@ -88,13 +102,19 @@ export function BodyTemplateEditor({
         }
     };
 
-    const unusedParams = availableParams.filter(
-        (name) => name && !isParamUsed(name, raw)
+    const normalizedParams = Array.from(
+        new Set(availableParams.map((p) => (p || "").trim()).filter(Boolean))
     );
-    const reservedConflicts = availableParams.filter((n) =>
-        RESERVED_PARAM_NAMES.includes(n)
+
+    const unusedParams = normalizedParams.filter(
+        (name) => !isParamUsed(name, raw)
     );
-    const builtinConflicts = availableParams.filter((n) => isBuiltinConflict(n));
+    const reservedConflicts = normalizedParams.filter(
+        (n) => RESERVED_PARAM_NAMES.includes(n) && isParamUsed(n, raw)
+    );
+    const builtinConflicts = normalizedParams.filter(
+        (n) => isBuiltinConflict(n) && isParamUsed(n, raw)
+    );
 
     useEffect(() => {
         if (reservedConflicts.length > 0 || builtinConflicts.length > 0) {
@@ -155,13 +175,13 @@ export function BodyTemplateEditor({
                     </div>
                 )}
             </div>
-            {availableParams.length > 0 && (
+            {normalizedParams.length > 0 && (
                 <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">
                         Available placeholders (click to copy):
                     </Label>
                     <div className="flex flex-wrap gap-1.5">
-                        {availableParams.filter(Boolean).map((name) => (
+                        {normalizedParams.map((name) => (
                             <Badge
                                 key={name}
                                 variant={unusedParams.includes(name) ? "outline" : "secondary"}

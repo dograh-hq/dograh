@@ -272,7 +272,7 @@ def _coerce_typed_leaves(
             if "." in param_name:
                 from api.utils.template_renderer import get_nested_value
                 raw_arg = get_nested_value(arguments, param_name)
-                if raw_arg is not None:
+                if raw_arg not in (None, ""):
                     return raw_arg
 
             # Flat LLM parameter — coerce to declared type if needed.

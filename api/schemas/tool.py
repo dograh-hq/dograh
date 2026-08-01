@@ -48,12 +48,18 @@ def _validate_param_name_not_reserved(v: str) -> str:
         )
 
     if v in {"initial_context", "gathered_context"}:
-        v = f"{v}_custom"
+        raise ValueError(
+            f"Parameter name '{v}' is reserved for call context. "
+            f"Use a different name (e.g. '{v}_custom')."
+        )
 
     _BUILTIN_PREFIXES = ("current_time", "current_weekday")
     for prefix in _BUILTIN_PREFIXES:
         if v == prefix or v.startswith(prefix + "_"):
-            v = f"custom_{v}"
+            raise ValueError(
+                f"Parameter name '{v}' conflicts with built-in template variable '{prefix}'. "
+                f"Use a different name (e.g. 'custom_{v}')."
+            )
 
     return v
 

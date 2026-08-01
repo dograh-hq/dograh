@@ -11,6 +11,7 @@ must not stop a visitor's conversation from starting.
 """
 
 import json
+import re
 from typing import Any
 
 from loguru import logger
@@ -21,6 +22,11 @@ MAX_CONTEXT_VARIABLES = 50
 MAX_KEY_LENGTH = 64
 MAX_VALUE_LENGTH = 2000
 MAX_TOTAL_BYTES = 8192
+
+# Dots select nested values, while whitespace, pipes, and braces delimit parts
+# of a template expression. Accepting them in a top-level name would store a
+# value that ``{{initial_context.<name>}}`` cannot address unambiguously.
+_TEMPLATE_NAME_PATTERN = re.compile(r"^[^.\s|{}]+$")
 
 _INVALID = object()
 
@@ -54,6 +60,7 @@ def sanitize_embed_context_variables(raw: dict[str, Any] | None) -> dict[str, An
         if (
             not name
             or len(name) > MAX_KEY_LENGTH
+            or _TEMPLATE_NAME_PATTERN.fullmatch(name) is None
             or name in RESERVED_INITIAL_CONTEXT_KEYS
         ):
             dropped.append(str(key))

@@ -27,6 +27,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { WIDGET_CONTEXT_DOC_URL, WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { HEADLESS_CHAT_EXAMPLE } from "@/constants/embedExamples";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface EmbedDialogProps {
@@ -564,26 +565,7 @@ export function EmbedDialog({
                                             <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
                                                 <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example - drive your own chat UI</h4>
                                                 <pre className="text-xs overflow-x-auto">
-                                                    <code className="text-blue-800 dark:text-blue-200">{`let chatState = 'idle';
-
-window.DograhWidget?.onChatStateChange((state) => {
-  chatState = state; // idle | starting | ready | waiting | ended | expired | error
-});
-
-window.DograhWidget?.onMessage((text, turn) => {
-  appendAgentBubble(text); // render however you want
-});
-
-document.getElementById('open-chat').addEventListener('click', () => {
-  window.DograhWidget.startChat();
-});
-
-document.getElementById('send-btn').addEventListener('click', async () => {
-  const input = document.getElementById('chat-input');
-  appendVisitorBubble(input.value);
-  const transcript = await window.DograhWidget.sendMessage(input.value);
-  if (transcript !== null) input.value = '';
-});`}</code>
+                                                    <code className="text-blue-800 dark:text-blue-200">{HEADLESS_CHAT_EXAMPLE}</code>
                                                 </pre>
                                             </div>
                                         </div>

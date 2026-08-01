@@ -42,6 +42,20 @@ def test_keys_are_stripped_and_bad_keys_dropped():
     assert result == {"customer_name": "Ada"}
 
 
+def test_template_unaddressable_keys_are_dropped():
+    result = sanitize_embed_context_variables(
+        {
+            "customer.name": "dot is nested traversal",
+            "customer name": "whitespace terminates the variable name",
+            "customer|name": "pipe starts a fallback",
+            "customer{name": "brace is a template delimiter",
+            "customer}name": "brace is a template delimiter",
+            "customer-name": "Ada",
+        }
+    )
+    assert result == {"customer-name": "Ada"}
+
+
 def test_reserved_keys_are_dropped():
     result = sanitize_embed_context_variables(
         {

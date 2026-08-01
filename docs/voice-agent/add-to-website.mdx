@@ -61,6 +61,13 @@ These apply to all three modes:
 
 Your page usually knows something about the visitor — their name, plan, cart value, the article they were reading. Pass it along and your agent can use it from the first word.
 
+<Warning>
+Context Key names cannot contain dots, whitespace, pipes, or braces because those
+characters have structural meaning in template expressions. Invalid entries are
+dropped without preventing the conversation from starting.
+</Warning>
+
+
 The snippet you copy from the dashboard carries a `data-dograh-context` attribute — a JSON object of details about the visitor. The snippet is a small bootstrap function: `js` is the widget `<script>` element it creates, and the context is attached to that element before it is added to the page. The relevant part of the generated snippet looks like this (keep the generated `js.src` value, which contains your embed token):
 
 ```html
@@ -121,7 +128,7 @@ The widget script loads asynchronously, so `window.DograhWidget` may not exist y
 Use whichever fits: `data-dograh-context` for what the page knows at render, `setContext()` for what it learns later. They merge, and `setContext()` wins on a repeated name.
 
 <Warning>
-Context comes from the page, so a visitor can both read it and change it before it reaches your agent. Never pass secrets, and don't let it gate what the agent will do or disclose — treat `plan: "pro"` as a hint for phrasing, not proof of entitlement. For data the agent must trust, pass an opaque id like `customer_id` and let Dograh fetch the real details from your API with [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch) (voice widgets).
+Context comes from the page, so a visitor can both read it and change it before it reaches your agent. Never pass secrets, and don't let it gate what the agent will do or disclose — treat `plan: "pro"` as a hint for phrasing, not proof of entitlement. For data the agent must trust, pass an opaque id like `customer_id` and let Dograh fetch the real details from your API with [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch).
 </Warning>
 
 Limits, applied per conversation: up to 50 variables, 64 characters per name, 2000 characters per value, and 8 KB in total. Anything past a limit is dropped and the conversation still starts. The names `provider` and `runtime_configuration` are reserved and ignored.

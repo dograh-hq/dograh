@@ -364,6 +364,7 @@ export default function ToolDetailPage() {
                         parameters: loadedParameters,
                         presetParameters: loadedPresetParameters,
                         bodyTemplate: loadedBodyTemplate,
+                        useBodyTemplate: loadedBodyTemplate !== null && loadedBodyTemplate !== undefined,
                         timeoutMs: loadedTimeoutMs,
                         customMessage: loadedCustomMessage,
                         customMessageType: loadedCustomMessageType,
@@ -504,6 +505,11 @@ export default function ToolDetailPage() {
             );
             if (invalidPresetParams.length > 0) {
                 setError("All preset parameters must have a name and a value");
+                return;
+            }
+
+            if (['POST', 'PUT', 'PATCH'].includes(httpMethod) && useBodyTemplate && !bodyTemplate) {
+                setError("JSON body template cannot be empty when enabled");
                 return;
             }
         }
@@ -696,6 +702,7 @@ export default function ToolDetailPage() {
                             parameters,
                             presetParameters,
                             bodyTemplate,
+                            useBodyTemplate,
                             timeoutMs,
                             customMessage,
                             customMessageType,
@@ -820,6 +827,7 @@ const data = await response.json();`;
                 parameters,
                 presetParameters,
                 bodyTemplate,
+                useBodyTemplate,
                 timeoutMs,
                 customMessage,
                 customMessageType,

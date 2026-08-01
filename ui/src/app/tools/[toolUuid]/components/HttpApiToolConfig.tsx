@@ -235,7 +235,10 @@ export function HttpApiToolConfig({
                                         <Label className="text-xs">Use body template</Label>
                                         <Switch
                                             checked={useBodyTemplate}
-                                            onCheckedChange={onUseBodyTemplateChange}
+                                            onCheckedChange={(checked) => {
+                                                onUseBodyTemplateChange(checked);
+                                                if (!checked) onBodyTemplateValidityChange(true);
+                                            }}
                                         />
                                     </div>
                                 </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -73,6 +73,16 @@ export function BodyTemplateEditor({
     const reservedConflicts = availableParams.filter((n) =>
         RESERVED_PARAM_NAMES.includes(n)
     );
+
+    useEffect(() => {
+        if (reservedConflicts.length > 0) {
+            onValidityChange?.(false);
+        } else if (error) {
+            onValidityChange?.(false);
+        } else {
+            onValidityChange?.(true);
+        }
+    }, [reservedConflicts.length, error, onValidityChange]);
 
     return (
         <div className="space-y-3">

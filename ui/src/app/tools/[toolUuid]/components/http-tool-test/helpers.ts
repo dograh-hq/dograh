@@ -63,6 +63,7 @@ export type HttpToolTestSnapshotFields = {
     parameters: ToolParameter[];
     presetParameters: PresetToolParameter[];
     bodyTemplate: Record<string, unknown> | null;
+    useBodyTemplate: boolean;
     timeoutMs: number;
     customMessage: string;
     customMessageType: "text" | "audio";

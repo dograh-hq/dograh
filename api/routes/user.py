@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
-from typing import List, Literal, Optional, TypedDict, Union
+from typing import List, Literal, Optional, Union
+from typing_extensions import TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger

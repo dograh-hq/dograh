@@ -281,7 +281,7 @@ async def execute_http_tool(
                 credential_uuid, organization_id
             )
             if credential:
-                credential_headers = build_auth_header(credential)
+                credential_headers = await build_auth_header(credential)
                 headers.update(credential_headers)
                 logger.debug(f"Applied credential '{credential.name}' to tool request")
             else:
@@ -346,7 +346,29 @@ async def execute_http_tool(
                 params=params,
             )
 
-            # Try to parse JSON response
+            if (
+                response.status_code == 401
+                and credential
+                and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
+            ):
+                from api.utils.oauth2_token_cache import invalidate_token
+                await invalidate_token(str(credential.credential_uuid))
+                logger.info(f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response. Retrying once...")
+                
+                # Retry once with a fresh token.
+                credential_headers = await build_auth_header(credential)
+                if credential_headers:
+                    headers.update(credential_headers)
+                
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=body,
+                    params=params,
+                )
+            
+            # Try to parse JSON response again in case we retried
             try:
                 response_data = response.json()
             except Exception:

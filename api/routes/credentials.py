@@ -94,6 +94,24 @@ def validate_credential_data(
                 status_code=400,
                 detail="Custom Header credential requires 'header_name' and 'header_value' fields",
             )
+            
+    elif credential_type == WebhookCredentialType.OAUTH2_CLIENT_CREDENTIALS:
+        required = {"client_id", "client_secret", "token_url"}
+        missing = required - credential_data.keys()
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"OAuth2 Client Credentials requires fields: "
+                    f"{', '.join(sorted(missing))}"
+                ),
+            )
+        token_url = credential_data.get("token_url", "")
+        if not token_url.startswith("https://"):
+            raise HTTPException(
+                status_code=400,
+                detail="token_url must use HTTPS (must start with https://)",
+            )
 
 
 def build_credential_response(credential) -> CredentialResponse:
@@ -248,6 +266,11 @@ async def update_credential(
 
         if not credential:
             raise HTTPException(status_code=404, detail="Credential not found")
+        
+        # If credential data/type changed, invalidate any cached tokens
+        if credential.credential_type == "oauth2_client_credentials":
+            from api.utils.oauth2_token_cache import invalidate_token
+            await invalidate_token(str(credential.credential_uuid))
 
         return build_credential_response(credential)
 
@@ -281,6 +304,13 @@ async def delete_credential(
             status_code=400, detail="No organization selected for the user"
         )
 
+    credential = await db_client.get_credential_by_uuid(
+        credential_uuid, user.selected_organization_id
+    )
+    if credential and credential.credential_type == "oauth2_client_credentials":
+        from api.utils.oauth2_token_cache import invalidate_token
+        await invalidate_token(credential_uuid)
+        
     deleted = await db_client.delete_credential(
         credential_uuid, user.selected_organization_id
     )

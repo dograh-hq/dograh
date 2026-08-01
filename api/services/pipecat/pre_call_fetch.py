@@ -68,6 +68,7 @@ async def execute_pre_call_fetch(
 
     # Build headers
     headers: Dict[str, str] = {"Content-Type": "application/json"}
+    credential = None
 
     if credential_uuid:
         try:
@@ -75,7 +76,9 @@ async def execute_pre_call_fetch(
                 credential_uuid, organization_id
             )
             if credential:
-                headers.update(build_auth_header(credential))
+                auth = await build_auth_header(credential)
+                if auth:
+                    headers.update(auth)
             else:
                 logger.warning(
                     f"Pre-call fetch: credential {credential_uuid} not found"
@@ -88,6 +91,23 @@ async def execute_pre_call_fetch(
     try:
         async with httpx.AsyncClient(timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS) as client:
             response = await client.post(url, headers=headers, json=payload)
+            
+            # 401 token invalidation and single retry
+            if (
+                response.status_code == 401
+                and credential_uuid
+                and credential is not None
+                and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
+            ):
+                from api.utils.oauth2_token_cache import invalidate_token
+                await invalidate_token(str(credential.credential_uuid))
+                logger.info(f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in pre-call fetch. Retrying once...")
+                
+                credential_headers = await build_auth_header(credential)
+                if credential_headers:
+                    headers.update(credential_headers)
+                
+                response = await client.post(url, headers=headers, json=payload)
 
             try:
                 response_data = response.json()

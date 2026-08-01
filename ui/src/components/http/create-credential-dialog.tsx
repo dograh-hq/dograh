@@ -59,6 +59,14 @@ const getCredentialDataFields = (type: WebhookCredentialType): CredentialField[]
                 { key: "header_name", label: "Header Name", placeholder: "X-Custom-Header" },
                 { key: "header_value", label: "Header Value", placeholder: "header-value", isSecret: true },
             ];
+        case "oauth2_client_credentials":
+            return [
+                { key: "client_id", label: "Client ID", placeholder: "your-client-id" },
+                { key: "client_secret", label: "Client Secret", placeholder: "your-client-secret", isSecret: true },
+                { key: "token_url", label: "Token URL", placeholder: "https://identity.provider.com/connect/token" },
+                { key: "scope", label: "Scope (optional)", placeholder: "e.g. reservations.manage read write" },
+                { key: "audience", label: "Audience (optional)", placeholder: "Required by Azure AD and Auth0 (e.g. https://api.example.com)" },
+            ];
         default:
             return [];
     }
@@ -191,6 +199,7 @@ export function CreateCredentialDialog({
                                 <SelectItem value="api_key">API Key</SelectItem>
                                 <SelectItem value="basic_auth">Basic Auth</SelectItem>
                                 <SelectItem value="custom_header">Custom Header</SelectItem>
+                                <SelectItem value="oauth2_client_credentials">OAuth2 Client Credentials</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

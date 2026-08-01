@@ -124,7 +124,7 @@ export type ExtractionVariable = {
 };
 
 // Credential types for webhook authentication
-export type CredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
+export type CredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header' | 'oauth2_client_credentials';
 
 export interface Credential {
     uuid: string;

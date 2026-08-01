@@ -21,28 +21,34 @@ async def test_mock_server_starts_and_serves():
 
 
 def test_build_streamable_http_params_with_credential():
-    cred = MagicMock()
-    cred.credential_type = "bearer_token"
-    cred.credential_data = {"token": "abc"}
-    params = build_streamable_http_params(
-        url="https://acme.example.com/mcp",
-        credential=cred,
-        timeout_secs=30,
-        sse_read_timeout_secs=300,
+    from api.db.models import ExternalCredentialModel
+    credential = ExternalCredentialModel(
+        credential_type="api_key",
+        credential_data={"header_name": "X-Auth", "api_key": "secret123"},
     )
+    # The async builder uses await inside, so we need to run it in a loop
+    import asyncio
+    params = asyncio.run(build_streamable_http_params(
+        url="https://acme.example.com/mcp",
+        credential=credential,
+        timeout_secs=5,
+        sse_read_timeout_secs=60,
+    ))
     assert params.url == "https://acme.example.com/mcp"
-    assert params.headers == {"Authorization": "Bearer abc"}
-    assert params.timeout == timedelta(seconds=30)
-    assert params.sse_read_timeout == timedelta(seconds=300)
+    assert params.headers == {"X-Auth": "secret123"}
+    assert params.timeout.total_seconds() == 5.0
+    assert params.sse_read_timeout.total_seconds() == 60.0
 
 
 def test_build_streamable_http_params_no_credential():
-    params = build_streamable_http_params(
-        url="https://acme.example.com/mcp",
+    import asyncio
+    params = asyncio.run(build_streamable_http_params(
+        url="https://open.example.com/mcp",
         credential=None,
         timeout_secs=10,
-        sse_read_timeout_secs=20,
-    )
+        sse_read_timeout_secs=120,
+    ))
+    assert params.url == "https://open.example.com/mcp"
     assert params.headers is None or params.headers == {}
 
 

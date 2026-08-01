@@ -161,6 +161,7 @@ class WebhookCredentialType(Enum):
     BEARER_TOKEN = "bearer_token"  # Bearer token auth
     BASIC_AUTH = "basic_auth"  # Username/password
     CUSTOM_HEADER = "custom_header"  # Custom header key-value
+    OAUTH2_CLIENT_CREDENTIALS = "oauth2_client_credentials"  # OAuth2 Client Credentials
 
 
 class ToolCategory(Enum):

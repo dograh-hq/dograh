@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from api.db.models import ExternalCredentialModel
 
 
-def build_streamable_http_params(
+async def build_streamable_http_params(
     *,
     url: str,
     credential: Optional["ExternalCredentialModel"],
@@ -36,7 +36,7 @@ def build_streamable_http_params(
     from an ExternalCredentialModel (reuses the http_api credential path)."""
     headers: Optional[Dict[str, str]] = None
     if credential is not None:
-        auth = build_auth_header(credential)
+        auth = await build_auth_header(credential)
         headers = auth or None
     return StreamableHttpParameters(
         url=url,
@@ -86,7 +86,7 @@ class McpToolSession:
         external cancellation, KeyboardInterrupt, and SystemExit are re-raised
         (see the CancelledError handling below and ``_degrade``)."""
         try:
-            params = build_streamable_http_params(
+            params = await build_streamable_http_params(
                 url=self._url,
                 credential=self._credential,
                 timeout_secs=self._timeout_secs,

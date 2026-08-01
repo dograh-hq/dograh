@@ -83,7 +83,17 @@ async def _build_headers(delivery: WebhookDeliveryModel, attempt: int) -> dict:
             delivery.credential_uuid, delivery.organization_id
         )
         if credential:
-            headers.update(build_auth_header(credential))
+            try:
+                auth = await build_auth_header(credential)
+                if auth:
+                    headers.update(auth)
+            except ValueError as exc:
+                # OAuth2 token fetch failed. Log and continue — the request
+                # will fail with a 401 which ARQ will retry with backoff.
+                logger.warning(
+                    f"OAuth2 token fetch failed for webhook "
+                    f"'{delivery.webhook_name}' credential: {exc}"
+                )
         else:
             logger.warning(
                 f"Credential {delivery.credential_uuid} not found for webhook "
@@ -184,10 +194,20 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
         if status_code in _RETRYABLE_STATUS_CODES:
             await _handle_transient_failure(delivery, attempt, error, status_code)
         else:
-            # Permanent (auth/validation/not-found): retrying won't help. Park it.
+            # Permanent failure. Dead-letter it.
             await db_client.mark_webhook_delivery_dead_letter(
                 delivery.id, attempt, error, status_code
             )
+            # If this was a 401 on an OAuth2 credential, invalidate the cache
+            # so the next delivery attempt (if manually retried or re-enqueued)
+            # fetches a fresh token.
+            if status_code == 401 and delivery.credential_uuid:
+                credential = await db_client.get_credential_by_uuid(
+                    delivery.credential_uuid, delivery.organization_id
+                )
+                if credential and credential.credential_type == "oauth2_client_credentials":
+                    from api.utils.oauth2_token_cache import invalidate_token
+                    await invalidate_token(str(credential.credential_uuid))
         return
     except httpx.RequestError as e:
         # Connect/read timeouts, DNS, connection resets -- the transient class that

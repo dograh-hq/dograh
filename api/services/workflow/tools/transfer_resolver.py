@@ -225,7 +225,9 @@ async def _execute_http_resolver(
             credential_uuid, organization_id
         )
         if credential:
-            headers.update(build_auth_header(credential))
+            auth = await build_auth_header(credential)
+            if auth:
+                headers.update(auth)
         else:
             raise TransferResolutionError(
                 "credential_not_found",
@@ -251,6 +253,28 @@ async def _execute_http_resolver(
                 headers=headers,
                 json=body,
             )
+            
+            # 401 token invalidation and single retry
+            if (
+                response.status_code == 401
+                and credential
+                and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
+            ):
+                from api.utils.oauth2_token_cache import invalidate_token
+                await invalidate_token(str(credential.credential_uuid))
+                logger.info(f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in transfer resolver. Retrying once...")
+                
+                credential_headers = await build_auth_header(credential)
+                if credential_headers:
+                    headers.update(credential_headers)
+                
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=body,
+                )
+                
         duration_ms = int((time.monotonic() - started_at) * 1000)
     except httpx.TimeoutException as exc:
         raise TransferResolutionError(

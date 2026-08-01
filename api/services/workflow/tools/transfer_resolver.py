@@ -13,7 +13,11 @@ from loguru import logger
 from api.db import db_client
 from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.workflow.tools.custom_tool import _resolve_preset_parameters
-from api.utils.credential_auth import build_auth_header, invalidate_and_rebuild_auth
+from api.utils.credential_auth import (
+    build_auth_header,
+    invalidate_and_rebuild_auth,
+    rebuild_headers_after_401,
+)
 from api.utils.template_renderer import render_template
 from api.utils.url_security import validate_user_configured_service_url
 
@@ -229,6 +233,10 @@ async def _execute_http_resolver(
             try:
                 auth = await build_auth_header(credential)
                 if auth:
+                    for fresh_key in auth:
+                        for existing_key in list(headers):
+                            if existing_key.lower() == fresh_key.lower():
+                                del headers[existing_key]
                     headers.update(auth)
             except ValueError as e:
                 raise TransferResolutionError(
@@ -268,24 +276,16 @@ async def _execute_http_resolver(
                 and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
             ):
                 logger.info(
-                    f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in transfer resolver. Retrying once..."
+                    f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response in transfer resolver. Retrying once..."
                 )
                 try:
-                    credential_headers = await invalidate_and_rebuild_auth(credential)
+                    await rebuild_headers_after_401(credential, headers)
                 except ValueError as exc:
                     raise TransferResolutionError(
                         "credential_auth_error",
                         f"Authentication failed for transfer resolver credential: {exc}",
                     ) from exc
-                if credential_headers:
-                    # Remove any stale auth headers case-insensitively before
-                    # applying the refreshed ones so a previously set
-                    # Authorization header with different casing doesn't linger.
-                    for fresh_key in credential_headers:
-                        for existing_key in list(headers):
-                            if existing_key.lower() == fresh_key.lower():
-                                del headers[existing_key]
-                    headers.update(credential_headers)
+
 
                 response = await client.request(
                     method=method,

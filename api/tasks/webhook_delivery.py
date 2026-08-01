@@ -265,7 +265,14 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     except httpx.HTTPStatusError as retry_exc:
                         retry_status = retry_exc.response.status_code
                         retry_err = f"HTTP {retry_status} after OAuth token refresh"
-                        await _handle_transient_failure(delivery, attempt, retry_err, retry_status)
+                        if retry_status in _RETRYABLE_STATUS_CODES:
+                            await _handle_transient_failure(
+                                delivery, attempt, retry_err, retry_status
+                            )
+                        else:
+                            await db_client.mark_webhook_delivery_dead_letter(
+                                delivery.id, attempt, retry_err, retry_status
+                            )
                         return
                     except httpx.RequestError as retry_exc:
                         retry_err = f"Network error after OAuth token refresh: {retry_exc}"

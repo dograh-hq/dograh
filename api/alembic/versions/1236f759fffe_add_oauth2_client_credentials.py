@@ -48,6 +48,7 @@ def downgrade() -> None:
     # config) without operator consent is data loss. Refuse the downgrade if any
     # such rows still exist so the operator can migrate or delete them explicitly.
     conn = op.get_bind()
+    conn.execute(sa.text("LOCK TABLE external_credentials IN EXCLUSIVE MODE;"))
     result = conn.execute(
         sa.text(
             "SELECT COUNT(*) FROM external_credentials "

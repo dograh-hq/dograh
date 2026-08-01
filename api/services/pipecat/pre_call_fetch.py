@@ -6,6 +6,7 @@ call context with data from external systems (CRM, ERP, etc.).
 
 from typing import Any, Dict, Optional
 
+import asyncio
 import httpx
 from loguru import logger
 
@@ -90,8 +91,9 @@ async def execute_pre_call_fetch(
     logger.info(f"Pre-call fetch: POST {url}")
 
     try:
-        async with httpx.AsyncClient(timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS) as client:
-            response = await client.post(url, headers=headers, json=payload)
+        async with asyncio.timeout(PRE_CALL_FETCH_TIMEOUT_SECONDS):
+            async with httpx.AsyncClient(timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS) as client:
+                response = await client.post(url, headers=headers, json=payload)
             
             # 401 token invalidation and single retry
             if (

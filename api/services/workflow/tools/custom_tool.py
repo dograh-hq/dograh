@@ -9,7 +9,11 @@ from loguru import logger
 
 from api.db import db_client
 from api.services.configuration.masking import mask_key
-from api.utils.credential_auth import build_auth_header, invalidate_and_rebuild_auth
+from api.utils.credential_auth import (
+    build_auth_header,
+    invalidate_and_rebuild_auth,
+    rebuild_headers_after_401,
+)
 from api.utils.template_renderer import render_template
 
 # Map tool parameter types to JSON schema types
@@ -292,6 +296,10 @@ async def execute_http_tool(
             )
             if credential:
                 credential_headers = await build_auth_header(credential)
+                for fresh_key in credential_headers:
+                    for existing_key in list(headers):
+                        if existing_key.lower() == fresh_key.lower():
+                            del headers[existing_key]
                 headers.update(credential_headers)
                 if include_request_headers:
                     for header_name, header_value in credential_headers.items():
@@ -371,7 +379,7 @@ async def execute_http_tool(
                     f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response. Retrying once..."
                 )
                 try:
-                    credential_headers = await invalidate_and_rebuild_auth(credential)
+                    await rebuild_headers_after_401(credential, headers)
                 except ValueError as e:
                     logger.error(f"Authentication failed for tool '{tool.name}': {e}")
                     return build_result(
@@ -380,15 +388,9 @@ async def execute_http_tool(
                             "error": f"Authentication failed: {e}",
                         }
                     )
-                if credential_headers:
-                    for fresh_key in credential_headers:
-                        for existing_key in list(headers):
-                            if existing_key.lower() == fresh_key.lower():
-                                del headers[existing_key]
-                    headers.update(credential_headers)
-                    if include_request_headers:
-                        for header_name, header_value in credential_headers.items():
-                            request_headers[header_name] = mask_key(str(header_value))
+                if include_request_headers:
+                    for header_name, header_value in headers.items():
+                        request_headers[header_name] = mask_key(str(header_value))
                 
                 response = await client.request(
                     method=method,

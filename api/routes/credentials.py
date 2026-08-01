@@ -249,45 +249,14 @@ async def update_credential(
             status_code=400, detail="No organization selected for the user"
         )
 
-    # Fetch the existing credential so we can resolve the effective type even
-    # when the caller doesn't resend credential_type on a data-only update.
-    existing = await db_client.get_credential_by_uuid(
-        credential_uuid, user.selected_organization_id
-    )
-    if not existing:
-        raise HTTPException(status_code=404, detail="Credential not found")
-
-    # Determine the effective type after this update.
-    effective_type_str = (
-        request.credential_type.value
-        if request.credential_type
-        else existing.credential_type
-    )
-    try:
-        effective_type = WebhookCredentialType(effective_type_str)
-    except ValueError:
-        effective_type = None
-
-    # Validate credential data against the effective type whenever data or type is updated.
-    if (request.credential_data is not None or request.credential_type is not None) and effective_type:
-        effective_data = (
-            request.credential_data
-            if request.credential_data is not None
-            else (existing.credential_data or {})
-        )
-        validate_credential_data(effective_type, effective_data)
-
     try:
         credential = await credential_service.update_credential_with_invalidation(
             credential_uuid=credential_uuid,
             organization_id=user.selected_organization_id,
             name=request.name,
             description=request.description,
-            credential_type=request.credential_type.value
-            if request.credential_type
-            else None,
+            credential_type=request.credential_type,
             credential_data=request.credential_data,
-            existing_type=existing.credential_type,
         )
 
         if not credential:

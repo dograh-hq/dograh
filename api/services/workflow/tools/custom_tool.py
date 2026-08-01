@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -23,9 +23,7 @@ TYPE_MAP = {
 
 # Matches a template leaf that is ENTIRELY one placeholder and nothing else.
 # "{{adults}}" → matches;  "Ref-{{id}}" → does NOT match.
-_WHOLE_PLACEHOLDER_RE = re.compile(
-    r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$"
-)
+_WHOLE_PLACEHOLDER_RE = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
 
 
 def custom_tool_function_name(name: str) -> str:
@@ -34,7 +32,7 @@ def custom_tool_function_name(name: str) -> str:
     return re.sub(r"_+", "_", function_name).strip("_")
 
 
-def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def serialize_query_params(arguments: dict[str, Any]) -> dict[str, Any]:
     """JSON-stringify dict/list values so they're safe to pass as query params.
 
     httpx (and query strings in general) only support primitive param values.
@@ -47,7 +45,7 @@ def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
+def tool_to_function_schema(tool: Any) -> dict[str, Any]:
     """Convert a ToolModel to an LLM function schema.
 
     Args:
@@ -206,8 +204,8 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
 def _coerce_typed_leaves(
     original_node: Any,
     rendered_node: Any,
-    arguments: Dict[str, Any],
-    param_type_map: Dict[str, str],
+    arguments: dict[str, Any],
+    param_type_map: dict[str, str],
 ) -> Any:
     """Walk the original template and rendered output in parallel.
 
@@ -258,12 +256,12 @@ def _coerce_typed_leaves(
 
 
 def render_body_template(
-    template: Dict[str, Any],
-    arguments: Dict[str, Any],
-    parameters: List[Dict[str, Any]],
-    call_context_vars: Optional[Dict[str, Any]] = None,
-    gathered_context_vars: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    template: dict[str, Any],
+    arguments: dict[str, Any],
+    parameters: list[dict[str, Any]],
+    call_context_vars: dict[str, Any] | None = None,
+    gathered_context_vars: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Render a nested JSON body template using resolved arguments and call context.
 
     Args:
@@ -282,7 +280,7 @@ def render_body_template(
         ValueError: If a required parameter has no value.
     """
     # Build param name → declared type for post-render coercion.
-    param_type_map: Dict[str, str] = {
+    param_type_map: dict[str, str] = {
         p.get("name", ""): p.get("type", "string")
         for p in (parameters or [])
         if p.get("name")
@@ -316,9 +314,9 @@ def render_body_template(
     # We do NOT spread **call_context_vars flat (unlike _resolve_preset_parameters).
     # In preset templates, that flat spread is safe because no LLM args are present.
     # Here, LLM args ARE present; a flat spread could silently clobber LLM values.
-    render_context: Dict[str, Any] = {
-        **arguments,   # LLM + preset values FIRST
-        "initial_context":  dict(call_context_vars or {}),
+    render_context: dict[str, Any] = {
+        **arguments,  # LLM + preset values FIRST
+        "initial_context": dict(call_context_vars or {}),
         "gathered_context": dict(gathered_context_vars or {}),
     }
 
@@ -335,10 +333,10 @@ def render_body_template(
 
 
 def _resolve_preset_parameters(
-    config: Dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]],
-    gathered_context_vars: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    config: dict[str, Any],
+    call_context_vars: dict[str, Any] | None,
+    gathered_context_vars: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Resolve fixed/template-backed parameters before executing the HTTP request."""
 
     preset_parameters = config.get("preset_parameters", []) or []
@@ -346,13 +344,13 @@ def _resolve_preset_parameters(
         return {}
 
     initial_context = dict(call_context_vars or {})
-    render_context: Dict[str, Any] = {
+    render_context: dict[str, Any] = {
         **initial_context,
         "initial_context": initial_context,
         "gathered_context": dict(gathered_context_vars or {}),
     }
 
-    resolved: Dict[str, Any] = {}
+    resolved: dict[str, Any] = {}
     for param in preset_parameters:
         param_name = (param.get("name") or "").strip()
         if not param_name:
@@ -375,13 +373,13 @@ def _resolve_preset_parameters(
 
 async def execute_http_tool(
     tool: Any,
-    arguments: Dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]] = None,
-    gathered_context_vars: Optional[Dict[str, Any]] = None,
-    preset_params: Optional[Dict[str, Any]] = None,
-    organization_id: Optional[int] = None,
+    arguments: dict[str, Any],
+    call_context_vars: dict[str, Any] | None = None,
+    gathered_context_vars: dict[str, Any] | None = None,
+    preset_params: dict[str, Any] | None = None,
+    organization_id: int | None = None,
     include_request_headers: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute an HTTP API tool.
 
     Args:
@@ -410,7 +408,7 @@ async def execute_http_tool(
 
     # Add auth header if credential is configured. Keep track of which headers
     # came from the credential so only those values are masked in test previews.
-    credential_headers: Dict[str, str] = {}
+    credential_headers: dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
     if credential_uuid and organization_id:
         try:
@@ -428,7 +426,7 @@ async def execute_http_tool(
         except Exception as e:
             logger.error(f"Failed to fetch credential for tool '{tool.name}': {e}")
 
-    request_headers: Dict[str, str] = {}
+    request_headers: dict[str, str] = {}
     if include_request_headers:
         request_headers = {str(name): str(value) for name, value in headers.items()}
         for header_name, header_value in credential_headers.items():
@@ -438,9 +436,9 @@ async def execute_http_tool(
     # The closure captures _body_preview by reference (cell object).
     # By the time build_result is first called (line 316 preset error path),
     # _body_preview must already be assigned.
-    _body_preview: Optional[Dict[str, Any]] = None
+    _body_preview: dict[str, Any] | None = None
 
-    def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    def build_result(result: dict[str, Any]) -> dict[str, Any]:
         if include_request_headers:
             # Both extras are test-mode-only: include_request_headers=True is set
             # exclusively by the test endpoint (routes/tool.py:244). Live pipecat
@@ -495,11 +493,14 @@ async def execute_http_tool(
                     f"Custom tool '{tool.name}' body template render failed: {e}"
                 )
                 return build_result(
-                    {"status": "error", "error": f"Body template rendering failed: {str(e)}"}
+                    {
+                        "status": "error",
+                        "error": f"Body template rendering failed: {e!s}",
+                    }
                 )
                 # _body_preview is still None here (set below, after this block). ✓
         else:
-            body = resolved_arguments   # flat mode — unchanged behaviour
+            body = resolved_arguments  # flat mode — unchanged behaviour
 
     elif method in ("GET", "DELETE") and resolved_arguments:
         params = serialize_query_params(resolved_arguments)
@@ -557,7 +558,7 @@ async def execute_http_tool(
         return build_result(
             {
                 "status": "error",
-                "error": f"Request failed: {str(e)}",
+                "error": f"Request failed: {e!s}",
             }
         )
     except Exception as e:
@@ -565,6 +566,6 @@ async def execute_http_tool(
         return build_result(
             {
                 "status": "error",
-                "error": f"Tool execution failed: {str(e)}",
+                "error": f"Tool execution failed: {e!s}",
             }
         )

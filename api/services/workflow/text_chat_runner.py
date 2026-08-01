@@ -36,6 +36,7 @@ from api.services.pipecat.pipeline_builder import create_pipeline_task
 from api.services.pipecat.pipeline_metrics_aggregator import (
     PipelineMetricsAggregator,
 )
+from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
 from api.services.pipecat.recording_audio_cache import create_recording_audio_fetcher
 from api.services.pipecat.service_factory import create_llm_service
 from api.services.pipecat.tracing_config import (
@@ -47,6 +48,7 @@ from api.services.pipecat.worker_runner import (
     wait_for_pipeline_worker_started,
 )
 from api.services.workflow.dto import ReactFlowDTO
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 
@@ -488,16 +490,45 @@ async def execute_text_chat_pending_turn(
     }
     if mps_correlation_id:
         initial_context[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
-    await db_client.update_workflow_run(
-        workflow_run_id,
-        initial_context=initial_context,
-    )
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(run_definition.workflow_json),
         skip_instance_constraints_for={"trigger"},
     )
     base_checkpoint = _resolve_checkpoint_for_pending_turn(session_data, checkpoint)
+
+    # Text sessions create a fresh pipeline for every turn. Run the Start-node
+    # pre-call fetch only before the first node opening, then persist the
+    # hydrated context so later per-turn pipelines reuse it without fetching
+    # again. This must happen before PipecatEngine.set_node(), which renders the
+    # Start-node prompt and greeting from call_context_vars.
+    is_initial_node_opening = base_checkpoint.get(
+        "current_node_id"
+    ) is None and not any(turn.get("status") == "completed" for turn in turns[:-1])
+    start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
+    if (
+        is_initial_node_opening
+        and start_node
+        and start_node.pre_call_fetch_enabled
+        and start_node.pre_call_fetch_url
+    ):
+        fetch_result = await execute_pre_call_fetch(
+            url=start_node.pre_call_fetch_url,
+            credential_uuid=start_node.pre_call_fetch_credential_uuid,
+            call_context_vars=initial_context,
+            workflow_id=workflow_id,
+            organization_id=workflow.organization_id,
+        )
+        if fetch_result:
+            initial_context = merge_external_initial_context(
+                initial_context, fetch_result
+            )
+
+    await db_client.update_workflow_run(
+        workflow_run_id,
+        initial_context=initial_context,
+    )
+
     context = LLMContext()
     context.set_messages(
         _deserialize_text_chat_checkpoint_messages(base_checkpoint["messages"])

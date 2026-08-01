@@ -309,6 +309,9 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
                     "name": "tom",
                     "age": 10,
                     "called_number": "+15559999999",
+                    "provider": "external-provider",
+                    "runtime_configuration": {"llm_model": "external-model"},
+                    "mps_correlation_id": "external-correlation-id",
                 },
             },
         )
@@ -322,6 +325,9 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
     assert create_kwargs["initial_context"]["rank"] == 2
     assert create_kwargs["initial_context"]["trigger_mode"] == "test"
     assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
+    assert create_kwargs["initial_context"]["provider"] == "twilio"
+    assert "runtime_configuration" not in create_kwargs["initial_context"]
+    assert "mps_correlation_id" not in create_kwargs["initial_context"]
     mock_db.update_workflow_run.assert_awaited_once_with(
         run_id=501,
         gathered_context={

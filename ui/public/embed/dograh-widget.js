@@ -1,7 +1,7 @@
 /**
- * Dograh Voice Widget
- * Embeddable voice call widget for Dograh workflows
- * Version: 1.0.0
+ * Dograh Widget
+ * Embeddable voice & chat widget for Dograh agents
+ * Version: 1.1.0
  */
 
 (function() {
@@ -32,6 +32,19 @@
     turnCredentials: null, // TURN server credentials
     callStartedAt: null, // Timestamp when call connected (for duration tracking)
     gracefulDisconnect: false,
+    // Chat widget state (widgetType === 'chat'). The server transcript is the
+    // source of truth: every successful response full-replaces turns/revision.
+    chat: {
+      status: 'idle', // idle | starting | ready | waiting | ended | expired | error
+      panelOpen: false,
+      revision: null,
+      turns: [],
+      pendingUserText: null, // optimistic bubble while a POST is in flight
+      draft: '',
+      banner: null,
+      seenAssistantTurnIds: new Set() // for onMessage diffing
+    },
+    chatEls: null, // { panel, messages, banner, input, sendBtn } — null in headless
     callbacks: {
       onReady: null,
       onCallStart: null,
@@ -39,16 +52,32 @@
       onCallDisconnected: null,
       onCallEnd: null,
       onError: null,
-      onStatusChange: null
+      onStatusChange: null,
+      onMessage: null,
+      onChatStateChange: null
     }
   };
 
-  /**
-   * Initialize the widget
-   */
-  async function init() {
-    if (state.isInitialized) return;
+  // Initialization is single-flight so API calls made while configuration is
+  // loading can await the same request instead of guessing the widget type.
+  let initializationPromise = null;
 
+  /**
+   * Initialize the widget once and expose the in-flight work to public APIs.
+   */
+  function init() {
+    if (state.isInitialized) return Promise.resolve();
+    if (!initializationPromise) {
+      initializationPromise = initializeWidget().finally(() => {
+        if (!state.isInitialized) {
+          initializationPromise = null;
+        }
+      });
+    }
+    return initializationPromise;
+  }
+
+  async function initializeWidget() {
     // Get token from script URL
     const script = document.currentScript || document.querySelector('script[src*="dograh-widget.js"]');
     if (!script) {
@@ -90,8 +119,15 @@
       token: token,
       apiBaseUrl: apiBaseUrl,
       environment: environment || 'production',
-      // Allow data attributes to override fetched config
-      contextVariables: parseContextVariables(script.getAttribute('data-dograh-context'))
+      // Visitor context the host page attached to the script tag. It lands in
+      // the run's initial_context, addressable from prompts as
+      // {{initial_context.<name>}}. setContext() can run before this config
+      // assignment (init awaits a fetch), so anything already set is merged
+      // back on top rather than overwritten.
+      contextVariables: {
+        ...parseContextVariables(script.getAttribute('data-dograh-context')),
+        ...(state.config.contextVariables || {})
+      }
     };
 
     try {
@@ -110,17 +146,25 @@
 
       const configData = await configResponse.json();
 
+      const widgetType = configData.settings?.widgetType === 'chat' ? 'chat' : 'voice';
+
       // Merge fetched configuration with defaults
       state.config = {
         ...state.config,
         workflowId: configData.workflow_id,
+        widgetType: widgetType,
         embedMode: configData.settings?.embedMode || 'floating',
         containerId: configData.settings?.containerId || 'dograh-inline-container',
         position: configData.position || DEFAULT_CONFIG.position,
         buttonColor: configData.settings?.buttonColor || '#10b981',
-        buttonText: configData.settings?.buttonText || 'Talk to Agent',
-        callToActionText: configData.settings?.callToActionText || 'Click to start voice conversation',
-        autoStart: configData.auto_start || false
+        buttonText: configData.settings?.buttonText || (widgetType === 'chat' ? 'Chat with Agent' : 'Talk to Agent'),
+        callToActionText: configData.settings?.callToActionText || (widgetType === 'chat' ? 'Click to start chatting' : 'Click to start voice conversation'),
+        autoStart: configData.auto_start || false,
+        // WebRTC transport hints from the server. Left undefined by older
+        // backends that don't send them, in which case we keep the previous
+        // behaviour: attempt the TURN fetch and don't force relay.
+        turnEnabled: configData.turn_enabled,
+        forceTurnRelay: Boolean(configData.force_turn_relay)
       };
     } catch (error) {
       console.error('Dograh Widget: Failed to fetch configuration', error);
@@ -129,8 +173,20 @@
 
     state.isInitialized = true;
 
-    // Create widget UI based on mode
-    if (state.config.embedMode === 'inline') {
+    // Create widget UI based on widget type and mode
+    if (isChatWidget()) {
+      if (state.config.embedMode === 'inline') {
+        injectStyles();
+        injectChatStyles();
+        createInlineChatWidget();
+      } else if (state.config.embedMode === 'headless') {
+        // No UI — the host page drives chat via the window.DograhWidget API.
+      } else {
+        injectStyles();
+        injectChatStyles();
+        createFloatingChatWidget();
+      }
+    } else if (state.config.embedMode === 'inline') {
       injectStyles();
       createInlineWidget();
     } else if (state.config.embedMode === 'headless') {
@@ -147,8 +203,21 @@
 
     // Auto-start if configured
     if (state.config.autoStart) {
-      setTimeout(() => startCall(), 1000);
+      setTimeout(() => (isChatWidget() ? startChat() : startCall()), 1000);
     }
+  }
+
+  /**
+   * Generic public start alias. Widget type comes from async server config, so
+   * never dispatch to voice/chat until initialization has resolved.
+   */
+  async function startWidget(...args) {
+    await init();
+    if (!state.isInitialized) {
+      console.warn('Dograh Widget: Cannot start before initialization succeeds');
+      return;
+    }
+    return isChatWidget() ? startChat() : startCall(...args);
   }
 
   /**
@@ -162,6 +231,40 @@
       console.warn('Dograh Widget: Invalid context variables', e);
       return {};
     }
+  }
+
+  /**
+   * True while a conversation is live and its context is already fixed
+   */
+  function isConversationActive() {
+    if (isChatWidget()) {
+      return ['starting', 'ready', 'waiting'].indexOf(state.chat.status) !== -1;
+    }
+    return ['connecting', 'connected'].indexOf(state.connectionStatus) !== -1;
+  }
+
+  /**
+   * Merge visitor context supplied by the host page after the script loaded.
+   *
+   * The context is read when a conversation starts, so this applies to the next
+   * one — a conversation already under way keeps what it was created with.
+   */
+  function setContextVariables(vars) {
+    if (!vars || typeof vars !== 'object' || Array.isArray(vars)) {
+      console.warn('Dograh Widget: setContext expects a plain object');
+      return { ...(state.config.contextVariables || {}) };
+    }
+
+    state.config.contextVariables = {
+      ...(state.config.contextVariables || {}),
+      ...vars
+    };
+
+    if (isConversationActive()) {
+      console.warn('Dograh Widget: context set during a conversation applies to the next one');
+    }
+
+    return { ...state.config.contextVariables };
   }
 
   /**
@@ -733,6 +836,14 @@
    * Fetch TURN credentials for WebRTC connection
    */
   async function fetchTurnCredentials() {
+    // Skip the request entirely when the server reports no TURN server is
+    // configured — it would only 503. Deployments without coturn (OSS/local)
+    // fall back to STUN.
+    if (state.config.turnEnabled === false) {
+      console.log('Dograh Widget: TURN server disabled in server config, using STUN only');
+      return;
+    }
+
     if (!state.sessionToken) {
       console.warn('Dograh Widget: No session token available for TURN credentials');
       return;
@@ -781,6 +892,15 @@
     const config = {
       iceServers: iceServers
     };
+
+    // Diagnostic: when the backend runs with FORCE_TURN_RELAY=true, restrict the
+    // browser to relay-only candidates so media must traverse TURN. A TURN
+    // misconfiguration then surfaces as an ICE failure instead of silently
+    // falling back to host/srflx.
+    if (state.config.forceTurnRelay) {
+      config.iceTransportPolicy = 'relay';
+      console.log('Dograh Widget: FORCE_TURN_RELAY is on — restricting ICE to relay candidates only');
+    }
 
     state.pc = new RTCPeerConnection(config);
 
@@ -970,8 +1090,7 @@
         type: 'offer',
         pc_id: state.pcId,
         workflow_id: parseInt(state.config.workflowId),
-        workflow_run_id: parseInt(state.workflowRunId),
-        call_context_vars: state.config.contextVariables || {}
+        workflow_run_id: parseInt(state.workflowRunId)
       }
     };
 
@@ -1061,18 +1180,794 @@
       .join('');
   }
 
+  // ===========================================================================
+  // Chat widget (widgetType === 'chat')
+  //
+  // Chat speaks plain REST to the public embed chat endpoints — no WebRTC, no
+  // WebSocket, no microphone. One blocking POST per turn (the server caps a
+  // turn at 60s, so no client timeout below that); the typing indicator covers
+  // the wait. XSS boundary: message text only ever flows through textContent.
+  // ===========================================================================
+
+  const CHAT_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>`;
+
+  const SEND_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="22" y1="2" x2="11" y2="13"/>
+    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+  </svg>`;
+
+  function isChatWidget() {
+    return state.config.widgetType === 'chat';
+  }
+
+  /**
+   * Inject chat widget styles
+   */
+  function injectChatStyles() {
+    if (document.getElementById('dograh-chat-styles')) return;
+
+    const styles = `
+      .dograh-chat-panel {
+        display: flex;
+        flex-direction: column;
+        width: 360px;
+        height: min(520px, calc(100vh - 120px));
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+
+      .dograh-widget-container.bottom-right .dograh-chat-panel { position: absolute; bottom: 60px; right: 0; }
+      .dograh-widget-container.bottom-left  .dograh-chat-panel { position: absolute; bottom: 60px; left: 0; }
+      .dograh-widget-container.top-right    .dograh-chat-panel { position: absolute; top: 60px; right: 0; }
+      .dograh-widget-container.top-left     .dograh-chat-panel { position: absolute; top: 60px; left: 0; }
+
+      @media (max-width: 480px) {
+        .dograh-widget-container .dograh-chat-panel {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          top: auto;
+          width: 100%;
+          height: min(75vh, 560px);
+          border-radius: 12px 12px 0 0;
+        }
+      }
+
+      .dograh-chat-panel--inline {
+        position: static;
+        width: 100%;
+        height: 100%;
+        min-height: 320px;
+        box-shadow: none;
+        border: 1px solid #e5e7eb;
+      }
+
+      .dograh-chat-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 600;
+        flex: 0 0 auto;
+      }
+
+      .dograh-chat-close {
+        background: none;
+        border: none;
+        color: #ffffff;
+        font-size: 20px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 2px;
+        opacity: 0.85;
+      }
+      .dograh-chat-close:hover { opacity: 1; }
+
+      .dograh-chat-messages {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: #f9fafb;
+      }
+
+      .dograh-chat-bubble {
+        max-width: 80%;
+        padding: 8px 12px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .dograh-chat-bubble--user {
+        align-self: flex-end;
+        color: #ffffff;
+        border-bottom-right-radius: 4px;
+      }
+      .dograh-chat-bubble--assistant {
+        align-self: flex-start;
+        background: #e5e7eb;
+        color: #111827;
+        border-bottom-left-radius: 4px;
+      }
+      .dograh-chat-bubble--failed { opacity: 0.55; }
+
+      .dograh-chat-typing {
+        align-self: flex-start;
+        display: inline-flex;
+        gap: 4px;
+        padding: 10px 14px;
+        background: #e5e7eb;
+        border-radius: 12px;
+        border-bottom-left-radius: 4px;
+      }
+      .dograh-chat-typing span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #6b7280;
+        animation: dograh-typing 1.2s infinite;
+      }
+      .dograh-chat-typing span:nth-child(2) { animation-delay: 0.15s; }
+      .dograh-chat-typing span:nth-child(3) { animation-delay: 0.3s; }
+
+      @keyframes dograh-typing {
+        0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+        30% { opacity: 1; transform: translateY(-3px); }
+      }
+
+      .dograh-chat-banner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: #991b1b;
+        background: #fef2f2;
+        border-top: 1px solid #fecaca;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-banner--info {
+        color: #374151;
+        background: #f3f4f6;
+        border-top: 1px solid #e5e7eb;
+      }
+      .dograh-chat-restart {
+        border: none;
+        background: none;
+        color: #1d4ed8;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0;
+        white-space: nowrap;
+      }
+
+      .dograh-chat-composer {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 10px 12px;
+        border-top: 1px solid #e5e7eb;
+        background: #ffffff;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-input {
+        flex: 1;
+        resize: none;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+        font-size: 14px;
+        max-height: 96px;
+        outline: none;
+        background: #ffffff;
+        color: #111827;
+      }
+      .dograh-chat-input:focus { border-color: #9ca3af; }
+      .dograh-chat-input:disabled { background: #f9fafb; color: #9ca3af; }
+      .dograh-chat-send {
+        width: 36px;
+        height: 36px;
+        border: none;
+        border-radius: 8px;
+        color: #ffffff;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-send:disabled { opacity: 0.5; cursor: default; }
+
+      .dograh-chat-inline-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 420px;
+      }
+      .dograh-chat-inline-cta {
+        text-align: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .dograh-chat-inline-icon { color: #9ca3af; margin-bottom: 16px; }
+      .dograh-chat-inline-icon svg { width: 56px; height: 56px; }
+      .dograh-chat-inline-subtext {
+        font-size: 14px;
+        color: #6b7280;
+        margin: 0 0 20px;
+      }
+      .dograh-chat-inline-start {
+        padding: 12px 32px;
+        border-radius: 8px;
+        border: none;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        color: #ffffff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      }
+    `;
+
+    const styleSheet = document.createElement('style');
+    styleSheet.id = 'dograh-chat-styles';
+    styleSheet.textContent = styles;
+    document.head.appendChild(styleSheet);
+  }
+
+  /**
+   * Build the chat panel skeleton once; renders update its parts in place so
+   * the composer keeps focus while typing.
+   */
+  function buildChatPanel(options) {
+    const withClose = Boolean(options && options.withClose);
+
+    const panel = document.createElement('div');
+    panel.className = 'dograh-chat-panel';
+
+    const header = document.createElement('div');
+    header.className = 'dograh-chat-header';
+    header.style.backgroundColor = state.config.buttonColor;
+    const title = document.createElement('span');
+    title.textContent = state.config.buttonText || 'Chat with Agent';
+    header.appendChild(title);
+    if (withClose) {
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'dograh-chat-close';
+      closeBtn.type = 'button';
+      closeBtn.setAttribute('aria-label', 'Close chat');
+      closeBtn.textContent = '×';
+      closeBtn.onclick = closeChatPanel;
+      header.appendChild(closeBtn);
+    }
+    panel.appendChild(header);
+
+    const messages = document.createElement('div');
+    messages.className = 'dograh-chat-messages';
+    panel.appendChild(messages);
+
+    const banner = document.createElement('div');
+    banner.className = 'dograh-chat-banner';
+    banner.style.display = 'none';
+    panel.appendChild(banner);
+
+    const composer = document.createElement('div');
+    composer.className = 'dograh-chat-composer';
+    const input = document.createElement('textarea');
+    input.className = 'dograh-chat-input';
+    input.rows = 1;
+    input.placeholder = 'Type a message…';
+    input.oninput = () => {
+      state.chat.draft = input.value;
+      autoGrowChatInput(input);
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitChatComposer();
+      }
+    };
+    const sendBtn = document.createElement('button');
+    sendBtn.className = 'dograh-chat-send';
+    sendBtn.type = 'button';
+    sendBtn.style.backgroundColor = state.config.buttonColor;
+    sendBtn.setAttribute('aria-label', 'Send message');
+    sendBtn.innerHTML = SEND_ICON_SVG; // static markup, never user data
+    sendBtn.onclick = submitChatComposer;
+    composer.appendChild(input);
+    composer.appendChild(sendBtn);
+    panel.appendChild(composer);
+
+    state.chatEls = { panel, messages, banner, input, sendBtn };
+    return panel;
+  }
+
+  function autoGrowChatInput(input) {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 96) + 'px';
+  }
+
+  /**
+   * Create floating chat widget — CTA pill toggling an anchored chat panel.
+   */
+  function createFloatingChatWidget() {
+    const container = document.createElement('div');
+    container.className = `dograh-widget-container ${state.config.position}`;
+    container.id = 'dograh-widget-root';
+    document.body.appendChild(container);
+
+    const panel = buildChatPanel({ withClose: true });
+    panel.style.display = 'none';
+    container.appendChild(panel);
+
+    const button = document.createElement('button');
+    button.id = 'dograh-widget-cta';
+    button.type = 'button';
+    button.className = 'dograh-widget-cta';
+    button.style.backgroundColor = state.config.buttonColor;
+    button.innerHTML = `${CHAT_ICON_SVG}<span></span>`;
+    button.querySelector('span').textContent = state.config.buttonText || 'Chat with Agent';
+    button.onclick = toggleChatPanel;
+    container.appendChild(button);
+  }
+
+  /**
+   * Create inline chat widget — pre-chat CTA screen in the host container; the
+   * CTA, autoStart, and public API all open the same panel/session lifecycle.
+   */
+  function createInlineChatWidget() {
+    const container = document.getElementById(state.config.containerId);
+    if (!container) {
+      console.error(`Dograh Widget: Container element with id "${state.config.containerId}" not found`);
+      if (state.callbacks.onError) {
+        state.callbacks.onError(new Error('Container element not found'));
+      }
+      return;
+    }
+
+    container.innerHTML = '';
+    container.className = 'dograh-chat-inline-container';
+
+    const cta = document.createElement('div');
+    cta.className = 'dograh-chat-inline-cta';
+
+    const icon = document.createElement('div');
+    icon.className = 'dograh-chat-inline-icon';
+    icon.innerHTML = CHAT_ICON_SVG; // static markup
+    cta.appendChild(icon);
+
+    const subtext = document.createElement('p');
+    subtext.className = 'dograh-chat-inline-subtext';
+    subtext.textContent = state.config.callToActionText || 'Click to start chatting';
+    cta.appendChild(subtext);
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'dograh-chat-inline-start';
+    startBtn.type = 'button';
+    startBtn.style.backgroundColor = state.config.buttonColor;
+    startBtn.textContent = state.config.buttonText || 'Chat with Agent';
+    startBtn.onclick = () => startChat();
+    cta.appendChild(startBtn);
+
+    container.appendChild(cta);
+    state.isOpen = true;
+  }
+
+  /**
+   * Replace the inline CTA with the chat panel. Keeping this in the shared
+   * startChat path ensures autoStart and the public API never create a hidden
+   * session behind the CTA.
+   */
+  function openInlineChatPanel() {
+    const container = document.getElementById(state.config.containerId);
+    if (!container) {
+      console.error(`Dograh Widget: Container element with id "${state.config.containerId}" not found`);
+      return false;
+    }
+
+    const cta = container.querySelector('.dograh-chat-inline-cta');
+    if (cta) {
+      cta.remove();
+    }
+
+    if (!state.chatEls || !state.chatEls.panel || !container.contains(state.chatEls.panel)) {
+      const panel = buildChatPanel({ withClose: false });
+      panel.classList.add('dograh-chat-panel--inline');
+      container.appendChild(panel);
+    }
+
+    return true;
+  }
+
+  function toggleChatPanel() {
+    if (state.chat.panelOpen) {
+      closeChatPanel();
+    } else {
+      startChat();
+    }
+  }
+
+  function closeChatPanel() {
+    state.chat.panelOpen = false;
+    if (state.chatEls && state.chatEls.panel) {
+      state.chatEls.panel.style.display = 'none';
+    }
+  }
+
+  /**
+   * Open the chat (public API). Shows the panel (if any) and starts the
+   * session on first open, including an open requested by autoStart.
+   */
+  async function startChat() {
+    if (!isChatWidget()) {
+      console.warn('Dograh Widget: startChat() called on a voice widget');
+      return;
+    }
+    if (state.config.embedMode === 'inline' && !openInlineChatPanel()) {
+      return;
+    }
+    state.chat.panelOpen = true;
+    if (state.chatEls && state.chatEls.panel) {
+      state.chatEls.panel.style.display = 'flex';
+    }
+    if (state.chat.status === 'idle' || state.chat.status === 'error') {
+      await startChatSession();
+    } else {
+      renderChat();
+    }
+  }
+
+  function resetChatSession() {
+    state.sessionToken = null;
+    state.workflowRunId = null;
+    state.chat.revision = null;
+    state.chat.turns = [];
+    state.chat.pendingUserText = null;
+    state.chat.seenAssistantTurnIds = new Set();
+  }
+
+  /**
+   * Initialize the embed session for chat. The server derives the run type
+   * from the token settings and returns the greeting transcript inline.
+   */
+  async function startChatSession() {
+    if (state.chat.status === 'starting') return;
+    updateChatStatus('starting');
+
+    try {
+      const response = await fetch(`${state.config.apiBaseUrl}/api/v1/public/embed/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': window.location.origin
+        },
+        body: JSON.stringify({
+          token: state.config.token,
+          context_variables: state.config.contextVariables
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 402) {
+          updateChatStatus('ended', 'The agent is unavailable right now.');
+          return;
+        }
+        throw new Error(`Failed to start chat: ${response.status}`);
+      }
+
+      const data = await response.json();
+      state.sessionToken = data.session_token;
+      state.workflowRunId = data.workflow_run_id;
+      const completed = applyChatSession(data.chat_session);
+      updateChatStatus(completed ? 'ended' : 'ready', completed ? 'Conversation ended.' : null);
+    } catch (error) {
+      console.error('Dograh Widget: Failed to start chat', error);
+      updateChatStatus('error', 'Could not start the chat.');
+      if (state.callbacks.onError) {
+        state.callbacks.onError(error);
+      }
+    }
+  }
+
+  /**
+   * Replace local transcript state from a server chat_session payload.
+   * Returns true when the conversation is completed server-side.
+   */
+  function applyChatSession(chatSession) {
+    if (!chatSession) return false;
+    state.chat.revision = chatSession.revision;
+    state.chat.turns = chatSession.turns || [];
+    state.chat.pendingUserText = null;
+    notifyNewAssistantMessages();
+    return Boolean(chatSession.is_completed);
+  }
+
+  function notifyNewAssistantMessages() {
+    state.chat.turns.forEach((turn) => {
+      if (turn.status !== 'completed' || !turn.assistant_message || !turn.assistant_message.text) return;
+      if (state.chat.seenAssistantTurnIds.has(turn.id)) return;
+      state.chat.seenAssistantTurnIds.add(turn.id);
+      if (state.callbacks.onMessage) {
+        state.callbacks.onMessage(turn.assistant_message.text, turn);
+      }
+    });
+  }
+
+  /**
+   * Send a visitor message. Resolves with the updated turns array, or null if
+   * the message could not be delivered.
+   */
+  async function sendChatMessage(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return null;
+    if (!isChatWidget()) {
+      console.warn('Dograh Widget: sendMessage() called on a voice widget');
+      return null;
+    }
+    if (!state.sessionToken || state.chat.status === 'ended' || state.chat.status === 'expired') {
+      console.warn('Dograh Widget: no active chat session');
+      return null;
+    }
+    if (state.chat.status === 'waiting' || state.chat.status === 'starting') {
+      return null; // one turn at a time; the composer is disabled anyway
+    }
+
+    state.chat.pendingUserText = trimmed;
+    updateChatStatus('waiting');
+
+    try {
+      const response = await fetch(
+        `${state.config.apiBaseUrl}/api/v1/public/embed/chat/${state.sessionToken}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Origin': window.location.origin
+          },
+          body: JSON.stringify({ text: trimmed, expected_revision: state.chat.revision })
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const completed = applyChatSession(data);
+        updateChatStatus(completed ? 'ended' : 'ready', completed ? 'Conversation ended.' : null);
+        return state.chat.turns;
+      }
+
+      state.chat.pendingUserText = null;
+
+      if (response.status === 409) {
+        // Someone else advanced the session (e.g. a second tab). Resync the
+        // transcript and hand the text back as a draft.
+        const resynced = await resyncChatSession();
+        if (!resynced && state.chat.status === 'expired') {
+          updateChatStatus('expired');
+          return null;
+        }
+        state.chat.draft = trimmed;
+        updateChatStatus('ready', 'Message not sent — please try again.');
+        return null;
+      }
+      if (response.status === 402) {
+        updateChatStatus('ended', 'The agent is unavailable right now.');
+        return null;
+      }
+      if (response.status === 429) {
+        updateChatStatus('ended', 'Message limit reached for this conversation.');
+        return null;
+      }
+      if (response.status === 403 || response.status === 404) {
+        // The 1-hour embed session expired (or the token was deactivated).
+        updateChatStatus('expired');
+        return null;
+      }
+      if (response.status === 400) {
+        // Conversation completed server-side (e.g. reached an end node).
+        updateChatStatus('ended', 'Conversation ended.');
+        return null;
+      }
+      throw new Error(`Chat message failed: ${response.status}`);
+    } catch (error) {
+      console.error('Dograh Widget: Failed to send message', error);
+      state.chat.pendingUserText = null;
+      state.chat.draft = trimmed;
+      updateChatStatus('ready', 'Message not sent — please try again.');
+      if (state.callbacks.onError) {
+        state.callbacks.onError(error);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Refetch the transcript (409 recovery). Marks the session expired on
+   * 403/404 so the caller can surface the restart UI.
+   */
+  async function resyncChatSession() {
+    try {
+      const response = await fetch(
+        `${state.config.apiBaseUrl}/api/v1/public/embed/chat/${state.sessionToken}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Origin': window.location.origin
+          }
+        }
+      );
+      if (response.ok) {
+        applyChatSession(await response.json());
+        return true;
+      }
+      if (response.status === 403 || response.status === 404) {
+        state.chat.status = 'expired';
+      }
+    } catch (error) {
+      console.warn('Dograh Widget: chat resync failed', error);
+    }
+    return false;
+  }
+
+  function submitChatComposer() {
+    const text = (state.chat.draft || '').trim();
+    if (!text || state.chat.status !== 'ready') return;
+    state.chat.draft = '';
+    if (state.chatEls) {
+      state.chatEls.input.value = '';
+      autoGrowChatInput(state.chatEls.input);
+    }
+    sendChatMessage(text);
+  }
+
+  function updateChatStatus(status, banner) {
+    state.chat.status = status;
+    state.chat.banner = banner || null;
+    renderChat();
+    if (state.callbacks.onChatStateChange) {
+      state.callbacks.onChatStateChange(status);
+    }
+  }
+
+  /**
+   * Update the panel in place from chat state. No-op in headless mode.
+   */
+  function renderChat() {
+    if (!state.chatEls) return;
+    renderChatMessages();
+    renderChatBanner();
+    updateChatComposerState();
+  }
+
+  function renderChatMessages() {
+    const messages = state.chatEls.messages;
+    // Keep autoscroll only when the viewer is already pinned to the bottom.
+    const pinned = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 40;
+    messages.textContent = '';
+
+    state.chat.turns.forEach((turn) => {
+      if (turn.user_message && turn.user_message.text) {
+        messages.appendChild(buildChatBubble(turn.user_message.text, 'user', turn.status === 'failed'));
+      }
+      if (turn.assistant_message && turn.assistant_message.text) {
+        messages.appendChild(buildChatBubble(turn.assistant_message.text, 'assistant', false));
+      }
+    });
+
+    if (state.chat.pendingUserText) {
+      messages.appendChild(buildChatBubble(state.chat.pendingUserText, 'user', false));
+    }
+    if (state.chat.status === 'waiting' || state.chat.status === 'starting') {
+      const typing = document.createElement('div');
+      typing.className = 'dograh-chat-typing';
+      typing.innerHTML = '<span></span><span></span><span></span>';
+      messages.appendChild(typing);
+    }
+
+    if (pinned) {
+      messages.scrollTop = messages.scrollHeight;
+    }
+  }
+
+  function buildChatBubble(text, role, failed) {
+    const bubble = document.createElement('div');
+    bubble.className = `dograh-chat-bubble dograh-chat-bubble--${role}${failed ? ' dograh-chat-bubble--failed' : ''}`;
+    if (role === 'user') {
+      bubble.style.backgroundColor = state.config.buttonColor;
+    }
+    bubble.textContent = text; // XSS boundary: never innerHTML for message text
+    return bubble;
+  }
+
+  function renderChatBanner() {
+    const banner = state.chatEls.banner;
+    banner.textContent = '';
+
+    let text = state.chat.banner;
+    if (state.chat.status === 'expired') {
+      text = 'This chat session has expired.';
+    }
+    if (!text) {
+      banner.style.display = 'none';
+      return;
+    }
+
+    banner.style.display = 'flex';
+    banner.className = `dograh-chat-banner${state.chat.status === 'ended' ? ' dograh-chat-banner--info' : ''}`;
+
+    const span = document.createElement('span');
+    span.textContent = text;
+    banner.appendChild(span);
+
+    if (state.chat.status === 'expired') {
+      const restart = document.createElement('button');
+      restart.type = 'button';
+      restart.className = 'dograh-chat-restart';
+      restart.textContent = 'Start new chat';
+      restart.onclick = () => {
+        resetChatSession();
+        startChatSession();
+      };
+      banner.appendChild(restart);
+    } else if (state.chat.status === 'error') {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'dograh-chat-restart';
+      retry.textContent = 'Retry';
+      retry.onclick = () => startChatSession();
+      banner.appendChild(retry);
+    }
+  }
+
+  function updateChatComposerState() {
+    const input = state.chatEls.input;
+    const sendBtn = state.chatEls.sendBtn;
+    const canType = state.chat.status === 'ready';
+    input.disabled = !canType && state.chat.status !== 'idle';
+    sendBtn.disabled = !canType;
+    if (document.activeElement !== input) {
+      input.value = state.chat.draft || '';
+    }
+  }
+
   // Public API
   window.DograhWidget = {
-    // Core methods
+    // Core methods. In chat mode start()/stop() degrade sensibly: start opens
+    // the chat, stop closes the panel (REST sessions need no teardown).
     init: init,
-    start: startCall,
-    stop: stopCall,
-    end: stopCall, // Alias for stop
+    start: startWidget,
+    stop: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
+    end: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
     retry: retryCall,
+
+    // Visitor context (voice and chat, every embed mode). Merges into whatever
+    // data-dograh-context supplied; applies to the next conversation started.
+    setContext: setContextVariables,
+    getContext: () => ({ ...(state.config.contextVariables || {}) }),
 
     // Floating widget specific
     open: openWidget,
     close: closeWidget,
+
+    // Chat API (widgetType === 'chat')
+    startChat: startChat,
+    sendMessage: sendChatMessage,
+    getMessages: () => state.chat.turns.slice(),
+    isChatMode: () => isChatWidget(),
+    onMessage: (callback) => { state.callbacks.onMessage = callback; },
+    onChatStateChange: (callback) => { state.callbacks.onChatStateChange = callback; },
 
     // State and callbacks
     getState: () => state,

@@ -37,14 +37,23 @@ class RateLimiter:
             )
         return self.redis_client
 
-    async def acquire_token(self, organization_id: int, rate_limit: int = 1) -> bool:
+    async def acquire_token(
+        self,
+        organization_id: int,
+        rate_limit: int = 1,
+        *,
+        scope_key: str | None = None,
+    ) -> bool:
         """
         Enforces strict rate limit: max N calls per rolling second window
         Returns True if allowed, False if rate limited
+
+        ``scope_key`` creates an isolated rate-limit bucket without touching
+        organization concurrency counters or fleet-wide call metrics.
         """
         redis_client = await self._get_redis()
 
-        key = f"rate_limit:{organization_id}"
+        key = f"rate_limit:{scope_key or organization_id}"
         now = time.time()
         window_start = now - 1.0  # 1 second sliding window
 

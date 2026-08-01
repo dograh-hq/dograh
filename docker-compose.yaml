@@ -226,7 +226,8 @@ services:
       # LANGFUSE_HOST: ""
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
-      # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
+      # Uses time-limited credentials via TURN REST API (HMAC-SHA1).
+      ENABLE_COTURN: "${ENABLE_COTURN:-false}"
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
       FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"

@@ -263,6 +263,158 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
 
 
 @pytest.mark.asyncio
+async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help {{customer_name}} on the {{account_tier}} plan.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome {{customer_name}} ({{account_tier}}).",
+                    "pre_call_fetch_enabled": True,
+                    "pre_call_fetch_url": "https://example.com/customer",
+                    "pre_call_fetch_credential_uuid": "credential-uuid",
+                },
+            },
+            {
+                "id": "end",
+                "type": "endCall",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "End",
+                    "prompt": "Wrap up the conversation.",
+                    "is_end": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-end",
+                "source": "start",
+                "target": "end",
+                "data": {"label": "End Call", "condition": "When the task is done."},
+            }
+        ],
+    }
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="pre-call-fetch",
+    )
+    pre_call_fetch = AsyncMock(
+        return_value={
+            "customer_name": "Fetched",
+            "account_tier": "gold",
+            "runtime_configuration": {
+                "llm_provider": "fetched-provider",
+                "llm_model": "fetched-model",
+            },
+            "mps_correlation_id": "fetched-correlation-id",
+        }
+    )
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("How can I help?")],
+            chunk_delay=0.001,
+        ),
+    ]
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.execute_pre_call_fetch",
+                new=pre_call_fetch,
+            ),
+            patch(
+                "api.services.managed_model_services.ensure_mps_correlation_id",
+                new=AsyncMock(return_value="run-correlation-id"),
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={
+                    "initial_context": {
+                        "customer_name": "Explicit",
+                        "page_url": "https://dograh.com/pricing",
+                    }
+                },
+            )
+            assert create_response.status_code == 200
+            created = create_response.json()
+
+            message_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+                f"{created['workflow_run_id']}/messages",
+                json={
+                    "text": "Hello",
+                    "expected_revision": created["revision"],
+                },
+            )
+            assert message_response.status_code == 200
+
+    assert (
+        created["session_data"]["turns"][0]["assistant_message"]["text"]
+        == "Welcome Fetched (gold)."
+    )
+    assert (
+        message_response.json()["session_data"]["turns"][1]["assistant_message"]["text"]
+        == "How can I help?"
+    )
+    pre_call_fetch.assert_awaited_once()
+    fetch_kwargs = pre_call_fetch.await_args.kwargs
+    assert fetch_kwargs["url"] == "https://example.com/customer"
+    assert fetch_kwargs["credential_uuid"] == "credential-uuid"
+    assert fetch_kwargs["workflow_id"] == workflow.id
+    assert fetch_kwargs["organization_id"] == user.selected_organization_id
+    assert fetch_kwargs["call_context_vars"]["customer_name"] == "Explicit"
+    assert fetch_kwargs["call_context_vars"]["page_url"] == "https://dograh.com/pricing"
+    assert fetch_kwargs["call_context_vars"]["runtime_configuration"] == {
+        "llm_provider": "openai",
+        "llm_model": "gpt-4.1",
+    }
+    assert (
+        fetch_kwargs["call_context_vars"]["mps_correlation_id"] == "run-correlation-id"
+    )
+
+    workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
+    assert workflow_run is not None
+    assert workflow_run.initial_context == {
+        "customer_name": "Fetched",
+        "account_tier": "gold",
+        "page_url": "https://dograh.com/pricing",
+        "runtime_configuration": {
+            "llm_provider": "openai",
+            "llm_model": "gpt-4.1",
+        },
+        "mps_correlation_id": "run-correlation-id",
+    }
+
+
+@pytest.mark.asyncio
 async def test_text_chat_message_executes_assistant_turn(
     db_session,
     async_session,

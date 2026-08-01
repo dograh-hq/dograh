@@ -131,6 +131,7 @@ Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from t
 
 | Variable | Default | Description |
 |---|---|---|
+| `ENABLE_COTURN` | `false` | Whether this deployment runs a TURN server. Reported to browsers as `turn_enabled` on `/api/v1/health` and in the embed widget config; when `false` clients skip the TURN credential request and connect over STUN, and the server returns 503 from the credential endpoints. Set to `true` wherever coturn is running — the setup scripts and Helm chart do this for you |
 | `TURN_HOST` | `PUBLIC_HOST`, else `localhost` | TURN server hostname for WebRTC NAT traversal. Derives from `PUBLIC_HOST`; set explicitly only when TURN runs on a separate host |
 | `TURN_PORT` | `3478` | TURN server port |
 | `TURN_TLS_PORT` | `5349` | TURN server TLS port |

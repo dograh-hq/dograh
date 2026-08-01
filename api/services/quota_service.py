@@ -361,6 +361,102 @@ async def _authorize_oss_managed_v2_correlation(
     return QuotaCheckResult(has_quota=True)
 
 
+async def _authorize_oss_managed_v2_run(
+    *,
+    workflow_id: int,
+    workflow_run_id: int,
+    service_key: str,
+    user_config: Any,
+) -> QuotaCheckResult:
+    try:
+        authorization = await mps_service_key_client.authorize_service_key_run_start(
+            service_key=service_key,
+            workflow_run_id=workflow_run_id,
+            require_correlation_id=True,
+            minimum_credits=MINIMUM_DOGRAH_CREDITS_FOR_CALL,
+            metadata={"workflow_id": workflow_id},
+        )
+    except httpx.HTTPStatusError as e:
+        status_code = getattr(e.response, "status_code", None)
+        if status_code not in {404, 405}:
+            logger.error(
+                "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
+                workflow_id,
+                workflow_run_id,
+                e,
+            )
+            return QuotaCheckResult(
+                has_quota=False,
+                error_code="quota_check_failed",
+                error_message="Could not verify Dograh credits. Please try again.",
+            )
+
+        logger.info(
+            "MPS service-key run authorization is unavailable; using legacy "
+            "quota and correlation endpoints"
+        )
+        legacy_quota = await _authorize_oss_dograh_keys(
+            dograh_api_keys={service_key},
+        )
+        if not legacy_quota.has_quota:
+            return legacy_quota
+        return await _authorize_oss_managed_v2_correlation(
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_config=user_config,
+        )
+    except _MPS_UNREACHABLE_ERRORS as e:
+        return _mps_unreachable_result("OSS run authorization", e)
+    except Exception as e:
+        logger.error(
+            "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
+            workflow_id,
+            workflow_run_id,
+            e,
+        )
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="quota_check_failed",
+            error_message="Could not verify Dograh credits. Please try again.",
+        )
+
+    remaining = _safe_float(authorization.get("remaining_credits"))
+    if (
+        not authorization.get("allowed", False)
+        or remaining < MINIMUM_DOGRAH_CREDITS_FOR_CALL
+    ):
+        logger.warning(
+            "Insufficient Dograh credits for key ...{}: {:.2f} credits remaining",
+            service_key[-8:],
+            remaining,
+        )
+        return _insufficient_oss_quota_result()
+
+    try:
+        await _store_run_correlation_id(
+            workflow_run_id,
+            authorization.get("correlation_id"),
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to store MPS correlation id for workflow_run_id {}: {}",
+            workflow_run_id,
+            e,
+        )
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="quota_check_failed",
+            error_message="Could not verify Dograh credits. Please try again.",
+        )
+
+    logger.info(
+        "Dograh run authorization passed for key ...{}: {:.2f} credits remaining",
+        service_key[-8:],
+        remaining,
+    )
+    return QuotaCheckResult(has_quota=True)
+
+
 async def authorize_workflow_run_start(
     *,
     workflow_id: int,
@@ -518,16 +614,36 @@ async def authorize_workflow_run_start(
             )
 
         dograh_api_keys = _dograh_api_keys(user_config)
-        if dograh_api_keys:
+        if workflow_run_id is None or not uses_managed_model_services_v2(user_config):
+            if dograh_api_keys:
+                return await _authorize_oss_dograh_keys(
+                    dograh_api_keys=dograh_api_keys,
+                )
+            return QuotaCheckResult(has_quota=True)
+
+        correlation_service_key = get_dograh_service_api_key(user_config)
+        if not correlation_service_key:
+            return QuotaCheckResult(
+                has_quota=False,
+                error_code="invalid_service_key",
+                error_message=(
+                    "You have invalid keys in your model configuration. "
+                    "Please validate the service keys."
+                ),
+            )
+
+        keys_requiring_legacy_check = dograh_api_keys - {correlation_service_key}
+        if keys_requiring_legacy_check:
             oss_result = await _authorize_oss_dograh_keys(
-                dograh_api_keys=dograh_api_keys,
+                dograh_api_keys=keys_requiring_legacy_check,
             )
             if not oss_result.has_quota:
                 return oss_result
 
-        return await _authorize_oss_managed_v2_correlation(
+        return await _authorize_oss_managed_v2_run(
             workflow_id=workflow.id,
             workflow_run_id=workflow_run_id,
+            service_key=correlation_service_key,
             user_config=user_config,
         )
 

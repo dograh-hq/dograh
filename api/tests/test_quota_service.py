@@ -391,10 +391,15 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
         return_value=_dograh_config(api_key, managed_service_version=2)
     )
     hosted_authorize = AsyncMock()
-    check_usage = AsyncMock(
-        return_value={"total_credits_used": 1.0, "remaining_credits": 499.0}
+    service_key_authorize = AsyncMock(
+        return_value={
+            "allowed": True,
+            "remaining_credits": "499.0",
+            "correlation_id": "oss-corr-123",
+        }
     )
-    create_correlation = AsyncMock(return_value={"correlation_id": "oss-corr-123"})
+    check_usage = AsyncMock()
+    create_correlation = AsyncMock()
     update_workflow_run = AsyncMock()
 
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
@@ -426,6 +431,11 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
     )
     monkeypatch.setattr(
         quota_service.mps_service_key_client,
+        "authorize_service_key_run_start",
+        service_key_authorize,
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
         "check_service_key_usage",
         check_usage,
     )
@@ -443,6 +453,76 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
 
     assert result.has_quota is True
     hosted_authorize.assert_not_awaited()
+    service_key_authorize.assert_awaited_once_with(
+        service_key=api_key,
+        workflow_run_id=88,
+        require_correlation_id=True,
+        minimum_credits=quota_service.MINIMUM_DOGRAH_CREDITS_FOR_CALL,
+        metadata={"workflow_id": 7},
+    )
+    check_usage.assert_not_awaited()
+    create_correlation.assert_not_awaited()
+    update_workflow_run.assert_awaited_once_with(
+        88,
+        initial_context={MPS_CORRELATION_ID_CONTEXT_KEY: "oss-corr-123"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_oss_run_authorization_falls_back_for_older_mps(monkeypatch):
+    api_key = "mps_sk_12345678"
+    request = httpx.Request(
+        "POST",
+        "https://services.dograh.com/api/v1/service-keys/run-authorization/self",
+    )
+    response = httpx.Response(404, request=request)
+    combined_authorize = AsyncMock(
+        side_effect=httpx.HTTPStatusError(
+            "Not found",
+            request=request,
+            response=response,
+        )
+    )
+    check_usage = AsyncMock(return_value={"remaining_credits": 25.0})
+    create_correlation = AsyncMock(return_value={"correlation_id": "legacy-corr-123"})
+    workflow_run = SimpleNamespace(initial_context={})
+    update_workflow_run = AsyncMock()
+
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_service_key_run_start",
+        combined_authorize,
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "check_service_key_usage",
+        check_usage,
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "create_correlation_id",
+        create_correlation,
+    )
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(return_value=workflow_run),
+    )
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "update_workflow_run",
+        update_workflow_run,
+    )
+
+    result = await quota_service._authorize_oss_managed_v2_run(
+        workflow_id=7,
+        workflow_run_id=88,
+        service_key=api_key,
+        user_config=_dograh_config(api_key, managed_service_version=2),
+    )
+
+    assert result.has_quota is True
+    combined_authorize.assert_awaited_once()
     check_usage.assert_awaited_once_with(api_key)
     create_correlation.assert_awaited_once_with(
         service_key=api_key,
@@ -450,7 +530,7 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
     )
     update_workflow_run.assert_awaited_once_with(
         88,
-        initial_context={MPS_CORRELATION_ID_CONTEXT_KEY: "oss-corr-123"},
+        initial_context={MPS_CORRELATION_ID_CONTEXT_KEY: "legacy-corr-123"},
     )
 
 
@@ -977,12 +1057,12 @@ async def test_authorize_workflow_run_fails_closed_on_oss_quota_mps_http_error(
 
 
 @pytest.mark.asyncio
-async def test_authorize_workflow_run_opens_when_oss_correlation_mps_is_unreachable(
+async def test_authorize_workflow_run_opens_when_oss_run_authorization_is_unreachable(
     monkeypatch,
 ):
     request = httpx.Request(
         "POST",
-        "https://services.dograh.com/api/v1/service-keys/correlation-id/self",
+        "https://services.dograh.com/api/v1/service-keys/run-authorization/self",
     )
 
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "oss")
@@ -999,12 +1079,7 @@ async def test_authorize_workflow_run_opens_when_oss_correlation_mps_is_unreacha
     )
     monkeypatch.setattr(
         quota_service.mps_service_key_client,
-        "check_service_key_usage",
-        AsyncMock(return_value={"remaining_credits": 25.0}),
-    )
-    monkeypatch.setattr(
-        quota_service.mps_service_key_client,
-        "create_correlation_id",
+        "authorize_service_key_run_start",
         AsyncMock(
             side_effect=httpx.ConnectError("connection refused", request=request)
         ),
@@ -1042,13 +1117,14 @@ async def test_authorize_workflow_run_fails_closed_when_storing_oss_correlation(
     )
     monkeypatch.setattr(
         quota_service.mps_service_key_client,
-        "check_service_key_usage",
-        AsyncMock(return_value={"remaining_credits": 25.0}),
-    )
-    monkeypatch.setattr(
-        quota_service.mps_service_key_client,
-        "create_correlation_id",
-        AsyncMock(return_value={"correlation_id": "oss-corr-123"}),
+        "authorize_service_key_run_start",
+        AsyncMock(
+            return_value={
+                "allowed": True,
+                "remaining_credits": 25.0,
+                "correlation_id": "oss-corr-123",
+            }
+        ),
     )
 
     result = await quota_service.authorize_workflow_run_start(

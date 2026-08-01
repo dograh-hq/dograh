@@ -754,15 +754,16 @@ export default function ToolDetailPage() {
         const hasBody =
             httpMethod !== "GET" &&
             httpMethod !== "DELETE" &&
-            (useBodyTemplate ? (bodyTemplate !== null) : (parameters.length > 0 || presetParameters.length > 0));
+            !useBodyTemplate &&
+            (parameters.length > 0 || presetParameters.length > 0);
 
-        const bodyOutput = useBodyTemplate && bodyTemplate ? bodyTemplate : exampleBody;
+        const bodyOutput = exampleBody;
         const bodyComment = useBodyTemplate
-            ? "\n// Note: body below shows the unresolved template. Placeholders are filled at runtime."
+            ? "\n// Note: This tool uses a server-side body template.\n// The payload is constructed at runtime and is omitted from this client preview."
             : "";
 
         return `// ${tool.name}
-// ${tool.description || "HTTP API Tool"}${useBodyTemplate && bodyTemplate ? bodyComment : ""}
+// ${tool.description || "HTTP API Tool"}${bodyComment}
 
 const response = await fetch("${url}", {
     method: "${httpMethod}",

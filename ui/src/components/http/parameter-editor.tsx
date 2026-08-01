@@ -100,9 +100,11 @@ export function ParameterEditor({
                             <Input
                                 placeholder="e.g., customer_name"
                                 value={param.name}
-                                onChange={(e) =>
-                                    updateParameter(index, "name", e.target.value)
-                                }
+                                onChange={(e) => {
+                                    // Strip invalid characters and whitespace
+                                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
+                                    updateParameter(index, "name", sanitized);
+                                }}
                                 disabled={disabled}
                             />
                         </div>
@@ -245,9 +247,10 @@ export function PresetParameterEditor({
                             <Input
                                 placeholder="e.g., phone_number"
                                 value={param.name}
-                                onChange={(e) =>
-                                    updateParameter(index, "name", e.target.value)
-                                }
+                                onChange={(e) => {
+                                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
+                                    updateParameter(index, "name", sanitized);
+                                }}
                                 disabled={disabled}
                             />
                         </div>

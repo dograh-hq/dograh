@@ -21,6 +21,19 @@ TYPE_MAP = {
     "array": "array",
 }
 
+
+def validate_parameter_name(name: str) -> str:
+    """Strip whitespace and ensure name is a valid template identifier."""
+    if not name:
+        return ""
+    clean_name = name.strip()
+    if not re.match(r"^[a-zA-Z0-9_]+$", clean_name):
+        raise ValueError(
+            f"Invalid parameter name '{name}'. Parameter names must contain only "
+            "alphanumeric characters and underscores."
+        )
+    return clean_name
+
 # Matches a template leaf that is ENTIRELY one placeholder and nothing else.
 # "{{adults}}" → matches;  "Ref-{{id}}" → does NOT match.
 _WHOLE_PLACEHOLDER_RE = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
@@ -77,7 +90,11 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
     required = []
 
     for param in parameters:
-        param_name = param.get("name", "")
+        try:
+            param_name = validate_parameter_name(param.get("name", ""))
+        except ValueError:
+            continue
+        
         param_type = param.get("type", "string")
         param_desc = param.get("description", "")
         param_required = param.get("required", True)
@@ -322,11 +339,14 @@ def render_body_template(
         ValueError: If a required parameter has no value.
     """
     # Build param name → declared type for post-render coercion.
-    param_type_map: dict[str, str] = {
-        p.get("name", ""): p.get("type", "string")
-        for p in (parameters or [])
-        if p.get("name")
-    }
+    param_type_map: dict[str, str] = {}
+    for p in (parameters or []):
+        try:
+            clean_name = validate_parameter_name(p.get("name", ""))
+            if clean_name:
+                param_type_map[clean_name] = p.get("type", "string")
+        except ValueError as e:
+            raise ValueError(str(e))
 
     # Pre-render required parameter check (fast fail before any HTTP call).
     # 0, False, {}, [] are valid non-missing values — only None and "" trigger this.
@@ -371,9 +391,13 @@ def render_body_template(
         return curr
 
     for param in parameters or []:
-        name = param.get("name", "")
+        try:
+            name = validate_parameter_name(param.get("name", ""))
+        except ValueError:
+            continue
         if not name:
             continue
+        param_type = param.get("type", "string")
         if param.get("required", True):
             if name in required_in_template:
                 val = arguments.get(name)
@@ -382,14 +406,19 @@ def render_body_template(
                         f"Required parameter '{name}' has no value. "
                         "The agent must collect this before calling the tool."
                     )
-            for dotted_path in required_dotted_paths:
-                if dotted_path.startswith(f"{name}."):
-                    sub_val = _get_dotted_val(arguments, dotted_path)
-                    if sub_val is None or sub_val == "":
-                        raise ValueError(
-                            f"Required parameter path '{dotted_path}' has no value. "
-                            "The agent must collect this before calling the tool."
-                        )
+            # Only enforce strict dotted-path existence for non-object parameters,
+            # or if the base object is missing entirely. If an object parameter is
+            # provided, we shouldn't fail the whole call just because a referenced
+            # sub-field inside it is legitimately absent.
+            if param_type != "object":
+                for dotted_path in required_dotted_paths:
+                    if dotted_path.startswith(f"{name}."):
+                        sub_val = _get_dotted_val(arguments, dotted_path)
+                        if sub_val is None or sub_val == "":
+                            raise ValueError(
+                                f"Required parameter path '{dotted_path}' has no value. "
+                                "The agent must collect this before calling the tool."
+                            )
 
     # Build render context.
     #
@@ -464,7 +493,11 @@ def _resolve_preset_parameters(
 
     resolved: dict[str, Any] = {}
     for param in preset_parameters:
-        param_name = (param.get("name") or "").strip()
+        try:
+            param_name = validate_parameter_name(param.get("name", ""))
+        except ValueError as e:
+            raise ValueError(str(e))
+        
         if not param_name:
             continue
 

@@ -42,12 +42,23 @@ function isParamUsed(name: string, raw: string): boolean {
 
 function getObjectDepth(value: unknown): number {
     if (typeof value !== "object" || value === null) return 0;
-    let maxChildDepth = 0;
-    for (const key of Object.keys(value)) {
-        const childDepth = getObjectDepth((value as Record<string, unknown>)[key]);
-        if (childDepth > maxChildDepth) maxChildDepth = childDepth;
+    let maxDepth = 1;
+    const stack: [unknown, number][] = [[value, 1]];
+
+    while (stack.length > 0) {
+        const [curr, depth] = stack.pop()!;
+        if (depth > maxDepth) maxDepth = depth;
+
+        // Fast fail if we exceed the enforced limit (20)
+        if (maxDepth > 20) return maxDepth;
+
+        if (typeof curr === "object" && curr !== null) {
+            for (const key of Object.keys(curr)) {
+                stack.push([(curr as Record<string, unknown>)[key], depth + 1]);
+            }
+        }
     }
-    return 1 + maxChildDepth;
+    return maxDepth;
 }
 
 export function BodyTemplateEditor({

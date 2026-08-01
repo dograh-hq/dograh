@@ -5,6 +5,7 @@ Cloudonix implementation of the TelephonyProvider interface.
 import asyncio
 import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from urllib.parse import quote
 
 import aiohttp
 from fastapi import HTTPException
@@ -15,11 +16,13 @@ from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -969,6 +972,64 @@ class CloudonixProvider(TelephonyProvider):
             f"(domain={self.domain_id}, triggered by address {address})"
         )
         return ProviderSyncResult(ok=True)
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify that the address exists as a DNID in this Cloudonix domain."""
+        if not (self.bearer_token and self.domain_id):
+            raise ProviderPhoneNumberLookupError(
+                "Cloudonix bearer token and domain are required to validate "
+                "phone-number ownership"
+            )
+
+        normalized = normalize_telephony_address(address)
+        expected = normalized.canonical
+        encoded_address = quote(expected, safe="")
+        endpoint = (
+            f"{self.base_url}/customers/self/domains/{self.domain_id}/dnids/"
+            f"{encoded_address}"
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    endpoint, headers=self._get_auth_headers()
+                ) as response:
+                    if response.status == 404:
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=(
+                                f"Address {expected} is not configured as a DNID "
+                                f"in Cloudonix domain {self.domain_id}. Add it in "
+                                "the Cloudonix Cockpit first."
+                            ),
+                        )
+                    if response.status != 200:
+                        body = await response.text()
+                        raise ProviderPhoneNumberLookupError(
+                            f"Cloudonix API {response.status}: {body}"
+                        )
+                    data = await response.json()
+        except ProviderPhoneNumberLookupError:
+            raise
+        except Exception as e:
+            raise ProviderPhoneNumberLookupError(
+                f"Cloudonix DNID lookup failed: {e}"
+            ) from e
+
+        source = data.get("source")
+        if source is not None:
+            try:
+                source = normalize_telephony_address(str(source)).canonical
+            except ValueError:
+                source = str(source).strip()
+        if source == expected:
+            return ProviderSyncResult(ok=True)
+        return ProviderSyncResult(
+            ok=False,
+            message=(
+                f"Address {expected} is not configured as a DNID in Cloudonix "
+                f"domain {self.domain_id}. Add it in the Cloudonix Cockpit first."
+            ),
+        )
 
     async def start_inbound_stream(
         self,

@@ -28,6 +28,7 @@ from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
@@ -649,6 +650,54 @@ class TelnyxProvider(TelephonyProvider):
             f"{self.connection_id} (triggered by address {address})"
         )
         return ProviderSyncResult(ok=True)
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify PSTN ownership through Telnyx's phone-number inventory."""
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            return ProviderSyncResult(ok=True)
+        if not self.api_key:
+            raise ProviderPhoneNumberLookupError(
+                "Telnyx API key is required to validate phone-number ownership"
+            )
+
+        endpoint = f"{self.TELNYX_API_BASE}/phone_numbers"
+        params = {
+            "filter[phone_number]": normalized.canonical,
+            "page[size]": 100,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    endpoint, params=params, headers=self._headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        raise ProviderPhoneNumberLookupError(
+                            f"Telnyx API {response.status}: {body}"
+                        )
+                    data = await response.json()
+        except ProviderPhoneNumberLookupError:
+            raise
+        except Exception as e:
+            raise ProviderPhoneNumberLookupError(
+                f"Telnyx phone-number lookup failed: {e}"
+            ) from e
+
+        owned = any(
+            item.get("phone_number") == normalized.canonical
+            for item in (data.get("data") or [])
+        )
+        if owned:
+            return ProviderSyncResult(ok=True)
+        return ProviderSyncResult(
+            ok=False,
+            message=(
+                f"Phone number {normalized.canonical} is not owned by this "
+                "Telnyx account. Add it in the Telnyx Mission Control "
+                "Portal first."
+            ),
+        )
 
     async def start_inbound_stream(
         self,

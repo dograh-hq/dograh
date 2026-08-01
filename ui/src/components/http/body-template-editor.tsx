@@ -13,6 +13,7 @@ interface BodyTemplateEditorProps {
     onChange: (template: Record<string, unknown> | null) => void;
     availableParams: string[];
     disabled?: boolean;
+    enabled?: boolean;
     onValidityChange?: (isValid: boolean) => void;
 }
 
@@ -54,6 +55,7 @@ export function BodyTemplateEditor({
     onChange,
     availableParams,
     disabled = false,
+    enabled = true,
     onValidityChange,
 }: BodyTemplateEditorProps) {
     const [raw, setRaw] = useState(value ? JSON.stringify(value, null, 2) : "");
@@ -117,6 +119,10 @@ export function BodyTemplateEditor({
     );
 
     useEffect(() => {
+        if (!enabled) {
+            onValidityChange?.(true);
+            return;
+        }
         if (reservedConflicts.length > 0 || builtinConflicts.length > 0) {
             onValidityChange?.(false);
         } else if (error) {
@@ -124,7 +130,7 @@ export function BodyTemplateEditor({
         } else {
             onValidityChange?.(true);
         }
-    }, [reservedConflicts.length, builtinConflicts.length, error, onValidityChange]);
+    }, [enabled, reservedConflicts.length, builtinConflicts.length, error, onValidityChange]);
 
     return (
         <div className="space-y-3">

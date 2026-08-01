@@ -136,7 +136,13 @@ export function HttpApiToolConfig({
                                 <Label>HTTP Method</Label>
                                 <HttpMethodSelector
                                     value={httpMethod}
-                                    onChange={onHttpMethodChange}
+                                    onChange={(method) => {
+                                        onHttpMethodChange(method);
+                                        if (!["POST", "PUT", "PATCH"].includes(method)) {
+                                            onUseBodyTemplateChange(false);
+                                            onBodyTemplateValidityChange(true);
+                                        }
+                                    }}
                                 />
                             </div>
                             <div className="grid gap-2">
@@ -247,6 +253,7 @@ export function HttpApiToolConfig({
                                     <BodyTemplateEditor
                                         value={bodyTemplate}
                                         onChange={onBodyTemplateChange}
+                                        enabled={useBodyTemplate}
                                         onValidityChange={onBodyTemplateValidityChange}
                                         availableParams={Array.from(new Set([
                                             ...parameters.map((p) => p.name),

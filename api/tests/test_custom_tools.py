@@ -1141,12 +1141,12 @@ class TestRenderBodyTemplate:
         res = render_body_template(tpl, {}, [])
         assert res == {"key": None}
 
-    def test_bool_value_for_number_param_stays_as_string_not_crash(self):
+    def test_bool_value_for_number_param_coerces_to_numeric(self):
         tpl = {"quantity": "{{qty}}"}
         res = render_body_template(
             tpl, {"qty": True}, [{"name": "qty", "type": "number", "required": True}]
         )
-        assert res == {"quantity": "True"}
+        assert res == {"quantity": 1}
 
     def test_reserved_param_name_raises(self):
         tpl = {"key": "{{initial_context}}"}

@@ -151,12 +151,17 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
         return str(value)
 
     if param_type == "number":
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, bool):
+            return 1 if value else 0
+        if isinstance(value, (int, float)):
             return value
 
         rendered = str(value).strip()
         if rendered == "":
             return None
+
+        if rendered.lower() in ("true", "false"):
+            return 1 if rendered.lower() == "true" else 0
 
         if re.fullmatch(r"[-+]?\d+", rendered):
             return int(rendered)
@@ -347,7 +352,7 @@ def render_body_template(
         and m.group(1) not in _SYSTEM_PREFIXES  # skip system-injected prefixes
     }
     _TMPL_PATH_RE = _re.compile(
-        r"\{\{\s*([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+)\s*\}\}"
+        r"\{\{\s*([^|\s}]+\.[^|\s}]+)\s*\}\}"
     )
     required_dotted_paths: set[str] = {
         m.group(1)
@@ -409,7 +414,7 @@ def render_body_template(
     # lookups. Raise explicitly so the failure is surfaced cleanly.
     _RESERVED_NAMESPACES = {"initial_context", "gathered_context"}
     for reserved in _RESERVED_NAMESPACES:
-        if reserved in safe_arguments:
+        if reserved in safe_arguments and reserved in param_type_map:
             raise ValueError(
                 f"Tool parameter '{reserved}' conflicts with a reserved Dograh namespace. "
                 "Rename the parameter in the tool configuration."

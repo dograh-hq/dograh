@@ -664,7 +664,7 @@ export default function ToolDetailPage() {
                                         required: p.required,
                                     }))
                                     : undefined,
-                            body_template: useBodyTemplate ? (bodyTemplate || undefined) : undefined,
+                            body_template: (['POST', 'PUT', 'PATCH'].includes(httpMethod) && useBodyTemplate) ? (bodyTemplate || undefined) : undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,

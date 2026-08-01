@@ -9,7 +9,16 @@ unchanged versus what's checked in.
 """
 
 import json
+import sys
+import os
 from pathlib import Path
+
+# Bypass NLTK 3.9 bug on Python 3.13 that blocks importing 'regex' if CWD is in sys.path
+# by preemptively importing regex before NLTK's import hooks are registered.
+try:
+    import regex  # noqa: F401
+except ImportError:
+    pass
 
 from loguru import logger
 

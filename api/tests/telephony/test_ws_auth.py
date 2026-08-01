@@ -1,10 +1,11 @@
 """Capability-token auth for the telephony media WebSocket (issue #598).
 
 The media socket's id triple is otherwise a guessable bearer capability; when a
-secret is configured, the URL carries an HMAC ?token= the handler verifies.
-These cover the stateless crypto/URL logic — the security-critical surface —
-plus the handler gate, every mint site, and the log redaction that keeps the
-token (a bearer credential) out of log sinks.
+secret is configured, the URL carries an HMAC token the handler verifies — as a
+trailing path segment for carriers (which strip query strings) and as ?token=
+for Asterisk/ARI. These cover the stateless crypto/URL logic — the
+security-critical surface — plus the handler gate on both transports, every mint
+site, and what the log redaction does and no longer does.
 """
 
 import importlib
@@ -52,7 +53,27 @@ def test_disabled_when_no_secret(no_secret):
 def test_url_carries_token_when_secret_set(secret):
     assert ws_auth.token_configured() is True
     url = ws_auth.build_media_ws_url("wss://x/", 7, 3, 42)  # trailing slash trimmed
-    assert url.startswith("wss://x/api/v1/telephony/ws/7/3/42?token=")
+    tok = ws_auth.mint_ws_token(7, 3, 42)
+    assert url == f"wss://x/api/v1/telephony/ws/7/3/42/{tok}"
+
+
+def test_url_keeps_token_out_of_the_query_string(secret):
+    """Carriers strip query strings; the token must survive as a path segment.
+
+    Twilio documents it ("the url does not support query string parameters")
+    and drops everything after ``?`` when it dials back, so a ``?token=`` URL
+    arrives unauthenticated and is closed 4401 under enforcement — every Twilio
+    call, silently, the moment enforcement goes on. No other carrier promises
+    query strings survive either. Regression for that outage.
+    """
+    url = ws_auth.build_media_ws_url("wss://x", 7, 3, 42)
+    assert "?" not in url and "token=" not in url
+
+    # What the carrier actually dials back is everything before the '?'. Under
+    # the old query form that was the bare triple; now it still carries the token.
+    dialed_back = url.split("?")[0]
+    presented = dialed_back.rsplit("/", 1)[-1]
+    assert ws_auth.verify_ws_token(7, 3, 42, presented) is True
 
 
 def test_verify_roundtrip_and_tamper(secret):
@@ -162,7 +183,8 @@ async def test_handler_rejects_forged_token_under_enforcement(enforced, handler)
     get_run.assert_not_awaited()
 
 
-async def test_handler_accepts_valid_token_under_enforcement(enforced, handler):
+async def test_handler_accepts_valid_token_from_query(enforced, handler):
+    """The ARI transport: Asterisk appends ?token= through its v() dial params."""
     handle, get_run = handler
     ws = _FakeWebSocket({"token": ws_auth.mint_ws_token(7, 3, 42)})
 
@@ -171,6 +193,28 @@ async def test_handler_accepts_valid_token_under_enforcement(enforced, handler):
     # Past the gate: it reached the run lookup and closed on that instead.
     assert ws.closed_with == (4404, "Workflow run not found")
     get_run.assert_awaited_once()
+
+
+async def test_handler_accepts_valid_token_from_path(enforced, handler):
+    """The carrier transport: the route binds the trailing path segment."""
+    handle, get_run = handler
+    ws = _FakeWebSocket()  # no query string at all, as Twilio dials it back
+
+    await handle(ws, 7, 3, 42, token=ws_auth.mint_ws_token(7, 3, 42))
+
+    assert ws.closed_with == (4404, "Workflow run not found")
+    get_run.assert_awaited_once()
+
+
+async def test_handler_rejects_forged_token_from_path(enforced, handler):
+    handle, get_run = handler
+    ws = _FakeWebSocket()
+
+    # A token minted for a different run, presented on the path transport.
+    await handle(ws, 7, 3, 42, token=ws_auth.mint_ws_token(7, 3, 99))
+
+    assert ws.closed_with == (4401, "Unauthorized")
+    get_run.assert_not_awaited()
 
 
 async def test_handler_allows_missing_token_when_enforcement_off(secret, handler):
@@ -220,7 +264,9 @@ async def test_webhook_response_carries_token(secret, monkeypatch, package, cls_
 
     body = await getattr(module, cls_name)({}).get_webhook_response(7, 3, 42)
 
-    assert f"token={ws_auth.mint_ws_token(7, 3, 42)}" in body
+    # Path segment, not ?token= — see test_url_keeps_token_out_of_the_query_string.
+    assert f"/api/v1/telephony/ws/7/3/42/{ws_auth.mint_ws_token(7, 3, 42)}" in body
+    assert "token=" not in body
 
 
 async def test_ari_transport_data_carries_token(secret):
@@ -289,29 +335,109 @@ def test_no_provider_builds_the_media_url_by_hand():
 
 
 # --------------------------------------------------------------------------
-# Redaction — the token is a bearer credential with no expiry, so a log sink
-# that captures it is as good as the socket itself.
+# Redaction — covers the ?token= form only. The path form is logged in full,
+# deliberately: uvicorn and nginx log the request path anyway.
 # --------------------------------------------------------------------------
 
 
-def test_redact_token_in_markup_and_json(secret):
+def test_redact_token_masks_the_query_form(secret):
+    """ARI's ``?token=`` is what redaction still covers, in any surrounding."""
     tok = ws_auth.mint_ws_token(7, 3, 42)
-    url = ws_auth.build_media_ws_url("wss://api.test", 7, 3, 42)
+    base = "wss://api.test/api/v1/telephony/ws/ari?workflow_id=7"
 
-    # TwiML/CXML attribute, Plivo/Vobiz element text, and a JSON dial payload.
     for document in (
-        f'<Stream url="{url}"></Stream>',
-        f'<Stream bidirectional="true">{url}</Stream>',
-        json.dumps({"stream_url": url, "to": "15551230001"}),
-        f"Telnyx dial payload: {url}",
+        f'<Stream url="{base}&token={tok}"></Stream>',
+        json.dumps({"stream_url": f"{base}&token={tok}"}),
+        f"dial payload: {base}&token={tok}",
     ):
         redacted = ws_auth.redact_token(document)
         assert tok not in redacted
         assert "token=[REDACTED]" in redacted
         # Everything around the token survives — these lines are still useful.
-        assert "wss://api.test/api/v1/telephony/ws/7/3/42" in redacted
+        assert "workflow_id=7" in redacted
+
+
+def test_path_form_token_is_logged_not_masked(secret):
+    """The carrier token is *not* redacted, and that is the accepted trade.
+
+    uvicorn logs the request path in full and so does nginx, so masking our own
+    lines would not have kept the token out of the logs anyway. Pinned so the
+    exposure is a decision on record rather than a surprise.
+    """
+    url = ws_auth.build_media_ws_url("wss://api.test", 7, 3, 42)
+    assert ws_auth.mint_ws_token(7, 3, 42) in ws_auth.redact_token(f'url="{url}"')
 
 
 def test_redact_token_is_a_noop_without_a_token(no_secret):
     url = ws_auth.build_media_ws_url("wss://api.test", 7, 3, 42)
     assert ws_auth.redact_token(f'<Stream url="{url}"/>') == f'<Stream url="{url}"/>'
+
+
+# --------------------------------------------------------------------------
+# Route wiring — the tests above call the handler directly, so none of them
+# would notice the four-segment route going missing and every carrier getting
+# a 404 instead of a socket. These drive a real WebSocket client through real
+# routing, which is where the transport bug lived.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ws_client(enforced, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes import telephony as telephony_routes
+
+    # Past the gate, the run lookup finds nothing -> a deterministic 4404 that
+    # distinguishes "authenticated" from "rejected" without touching a DB.
+    monkeypatch.setattr(
+        telephony_routes.db_client, "get_workflow_run", AsyncMock(return_value=None)
+    )
+    app = FastAPI()
+    app.include_router(telephony_routes.router, prefix="/api/v1")
+    # Not entered as a context manager: no lifespan, so no real DB/Redis startup.
+    return TestClient(app)
+
+
+def _close_code(client, url) -> int | None:
+    """The close code the server sent, however the test client surfaces it."""
+    from starlette.websockets import WebSocketDisconnect
+
+    try:
+        with client.websocket_connect(url) as ws:
+            message = ws.receive()
+    except WebSocketDisconnect as exc:
+        return exc.code
+    return message.get("code") if message.get("type") == "websocket.close" else None
+
+
+def test_carrier_dials_back_the_minted_url(ws_client):
+    """The whole path, end to end: what a provider mints, dialed back as Twilio
+    dials it — query string dropped on the floor.
+
+    Under the old ``?token=`` form what arrived was the bare id triple, so this
+    closed 4401 and every Twilio call died the moment enforcement went on.
+    """
+    url = ws_auth.build_media_ws_url("wss://api.test", 7, 3, 42)
+    dialed_back = url.removeprefix("wss://api.test").split("?")[0]
+
+    assert _close_code(ws_client, dialed_back) == 4404  # past the gate
+
+
+def test_forged_path_token_is_rejected_by_the_route(ws_client):
+    forged = ws_auth.mint_ws_token(7, 3, 99)
+    assert _close_code(ws_client, f"/api/v1/telephony/ws/7/3/42/{forged}") == 4401
+
+
+def test_tokenless_route_is_not_a_way_around_the_check(ws_client):
+    """The three-segment route stays registered for tokenless deployments —
+    the default, where build_media_ws_url mints exactly that URL — but it is
+    not a bypass: with a secret set it rejects like any unauthenticated peer,
+    so keeping it costs nothing security-wise."""
+    assert _close_code(ws_client, "/api/v1/telephony/ws/7/3/42") == 4401
+
+
+def test_query_token_still_authenticates(ws_client):
+    """ARI's transport, which Asterisk builds itself and nothing strips."""
+    tok = ws_auth.mint_ws_token(7, 3, 42)
+    assert _close_code(ws_client, f"/api/v1/telephony/ws/7/3/42?token={tok}") == 4404

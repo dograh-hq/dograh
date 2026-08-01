@@ -103,8 +103,10 @@ SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "tr
 # The carrier/connector dials back the media socket
 # /api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}, whose
 # id triple is otherwise a guessable bearer capability. When a secret is set,
-# providers append an HMAC ``?token=`` to that URL and the handler verifies it
-# (see api/services/telephony/ws_auth.py). Two-phase, backward-compatible rollout:
+# providers append an HMAC token to that URL as a trailing path segment (carriers
+# strip query strings; ARI is the exception and passes ?token=) and the handler
+# verifies it (see api/services/telephony/ws_auth.py).
+# Two-phase, backward-compatible rollout:
 #   * secret unset            -> feature off, URLs unchanged (default)
 #   * secret set, enforce off -> tokens minted + verified; invalid ones only logged
 #   * secret set, enforce on  -> invalid/missing tokens rejected (WS close 4401)

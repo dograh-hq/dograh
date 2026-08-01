@@ -91,7 +91,9 @@ Real-time audio streaming for voice interaction.
 
 **Endpoint**: `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}`
 
-Asterisk ARI instead connects to `/api/v1/telephony/ws/ari` and passes the same three values as query parameters — see [Asterisk ARI](/integrations/telephony/asterisk-ari).
+When [`TELEPHONY_WS_TOKEN_SECRET`](/developer/environment-variables#telephony) is set, the URL Dograh hands the carrier gains a fourth segment holding the HMAC signature: `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}/{token}`. It is a path segment rather than a query parameter because carriers do not reliably forward query strings — Twilio strips them from `<Stream url>` entirely.
+
+Asterisk ARI instead connects to `/api/v1/telephony/ws/ari` and passes the same three values as query parameters, plus `token` when a secret is configured — see [Asterisk ARI](/integrations/telephony/asterisk-ari).
 
 The `organization_id` segment is the tenant that owns the workflow. Dograh scopes every workflow and workflow-run lookup by it, so a run belonging to one organization can never be served under another's id.
 

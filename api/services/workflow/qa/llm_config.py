@@ -25,6 +25,12 @@ async def resolve_llm_config(
         kwargs = {}
         if provider == "azure":
             kwargs["endpoint"] = qa_data.qa_endpoint or ""
+        elif qa_data.qa_endpoint:
+            # Non-azure providers use qa_endpoint as an OpenAI-compatible
+            # base_url, mirroring the workflow-LLM path below so a QA node
+            # pointed at a custom endpoint (xAI/grok, local LLM, proxy) doesn't
+            # silently fall back to the provider's default endpoint.
+            kwargs["base_url"] = qa_data.qa_endpoint
         return (
             provider,
             qa_data.qa_model,
@@ -82,7 +88,12 @@ async def resolve_user_llm_config(
     kwargs = {}
     if provider == "azure":
         kwargs["endpoint"] = llm_config.get("endpoint", "")
-    elif provider == "openrouter" and llm_config.get("base_url"):
+    elif llm_config.get("base_url"):
+        # Forward a configured base_url for any non-azure provider so QA reaches
+        # the same OpenAI-compatible endpoint the conversation path uses.
+        # Previously only openrouter forwarded it, so an openai-provider config
+        # pointing at xAI/grok, a local LLM, or a proxy silently fell back to
+        # OpenAI's default endpoint and 401'd (#527).
         kwargs["base_url"] = llm_config["base_url"]
 
     return provider, model, api_key, kwargs

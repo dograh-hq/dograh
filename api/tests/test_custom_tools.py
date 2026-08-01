@@ -1105,6 +1105,31 @@ class TestRenderBodyTemplate:
         )
         assert res == {"s": "available"}
 
+    def test_current_time_param_is_rejected_by_schema(self):
+        """current_time / current_weekday (and _<TZ> variants) are built-in renderer
+        variables that take precedence over caller-supplied arguments.  The schema
+        validator must reject these names so misconfigured tools fail at save time
+        rather than silently sending an incorrect timestamp in the outbound payload.
+        """
+        from pydantic import ValidationError
+        from api.schemas.tool import ToolParameter
+
+        # Exact names
+        for bad_name in ("current_time", "current_weekday"):
+            with pytest.raises(ValidationError, match="conflicts with a built-in"):
+                ToolParameter(name=bad_name, type="string", description="x")
+
+        # Timezone-suffixed variants
+        for bad_name in ("current_time_Europe/Paris", "current_weekday_Asia/Kolkata"):
+            with pytest.raises(ValidationError, match="conflicts with a built-in"):
+                ToolParameter(name=bad_name, type="string", description="x")
+
+        # Unrelated names must still be accepted
+        tp = ToolParameter(name="current_status", type="string", description="x")
+        assert tp.name == "current_status"
+
+
+
     def test_static_template_no_placeholders(self):
         tpl = {"a": 1, "b": "two"}
         res = render_body_template(tpl, {}, [])

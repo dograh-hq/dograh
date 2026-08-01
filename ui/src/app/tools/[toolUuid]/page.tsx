@@ -1044,11 +1044,11 @@ const data = await response.json();`;
                             httpMethod={httpMethod}
                             onHttpMethodChange={(method) => {
                                 setHttpMethod(method);
-                                // GET/DELETE do not support a body — silently reset the
-                                // template toggle so the user isn't surprised by dropped config.
+                                // GET/DELETE do not support a body — hide the toggle
+                                // but keep bodyTemplate in state so switching back to
+                                // POST/PUT/PATCH restores the authored template.
                                 if (method === "GET" || method === "DELETE") {
                                     setUseBodyTemplate(false);
-                                    setBodyTemplate(null);
                                 }
                             }}
                             url={url}

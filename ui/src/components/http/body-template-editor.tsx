@@ -16,6 +16,17 @@ interface BodyTemplateEditorProps {
 }
 
 const RESERVED_PARAM_NAMES = ["initial_context", "gathered_context"];
+// current_time and current_weekday (plus their _<TZ> suffixed variants) are
+// resolved by the renderer as built-in variables before looking up the
+// caller-supplied argument, so a parameter with these names would be silently
+// replaced by a generated timestamp/weekday in the outbound payload.
+const BUILTIN_PREFIXES = ["current_time", "current_weekday"];
+
+function isBuiltinConflict(name: string): boolean {
+    return BUILTIN_PREFIXES.some(
+        (prefix) => name === prefix || name.startsWith(prefix + "_")
+    );
+}
 
 /** Returns true if `name` appears as a placeholder in `raw` (with or without fallback). */
 function isParamUsed(name: string, raw: string): boolean {
@@ -80,16 +91,17 @@ export function BodyTemplateEditor({
     const reservedConflicts = availableParams.filter((n) =>
         RESERVED_PARAM_NAMES.includes(n)
     );
+    const builtinConflicts = availableParams.filter((n) => isBuiltinConflict(n));
 
     useEffect(() => {
-        if (reservedConflicts.length > 0) {
+        if (reservedConflicts.length > 0 || builtinConflicts.length > 0) {
             onValidityChange?.(false);
         } else if (error) {
             onValidityChange?.(false);
         } else {
             onValidityChange?.(true);
         }
-    }, [reservedConflicts.length, error, onValidityChange]);
+    }, [reservedConflicts.length, builtinConflicts.length, error, onValidityChange]);
 
     return (
         <div className="space-y-3">
@@ -122,6 +134,20 @@ export function BodyTemplateEditor({
                         <span>
                             Reserved parameter name(s) detected: {reservedConflicts.join(", ")}.
                             Rename to avoid conflicts with Dograh&apos;s call context system.
+                        </span>
+                    </div>
+                )}
+                {builtinConflicts.length > 0 && (
+                    <div className="flex items-center gap-2 rounded-md border border-destructive/50 text-destructive p-3 text-xs">
+                        <AlertCircle className="h-4 w-4" />
+                        <span>
+                            Parameter name(s) conflict with built-in template variables:{" "}
+                            {builtinConflicts.join(", ")}. The renderer replaces{" "}
+                            <code className="bg-muted px-1 rounded">current_time</code> and{" "}
+                            <code className="bg-muted px-1 rounded">current_weekday</code>{" "}
+                            (and their <code className="bg-muted px-1 rounded">_&lt;TZ&gt;</code> variants)
+                            with generated values, silently discarding the agent-supplied argument.
+                            Rename these parameters to avoid incorrect outbound payloads.
                         </span>
                     </div>
                 )}

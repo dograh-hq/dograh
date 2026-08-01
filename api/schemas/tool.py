@@ -37,18 +37,24 @@ def _llm_hint(text: str) -> dict[str, str]:
 
 
 def _validate_param_name_not_reserved(v: str) -> str:
-    original = v
+    # Reject dotted names — dots are path separators in the template renderer;
+    # silently normalising customer.id → customer_id would leave {{customer.id}}
+    # placeholders unresolvable.
     if "." in v:
-        v = v.replace(".", "_")
+        raise ValueError(
+            f"Parameter name '{v}' contains '.' which is not allowed. "
+            "Dots are used as path separators in template placeholders. "
+            "Use a flat snake_case name instead (e.g. 'customer_id')."
+        )
 
     if v in {"initial_context", "gathered_context"}:
         v = f"{v}_custom"
-        
+
     _BUILTIN_PREFIXES = ("current_time", "current_weekday")
     for prefix in _BUILTIN_PREFIXES:
         if v == prefix or v.startswith(prefix + "_"):
             v = f"custom_{v}"
-            
+
     return v
 
 
@@ -199,8 +205,10 @@ class HttpApiConfig(BaseModel):
         if isinstance(v, str):
             try:
                 v = json.loads(v)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"body_template must be valid JSON: {exc}") from exc
+            except (json.JSONDecodeError, RecursionError) as exc:
+                raise ValueError(
+                    f"body_template must be valid JSON and no more than 20 levels deep: {exc}"
+                ) from exc
         if not isinstance(v, dict):
             raise ValueError(
                 "body_template must be a JSON object (dict), not an array or primitive."

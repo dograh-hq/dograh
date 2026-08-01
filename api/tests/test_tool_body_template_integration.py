@@ -261,8 +261,9 @@ def test_test_endpoint_reserved_name_collision_is_prevented(
         },
     )
 
-    # In production, initial_context will be injected by the call runner.
-    # In the test endpoint, initial_context won't be present so it defaults to "".
+    # The new code raises a ValueError when a parameter literally named
+    # 'initial_context' is passed at runtime, since it would corrupt the
+    # {{initial_context.*}} namespace. Expect an error response.
     res = client.post(
         "/tools/uuid/test",
         json={
@@ -272,8 +273,8 @@ def test_test_endpoint_reserved_name_collision_is_prevented(
     )
     assert res.status_code == 200
     data = res.json()
-    assert data["status_code"] == 200
-    assert data["request_body"]["data"] == ""
+    assert data["error"] is not None
+    assert "reserved" in data["error"].lower() or "namespace" in data["error"].lower()
 
 
 @patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)

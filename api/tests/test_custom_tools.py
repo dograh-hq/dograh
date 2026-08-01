@@ -1151,10 +1151,10 @@ class TestRenderBodyTemplate:
     def test_reserved_param_name_raises(self):
         tpl = {"key": "{{initial_context}}"}
         with pytest.raises(
-            ValueError, match="reserved and cannot be used"
+            ValueError, match="reserved Dograh namespace"
         ):
             render_body_template(
-                tpl, {}, [{"name": "initial_context", "type": "string", "required": False}]
+                tpl, {"initial_context": "hacked"}, [{"name": "initial_context", "type": "string", "required": False}]
             )
 
 

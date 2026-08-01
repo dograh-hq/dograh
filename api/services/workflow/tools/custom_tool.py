@@ -252,21 +252,30 @@ def _coerce_typed_leaves(
         m = _WHOLE_PLACEHOLDER_RE.match(original_node)
         if m:
             param_name = m.group(1)
-            
+
             if param_name.startswith("initial_context."):
                 key_path = param_name[len("initial_context."):]
                 from api.utils.template_renderer import get_nested_value
                 val = get_nested_value(call_context_vars or {}, key_path)
-                return val if val is not None else rendered_node
+                # Only prefer raw context when non-empty; empty lets the fallback
+                # filter in rendered_node (e.g. "{{phone | unknown}}") win.
+                return val if val not in (None, "") else rendered_node
 
             if param_name.startswith("gathered_context."):
                 key_path = param_name[len("gathered_context."):]
                 from api.utils.template_renderer import get_nested_value
                 val = get_nested_value(gathered_context_vars or {}, key_path)
-                return val if val is not None else rendered_node
+                return val if val not in (None, "") else rendered_node
 
-            # LLM parameter names never contain dots; "initial_context.x" will
-            # not appear in param_type_map and defaults to "string" → no coercion.
+            # Support dotted argument paths such as {{customer.age}} where
+            # "customer" is an object parameter. Resolve via nested lookup first.
+            if "." in param_name:
+                from api.utils.template_renderer import get_nested_value
+                raw_arg = get_nested_value(arguments, param_name)
+                if raw_arg is not None:
+                    return raw_arg
+
+            # Flat LLM parameter — coerce to declared type if needed.
             declared_type = param_type_map.get(param_name, "string")
             if declared_type != "string":
                 raw_arg = arguments.get(param_name)
@@ -393,8 +402,18 @@ def render_body_template(
     # Here, LLM args ARE present; a flat spread could silently clobber LLM values.
 
     safe_arguments = dict(arguments)
-    safe_arguments.pop("initial_context", None)
-    safe_arguments.pop("gathered_context", None)
+    # Guard against tools that bypass schema validation (e.g. pre-existing stored
+    # config, MCP-authored tools) and carry a parameter literally named
+    # "initial_context" or "gathered_context". If such a value reached render_context
+    # it would silently clobber the namespace dict and corrupt all {{initial_context.*}}
+    # lookups. Raise explicitly so the failure is surfaced cleanly.
+    _RESERVED_NAMESPACES = {"initial_context", "gathered_context"}
+    for reserved in _RESERVED_NAMESPACES:
+        if reserved in safe_arguments:
+            raise ValueError(
+                f"Tool parameter '{reserved}' conflicts with a reserved Dograh namespace. "
+                "Rename the parameter in the tool configuration."
+            )
 
     render_context: dict[str, Any] = {
         **safe_arguments,  # LLM + preset values FIRST

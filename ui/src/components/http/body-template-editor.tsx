@@ -34,9 +34,9 @@ function isParamUsed(name: string, raw: string): boolean {
     if (!name) return false;
     // Escape special regex chars in the param name.
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Match {{name}}, {{name | fallback}}, {{ name }}, {{ name | fallback:val }}, etc.
-    // The lookbehind-equivalent: char after name must be }, |, or whitespace.
-    return new RegExp(`\\{\\{\\s*${escaped}(?:[\\s|}])`).test(raw);
+    // Match {{name}}, {{name | fallback}}, {{ name }}, {{ name | fallback:val }},
+    // and dotted paths like {{name.sub}} (char after name is }, |, whitespace, or .).
+    return new RegExp(`\\{\\{\\s*${escaped}(?:[\\s|}.}])`).test(raw);
 }
 
 export function BodyTemplateEditor({
@@ -51,8 +51,10 @@ export function BodyTemplateEditor({
     const lastPushedValue = useRef<Record<string, unknown> | null>(value);
 
     // Sync raw when value changes externally (e.g. switching tools).
+    // Use reference equality so switching between two tools with identical saved
+    // templates still resets the editor draft.
     useEffect(() => {
-        if (JSON.stringify(value) !== JSON.stringify(lastPushedValue.current)) {
+        if (value !== lastPushedValue.current) {
             setRaw(value ? JSON.stringify(value, null, 2) : "");
             lastPushedValue.current = value;
             setError(null);

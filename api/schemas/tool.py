@@ -9,6 +9,7 @@ when the same schema is surfaced through MCP or SDK authoring flows.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -37,6 +38,12 @@ def _llm_hint(text: str) -> dict[str, str]:
 
 
 def _validate_param_name_not_reserved(v: str) -> str:
+    if re.search(r"\s", v):
+        raise ValueError(
+            f"Parameter name '{v}' contains whitespace which is not allowed. "
+            "Use a flat snake_case name without spaces (e.g. 'email_address')."
+        )
+
     # Reject dotted names — dots are path separators in the template renderer;
     # silently normalising customer.id → customer_id would leave {{customer.id}}
     # placeholders unresolvable.

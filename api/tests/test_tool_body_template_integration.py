@@ -1,9 +1,12 @@
+import pytest
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.db import db_client
 from api.enums import ToolCategory
 from api.routes.tool import router
 from api.services.auth.depends import get_user
@@ -21,7 +24,7 @@ def _make_test_app() -> FastAPI:
 
 
 @patch("api.routes.tool.create_tool_for_user", new_callable=AsyncMock)
-def test_create_tool_with_body_template_persists(mock_create):
+def test_create_tool_with_body_template_route_forwarding(mock_create):
     app = _make_test_app()
     client = TestClient(app)
 
@@ -59,6 +62,64 @@ def test_create_tool_with_body_template_persists(mock_create):
     call_kwargs = mock_create.call_args.kwargs
     passed_tool = call_kwargs.get("request") or mock_create.call_args.args[0]
     assert passed_tool.definition.config.body_template == {"key": "{{val}}"}
+
+
+@patch("api.services.tool_management.db_client.create_tool", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_create_tool_with_body_template_service_layer_persistence(mock_db_create):
+    """Verify that body_template is serialized by Pydantic schemas and persisted to the db client layer."""
+    from api.schemas.tool import CreateToolRequest
+    from api.services.tool_management import create_tool_for_user
+
+    payload = {
+        "name": "Service Persist Test Tool",
+        "description": "Test persistence",
+        "category": "http_api",
+        "definition": {
+            "schema_version": 1,
+            "type": "http_api",
+            "config": {
+                "method": "POST",
+                "url": "https://api.example.com/endpoint",
+                "body_template": {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}},
+                "parameters": [
+                    {"name": "user_id", "type": "number", "description": "User ID"},
+                    {"name": "user_name", "type": "string", "description": "User Name"},
+                ],
+            },
+        },
+    }
+
+    req = CreateToolRequest.model_validate(payload)
+    # Verify schema dumps body_template properly
+    assert req.definition.config.body_template == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
+    dumped = req.model_dump()
+    assert dumped["definition"]["config"]["body_template"] == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
+
+    now = datetime.now()
+    user = SimpleNamespace(id=1, provider_id="provider-1", selected_organization_id=11)
+    mock_db_create.return_value = SimpleNamespace(
+        id=10,
+        tool_uuid="tool-uuid-123",
+        name="Service Persist Test Tool",
+        description="Test persistence",
+        category="http_api",
+        icon=None,
+        icon_color=None,
+        status="active",
+        definition=dumped["definition"],
+        created_at=now,
+        updated_at=now,
+        created_by_user=None,
+    )
+
+    response = await create_tool_for_user(req, user)
+    mock_db_create.assert_awaited_once()
+
+    # Verify definition config passed to db_client contains body_template
+    passed_def = mock_db_create.call_args.kwargs["definition"]
+    assert passed_def["config"]["body_template"] == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
+    assert response.definition["config"]["body_template"] == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
 
 
 @patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)

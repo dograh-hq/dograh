@@ -245,23 +245,32 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                                     timeout=timeout,
                                 )
                         retry_response.raise_for_status()
-                        await db_client.mark_webhook_delivery_succeeded(
-                            delivery.id, attempt, retry_response.status_code
-                        )
+                        try:
+                            await db_client.mark_webhook_delivery_succeeded(
+                                delivery.id, attempt, retry_response.status_code
+                            )
+                        except Exception as record_exc:
+                            logger.error(
+                                f"Webhook '{delivery.webhook_name}' delivery {delivery.id} was "
+                                f"delivered ({retry_response.status_code}) after OAuth token refresh "
+                                f"but recording success failed; leaving it for the sweeper to reconcile "
+                                f"after the lease expires: {record_exc!r}"
+                            )
+                            return
                         logger.info(
                             f"Webhook '{delivery.webhook_name}' delivery {delivery.id} "
                             f"succeeded after OAuth token refresh: {retry_response.status_code}"
                         )
                         return
-                    except httpx.HTTPStatusError:
-                        # Fresh token also rejected — treat as transient so the row
-                        # gets one more scheduled attempt (or dead-letters if budget
-                        # is exhausted), matching the original behaviour.
-                        pass
-                    except httpx.RequestError:
-                        pass
-                    await _handle_transient_failure(delivery, attempt, error, status_code)
-                    return
+                    except httpx.HTTPStatusError as retry_exc:
+                        retry_status = retry_exc.response.status_code
+                        retry_err = f"HTTP {retry_status} after OAuth token refresh"
+                        await _handle_transient_failure(delivery, attempt, retry_err, retry_status)
+                        return
+                    except httpx.RequestError as retry_exc:
+                        retry_err = f"Network error after OAuth token refresh: {retry_exc}"
+                        await _handle_transient_failure(delivery, attempt, retry_err, None)
+                        return
 
             # Permanent failure for all other 4xx. Dead-letter it.
             await db_client.mark_webhook_delivery_dead_letter(

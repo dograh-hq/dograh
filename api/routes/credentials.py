@@ -10,6 +10,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import WebhookCredentialType
 from api.sdk_expose import sdk_expose
+from api.services import credential_service
 from api.services.auth.depends import get_user
 
 router = APIRouter(prefix="/credentials")
@@ -107,7 +108,7 @@ def validate_credential_data(
                 ),
             )
         token_url = str(credential_data.get("token_url", ""))
-        if not token_url.startswith("https://"):
+        if not token_url.lower().startswith("https://"):
             raise HTTPException(
                 status_code=400,
                 detail="token_url must use HTTPS (must start with https://)",
@@ -277,7 +278,7 @@ async def update_credential(
         validate_credential_data(effective_type, effective_data)
 
     try:
-        credential = await db_client.update_credential(
+        credential = await credential_service.update_credential_with_invalidation(
             credential_uuid=credential_uuid,
             organization_id=user.selected_organization_id,
             name=request.name,
@@ -286,20 +287,11 @@ async def update_credential(
             if request.credential_type
             else None,
             credential_data=request.credential_data,
+            existing_type=existing.credential_type,
         )
 
         if not credential:
             raise HTTPException(status_code=404, detail="Credential not found")
-
-        # Invalidate cached token if the previous OR resulting type is OAuth2.
-        # This handles both: rotating secrets (data-only update) and switching
-        # away from OAuth2 (type change), which must purge the stale bearer token.
-        from api.utils.oauth2_token_cache import invalidate_token
-        if (
-            existing.credential_type == "oauth2_client_credentials"
-            or credential.credential_type == "oauth2_client_credentials"
-        ):
-            await invalidate_token(str(credential.credential_uuid))
 
         return build_credential_response(credential)
 
@@ -333,14 +325,7 @@ async def delete_credential(
             status_code=400, detail="No organization selected for the user"
         )
 
-    credential = await db_client.get_credential_by_uuid(
-        credential_uuid, user.selected_organization_id
-    )
-    if credential and credential.credential_type == "oauth2_client_credentials":
-        from api.utils.oauth2_token_cache import invalidate_token
-        await invalidate_token(credential_uuid)
-        
-    deleted = await db_client.delete_credential(
+    deleted = await credential_service.delete_credential_with_invalidation(
         credential_uuid, user.selected_organization_id
     )
 

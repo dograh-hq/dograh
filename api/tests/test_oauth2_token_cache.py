@@ -4,9 +4,9 @@ from unittest.mock import patch, AsyncMock
 from api.utils.oauth2_token_cache import OAuth2TokenCache
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def mock_ssrf_guard():
-    """Bypass the SSRF URL guard for all token cache tests."""
+    """Bypass the SSRF URL guard for unit tests that don't test URL security."""
     with patch("api.utils.oauth2_token_cache.validate_user_configured_service_url"):
         yield
 
@@ -27,6 +27,7 @@ def mock_httpx():
         yield mock_client
 
 
+@pytest.mark.usefixtures("mock_ssrf_guard")
 class TestOAuth2TokenCache:
 
     @pytest.mark.asyncio
@@ -207,14 +208,17 @@ class TestFetchTokenSecurityGuards:
                 audience=None,
             )
 
-    def test_rejects_private_ip_token_url_in_saas(self, monkeypatch):
-        """In SaaS mode, localhost token URLs must be rejected by the SSRF guard."""
-        # Patch the DEPLOYMENT_MODE that url_security reads at call time.
+    @pytest.mark.asyncio
+    async def test_rejects_localhost_token_url_via_fetch_token(self, monkeypatch):
+        """In SaaS mode, _fetch_token must invoke the real SSRF guard and reject localhost."""
         monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-        from api.utils.url_security import validate_user_configured_service_url
+        from api.utils.oauth2_token_cache import _fetch_token
 
-        # localhost is special-cased before any DNS lookup in validate_user_configured_service_url.
         with pytest.raises(ValueError, match="localhost"):
-            validate_user_configured_service_url(
-                "https://localhost/token", field_name="token_url"
+            await _fetch_token(
+                client_id="id",
+                client_secret="secret",
+                token_url="https://localhost/token",
+                scope=None,
+                audience=None,
             )

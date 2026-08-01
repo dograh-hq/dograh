@@ -41,45 +41,32 @@ async def get_or_fetch_token(
     token_url: str,
     scope: Optional[str] = None,
     audience: Optional[str] = None,
+    force_refresh: bool = False,
 ) -> str:
     """Return a valid access token, using Redis cache when possible.
+
+    Args:
+        force_refresh: If True, bypass the cache and force a new token fetch.
 
     Raises:
         ValueError: If the token fetch fails for any reason.
     """
     cache_key = f"oauth2_token:{credential_uuid}"
-    redis_client = None
 
-    try:
-        redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-        cached = await redis_client.get(cache_key)
-        if cached:
-            logger.debug(f"Using cached OAuth2 token for credential {credential_uuid}")
-            return cached
-    except Exception as exc:
-        # Redis unavailable: skip cache, fetch fresh. Never crash the call.
-        logger.warning(
-            f"OAuth2 token cache read failed for {credential_uuid}: {exc}"
-        )
+    if not force_refresh:
         redis_client = None
-    finally:
-        if redis_client is not None:
-            try:
-                await redis_client.aclose()
-            except Exception:
-                pass
-            redis_client = None
-
-    async with _get_lock(credential_uuid):
-        # Recheck cache after acquiring lock to prevent stampeding
         try:
             redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
             cached = await redis_client.get(cache_key)
             if cached:
-                logger.debug(f"Using cached OAuth2 token for credential {credential_uuid} on recheck")
+                logger.debug(f"Using cached OAuth2 token for credential {credential_uuid}")
                 return cached
-        except Exception:
-            pass
+        except Exception as exc:
+            # Redis unavailable: skip cache, fetch fresh. Never crash the call.
+            logger.warning(
+                f"OAuth2 token cache read failed for {credential_uuid}: {exc}"
+            )
+            redis_client = None
         finally:
             if redis_client is not None:
                 try:
@@ -88,50 +75,72 @@ async def get_or_fetch_token(
                     pass
                 redis_client = None
 
-        # Cache miss (or Redis down) — fetch a fresh token.
-        logger.info(f"Fetching new OAuth2 token for credential {credential_uuid}")
-        token, expires_in = await _fetch_token(
-            client_id=client_id,
-            client_secret=client_secret,
-            token_url=token_url,
-            scope=scope,
-            audience=audience,
-        )
+    try:
+        async with _get_lock(credential_uuid):
+            if not force_refresh:
+                # Recheck cache after acquiring lock to prevent stampeding
+                redis_client = None
+                try:
+                    redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+                    cached = await redis_client.get(cache_key)
+                    if cached:
+                        logger.debug(f"Using cached OAuth2 token for credential {credential_uuid} on recheck")
+                        return cached
+                except Exception:
+                    pass
+                finally:
+                    if redis_client is not None:
+                        try:
+                            await redis_client.aclose()
+                        except Exception:
+                            pass
+                        redis_client = None
 
-        # Write to cache if Redis is available.
-        # Only cache when the token will still be valid after our pre-expiry margin.
-        # Short-lived tokens (expires_in <= _EXPIRY_MARGIN) must not be cached.
-        net_ttl = expires_in - _EXPIRY_MARGIN
-        if net_ttl > 0:
-            cache_ttl = max(net_ttl, _MIN_TTL)
-            redis_client = None
-            try:
-                redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-                await redis_client.setex(cache_key, cache_ttl, token)
-                logger.debug(
-                    f"OAuth2 token cached for {credential_uuid} "
-                    f"(TTL={cache_ttl}s, provider expires_in={expires_in}s)"
-                )
-            except Exception as exc:
-                logger.warning(
-                    f"OAuth2 token cache write failed for {credential_uuid}: {exc}"
-                )
-            finally:
-                if redis_client is not None:
-                    try:
-                        await redis_client.aclose()
-                    except Exception:
-                        pass
-        else:
-            logger.debug(
-                f"OAuth2 token for {credential_uuid} has expires_in={expires_in}s "
-                f"(<= margin {_EXPIRY_MARGIN}s); skipping cache to avoid serving expired token."
+            # Cache miss (or Redis down, or force_refresh) — fetch a fresh token.
+            logger.info(f"Fetching new OAuth2 token for credential {credential_uuid}")
+            token, expires_in = await _fetch_token(
+                client_id=client_id,
+                client_secret=client_secret,
+                token_url=token_url,
+                scope=scope,
+                audience=audience,
             )
 
+            # Write to cache if Redis is available.
+            # Only cache when the token will still be valid after our pre-expiry margin.
+            # Short-lived tokens (expires_in <= _EXPIRY_MARGIN) must not be cached.
+            net_ttl = expires_in - _EXPIRY_MARGIN
+            if net_ttl > 0:
+                cache_ttl = max(net_ttl, _MIN_TTL)
+                redis_client = None
+                try:
+                    redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+                    await redis_client.setex(cache_key, cache_ttl, token)
+                    logger.debug(
+                        f"OAuth2 token cached for {credential_uuid} "
+                        f"(TTL={cache_ttl}s, provider expires_in={expires_in}s)"
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"OAuth2 token cache write failed for {credential_uuid}: {exc}"
+                    )
+                finally:
+                    if redis_client is not None:
+                        try:
+                            await redis_client.aclose()
+                        except Exception:
+                            pass
+            else:
+                logger.debug(
+                    f"OAuth2 token for {credential_uuid} has expires_in={expires_in}s "
+                    f"(<= margin {_EXPIRY_MARGIN}s); skipping cache to avoid serving expired token."
+                )
+
+            return token
+    finally:
         lock = _locks.get(credential_uuid)
         if lock is not None and not lock.locked():
             _locks.pop(credential_uuid, None)
-        return token
 
 
 async def invalidate_token(credential_uuid: str) -> None:

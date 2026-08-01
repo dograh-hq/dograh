@@ -173,7 +173,11 @@ class McpToolSession:
             # and we have an OAuth2 credential, invalidate the cached token and
             # retry once before degrading. This handles the common case where the
             # cached token has expired or been revoked between calls.
-            if self._credential is not None and _is_auth_error(e):
+            if (
+                self._credential is not None
+                and getattr(self._credential, "credential_type", None) == "oauth2_client_credentials"
+                and _is_auth_error(e)
+            ):
                 try:
                     logger.warning(
                         f"MCP session '{self._tool_name}' ({self._tool_uuid}) received "

@@ -13,22 +13,21 @@ if TYPE_CHECKING:
     from api.db.models import ExternalCredentialModel
 
 
-async def build_auth_header(credential: "ExternalCredentialModel") -> Dict[str, str]:
-    """Build authentication header based on credential type.
-
-    Supports the following credential types:
-    - bearer_token: Authorization: Bearer <token>
-    - api_key: Custom header with API key
-    - basic_auth: Authorization: Basic <base64(username:password)>
-    - custom_header: Any custom header name/value pair
-    - oauth2_client_credentials: Authorization: Bearer <cached_or_new_token>
+async def build_auth_header(
+    credential: "ExternalCredentialModel",
+    force_refresh: bool = False,
+) -> Dict[str, str]:
+    """Build authentication headers for a given ExternalCredentialModel.
 
     Args:
         credential: The ExternalCredentialModel instance
+        force_refresh: If True (e.g. retry after 401), force a fresh token fetch.
 
     Returns:
-        Dict with header name and value, or empty dict if credential type
-        is not recognized or is 'none'
+        Dict of header name to value (e.g. {"Authorization": "Bearer ..."})
+
+    Raises:
+        ValueError: If credential model is missing required fields or token fetch fails.
     """
     cred_type = credential.credential_type
     cred_data = credential.credential_data or {}
@@ -76,6 +75,7 @@ async def build_auth_header(credential: "ExternalCredentialModel") -> Dict[str, 
                 token_url=token_url,
                 scope=scope,
                 audience=audience,
+                force_refresh=force_refresh,
             )
             return {"Authorization": f"Bearer {token}"}
         except ValueError:
@@ -100,7 +100,7 @@ async def invalidate_and_rebuild_auth(
         cred_uuid = getattr(credential, "credential_uuid", None)
         if cred_uuid:
             await invalidate_token(str(cred_uuid))
-    return await build_auth_header(credential)
+    return await build_auth_header(credential, force_refresh=True)
 
 
 def build_auth_header_from_data(

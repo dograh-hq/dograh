@@ -381,6 +381,10 @@ async def execute_http_tool(
                         }
                     )
                 if credential_headers:
+                    for fresh_key in credential_headers:
+                        for existing_key in list(headers):
+                            if existing_key.lower() == fresh_key.lower():
+                                del headers[existing_key]
                     headers.update(credential_headers)
                     if include_request_headers:
                         for header_name, header_value in credential_headers.items():

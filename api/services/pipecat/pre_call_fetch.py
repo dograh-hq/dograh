@@ -106,6 +106,10 @@ async def execute_pre_call_fetch(
                 try:
                     credential_headers = await invalidate_and_rebuild_auth(credential)
                     if credential_headers:
+                        for fresh_key in credential_headers:
+                            for existing_key in list(headers):
+                                if existing_key.lower() == fresh_key.lower():
+                                    del headers[existing_key]
                         headers.update(credential_headers)
                     response = await client.post(url, headers=headers, json=payload)
                 except ValueError as reauth_exc:

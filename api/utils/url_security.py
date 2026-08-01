@@ -105,11 +105,27 @@ class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
             # by delegating to httpx's default SSL context creation.
             ssl_context = httpx.create_ssl_context(verify=verify)
 
-        # Do NOT call super().__init__(**kwargs) here — that would create a pool
-        # that is immediately overwritten, silently discarding all kwargs.
+        http2 = kwargs.pop("http2", False)
+        limits = kwargs.pop("limits", httpx.Limits())
+        cert = kwargs.pop("cert", None)
+        if cert is not None and ssl_context is not None:
+            if isinstance(cert, str):
+                ssl_context.load_cert_chain(cert)
+            elif isinstance(cert, tuple):
+                ssl_context.load_cert_chain(*cert)
+
+        if kwargs:
+            raise ValueError(
+                f"Unsupported kwargs for PinnedAsyncHTTPTransport: {list(kwargs.keys())}"
+            )
+
         super().__init__()
         self._pool = httpcore.AsyncConnectionPool(
             ssl_context=ssl_context,
+            http2=http2,
+            max_connections=limits.max_connections,
+            max_keepalive_connections=limits.max_keepalive_connections,
+            keepalive_expiry=limits.keepalive_expiry,
             network_backend=_PinnedNetworkBackend(pinned_ip),
         )
 

@@ -274,3 +274,44 @@ def test_test_endpoint_reserved_name_collision_is_prevented(
     data = res.json()
     # The LLM parameter "initial_context" should be stripped, so it should not render as "hacked".
     assert data["request_body"] == {"data": ""}
+
+
+@patch("api.routes.tool.db_client.get_tool_by_uuid")
+@patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+def test_test_endpoint_rejects_key_collision(
+    mock_request, mock_get_tool
+):
+    app = _make_test_app()
+    client = TestClient(app)
+
+    # We mock the tool to have a body template where two keys render to the same string.
+    # We use {{key1}} and {{key2}} which will both be "same_key" based on our inputs.
+    mock_get_tool.return_value = SimpleNamespace(
+        name="Test",
+        tool_uuid="uuid",
+        category=ToolCategory.HTTP_API.value,
+        definition={
+            "config": {
+                "method": "POST",
+                "url": "http://test",
+                "body_template": {"{{key1}}": "value1", "{{key2}}": "value2"},
+                "parameters": [
+                    {"name": "key1", "type": "string"},
+                    {"name": "key2", "type": "string"},
+                ],
+            }
+        },
+    )
+
+    res = client.post(
+        "/tools/uuid/test",
+        json={
+            "llm_params": {"key1": "same_key", "key2": "same_key"},
+            "preset_params": {},
+        },
+    )
+    
+    # The endpoint should return a 200, but with the error caught and surfaced in the response.
+    assert res.status_code == 200
+    data = res.json()
+    assert "keys that render to the same value" in data["error"]

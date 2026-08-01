@@ -118,5 +118,11 @@ describe("buildHttpToolTestSnapshot", () => {
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
             buildHttpToolTestSnapshot({ ...base, customMessage: "Done" })
         );
+        expect(buildHttpToolTestSnapshot(base)).not.toBe(
+            buildHttpToolTestSnapshot({ ...base, useBodyTemplate: true })
+        );
+        expect(buildHttpToolTestSnapshot(base)).not.toBe(
+            buildHttpToolTestSnapshot({ ...base, bodyTemplate: { "foo": "bar" } })
+        );
     });
 });

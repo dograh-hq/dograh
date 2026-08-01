@@ -41,6 +41,9 @@ export interface HttpApiToolConfigProps {
     presetParameters: PresetToolParameter[];
     bodyTemplate: Record<string, unknown> | null;
     onBodyTemplateChange: (template: Record<string, unknown> | null) => void;
+    useBodyTemplate: boolean;
+    onUseBodyTemplateChange: (use: boolean) => void;
+    onBodyTemplateValidityChange: (isValid: boolean) => void;
     onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
     timeoutMs: number;
     onTimeoutMsChange: (timeout: number) => void;
@@ -72,6 +75,9 @@ export function HttpApiToolConfig({
     onPresetParametersChange,
     bodyTemplate,
     onBodyTemplateChange,
+    useBodyTemplate,
+    onUseBodyTemplateChange,
+    onBodyTemplateValidityChange,
     timeoutMs,
     onTimeoutMsChange,
     customMessage,
@@ -82,14 +88,6 @@ export function HttpApiToolConfig({
     onCustomMessageRecordingIdChange,
     recordings = [],
 }: HttpApiToolConfigProps) {
-    const [useBodyTemplate, setUseBodyTemplate] = useState(bodyTemplate !== null && bodyTemplate !== undefined);
-    
-    // Sync external changes
-    useEffect(() => {
-        if (bodyTemplate !== null && bodyTemplate !== undefined) {
-            setUseBodyTemplate(true);
-        }
-    }, [bodyTemplate]);
 
     return (
         <Card>
@@ -237,22 +235,20 @@ export function HttpApiToolConfig({
                                         <Label className="text-xs">Use body template</Label>
                                         <Switch
                                             checked={useBodyTemplate}
-                                            onCheckedChange={(checked) => {
-                                                setUseBodyTemplate(checked);
-                                                if (!checked) onBodyTemplateChange(null);
-                                            }}
+                                            onCheckedChange={onUseBodyTemplateChange}
                                         />
                                     </div>
                                 </div>
                                 {useBodyTemplate && (
-                                    <BodyTemplateEditor
-                                        value={bodyTemplate}
-                                        onChange={onBodyTemplateChange}
-                                        availableParams={[
-                                            ...parameters.map((p) => p.name).filter(Boolean),
-                                            ...presetParameters.map((p) => p.name).filter(Boolean),
-                                        ]}
-                                    />
+                                        <BodyTemplateEditor
+                                            value={bodyTemplate}
+                                            onChange={onBodyTemplateChange}
+                                            onValidityChange={onBodyTemplateValidityChange}
+                                            availableParams={[
+                                                ...parameters.map((p) => p.name).filter(Boolean),
+                                                ...presetParameters.map((p) => p.name).filter(Boolean),
+                                            ]}
+                                        />
                                 )}
                             </div>
                         )}

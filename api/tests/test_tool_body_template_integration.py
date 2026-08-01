@@ -56,6 +56,11 @@ def test_create_tool_with_body_template_persists(mock_create):
     assert res.status_code == 200
     mock_create.assert_called_once()
     
+    # Verify the body_template was passed along to the service layer.
+    call_kwargs = mock_create.call_args.kwargs
+    passed_tool = call_kwargs.get("request") or mock_create.call_args.args[0]
+    assert passed_tool.definition.config.body_template == {"key": "{{val}}"}
+    
 @patch("api.routes.tool.db_client.get_tool_by_uuid")
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
 def test_test_endpoint_renders_body_template(mock_request, mock_get_tool):

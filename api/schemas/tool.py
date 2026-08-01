@@ -180,7 +180,7 @@ class HttpApiConfig(BaseModel):
                 "body_template must be a JSON object (dict), not an array or primitive."
             )
         try:
-            size = len(json.dumps(v))
+            size = len(json.dumps(v, allow_nan=False))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"body_template is not JSON-serialisable: {exc}") from exc
         if size > 65_536:

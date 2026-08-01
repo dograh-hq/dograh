@@ -11,6 +11,7 @@ interface BodyTemplateEditorProps {
     onChange: (template: Record<string, unknown> | null) => void;
     availableParams: string[];
     disabled?: boolean;
+    onValidityChange?: (isValid: boolean) => void;
 }
 
 const RESERVED_PARAM_NAMES = ["initial_context", "gathered_context"];
@@ -30,28 +31,38 @@ export function BodyTemplateEditor({
     onChange,
     availableParams,
     disabled = false,
+    onValidityChange,
 }: BodyTemplateEditorProps) {
     const [raw, setRaw] = useState(value ? JSON.stringify(value, null, 2) : "");
     const [error, setError] = useState<string | null>(null);
 
     const handleChange = (text: string) => {
         setRaw(text);
-        if (!text.trim()) { setError(null); onChange(null); return; }
+        if (!text.trim()) { 
+            setError(null); 
+            onChange(null); 
+            onValidityChange?.(true);
+            return; 
+        }
         try {
             const parsed = JSON.parse(text);
             if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
                 setError("Body template must be a JSON object, not an array or primitive.");
+                onValidityChange?.(false);
                 return;
             }
             const size = new TextEncoder().encode(text).length;
             if (size > 65_536) {
                 setError(`Template too large (${(size / 1024).toFixed(1)} KB). Max 64 KB.`);
+                onValidityChange?.(false);
                 return;
             }
             setError(null);
             onChange(parsed);
+            onValidityChange?.(true);
         } catch {
             setError("Invalid JSON — please check your syntax.");
+            onValidityChange?.(false);
         }
     };
 

@@ -223,10 +223,12 @@ def _coerce_typed_leaves(
         if not isinstance(rendered_node, dict):
             return rendered_node
         return {
-            k: _coerce_typed_leaves(
-                orig_v, rendered_node.get(k), arguments, param_type_map
+            rendered_key: _coerce_typed_leaves(
+                orig_v, rendered_v, arguments, param_type_map
             )
-            for k, orig_v in original_node.items()
+            for (_, orig_v), (rendered_key, rendered_v) in zip(
+                original_node.items(), rendered_node.items()
+            )
         }
 
     if isinstance(original_node, list):
@@ -315,9 +317,9 @@ def render_body_template(
     # In preset templates, that flat spread is safe because no LLM args are present.
     # Here, LLM args ARE present; a flat spread could silently clobber LLM values.
     render_context: Dict[str, Any] = {
+        **arguments,   # LLM + preset values FIRST
         "initial_context":  dict(call_context_vars or {}),
         "gathered_context": dict(gathered_context_vars or {}),
-        **arguments,   # LLM + preset values LAST = highest priority
     }
 
     # Render all {{placeholders}}.
@@ -476,7 +478,10 @@ async def execute_http_tool(
 
     if method in ("POST", "PUT", "PATCH"):
         if body_template is not None:
-            parameters = config.get("parameters") or []
+            parameters = [
+                *(config.get("parameters") or []),
+                *(config.get("preset_parameters") or []),
+            ]
             try:
                 body = render_body_template(
                     template=body_template,

@@ -151,6 +151,8 @@ export default function ToolDetailPage() {
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
     const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
+    const [useBodyTemplate, setUseBodyTemplate] = useState(false);
+    const [isBodyTemplateValid, setIsBodyTemplateValid] = useState(true);
 
     // MCP form state
     const [mcpUrl, setMcpUrl] = useState("");
@@ -304,6 +306,9 @@ export default function ToolDetailPage() {
                 const loadedCustomMessageType = config.customMessageType || "text";
                 const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
                 const loadedBodyTemplate = config.body_template || null;
+                setBodyTemplate(loadedBodyTemplate);
+                setUseBodyTemplate(loadedBodyTemplate !== null && loadedBodyTemplate !== undefined);
+                setIsBodyTemplateValid(true);
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
@@ -311,7 +316,6 @@ export default function ToolDetailPage() {
                 setCustomMessage(loadedCustomMessage);
                 setCustomMessageType(loadedCustomMessageType);
                 setCustomMessageRecordingId(loadedCustomMessageRecordingId);
-                setBodyTemplate(loadedBodyTemplate);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -391,6 +395,11 @@ export default function ToolDetailPage() {
 
     const handleSave = async () => {
         if (!tool) return;
+        
+        if (tool.category === "http_api" && !isBodyTemplateValid) {
+            setError("Please fix errors in the JSON body template before saving");
+            return;
+        }
 
         const normalizedTransferDestination = transferDestination.trim();
 
@@ -648,7 +657,7 @@ export default function ToolDetailPage() {
                                         required: p.required,
                                     }))
                                     : undefined,
-                            body_template: bodyTemplate || undefined,
+                            body_template: (['POST', 'PUT', 'PATCH'].includes(httpMethod) && useBodyTemplate) ? (bodyTemplate || undefined) : undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -737,7 +746,9 @@ export default function ToolDetailPage() {
         const hasBody =
             httpMethod !== "GET" &&
             httpMethod !== "DELETE" &&
-            (parameters.length > 0 || presetParameters.length > 0);
+            (useBodyTemplate ? (bodyTemplate !== null) : (parameters.length > 0 || presetParameters.length > 0));
+
+        const bodyOutput = useBodyTemplate && bodyTemplate ? bodyTemplate : exampleBody;
 
         return `// ${tool.name}
 // ${tool.description || "HTTP API Tool"}
@@ -745,7 +756,7 @@ export default function ToolDetailPage() {
 const response = await fetch("${url}", {
     method: "${httpMethod}",
     headers: ${JSON.stringify(headersObj, null, 4)},${hasBody ? `
-    body: JSON.stringify(${JSON.stringify(exampleBody, null, 4)}),` : ""}
+    body: JSON.stringify(${JSON.stringify(bodyOutput, null, 4)}),` : ""}
 });
 
 const data = await response.json();`;
@@ -1033,6 +1044,9 @@ const data = await response.json();`;
                             onPresetParametersChange={setPresetParameters}
                             bodyTemplate={bodyTemplate}
                             onBodyTemplateChange={setBodyTemplate}
+                            useBodyTemplate={useBodyTemplate}
+                            onUseBodyTemplateChange={setUseBodyTemplate}
+                            onBodyTemplateValidityChange={setIsBodyTemplateValid}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

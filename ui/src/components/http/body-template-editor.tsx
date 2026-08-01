@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { AlertCircle } from "lucide-react";
+import { useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,11 +39,11 @@ export function BodyTemplateEditor({
 
     const handleChange = (text: string) => {
         setRaw(text);
-        if (!text.trim()) { 
-            setError(null); 
-            onChange(null); 
+        if (!text.trim()) {
+            setError(null);
+            onChange(null);
             onValidityChange?.(true);
-            return; 
+            return;
         }
         try {
             const parsed = JSON.parse(text);

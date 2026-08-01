@@ -395,7 +395,7 @@ export default function ToolDetailPage() {
 
     const handleSave = async () => {
         if (!tool) return;
-        
+
         if (tool.category === "http_api" && !isBodyTemplateValid) {
             setError("Please fix errors in the JSON body template before saving");
             return;

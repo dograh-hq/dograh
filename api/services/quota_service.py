@@ -45,6 +45,11 @@ HOSTED_QUOTA_EXCEEDED_MESSAGE = (
     "or change providers in Models configurations."
 )
 
+OSS_HOSTED_KEY_QUOTA_EXCEEDED_MESSAGE = (
+    "The organization linked to this Dograh service key has insufficient credits. "
+    "Please add credits at app.dograh.com or change providers in Models configurations."
+)
+
 SERVICE_TOKEN_ORG_MISMATCH_MESSAGE = (
     "The Dograh service token being used is created from another account. "
     "Please create a new service token from the Developers tab and use it in "
@@ -95,6 +100,39 @@ def _mps_unreachable_result(
         error,
     )
     return QuotaCheckResult(has_quota=True)
+
+
+def _managed_v2_authorization_failed_result() -> QuotaCheckResult:
+    return QuotaCheckResult(
+        has_quota=False,
+        error_code="quota_check_failed",
+        error_message="Could not verify Dograh credits. Please try again.",
+    )
+
+
+def _required_correlation_id(authorization: dict[str, Any]) -> str | None:
+    correlation_id = authorization.get("correlation_id")
+    if not isinstance(correlation_id, str):
+        return None
+    correlation_id = correlation_id.strip()
+    return correlation_id or None
+
+
+def _oss_run_authorization_denied_result(
+    authorization: dict[str, Any],
+) -> QuotaCheckResult:
+    if authorization.get("error") == "insufficient_credits":
+        message = authorization.get("message")
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="insufficient_credits",
+            error_message=(
+                message
+                if isinstance(message, str) and message.strip()
+                else OSS_HOSTED_KEY_QUOTA_EXCEEDED_MESSAGE
+            ),
+        )
+    return _insufficient_oss_quota_result()
 
 
 def _service_uses_dograh(service: Any) -> bool:
@@ -217,6 +255,13 @@ async def _authorize_hosted_workflow_run_start(
             },
         )
     except _MPS_UNREACHABLE_ERRORS as e:
+        if requires_correlation:
+            logger.warning(
+                "MPS unreachable during hosted managed-v2 run authorization; "
+                "denying workflow run because a correlation id is required: {}",
+                e,
+            )
+            return _managed_v2_authorization_failed_result()
         return _mps_unreachable_result("hosted run authorization", e)
     except Exception as e:
         logger.warning(
@@ -248,10 +293,18 @@ async def _authorize_hosted_workflow_run_start(
         )
         return _insufficient_hosted_quota_result()
 
+    correlation_id = _required_correlation_id(authorization)
+    if requires_correlation and not correlation_id:
+        logger.error(
+            "MPS authorized hosted managed-v2 workflow run {} without a correlation id",
+            workflow_run_id,
+        )
+        return _managed_v2_authorization_failed_result()
+
     try:
         await _store_run_correlation_id(
             workflow_run_id,
-            authorization.get("correlation_id"),
+            correlation_id,
         )
     except Exception as e:
         logger.error(
@@ -339,12 +392,26 @@ async def _authorize_oss_managed_v2_correlation(
             service_key=service_key,
             workflow_run_id=workflow_run_id,
         )
+        correlation_id = _required_correlation_id(response)
+        if not correlation_id:
+            logger.error(
+                "MPS correlation endpoint returned no correlation id for OSS "
+                "managed-v2 workflow {} run {}",
+                workflow_id,
+                workflow_run_id,
+            )
+            return _managed_v2_authorization_failed_result()
         await _store_run_correlation_id(
             workflow_run_id,
-            response.get("correlation_id"),
+            correlation_id,
         )
     except _MPS_UNREACHABLE_ERRORS as e:
-        return _mps_unreachable_result("OSS correlation creation", e)
+        logger.warning(
+            "MPS unreachable during OSS managed-v2 correlation creation; "
+            "denying workflow run because a correlation id is required: {}",
+            e,
+        )
+        return _managed_v2_authorization_failed_result()
     except Exception as e:
         logger.error(
             "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
@@ -406,7 +473,12 @@ async def _authorize_oss_managed_v2_run(
             user_config=user_config,
         )
     except _MPS_UNREACHABLE_ERRORS as e:
-        return _mps_unreachable_result("OSS run authorization", e)
+        logger.warning(
+            "MPS unreachable during OSS managed-v2 run authorization; "
+            "denying workflow run because a correlation id is required: {}",
+            e,
+        )
+        return _managed_v2_authorization_failed_result()
     except Exception as e:
         logger.error(
             "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
@@ -430,12 +502,21 @@ async def _authorize_oss_managed_v2_run(
             service_key[-8:],
             remaining,
         )
-        return _insufficient_oss_quota_result()
+        return _oss_run_authorization_denied_result(authorization)
+
+    correlation_id = _required_correlation_id(authorization)
+    if not correlation_id:
+        logger.error(
+            "MPS authorized OSS managed-v2 workflow {} run {} without a correlation id",
+            workflow_id,
+            workflow_run_id,
+        )
+        return _managed_v2_authorization_failed_result()
 
     try:
         await _store_run_correlation_id(
             workflow_run_id,
-            authorization.get("correlation_id"),
+            correlation_id,
         )
     except Exception as e:
         logger.error(

@@ -313,6 +313,34 @@ async def test_authorize_workflow_run_managed_v2_stores_hosted_correlation(
 
 
 @pytest.mark.asyncio
+async def test_hosted_managed_v2_authorization_rejects_missing_correlation(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_workflow_run_start",
+        AsyncMock(
+            return_value={
+                "allowed": True,
+                "billing_mode": "v2",
+                "remaining_credits": "25.0",
+            }
+        ),
+    )
+
+    result = await quota_service._authorize_hosted_workflow_run_start(
+        workflow_owner=_workflow_owner(),
+        organization_id=42,
+        workflow_id=7,
+        workflow_run_id=88,
+        user_config=_dograh_config(managed_service_version=2),
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+
+
+@pytest.mark.asyncio
 async def test_authorize_workflow_run_service_token_from_wrong_org_prompts_new_token(
     monkeypatch,
 ):
@@ -469,6 +497,66 @@ async def test_authorize_workflow_run_oss_uses_key_paths_not_workflow_org(
 
 
 @pytest.mark.asyncio
+async def test_oss_run_authorization_rejects_missing_correlation(monkeypatch):
+    authorize = AsyncMock(
+        return_value={
+            "allowed": True,
+            "remaining_credits": "25.0",
+            "correlation_id": None,
+        }
+    )
+    get_workflow_run = AsyncMock()
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_service_key_run_start",
+        authorize,
+    )
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run_by_id",
+        get_workflow_run,
+    )
+
+    result = await quota_service._authorize_oss_managed_v2_run(
+        workflow_id=7,
+        workflow_run_id=88,
+        service_key="mps_sk_12345678",
+        user_config=_dograh_config(managed_service_version=2),
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
+    get_workflow_run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_oss_run_authorization_preserves_hosted_key_credit_denial(monkeypatch):
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_service_key_run_start",
+        AsyncMock(
+            return_value={
+                "allowed": False,
+                "remaining_credits": "0",
+                "error": "insufficient_credits",
+                "message": "Organization has insufficient billing credits.",
+            }
+        ),
+    )
+
+    result = await quota_service._authorize_oss_managed_v2_run(
+        workflow_id=7,
+        workflow_run_id=88,
+        service_key="mps_sk_12345678",
+        user_config=_dograh_config(managed_service_version=2),
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "insufficient_credits"
+    assert result.error_message == "Organization has insufficient billing credits."
+
+
+@pytest.mark.asyncio
 async def test_oss_run_authorization_falls_back_for_older_mps(monkeypatch):
     api_key = "mps_sk_12345678"
     request = httpx.Request(
@@ -532,6 +620,24 @@ async def test_oss_run_authorization_falls_back_for_older_mps(monkeypatch):
         88,
         initial_context={MPS_CORRELATION_ID_CONTEXT_KEY: "legacy-corr-123"},
     )
+
+
+@pytest.mark.asyncio
+async def test_legacy_oss_correlation_rejects_missing_id(monkeypatch):
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "create_correlation_id",
+        AsyncMock(return_value={}),
+    )
+
+    result = await quota_service._authorize_oss_managed_v2_correlation(
+        workflow_id=7,
+        workflow_run_id=88,
+        user_config=_dograh_config(managed_service_version=2),
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
 
 
 @pytest.mark.asyncio
@@ -1057,7 +1163,7 @@ async def test_authorize_workflow_run_fails_closed_on_oss_quota_mps_http_error(
 
 
 @pytest.mark.asyncio
-async def test_authorize_workflow_run_opens_when_oss_run_authorization_is_unreachable(
+async def test_authorize_workflow_run_denies_when_oss_run_authorization_is_unreachable(
     monkeypatch,
 ):
     request = httpx.Request(
@@ -1091,7 +1197,8 @@ async def test_authorize_workflow_run_opens_when_oss_run_authorization_is_unreac
         workflow_run_id=88,
     )
 
-    assert result.has_quota is True
+    assert result.has_quota is False
+    assert result.error_code == "quota_check_failed"
 
 
 @pytest.mark.asyncio

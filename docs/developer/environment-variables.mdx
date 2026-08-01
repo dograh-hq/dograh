@@ -153,6 +153,28 @@ Tracing activates automatically as soon as credentials are available — either 
 
 ---
 
+## Telephony
+
+Carriers dial the media WebSocket back at `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}`. Those ids travel in a caller-visible URL, so on their own they are a guessable capability. Setting a secret makes Dograh sign that URL with an HMAC and verify the signature when the socket opens.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TELEPHONY_WS_TOKEN_SECRET` | `null` | Secret used to sign the media WebSocket URL. Unset leaves URLs unchanged and the check disabled |
+| `TELEPHONY_WS_TOKEN_ENFORCE` | `false` | Reject connections whose token is missing or invalid (WebSocket close `4401`) |
+
+Roll it out in two steps so no call is dropped:
+
+1. Set `TELEPHONY_WS_TOKEN_SECRET` on **every** process that places or receives calls — the `api` service and, if you run Asterisk, the `ari-manager`. They must share the same value: one mints the token, the other verifies it. Calls keep connecting either way; anything unverifiable is logged as `UNVERIFIED media socket`.
+2. Once those warnings stop, set `TELEPHONY_WS_TOKEN_ENFORCE=true` to start rejecting them.
+
+Setting `TELEPHONY_WS_TOKEN_ENFORCE` without a secret does nothing at all — the check is skipped entirely rather than rejecting every connection.
+
+<Note>
+The signed URL is a bearer credential. Dograh redacts it from its own logs, but if you forward carrier-side request logs (Twilio's debugger, Telnyx's request inspector) to a third party, the token goes with them.
+</Note>
+
+---
+
 ## Monitoring
 
 | Variable | Default | Description |

@@ -31,6 +31,7 @@ from api.services.call_concurrency import (
     call_concurrency,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.telephony import ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
@@ -38,7 +39,6 @@ from api.services.telephony.factory import (
     get_telephony_provider_by_id,
     get_telephony_provider_for_run,
 )
-from api.services.telephony import ws_auth
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
@@ -597,12 +597,15 @@ async def _handle_telephony_websocket(
 ):
     """Shared WebSocket handler logic (connection already accepted).
 
-    TODO(security): ``organization_id`` arrives in the URL the provider dials
-    back, so it is caller-supplied and unauthenticated — this socket has no
-    signature check, and the id triple is a guessable bearer capability.
-    Scoping the lookups below by it prevents an accidental cross-org mismatch,
-    not a deliberate one. The real fix is a one-shot capability token minted at
-    run creation and redeemed here through an atomic
+    ``organization_id`` arrives in the URL the provider dials back, so it is
+    caller-supplied: scoping the lookups below by it prevents an accidental
+    cross-org mismatch, not a deliberate one. The capability token checked
+    first (see ``ws_auth``) closes the forgery gap — the id triple is no longer
+    enough on its own — but only once an operator sets a secret.
+
+    TODO(security): the token is stateless and replayable for as long as the
+    run sits in ``initialized``. Making it one-shot means minting it at run
+    creation and redeeming it here through an atomic
     ``initialized -> running`` compare-and-swap, which would also close the
     read-then-write race on the state check further down.
     """
@@ -905,7 +908,10 @@ async def handle_inbound_run(request: Request):
 
             backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
             websocket_url = ws_auth.build_media_ws_url(
-                wss_backend_endpoint, workflow_id, config.organization_id, workflow_run_id
+                wss_backend_endpoint,
+                workflow_id,
+                config.organization_id,
+                workflow_run_id,
             )
 
             return await provider_instance.start_inbound_stream(

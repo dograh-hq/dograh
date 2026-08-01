@@ -99,7 +99,7 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
 
-# ── Telephony media WebSocket authentication ────────────────────────────────
+# Telephony media WebSocket authentication.
 # The carrier/connector dials back the media socket
 # /api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}, whose
 # id triple is otherwise a guessable bearer capability. When a secret is set,

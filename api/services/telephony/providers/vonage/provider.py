@@ -13,6 +13,7 @@ from fastapi import HTTPException, Response
 from loguru import logger
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -213,8 +214,6 @@ class VonageProvider(TelephonyProvider):
         Generate NCCO response for starting a call session.
         NCCO (Nexmo Call Control Objects) is JSON-based, unlike TwiML which is XML.
         """
-        from api.services.telephony import ws_auth
-
         _, wss_backend_endpoint = await get_backend_endpoints()
         ws_url = ws_auth.build_media_ws_url(
             wss_backend_endpoint, workflow_id, organization_id, workflow_run_id

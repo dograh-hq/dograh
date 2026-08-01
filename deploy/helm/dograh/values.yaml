@@ -118,6 +118,10 @@ config:
   turnHost: ""  # public hostname/IP of coturn (the LoadBalancer address)
   fastapiWorkers: 1  # informational only; web tier scales by pod, not in-pod workers
   enableSignup: true   # set false to 403 the /api/v1/auth/signup endpoint (invite-only lockdown)
+  # Reject media WebSocket connections whose capability token is missing or
+  # invalid (close 4401). No effect until secrets.telephonyWsTokenSecret is set —
+  # enabling this without a secret does nothing
+  telephonyWsTokenEnforce: false
 
 # -----------------------------------------------------------------------------
 # Secrets — rendered into a Kubernetes Secret unless secrets.existingSecret is
@@ -156,6 +160,12 @@ secrets:
   langfuseSecretKey: ""
   langfusePublicKey: ""
   langfuseHost: ""
+
+  # Signs the telephony media WebSocket URL the carrier dials back, so the ids
+  # in that URL are no longer enough on their own to open the socket. Empty
+  # leaves the URLs unchanged and the check off. When using secrets.existingSecret, put it
+  # under the TELEPHONY_WS_TOKEN_SECRET key there.
+  telephonyWsTokenSecret: ""
 
 # -----------------------------------------------------------------------------
 # Web tier (FastAPI + WebSocket signaling)

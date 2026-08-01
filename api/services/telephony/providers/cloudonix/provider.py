@@ -13,6 +13,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -130,8 +131,6 @@ class CloudonixProvider(TelephonyProvider):
 
         # Prepare call data using Cloudonix callObject schema
         # Note: 'caller-id' is REQUIRED by Cloudonix API
-        from api.services.telephony import ws_auth
-
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         ws_url = ws_auth.build_media_ws_url(
             wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
@@ -173,10 +172,11 @@ class CloudonixProvider(TelephonyProvider):
             f"  From: {from_number}\n"
             f"  Workflow Run ID: {workflow_run_id}"
         )
+        # Redacted: the embedded CXML's stream URL carries a bearer capability token.
         logger.debug(
             f"[Cloudonix] Request details:\n"
             f"  Headers: {masked_headers}\n"
-            f"  Payload: {json.dumps(data, indent=2)}"
+            f"  Payload: {ws_auth.redact_token(json.dumps(data, indent=2))}"
         )
 
         async with aiohttp.ClientSession() as session:
@@ -1060,8 +1060,10 @@ class CloudonixProvider(TelephonyProvider):
     <Pause length="40"/>
 </Response>"""
 
-        logger.info(f"Cloudonix inbound CXML response content:")
-        logger.info(cxml_content)
+        # Redacted: the stream URL carries a bearer capability token, and this
+        # log line is the one place it would otherwise reach a log sink.
+        logger.info("Cloudonix inbound CXML response content:")
+        logger.info(ws_auth.redact_token(cxml_content))
 
         response = Response(content=cxml_content, media_type="application/xml")
 

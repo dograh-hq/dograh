@@ -153,7 +153,7 @@ class TriggerState(Enum):
     ARCHIVED = "archived"
 
 
-class WebhookCredentialType(Enum):
+class WebhookCredentialType(str, Enum):
     """Webhook credential authentication types"""
 
     NONE = "none"  # No authentication

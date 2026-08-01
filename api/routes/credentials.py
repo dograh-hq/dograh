@@ -40,7 +40,7 @@ class CredentialResponse(BaseModel):
     uuid: str
     name: str
     description: Optional[str]
-    credential_type: str
+    credential_type: WebhookCredentialType
     created_at: datetime
     updated_at: Optional[datetime]
 

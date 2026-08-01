@@ -15,7 +15,10 @@ import redis.asyncio as aioredis
 from loguru import logger
 
 from api.constants import REDIS_URL
-from api.utils.url_security import validate_user_configured_service_url
+from api.utils.url_security import (
+    get_pinned_httpx_transport,
+    validate_user_configured_service_url,
+)
 
 _MIN_TTL = 30          # Floor: never cache for less than 30s
 _EXPIRY_MARGIN = 60    # Pre-expire: refresh 60s before real expiry
@@ -100,7 +103,7 @@ async def get_or_fetch_token(
         # Short-lived tokens (expires_in <= _EXPIRY_MARGIN) must not be cached.
         net_ttl = expires_in - _EXPIRY_MARGIN
         if net_ttl > 0:
-            cache_ttl = net_ttl
+            cache_ttl = max(net_ttl, _MIN_TTL)
             redis_client = None
             try:
                 redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -125,6 +128,9 @@ async def get_or_fetch_token(
                 f"(<= margin {_EXPIRY_MARGIN}s); skipping cache to avoid serving expired token."
             )
 
+        lock = _locks.get(credential_uuid)
+        if lock is not None and not lock.locked():
+            _locks.pop(credential_uuid, None)
         return token
 
 
@@ -152,6 +158,9 @@ async def invalidate_token(credential_uuid: str) -> None:
                 await redis_client.aclose()
             except Exception:
                 pass
+        lock = _locks.get(credential_uuid)
+        if lock is not None and not lock.locked():
+            _locks.pop(credential_uuid, None)
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +209,9 @@ async def _fetch_token(
     """
     # Guard against SSRF: reject private/loopback/internal addresses in SaaS.
     try:
-        validate_user_configured_service_url(token_url, field_name="token_url")
+        pinned_ip = validate_user_configured_service_url(
+            token_url, field_name="token_url"
+        )
     except ValueError as exc:
         raise ValueError(f"OAuth2 token_url is not permitted: {exc}") from exc
 
@@ -215,7 +226,10 @@ async def _fetch_token(
         data["audience"] = audience
 
     try:
-        async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT) as client:
+        transport = get_pinned_httpx_transport(pinned_ip)
+        async with httpx.AsyncClient(
+            timeout=_FETCH_TIMEOUT, transport=transport
+        ) as client:
             response = await client.post(
                 token_url,
                 data=data,

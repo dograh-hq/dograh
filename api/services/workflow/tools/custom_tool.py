@@ -273,6 +273,15 @@ async def execute_http_tool(
 
     # Add auth header if credential is configured. Keep track of which headers
     # came from the credential so only those values are masked in test previews.
+    request_headers: Dict[str, str] = {}
+    if include_request_headers:
+        request_headers = {str(name): str(value) for name, value in headers.items()}
+
+    def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
+        if include_request_headers:
+            return {**result, "request_headers": request_headers}
+        return result
+
     credential = None
     credential_headers: Dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
@@ -284,6 +293,9 @@ async def execute_http_tool(
             if credential:
                 credential_headers = await build_auth_header(credential)
                 headers.update(credential_headers)
+                if include_request_headers:
+                    for header_name, header_value in credential_headers.items():
+                        request_headers[header_name] = mask_key(str(header_value))
                 logger.debug(f"Applied credential '{credential.name}' to tool request")
             else:
                 logger.warning(
@@ -305,17 +317,6 @@ async def execute_http_tool(
                     "error": f"Tool execution failed: {e}",
                 }
             )
-
-    request_headers: Dict[str, str] = {}
-    if include_request_headers:
-        request_headers = {str(name): str(value) for name, value in headers.items()}
-        for header_name, header_value in credential_headers.items():
-            request_headers[header_name] = mask_key(str(header_value))
-
-    def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
-        if include_request_headers:
-            return {**result, "request_headers": request_headers}
-        return result
 
     # Get timeout
     timeout_ms = config.get("timeout_ms", 5000)
@@ -369,9 +370,21 @@ async def execute_http_tool(
                 logger.info(
                     f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response. Retrying once..."
                 )
-                credential_headers = await invalidate_and_rebuild_auth(credential)
+                try:
+                    credential_headers = await invalidate_and_rebuild_auth(credential)
+                except ValueError as e:
+                    logger.error(f"Authentication failed for tool '{tool.name}': {e}")
+                    return build_result(
+                        {
+                            "status": "error",
+                            "error": f"Authentication failed: {e}",
+                        }
+                    )
                 if credential_headers:
                     headers.update(credential_headers)
+                    if include_request_headers:
+                        for header_name, header_value in credential_headers.items():
+                            request_headers[header_name] = mask_key(str(header_value))
                 
                 response = await client.request(
                     method=method,

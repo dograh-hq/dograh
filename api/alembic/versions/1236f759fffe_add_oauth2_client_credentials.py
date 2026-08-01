@@ -44,6 +44,9 @@ def upgrade() -> None:
     )
 
 def downgrade() -> None:
+    op.execute(
+        "DELETE FROM external_credentials WHERE credential_type = 'oauth2_client_credentials'"
+    )
     op.sync_enum_values(
         enum_schema="public",
         enum_name="webhook_credential_type",

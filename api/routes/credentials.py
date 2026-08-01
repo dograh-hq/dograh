@@ -267,9 +267,14 @@ async def update_credential(
     except ValueError:
         effective_type = None
 
-    # Validate credential data against the effective type whenever data is provided.
-    if request.credential_data is not None and effective_type:
-        validate_credential_data(effective_type, request.credential_data)
+    # Validate credential data against the effective type whenever data or type is updated.
+    if (request.credential_data is not None or request.credential_type is not None) and effective_type:
+        effective_data = (
+            request.credential_data
+            if request.credential_data is not None
+            else (existing.credential_data or {})
+        )
+        validate_credential_data(effective_type, effective_data)
 
     try:
         credential = await db_client.update_credential(

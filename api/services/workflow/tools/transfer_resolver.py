@@ -270,7 +270,13 @@ async def _execute_http_resolver(
                 logger.info(
                     f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in transfer resolver. Retrying once..."
                 )
-                credential_headers = await invalidate_and_rebuild_auth(credential)
+                try:
+                    credential_headers = await invalidate_and_rebuild_auth(credential)
+                except ValueError as exc:
+                    raise TransferResolutionError(
+                        "credential_auth_error",
+                        f"Authentication failed for transfer resolver credential: {exc}",
+                    ) from exc
                 if credential_headers:
                     headers.update(credential_headers)
                 

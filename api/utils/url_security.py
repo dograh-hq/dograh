@@ -1,6 +1,11 @@
 import ipaddress
 import socket
+import ssl
+from typing import Any
 from urllib.parse import urlparse
+
+import httpcore
+import httpx
 
 from api.constants import DEPLOYMENT_MODE
 
@@ -11,15 +16,19 @@ def validate_user_configured_service_url(
     url: str,
     *,
     field_name: str,
-) -> None:
+) -> str | None:
     """Restrict user-configured service URLs in hosted deployments.
 
     OSS deployments commonly point model services at localhost or private LAN
     hosts. SaaS deployments must not allow users to make Dograh infrastructure
     connect to private/internal network locations.
+
+    Returns:
+        The validated public IP address string in SaaS mode (for DNS pinning),
+        or None in OSS mode.
     """
     if DEPLOYMENT_MODE == "oss":
-        return
+        return None
 
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.hostname:
@@ -29,11 +38,72 @@ def validate_user_configured_service_url(
     if hostname.lower() == "localhost":
         raise ValueError(f"{field_name} cannot point to localhost in SaaS mode")
 
-    for ip in _resolve_hostname_ips(hostname, parsed.port):
+    ips = _resolve_hostname_ips(hostname, parsed.port)
+    for ip in ips:
         if _is_blocked_saas_service_ip(ip):
             raise ValueError(
                 f"{field_name} must resolve to a public IP address in SaaS mode"
             )
+    return str(ips[0]) if ips else None
+
+
+class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
+    """Network backend that connects to a pinned IP address to prevent DNS rebinding."""
+
+    def __init__(self, pinned_ip: str) -> None:
+        self._pinned_ip = pinned_ip
+        self._backend = httpcore.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: Any = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        return await self._backend.connect_tcp(
+            self._pinned_ip,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        return await self._backend.connect_unix_socket(
+            path, timeout=timeout, socket_options=socket_options
+        )
+
+    async def sleep(self, seconds: float) -> None:
+        await self._backend.sleep(seconds)
+
+
+class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
+    """HTTPX Transport that pins connections to a validated IP address while preserving SNI."""
+
+    def __init__(self, pinned_ip: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=kwargs.get("verify", None)
+            if isinstance(kwargs.get("verify"), ssl.SSLContext)
+            else None,
+            network_backend=_PinnedNetworkBackend(pinned_ip),
+        )
+
+
+def get_pinned_httpx_transport(
+    pinned_ip: str | None, **kwargs: Any
+) -> httpx.AsyncHTTPTransport | None:
+    """Return an HTTPX transport pinned to the given IP address, or None if no IP pinning is needed."""
+    if not pinned_ip:
+        return None
+    return PinnedAsyncHTTPTransport(pinned_ip, **kwargs)
 
 
 def _resolve_hostname_ips(

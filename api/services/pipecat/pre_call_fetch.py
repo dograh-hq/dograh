@@ -85,6 +85,7 @@ async def execute_pre_call_fetch(
                 )
         except Exception as e:
             logger.error(f"Pre-call fetch: failed to resolve credential: {e}")
+            return {}
 
     logger.info(f"Pre-call fetch: POST {url}")
 
@@ -99,15 +100,19 @@ async def execute_pre_call_fetch(
                 and credential is not None
                 and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
             ):
-                from api.utils.oauth2_token_cache import invalidate_token
-                await invalidate_token(str(credential.credential_uuid))
+                from api.utils.credential_auth import invalidate_and_rebuild_auth
                 logger.info(f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in pre-call fetch. Retrying once...")
                 
-                credential_headers = await build_auth_header(credential)
-                if credential_headers:
-                    headers.update(credential_headers)
-                
-                response = await client.post(url, headers=headers, json=payload)
+                try:
+                    credential_headers = await invalidate_and_rebuild_auth(credential)
+                    if credential_headers:
+                        headers.update(credential_headers)
+                    response = await client.post(url, headers=headers, json=payload)
+                except ValueError as reauth_exc:
+                    logger.error(
+                        f"Pre-call fetch: failed to refresh OAuth2 token: {reauth_exc}"
+                    )
+                    return {}
 
             try:
                 response_data = response.json()

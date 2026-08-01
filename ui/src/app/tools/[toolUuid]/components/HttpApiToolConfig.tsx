@@ -234,6 +234,7 @@ export function HttpApiToolConfig({
                                     <div className="flex items-center gap-2">
                                         <Label className="text-xs">Use body template</Label>
                                         <Switch
+                                            aria-label="Use body template"
                                             checked={useBodyTemplate}
                                             onCheckedChange={(checked) => {
                                                 onUseBodyTemplateChange(checked);

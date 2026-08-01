@@ -221,9 +221,12 @@ def _coerce_typed_leaves(
         if not isinstance(rendered_node, dict):
             return rendered_node
         if len(original_node) != len(rendered_node):
-            # Key collision occurred during rendering, making positional zip unsafe.
-            # Skip coercion for this dict level.
-            return rendered_node
+            # Key collision: two template keys rendered to the same string.
+            # This would silently drop a field — raise so the call fails clearly.
+            raise ValueError(
+                "Body template contains keys that render to the same value. "
+                "Use static keys or ensure placeholder keys resolve to unique strings."
+            )
 
         return {
             rendered_key: _coerce_typed_leaves(
@@ -251,9 +254,11 @@ def _coerce_typed_leaves(
             # not appear in param_type_map and defaults to "string" → no coercion.
             declared_type = param_type_map.get(param_name, "string")
             if declared_type != "string":
-                val_to_coerce = (
-                    arguments[param_name] if param_name in arguments else rendered_node
-                )
+                raw_arg = arguments.get(param_name)
+                # If the raw argument is missing or empty, prefer the already-rendered
+                # value (which incorporates any fallback filter, e.g. {{qty | 5}}).
+                # Only attempt coercion when a non-empty raw argument exists.
+                val_to_coerce = raw_arg if (raw_arg is not None and raw_arg != "") else rendered_node
                 try:
                     return _coerce_parameter_value(val_to_coerce, declared_type)
                 except ValueError:
@@ -296,10 +301,23 @@ def render_body_template(
 
     # Pre-render required parameter check (fast fail before any HTTP call).
     # 0, False, {}, [] are valid non-missing values — only None and "" trigger this.
-    
-    from api.services.workflow.workflow_graph import extract_template_variables
+    #
+    # We intentionally avoid reusing workflow_graph.extract_template_variables here
+    # because that function excludes system-injected vars (provider, campaign_id,
+    # source_uuid). HTTP tool parameters may legitimately share those names and must
+    # still be validated.
+    import re as _re
+    _TMPL_VAR_RE = _re.compile(
+        r"\{\{\s*([^.|\s}]+)(?:\s*\|[^}]*)?\s*\}\}"
+    )
     template_str = json.dumps(template) if template else "{}"
-    required_in_template = extract_template_variables(template_str)
+    # Only keep bare top-level names (no dot path) and no fallback filter.
+    required_in_template: set[str] = {
+        m.group(1)
+        for m in _TMPL_VAR_RE.finditer(template_str)
+        if "|" not in template_str[m.start():m.end()]  # skip fallback vars
+        and "." not in m.group(1)  # skip nested paths
+    }
 
     for param in parameters or []:
         name = param.get("name", "")

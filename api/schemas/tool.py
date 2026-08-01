@@ -67,6 +67,11 @@ class ToolParameter(BaseModel):
     def validate_name_not_reserved(cls, v: str) -> str:
         if v in {"initial_context", "gathered_context"}:
             raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
+        if "." in v:
+            raise ValueError(
+                f"Parameter name '{v}' contains a dot, which is reserved for nested "
+                "path syntax in templates. Use underscores instead."
+            )
         return v
 
 
@@ -97,6 +102,11 @@ class PresetToolParameter(BaseModel):
     def validate_name_not_reserved(cls, v: str) -> str:
         if v in {"initial_context", "gathered_context"}:
             raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
+        if "." in v:
+            raise ValueError(
+                f"Parameter name '{v}' contains a dot, which is reserved for nested "
+                "path syntax in templates. Use underscores instead."
+            )
         return v
 
 

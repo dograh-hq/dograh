@@ -25,6 +25,7 @@ ToolCategoryValue = Literal[
     "end_call",
     "transfer_call",
     "calculator",
+    "wait",
     "native",
     "integration",
     "mcp",
@@ -435,6 +436,13 @@ class CalculatorToolDefinition(BaseModel):
     type: Literal["calculator"] = Field(description="Tool type.")
 
 
+class WaitToolDefinition(BaseModel):
+    """Tool definition for Wait tools."""
+
+    schema_version: int = Field(default=1, description="Schema version.")
+    type: Literal["wait"] = Field(description="Tool type.")
+
+
 class McpToolDefinition(BaseModel):
     """Persisted MCP tool definition."""
 
@@ -449,6 +457,7 @@ ToolDefinition = Annotated[
         EndCallToolDefinition,
         TransferCallToolDefinition,
         CalculatorToolDefinition,
+        WaitToolDefinition,
         McpToolDefinition,
     ],
     Field(discriminator="type"),

@@ -173,6 +173,7 @@ class ToolCategory(Enum):
     NATIVE = "native"  # Built-in integrations (future: dtmf_input)
     INTEGRATION = "integration"  # Third-party integrations (future: Google Calendar, Salesforce, etc.)
     MCP = "mcp"  # Customer-provided MCP server exposing a tool catalog
+    WAIT = "wait"  # Built-in wait_for_user tool
 
 
 class ToolStatus(Enum):

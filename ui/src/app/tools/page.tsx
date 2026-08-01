@@ -141,7 +141,7 @@ export default function ToolsPage() {
             const requestBody: CreateToolRequest = {
                 name: newToolName,
                 description: newToolDescription || undefined,
-                category: newToolCategory,
+                category: newToolCategory as any,
                 icon: categoryConfig?.iconName || "globe",
                 icon_color: categoryConfig?.iconColor || "#3B82F6",
                 definition,

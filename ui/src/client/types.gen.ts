@@ -14581,3 +14581,6 @@ export type ActiveCallsApiV1HealthActiveCallsGetResponses = {
 };
 
 export type ActiveCallsApiV1HealthActiveCallsGetResponse = ActiveCallsApiV1HealthActiveCallsGetResponses[keyof ActiveCallsApiV1HealthActiveCallsGetResponses];
+
+export type WaitToolDefinition = any;
+

@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from loguru import logger
@@ -20,6 +20,12 @@ TYPE_MAP = {
     "object": "object",
     "array": "array",
 }
+
+# Matches a template leaf that is ENTIRELY one placeholder and nothing else.
+# "{{adults}}" → matches;  "Ref-{{id}}" → does NOT match.
+_WHOLE_PLACEHOLDER_RE = re.compile(
+    r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$"
+)
 
 
 def custom_tool_function_name(name: str) -> str:
@@ -197,6 +203,135 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
     return value
 
 
+def _coerce_typed_leaves(
+    original_node: Any,
+    rendered_node: Any,
+    arguments: Dict[str, Any],
+    param_type_map: Dict[str, str],
+) -> Any:
+    """Walk the original template and rendered output in parallel.
+
+    If an original leaf is entirely a ``{{param_name}}`` placeholder, coerce the
+    rendered string value back to the declared parameter type using the raw value
+    from ``arguments``.
+
+    Partial-placeholder strings (``"Ref-{{id}}"``) stay as strings.
+    Non-string originals (int, bool, None) are returned from the rendered output
+    unchanged — ``render_template`` already preserved their type (lines 89–91).
+    """
+    if isinstance(original_node, dict):
+        if not isinstance(rendered_node, dict):
+            return rendered_node
+        return {
+            k: _coerce_typed_leaves(
+                orig_v, rendered_node.get(k), arguments, param_type_map
+            )
+            for k, orig_v in original_node.items()
+        }
+
+    if isinstance(original_node, list):
+        if not isinstance(rendered_node, list):
+            return rendered_node
+        # render_template preserves list length (line 87); zip is safe.
+        return [
+            _coerce_typed_leaves(orig_item, rend_item, arguments, param_type_map)
+            for orig_item, rend_item in zip(original_node, rendered_node)
+        ]
+
+    if isinstance(original_node, str):
+        m = _WHOLE_PLACEHOLDER_RE.match(original_node)
+        if m:
+            param_name = m.group(1)
+            # LLM parameter names never contain dots; "initial_context.x" will
+            # not appear in param_type_map and defaults to "string" → no coercion.
+            declared_type = param_type_map.get(param_name, "string")
+            if declared_type != "string" and param_name in arguments:
+                try:
+                    return _coerce_parameter_value(arguments[param_name], declared_type)
+                except ValueError:
+                    pass  # Leave as rendered string rather than crashing the call
+
+    # Non-string originals and partial placeholders — already correct from render_template.
+    return rendered_node
+
+
+def render_body_template(
+    template: Dict[str, Any],
+    arguments: Dict[str, Any],
+    parameters: List[Dict[str, Any]],
+    call_context_vars: Optional[Dict[str, Any]] = None,
+    gathered_context_vars: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Render a nested JSON body template using resolved arguments and call context.
+
+    Args:
+        template:              The body_template dict from the tool config.
+        arguments:             Merged flat dict of LLM + preset resolved arguments.
+                               Preset values already win (merged upstream).
+        parameters:            Raw parameter dicts from config (each has "name", "type",
+                               "required" keys — raw JSON dicts, NOT Pydantic instances).
+        call_context_vars:     Call-start context for {{initial_context.*}} access.
+        gathered_context_vars: Conversation context for {{gathered_context.*}} access.
+
+    Returns:
+        Fully rendered nested dict ready to be sent as the HTTP request body.
+
+    Raises:
+        ValueError: If a required parameter has no value.
+    """
+    # Build param name → declared type for post-render coercion.
+    param_type_map: Dict[str, str] = {
+        p.get("name", ""): p.get("type", "string")
+        for p in (parameters or [])
+        if p.get("name")
+    }
+
+    # Pre-render required parameter check (fast fail before any HTTP call).
+    # 0, False, {}, [] are valid non-missing values — only None and "" trigger this.
+    for param in parameters or []:
+        name = param.get("name", "")
+        if not name:
+            continue
+        if param.get("required", True):
+            val = arguments.get(name)
+            if val is None or val == "":
+                raise ValueError(
+                    f"Required parameter '{name}' has no value. "
+                    "The agent must collect this before calling the tool."
+                )
+
+    # Build render context.
+    #
+    # KEY ORDERING: nested framework keys are placed FIRST so that **arguments
+    # (spread LAST) wins for any flat key collision. This guarantees LLM/preset
+    # values are never silently overwritten by call context keys.
+    #
+    # "initial_context" and "gathered_context" are RESERVED names; if an LLM
+    # parameter uses either name, **arguments will overwrite the nested dict and
+    # {{initial_context.*}} / {{gathered_context.*}} path lookups will return "".
+    # The UI warns and blocks saving when reserved names are detected.
+    #
+    # We do NOT spread **call_context_vars flat (unlike _resolve_preset_parameters).
+    # In preset templates, that flat spread is safe because no LLM args are present.
+    # Here, LLM args ARE present; a flat spread could silently clobber LLM values.
+    render_context: Dict[str, Any] = {
+        "initial_context":  dict(call_context_vars or {}),
+        "gathered_context": dict(gathered_context_vars or {}),
+        **arguments,   # LLM + preset values LAST = highest priority
+    }
+
+    # Render all {{placeholders}}.
+    rendered = render_template(template, render_context)
+    if not isinstance(rendered, dict):
+        # Defensive: body_template is schema-validated to be a dict, and
+        # render_template(dict, ...) always returns a dict (lines 76–83).
+        raise ValueError("Rendered body template is not a JSON object.")
+
+    # Restore correct types for whole-placeholder number/boolean/object/array leaves.
+    # _render_string stringifies these via str(value) (template_renderer.py:216).
+    return _coerce_typed_leaves(template, rendered, arguments, param_type_map)
+
+
 def _resolve_preset_parameters(
     config: Dict[str, Any],
     call_context_vars: Optional[Dict[str, Any]],
@@ -297,9 +432,23 @@ async def execute_http_tool(
         for header_name, header_value in credential_headers.items():
             request_headers[header_name] = mask_key(str(header_value))
 
+    # Initialize BEFORE build_result is defined.
+    # The closure captures _body_preview by reference (cell object).
+    # By the time build_result is first called (line 316 preset error path),
+    # _body_preview must already be assigned.
+    _body_preview: Optional[Dict[str, Any]] = None
+
     def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
         if include_request_headers:
-            return {**result, "request_headers": request_headers}
+            # Both extras are test-mode-only: include_request_headers=True is set
+            # exclusively by the test endpoint (routes/tool.py:244). Live pipecat
+            # calls (pipecat_engine_custom_tools.py:666) never set this flag, so
+            # the LLM callback never receives request_headers or request_body_preview.
+            return {
+                **result,
+                "request_headers": request_headers,
+                "request_body_preview": _body_preview,  # reads cell at call time
+            }
         return result
 
     # Get timeout
@@ -314,18 +463,45 @@ async def execute_http_tool(
         except ValueError as e:
             logger.error(f"Custom tool '{tool.name}' preset parameter error: {e}")
             return build_result({"status": "error", "error": str(e)})
+            # _body_preview = None at this point (assigned before build_result). ✓
     else:
         preset_arguments = dict(preset_params)
 
     resolved_arguments = {**(arguments or {}), **preset_arguments}
 
-    # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
+    # Build request body or query params.
     body = None
     params = None
+    body_template = config.get("body_template")
+
     if method in ("POST", "PUT", "PATCH"):
-        body = resolved_arguments
+        if body_template is not None:
+            parameters = config.get("parameters") or []
+            try:
+                body = render_body_template(
+                    template=body_template,
+                    arguments=resolved_arguments,
+                    parameters=parameters,
+                    call_context_vars=call_context_vars,
+                    gathered_context_vars=gathered_context_vars,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Custom tool '{tool.name}' body template render failed: {e}"
+                )
+                return build_result(
+                    {"status": "error", "error": f"Body template rendering failed: {str(e)}"}
+                )
+                # _body_preview is still None here (set below, after this block). ✓
+        else:
+            body = resolved_arguments   # flat mode — unchanged behaviour
+
     elif method in ("GET", "DELETE") and resolved_arguments:
         params = serialize_query_params(resolved_arguments)
+
+    # Capture final body for the test-mode preview.
+    # The closure reads _body_preview at call time, after this assignment.
+    _body_preview = body
 
     logger.info(
         f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): {method} {url}"

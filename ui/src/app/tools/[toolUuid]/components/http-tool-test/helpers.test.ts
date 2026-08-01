@@ -87,6 +87,7 @@ describe("buildHttpToolTestSnapshot", () => {
         headers: [],
         parameters: [],
         presetParameters: [],
+        bodyTemplate: null,
         timeoutMs: 5000,
         customMessage: "",
         customMessageType: "text",

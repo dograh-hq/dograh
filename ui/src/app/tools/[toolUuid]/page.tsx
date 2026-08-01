@@ -114,6 +114,7 @@ export default function ToolDetailPage() {
     const [parameters, setParameters] = useState<ToolParameter[]>([]);
     const [presetParameters, setPresetParameters] = useState<PresetToolParameter[]>([]);
     const [timeoutMs, setTimeoutMs] = useState(5000);
+    const [bodyTemplate, setBodyTemplate] = useState<Record<string, unknown> | null>(null);
 
     // End Call form state
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
@@ -302,6 +303,7 @@ export default function ToolDetailPage() {
                 const loadedCustomMessage = config.customMessage || "";
                 const loadedCustomMessageType = config.customMessageType || "text";
                 const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
+                const loadedBodyTemplate = config.body_template || null;
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
@@ -309,6 +311,7 @@ export default function ToolDetailPage() {
                 setCustomMessage(loadedCustomMessage);
                 setCustomMessageType(loadedCustomMessageType);
                 setCustomMessageRecordingId(loadedCustomMessageRecordingId);
+                setBodyTemplate(loadedBodyTemplate);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -356,6 +359,7 @@ export default function ToolDetailPage() {
                         headers: loadedHeaders,
                         parameters: loadedParameters,
                         presetParameters: loadedPresetParameters,
+                        bodyTemplate: loadedBodyTemplate,
                         timeoutMs: loadedTimeoutMs,
                         customMessage: loadedCustomMessage,
                         customMessageType: loadedCustomMessageType,
@@ -644,6 +648,7 @@ export default function ToolDetailPage() {
                                         required: p.required,
                                     }))
                                     : undefined,
+                            body_template: bodyTemplate || undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -681,6 +686,7 @@ export default function ToolDetailPage() {
                             headers,
                             parameters,
                             presetParameters,
+                            bodyTemplate,
                             timeoutMs,
                             customMessage,
                             customMessageType,
@@ -802,6 +808,7 @@ const data = await response.json();`;
                 headers,
                 parameters,
                 presetParameters,
+                bodyTemplate,
                 timeoutMs,
                 customMessage,
                 customMessageType,
@@ -1024,6 +1031,8 @@ const data = await response.json();`;
                             onParametersChange={setParameters}
                             presetParameters={presetParameters}
                             onPresetParametersChange={setPresetParameters}
+                            bodyTemplate={bodyTemplate}
+                            onBodyTemplateChange={setBodyTemplate}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

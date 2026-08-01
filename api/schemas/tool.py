@@ -8,6 +8,7 @@ when the same schema is surfaced through MCP or SDK authoring flows.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
@@ -140,6 +141,17 @@ class HttpApiConfig(BaseModel):
     customMessageRecordingId: Optional[str] = Field(
         default=None, description="Recording ID for an audio custom message."
     )
+    body_template: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional nested JSON body template for POST/PUT/PATCH requests. "
+            "Use {{placeholder}} for LLM/preset parameters, "
+            "{{initial_context.*}} for call context, "
+            "{{gathered_context.*}} for conversation context. "
+            "When set, replaces the default flat-dict body. "
+            "Static values in the template are sent as-is."
+        ),
+    )
 
     @field_validator("method", mode="before")
     @classmethod
@@ -150,6 +162,44 @@ class HttpApiConfig(BaseModel):
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise ValueError("method must be one of GET, POST, PUT, PATCH, DELETE")
         return method
+
+    @field_validator("body_template", mode="before")
+    @classmethod
+    def validate_body_template_shape_and_size(cls, v: Any) -> Any:
+        """Reject oversized or wrongly-typed body_template values."""
+        if v is None:
+            return v
+        # Defensively parse JSON strings (e.g. from MCP authoring surface).
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"body_template must be valid JSON: {exc}") from exc
+        if not isinstance(v, dict):
+            raise ValueError(
+                "body_template must be a JSON object (dict), not an array or primitive."
+            )
+        try:
+            size = len(json.dumps(v))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"body_template is not JSON-serialisable: {exc}") from exc
+        if size > 65_536:
+            raise ValueError(
+                f"body_template is too large ({size} bytes). Maximum is 65,536 bytes (64 KB)."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_body_template_method(self) -> "HttpApiConfig":
+        """body_template is only valid for methods that carry a request body."""
+        # self.method is already uppercased by validate_method (field_validator, mode="before").
+        # Pydantic v2 guarantees field validators run before model_validator(mode="after").
+        # model_validator(mode="after") only runs if ALL field validators succeed.
+        if self.body_template is not None and self.method in ("GET", "DELETE"):
+            raise ValueError(
+                "body_template is not supported for GET or DELETE. Use POST, PUT, or PATCH."
+            )
+        return self
 
 
 class EndCallConfig(BaseModel):

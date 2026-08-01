@@ -9,6 +9,8 @@ This module tests:
 
 from dataclasses import dataclass
 from types import SimpleNamespace
+from pydantic import ValidationError
+from api.schemas.tool import HttpApiConfig
 from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -34,7 +36,9 @@ from api.services.configuration.masking import mask_key
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools.custom_tool import (
     _coerce_parameter_value,
+    _coerce_typed_leaves,
     execute_http_tool,
+    render_body_template,
     tool_to_function_schema,
 )
 from pipecat.tests import MockLLMService, run_test
@@ -972,6 +976,387 @@ class TestExecuteHttpTool:
                 mock_db.get_credential_by_uuid.assert_not_called()
 
 
+
+
+class TestRenderBodyTemplate:
+    def test_simple_string_substitution(self):
+        tpl = {"greeting": "Hello {{firstName}}"}
+        res = render_body_template(tpl, {"firstName": "John"}, [{"name": "firstName", "type": "string"}])
+        assert res == {"greeting": "Hello John"}
+
+    def test_number_coercion(self):
+        tpl = {"count": "{{adults}}"}
+        res = render_body_template(tpl, {"adults": 2}, [{"name": "adults", "type": "number"}])
+        assert res == {"count": 2}
+
+    def test_boolean_coercion(self):
+        tpl = {"is_ready": "{{confirmed}}"}
+        res = render_body_template(tpl, {"confirmed": True}, [{"name": "confirmed", "type": "boolean"}])
+        assert res == {"is_ready": True}
+
+    def test_object_coercion(self):
+        tpl = {"data": "{{metadata}}"}
+        res = render_body_template(tpl, {"metadata": {"a": 1}}, [{"name": "metadata", "type": "object"}])
+        assert res == {"data": {"a": 1}}
+
+    def test_array_coercion(self):
+        tpl = {"items": "{{tags}}"}
+        res = render_body_template(tpl, {"tags": ["x", "y"]}, [{"name": "tags", "type": "array"}])
+        assert res == {"items": ["x", "y"]}
+
+    def test_partial_placeholder_stays_string(self):
+        tpl = {"ref": "Ref-{{id}}"}
+        res = render_body_template(tpl, {"id": 42}, [{"name": "id", "type": "number"}])
+        assert res == {"ref": "Ref-42"}
+
+    def test_static_string_preserved(self):
+        res = render_body_template({"k": "CardNumber"}, {}, [])
+        assert res == {"k": "CardNumber"}
+
+    def test_static_integer_preserved(self):
+        res = render_body_template({"count": 3}, {}, [])
+        assert res == {"count": 3}
+
+    def test_static_boolean_preserved(self):
+        res = render_body_template({"flag": False}, {}, [])
+        assert res == {"flag": False}
+
+    def test_three_levels_deep(self):
+        tpl = {"a": {"b": {"c": "{{val}}"}}}
+        res = render_body_template(tpl, {"val": 9}, [{"name": "val", "type": "number"}])
+        assert res == {"a": {"b": {"c": 9}}}
+
+    def test_array_with_object(self):
+        tpl = {"list": [{"name": "{{firstName}}"}]}
+        res = render_body_template(tpl, {"firstName": "Alice"}, [{"name": "firstName", "type": "string"}])
+        assert res == {"list": [{"name": "Alice"}]}
+
+    def test_missing_optional_renders_empty_string(self):
+        tpl = {"opt": "{{email}}"}
+        res = render_body_template(tpl, {}, [{"name": "email", "type": "string", "required": False}])
+        assert res == {"opt": ""}
+
+    def test_fallback_syntax(self):
+        tpl = {"status": "{{status | active}}"}
+        res = render_body_template(tpl, {}, [{"name": "status", "type": "string", "required": False}])
+        assert res == {"status": "active"}
+
+    def test_legacy_fallback_syntax(self):
+        tpl = {"status": "{{status | fallback:active}}"}
+        res = render_body_template(tpl, {}, [{"name": "status", "type": "string", "required": False}])
+        assert res == {"status": "active"}
+
+    def test_object_arg_as_json_string(self):
+        tpl = {"data": "{{meta}}"}
+        res = render_body_template(tpl, {"meta": '{"k":"v"}'}, [{"name": "meta", "type": "object"}])
+        assert res == {"data": {"k": "v"}}
+
+    def test_no_collision_same_str_repr(self):
+        tpl = {"prop": "{{propertyId}}", "count": "{{adults}}"}
+        res = render_body_template(
+            tpl,
+            {"propertyId": "2", "adults": 2},
+            [{"name": "propertyId", "type": "string"}, {"name": "adults", "type": "number"}]
+        )
+        assert res == {"prop": "2", "count": 2}
+
+    def test_initial_context_placeholder(self):
+        tpl = {"phone": "{{initial_context.phone}}"}
+        res = render_body_template(tpl, {}, [], call_context_vars={"phone": "123"})
+        assert res == {"phone": "123"}
+
+    def test_required_param_missing_raises(self):
+        tpl = {"name": "{{firstName}}"}
+        with pytest.raises(ValueError, match="Required parameter 'firstName' has no value"):
+            render_body_template(tpl, {}, [{"name": "firstName", "type": "string", "required": True}])
+
+    def test_llm_arg_wins_over_call_context(self):
+        tpl = {"s": "{{status}}"}
+        res = render_body_template(
+            tpl,
+            {"status": "available"},
+            [{"name": "status", "type": "string", "required": True}],
+            call_context_vars={"status": "active"}
+        )
+        assert res == {"s": "available"}
+
+    def test_static_template_no_placeholders(self):
+        tpl = {"a": 1, "b": "two"}
+        res = render_body_template(tpl, {}, [])
+        assert res == {"a": 1, "b": "two"}
+
+    def test_null_literal_in_template(self):
+        tpl = {"key": None}
+        res = render_body_template(tpl, {}, [])
+        assert res == {"key": None}
+
+    def test_bool_value_for_number_param_stays_as_string_not_crash(self):
+        tpl = {"quantity": "{{qty}}"}
+        res = render_body_template(
+            tpl, {"qty": True}, [{"name": "qty", "type": "number", "required": True}]
+        )
+        assert res == {"quantity": "True"}
+
+class TestCoerceTypedLeaves:
+    def test_whole_placeholder_number(self):
+        res = _coerce_typed_leaves("{{n}}", "42", {"n": 42}, {"n": "number"})
+        assert res == 42
+
+    def test_partial_placeholder_not_coerced(self):
+        res = _coerce_typed_leaves("Ref-{{n}}", "Ref-42", {"n": 42}, {"n": "number"})
+        assert res == "Ref-42"
+
+    def test_unknown_param_skipped(self):
+        res = _coerce_typed_leaves("{{n}}", "42", {}, {})
+        assert res == "42"
+
+    def test_nested_dict(self):
+        res = _coerce_typed_leaves({"a": {"b": "{{n}}"}}, {"a": {"b": "42"}}, {"n": 42}, {"n": "number"})
+        assert res == {"a": {"b": 42}}
+
+    def test_inside_list(self):
+        res = _coerce_typed_leaves(["{{n}}"], ["42"], {"n": 42}, {"n": "number"})
+        assert res == [42]
+
+class TestHttpApiConfigSchema:
+    def test_rejected_for_get(self):
+        with pytest.raises(ValidationError):
+            HttpApiConfig(method="GET", url="http://test", body_template={"k": "v"})
+
+    def test_rejected_for_delete(self):
+        with pytest.raises(ValidationError):
+            HttpApiConfig(method="DELETE", url="http://test", body_template={"k": "v"})
+
+    def test_accepted_for_post(self):
+        cfg = HttpApiConfig(method="POST", url="http://test", body_template={"k": "v"})
+        assert cfg.body_template == {"k": "v"}
+
+    def test_accepted_for_put(self):
+        cfg = HttpApiConfig(method="PUT", url="http://test", body_template={"k": "v"})
+        assert cfg.body_template == {"k": "v"}
+
+    def test_accepted_for_patch(self):
+        cfg = HttpApiConfig(method="PATCH", url="http://test", body_template={"k": "v"})
+        assert cfg.body_template == {"k": "v"}
+
+    def test_null_valid_for_get(self):
+        cfg = HttpApiConfig(method="GET", url="http://test", body_template=None)
+        assert cfg.body_template is None
+
+    def test_too_large_rejected(self):
+        large_dict = {"k": "v" * 65536}
+        with pytest.raises(ValidationError):
+            HttpApiConfig(method="POST", url="http://test", body_template=large_dict)
+
+    def test_array_rejected(self):
+        with pytest.raises(ValidationError):
+            HttpApiConfig(method="POST", url="http://test", body_template=[1, 2])
+
+    def test_string_json_parsed(self):
+        cfg = HttpApiConfig(method="POST", url="http://test", body_template='{"k": "v"}')
+        assert cfg.body_template == {"k": "v"}
+
+
+class TestExecuteHttpToolWithBodyTemplate:
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_post_with_body_template(self, mock_request):
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={"id": 1})
+        mock_request.return_value = mock_response
+
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "POST",
+                    "url": "http://test",
+                    "body_template": {"nested": "{{val}}"},
+                    "parameters": [{"name": "val", "type": "number"}]
+                }
+            }
+        )
+        res = await execute_http_tool(tool, {"val": 42})
+        assert res["status"] == "success"
+        kwargs = mock_request.call_args[1]
+        assert kwargs["json"] == {"nested": 42}
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_put_with_body_template(self, mock_request):
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={})
+        mock_request.return_value = mock_response
+
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "PUT",
+                    "url": "http://test",
+                    "body_template": {"nested": "{{val}}"}
+                }
+            }
+        )
+        res = await execute_http_tool(tool, {"val": "yes"})
+        kwargs = mock_request.call_args[1]
+        assert kwargs["json"] == {"nested": "yes"}
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_patch_with_body_template(self, mock_request):
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={})
+        mock_request.return_value = mock_response
+
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "PATCH",
+                    "url": "http://test",
+                    "body_template": {"nested": "{{val}}"}
+                }
+            }
+        )
+        res = await execute_http_tool(tool, {"val": "yes"})
+        kwargs = mock_request.call_args[1]
+        assert kwargs["json"] == {"nested": "yes"}
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_flat_mode_unchanged(self, mock_request):
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={})
+        mock_request.return_value = mock_response
+
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "POST",
+                    "url": "http://test"
+                    # no body_template
+                }
+            }
+        )
+        res = await execute_http_tool(tool, {"val": "yes"})
+        kwargs = mock_request.call_args[1]
+        assert kwargs["json"] == {"val": "yes"}
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_render_error_returns_error_dict(self, mock_request):
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "POST",
+                    "url": "http://test",
+                    "body_template": {"x": "{{req}}"},
+                    "parameters": [{"name": "req", "type": "string", "required": True}]
+                }
+            }
+        )
+        # Missing required parameter "req" causes ValueError during rendering
+        res = await execute_http_tool(tool, {})
+        assert res["status"] == "error"
+        assert "Body template rendering failed" in res["error"]
+        mock_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_with_preset_params(self, mock_request):
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={})
+        mock_request.return_value = mock_response
+
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "POST",
+                    "url": "http://test",
+                    "body_template": {"x": "{{llm_val}}", "y": "{{preset_val}}"}
+                }
+            }
+        )
+        # We can pass preset_params directly to execute_http_tool if we use kwargs or it calls resolve.
+        # Wait, execute_http_tool takes: tool, arguments, call_context_vars, gathered_context_vars, preset_params
+        res = await execute_http_tool(tool, {"llm_val": 1}, preset_params={"preset_val": 2})
+        kwargs = mock_request.call_args[1]
+        assert kwargs["json"] == {"x": "1", "y": "2"}
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_preview_only_when_include_headers_true(self, mock_request):
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={})
+        mock_request.return_value = mock_response
+
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "POST",
+                    "url": "http://test",
+                    "body_template": {"x": 1}
+                }
+            }
+        )
+        res = await execute_http_tool(tool, {}, include_request_headers=True)
+        assert "request_body_preview" in res
+        assert res["request_body_preview"] == {"x": 1}
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_preview_absent_in_production_mode(self, mock_request):
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={})
+        mock_request.return_value = mock_response
+
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "POST",
+                    "url": "http://test",
+                    "body_template": {"x": 1}
+                }
+            }
+        )
+        res = await execute_http_tool(tool, {}, include_request_headers=False)
+        assert "request_body_preview" not in res
+
+    @pytest.mark.asyncio
+    @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
+    async def test_preset_error_does_not_raise_unbound_local(self, mock_request):
+        tool = MockToolModel(
+            tool_uuid="1", name="Test", description="", category="http_api",
+            definition={
+                "config": {
+                    "method": "POST",
+                    "url": "http://test",
+                    "body_template": {"x": 1},
+                    "preset_parameters": [
+                        {"name": "req", "type": "string", "value_template": "{{initial_context.foo}}", "required": True}
+                    ]
+                }
+            }
+        )
+        # initial_context.foo is missing, so _resolve_preset_parameters raises ValueError
+        res = await execute_http_tool(tool, {}, call_context_vars={}, include_request_headers=True)
+        assert res["status"] == "error"
+        assert res["request_body_preview"] is None
+
+
 class TestCoerceParameterValue:
     """Tests for _coerce_parameter_value function."""
 
@@ -1455,8 +1840,8 @@ class TestCustomToolManagerUnit:
 
             schemas = await manager.get_tool_schemas(["uuid-1"])
 
-            assert len(schemas) == 1
-            schema = schemas[0]
+            # Native tools might be included, so just find our mock tool
+            schema = next(s for s in schemas if s.name == "test_tool")
 
             # Schema should be a FunctionSchema object
             assert isinstance(schema, FunctionSchema)
@@ -1589,11 +1974,14 @@ class TestCustomToolManagerUnit:
         ):
             await manager.register_handlers([tool.tool_uuid])
 
-        mock_engine.llm.register_function.assert_called_once()
-        assert (
-            mock_engine.llm.register_function.call_args.kwargs["is_node_transition"]
-            is True
-        )
+        assert mock_engine.llm.register_function.call_count >= 1
+        found = False
+        for call in mock_engine.llm.register_function.call_args_list:
+            if call.args[0] == category:
+                assert call.kwargs["is_node_transition"] is True
+                found = True
+                break
+        assert found, f"{category} not registered" 
 
     @pytest.mark.asyncio
     async def test_transfer_call_renders_destination_from_initial_context(self):

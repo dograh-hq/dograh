@@ -10,3 +10,4 @@ export {
     type ToolParameter,
 } from "./parameter-editor";
 export { UrlInput, type UrlValidationResult, validateUrl } from "./url-input";
+export { BodyTemplateEditor } from "./body-template-editor"; 

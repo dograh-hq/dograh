@@ -48,6 +48,7 @@ from api.services.pipecat.worker_runner import (
     wait_for_pipeline_worker_started,
 )
 from api.services.workflow.dto import ReactFlowDTO
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 
@@ -519,7 +520,9 @@ async def execute_text_chat_pending_turn(
             organization_id=workflow.organization_id,
         )
         if fetch_result:
-            initial_context = {**initial_context, **fetch_result}
+            initial_context = merge_external_initial_context(
+                initial_context, fetch_result
+            )
 
     await db_client.update_workflow_run(
         workflow_run_id,

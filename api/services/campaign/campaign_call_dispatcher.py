@@ -20,6 +20,7 @@ from api.services.campaign.errors import (
     PhoneNumberPoolExhaustedError,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.utils.common import get_backend_endpoints
 
@@ -271,7 +272,7 @@ class CampaignCallDispatcher:
 
             # Merge context variables (queued_run context already includes retry info if applicable)
             initial_context = {
-                **queued_run.context_variables,
+                **merge_external_initial_context({}, queued_run.context_variables),
                 "campaign_id": campaign.id,
                 "provider": provider.PROVIDER_NAME,
                 "source_uuid": queued_run.source_uuid,

@@ -317,7 +317,15 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
         suffix="pre-call-fetch",
     )
     pre_call_fetch = AsyncMock(
-        return_value={"customer_name": "Fetched", "account_tier": "gold"}
+        return_value={
+            "customer_name": "Fetched",
+            "account_tier": "gold",
+            "runtime_configuration": {
+                "llm_provider": "fetched-provider",
+                "llm_model": "fetched-model",
+            },
+            "mps_correlation_id": "fetched-correlation-id",
+        }
     )
     llm_responses = [
         MockLLMService(mock_steps=[], chunk_delay=0.001),
@@ -336,6 +344,10 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
             patch(
                 "api.services.workflow.text_chat_runner.execute_pre_call_fetch",
                 new=pre_call_fetch,
+            ),
+            patch(
+                "api.services.managed_model_services.ensure_mps_correlation_id",
+                new=AsyncMock(return_value="run-correlation-id"),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
@@ -380,6 +392,13 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
     assert fetch_kwargs["organization_id"] == user.selected_organization_id
     assert fetch_kwargs["call_context_vars"]["customer_name"] == "Explicit"
     assert fetch_kwargs["call_context_vars"]["page_url"] == "https://dograh.com/pricing"
+    assert fetch_kwargs["call_context_vars"]["runtime_configuration"] == {
+        "llm_provider": "openai",
+        "llm_model": "gpt-4.1",
+    }
+    assert (
+        fetch_kwargs["call_context_vars"]["mps_correlation_id"] == "run-correlation-id"
+    )
 
     workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
     assert workflow_run is not None
@@ -391,6 +410,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
             "llm_provider": "openai",
             "llm_model": "gpt-4.1",
         },
+        "mps_correlation_id": "run-correlation-id",
     }
 
 

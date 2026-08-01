@@ -18,6 +18,7 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
@@ -644,10 +645,11 @@ class CloudonixProvider(TelephonyProvider):
                     for key, value in {
                         **{
                             k: v
-                            for k, v in (
+                            for k, v in merge_external_initial_context(
+                                {},
                                 custom_parameters
                                 if isinstance(custom_parameters, dict)
-                                else {}
+                                else {},
                             ).items()
                             if k not in builtin_context
                         },

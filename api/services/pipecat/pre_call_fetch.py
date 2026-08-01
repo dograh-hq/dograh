@@ -10,6 +10,7 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.credential_auth import build_auth_header
 
 PRE_CALL_FETCH_TIMEOUT_SECONDS = 10
@@ -33,7 +34,7 @@ def _extract_initial_context(response_data: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("initial_context", "dynamic_variables"):
         value = container.get(key)
         if isinstance(value, dict):
-            return value
+            return merge_external_initial_context({}, value)
 
     return {}
 

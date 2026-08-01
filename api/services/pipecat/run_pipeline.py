@@ -72,6 +72,7 @@ from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
@@ -591,7 +592,9 @@ async def _run_pipeline_impl(
     # If there is some extra call_context_vars, fold them in. Persistence
     # happens once below, after runtime_configuration is also resolved.
     if call_context_vars:
-        merged_call_context_vars = {**merged_call_context_vars, **call_context_vars}
+        merged_call_context_vars = merge_external_initial_context(
+            merged_call_context_vars, call_context_vars
+        )
 
     # Get workflow for metadata (name, organization_id, call_disposition_codes)
     workflow = await db_client.get_workflow(workflow_id, **workflow_scope)

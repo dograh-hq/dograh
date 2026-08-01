@@ -105,11 +105,11 @@ async def invalidate_and_rebuild_auth(
 async def rebuild_headers_after_401(
     credential: Optional["ExternalCredentialModel"],
     headers: Dict[str, str],
-) -> bool:
+) -> Dict[str, str]:
     """If credential is an OAuth2 client credential, invalidate token and rebuild headers.
 
     Purges stale headers matching fresh credential header names case-insensitively.
-    Returns True if headers were rebuilt, or False if credential is not OAuth2.
+    Returns the dictionary of fresh credential headers added, or an empty dict.
     Raises ValueError on token refresh failure.
     """
     if (
@@ -123,8 +123,8 @@ async def rebuild_headers_after_401(
                     if existing_key.lower() == fresh_key.lower():
                         del headers[existing_key]
             headers.update(credential_headers)
-        return True
-    return False
+        return credential_headers
+    return {}
 
 
 def build_auth_header_from_data(

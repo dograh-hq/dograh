@@ -197,7 +197,6 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
             if (
                 status_code == 401
                 and delivery.credential_uuid
-                and delivery.last_status_code != 401
             ):
                 credential = await db_client.get_credential_by_uuid(
                     delivery.credential_uuid, delivery.organization_id
@@ -265,7 +264,7 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     except httpx.HTTPStatusError as retry_exc:
                         retry_status = retry_exc.response.status_code
                         retry_err = f"HTTP {retry_status} after OAuth token refresh"
-                        if retry_status in _RETRYABLE_STATUS_CODES:
+                        if retry_status in _RETRYABLE_STATUS_CODES or retry_status in (403, 404):
                             await _handle_transient_failure(
                                 delivery, attempt, retry_err, retry_status
                             )

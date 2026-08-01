@@ -95,35 +95,29 @@ async def execute_pre_call_fetch(
             async with httpx.AsyncClient(timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS) as client:
                 response = await client.post(url, headers=headers, json=payload)
             
-            # 401 token invalidation and single retry
-            if (
-                response.status_code == 401
-                and credential_uuid
-                and credential is not None
-                and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
-            ):
-                from api.utils.credential_auth import invalidate_and_rebuild_auth
-                logger.info(f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in pre-call fetch. Retrying once...")
-                
-                try:
-                    credential_headers = await invalidate_and_rebuild_auth(credential)
-                    if credential_headers:
-                        for fresh_key in credential_headers:
-                            for existing_key in list(headers):
-                                if existing_key.lower() == fresh_key.lower():
-                                    del headers[existing_key]
-                        headers.update(credential_headers)
-                    response = await client.post(url, headers=headers, json=payload)
-                except ValueError as reauth_exc:
-                    logger.error(
-                        f"Pre-call fetch: failed to refresh OAuth2 token: {reauth_exc}"
-                    )
-                    return {}
+                # 401 token invalidation and single retry
+                if (
+                    response.status_code == 401
+                    and credential_uuid
+                    and credential is not None
+                    and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
+                ):
+                    from api.utils.credential_auth import rebuild_headers_after_401
+                    logger.info(f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in pre-call fetch. Retrying once...")
+                    
+                    try:
+                        await rebuild_headers_after_401(credential, headers)
+                        response = await client.post(url, headers=headers, json=payload)
+                    except ValueError as reauth_exc:
+                        logger.error(
+                            f"Pre-call fetch: failed to refresh OAuth2 token: {reauth_exc}"
+                        )
+                        return {}
 
-            try:
-                response_data = response.json()
-            except Exception:
-                response_data = {}
+                try:
+                    response_data = response.json()
+                except Exception:
+                    response_data = {}
 
             if response.is_success:
                 if not isinstance(response_data, dict):

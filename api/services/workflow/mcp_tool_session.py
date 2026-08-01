@@ -105,6 +105,26 @@ class McpToolSession:
         self._name_map: Dict[str, str] = {}
         self.available: bool = False
 
+    async def _finalize_session(self) -> None:
+        """Wire up the session schemas and mark available after a successful connect."""
+        self._session = self._client._active_session
+        tools_schema = await self._client.get_tools_schema()
+        fallback = self._tool_uuid[:8] if self._tool_uuid else "server"
+        for fs in tools_schema.standard_tools:
+            ns_name = namespace_function_name(
+                self._tool_name, fs.name, fallback=fallback
+            )
+            self._name_map[ns_name] = fs.name
+            self._schemas.append(
+                FunctionSchema(
+                    name=ns_name,
+                    description=fs.description,
+                    properties=fs.properties,
+                    required=fs.required,
+                )
+            )
+        self.available = True
+
     async def start(self) -> None:
         """Connect, initialize, and cache the tool list.
 
@@ -122,24 +142,7 @@ class McpToolSession:
             self._client = MCPClient(params, tools_filter=self._tools_filter)
             await self._client.start()
             # Single, isolated touch of Pipecat internals (vendored submodule).
-            self._session = self._client._active_session
-            tools_schema = await self._client.get_tools_schema()
-
-            fallback = self._tool_uuid[:8] if self._tool_uuid else "server"
-            for fs in tools_schema.standard_tools:
-                ns_name = namespace_function_name(
-                    self._tool_name, fs.name, fallback=fallback
-                )
-                self._name_map[ns_name] = fs.name
-                self._schemas.append(
-                    FunctionSchema(
-                        name=ns_name,
-                        description=fs.description,
-                        properties=fs.properties,
-                        required=fs.required,
-                    )
-                )
-            self.available = True
+            await self._finalize_session()
             logger.info(
                 f"MCP session ready for tool '{self._tool_name}' "
                 f"({self._tool_uuid}): {sorted(self._name_map)}"
@@ -199,23 +202,7 @@ class McpToolSession:
                     self._client = MCPClient(params, tools_filter=self._tools_filter)
                     await self._client.start()
                     # Retry succeeded — rebuild schemas and mark available.
-                    self._session = self._client._active_session
-                    tools_schema = await self._client.get_tools_schema()
-                    fallback = self._tool_uuid[:8] if self._tool_uuid else "server"
-                    for fs in tools_schema.standard_tools:
-                        ns_name = namespace_function_name(
-                            self._tool_name, fs.name, fallback=fallback
-                        )
-                        self._name_map[ns_name] = fs.name
-                        self._schemas.append(
-                            FunctionSchema(
-                                name=ns_name,
-                                description=fs.description,
-                                properties=fs.properties,
-                                required=fs.required,
-                            )
-                        )
-                    self.available = True
+                    await self._finalize_session()
                     logger.info(
                         f"MCP session ready for tool '{self._tool_name}' "
                         f"({self._tool_uuid}) after token refresh: {sorted(self._name_map)}"
@@ -223,6 +210,12 @@ class McpToolSession:
                     return
                 except (KeyboardInterrupt, SystemExit):
                     raise
+                except asyncio.CancelledError as retry_exc:
+                    msg = "" if not retry_exc.args else str(retry_exc.args[0] or "")
+                    if not msg.startswith("Cancelled via cancel scope"):
+                        raise
+                    await self._degrade(retry_exc)
+                    return
                 except Exception as retry_exc:  # noqa: BLE001
                     await self._degrade(retry_exc)
                     return

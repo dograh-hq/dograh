@@ -92,27 +92,18 @@ class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
         # does, then hand it straight to the pinned pool so we do not call
         # super().__init__() only to discard the pool it creates.
         verify = kwargs.pop("verify", True)
+        cert = kwargs.pop("cert", None)
+        trust_env = kwargs.pop("trust_env", True)
+        
         if isinstance(verify, ssl.SSLContext):
             ssl_context: ssl.SSLContext | None = verify
-        elif verify is False:
-            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-        elif verify is True:
-            ssl_context = None  # httpcore uses its own default when None
         else:
-            # CA bundle path or any other truthy value — let httpcore handle it
-            # by delegating to httpx's default SSL context creation.
-            ssl_context = httpx.create_ssl_context(verify=verify)
+            ssl_context = httpx.create_ssl_context(
+                verify=verify, cert=cert, trust_env=trust_env
+            )
 
         http2 = kwargs.pop("http2", False)
         limits = kwargs.pop("limits", httpx.Limits())
-        cert = kwargs.pop("cert", None)
-        if cert is not None and ssl_context is not None:
-            if isinstance(cert, str):
-                ssl_context.load_cert_chain(cert)
-            elif isinstance(cert, tuple):
-                ssl_context.load_cert_chain(*cert)
 
         if kwargs:
             raise ValueError(

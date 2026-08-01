@@ -8,8 +8,10 @@ Spec §5.2 interface: module-level functions get_or_fetch_token() and invalidate
 """
 
 import asyncio
+import time
 from typing import Optional
 
+import cachetools
 import httpx
 import redis.asyncio as aioredis
 from loguru import logger
@@ -23,13 +25,20 @@ from api.utils.url_security import (
 _MIN_TTL = 30          # Floor: never cache for less than 30s
 _EXPIRY_MARGIN = 60    # Pre-expire: refresh 60s before real expiry
 _FETCH_TIMEOUT = 10.0  # Token endpoint timeout in seconds
-_locks: dict[str, asyncio.Lock] = {}
-_invalidation_timestamps: dict[str, float] = {}
+_locks: cachetools.TTLCache[str, asyncio.Lock] = cachetools.TTLCache(maxsize=1000, ttl=3600)
 _redis_client: Optional[aioredis.Redis] = None
 
 
 def _get_redis() -> aioredis.Redis:
-    return aioredis.from_url(REDIS_URL, decode_responses=True)
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = aioredis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+        )
+    return _redis_client
 
 
 def _get_lock(credential_uuid: str) -> asyncio.Lock:
@@ -56,7 +65,7 @@ async def get_or_fetch_token(
         ValueError: If the token fetch fails for any reason.
     """
     cache_key = f"oauth2_token:{credential_uuid}"
-    fetch_start = asyncio.get_running_loop().time()
+    fetch_start = time.time()
 
     if not force_refresh:
         try:
@@ -94,7 +103,15 @@ async def get_or_fetch_token(
         )
 
         # Check if an invalidation occurred during the in-flight token fetch
-        invalidated_at = _invalidation_timestamps.get(credential_uuid, 0.0)
+        invalidated_at = 0.0
+        try:
+            redis_client = _get_redis()
+            invalid_raw = await redis_client.get(f"oauth2_invalid:{credential_uuid}")
+            if invalid_raw:
+                invalidated_at = float(invalid_raw)
+        except Exception:
+            pass
+
         if invalidated_at > fetch_start:
             logger.info(
                 f"Skipping cache write for {credential_uuid}: invalidated during in-flight fetch."
@@ -106,7 +123,7 @@ async def get_or_fetch_token(
         # Short-lived tokens (expires_in <= _EXPIRY_MARGIN) must not be cached.
         net_ttl = expires_in - _EXPIRY_MARGIN
         if net_ttl > 0:
-            cache_ttl = max(net_ttl, _MIN_TTL)
+            cache_ttl = int(net_ttl)
             try:
                 redis_client = _get_redis()
                 await redis_client.setex(cache_key, cache_ttl, token)
@@ -137,13 +154,9 @@ async def invalidate_token(credential_uuid: str) -> None:
     """
     cache_key = f"oauth2_token:{credential_uuid}"
     try:
-        _invalidation_timestamps[credential_uuid] = asyncio.get_running_loop().time()
-    except RuntimeError:
-        import time
-        _invalidation_timestamps[credential_uuid] = time.monotonic()
-
-    try:
         redis_client = _get_redis()
+        # Mark invalidated with a TTL that exceeds any reasonable fetch timeout
+        await redis_client.setex(f"oauth2_invalid:{credential_uuid}", 3600, time.time())
         await redis_client.delete(cache_key)
         logger.info(f"OAuth2 token cache invalidated for {credential_uuid}")
     except Exception as exc:

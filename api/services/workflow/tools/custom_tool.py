@@ -379,7 +379,7 @@ async def execute_http_tool(
                     f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response. Retrying once..."
                 )
                 try:
-                    await rebuild_headers_after_401(credential, headers)
+                    credential_headers = await rebuild_headers_after_401(credential, headers)
                 except ValueError as e:
                     logger.error(f"Authentication failed for tool '{tool.name}': {e}")
                     return build_result(
@@ -388,8 +388,8 @@ async def execute_http_tool(
                             "error": f"Authentication failed: {e}",
                         }
                     )
-                if include_request_headers:
-                    for header_name, header_value in headers.items():
+                if include_request_headers and credential_headers:
+                    for header_name, header_value in credential_headers.items():
                         request_headers[header_name] = mask_key(str(header_value))
                 
                 response = await client.request(

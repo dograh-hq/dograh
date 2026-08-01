@@ -10,7 +10,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import WebhookCredentialType
 from api.sdk_expose import sdk_expose
-from api.services import credential_service
+from api.services.credential_service import validate_credential_data
 from api.services.auth.depends import get_user
 
 router = APIRouter(prefix="/credentials")
@@ -47,72 +47,6 @@ class CredentialResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-def validate_credential_data(
-    credential_type: WebhookCredentialType, credential_data: dict
-) -> None:
-    """Validate that credential_data matches the expected structure for the credential type.
-
-    Args:
-        credential_type: The type of credential
-        credential_data: The credential data to validate
-
-    Raises:
-        HTTPException: If validation fails
-    """
-    if credential_type == WebhookCredentialType.NONE:
-        # No data required
-        return
-
-    if credential_type == WebhookCredentialType.API_KEY:
-        if "header_name" not in credential_data or "api_key" not in credential_data:
-            raise HTTPException(
-                status_code=400,
-                detail="API Key credential requires 'header_name' and 'api_key' fields",
-            )
-
-    elif credential_type == WebhookCredentialType.BEARER_TOKEN:
-        if "token" not in credential_data:
-            raise HTTPException(
-                status_code=400,
-                detail="Bearer Token credential requires 'token' field",
-            )
-
-    elif credential_type == WebhookCredentialType.BASIC_AUTH:
-        if "username" not in credential_data or "password" not in credential_data:
-            raise HTTPException(
-                status_code=400,
-                detail="Basic Auth credential requires 'username' and 'password' fields",
-            )
-
-    elif credential_type == WebhookCredentialType.CUSTOM_HEADER:
-        if (
-            "header_name" not in credential_data
-            or "header_value" not in credential_data
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="Custom Header credential requires 'header_name' and 'header_value' fields",
-            )
-            
-    elif credential_type == WebhookCredentialType.OAUTH2_CLIENT_CREDENTIALS:
-        required = {"client_id", "client_secret", "token_url"}
-        missing_or_empty = [k for k in sorted(required) if not credential_data.get(k)]
-        if missing_or_empty:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"OAuth2 Client Credentials requires non-empty fields: "
-                    f"{', '.join(missing_or_empty)}"
-                ),
-            )
-        token_url = str(credential_data.get("token_url", ""))
-        if not token_url.lower().startswith("https://"):
-            raise HTTPException(
-                status_code=400,
-                detail="token_url must use HTTPS (must start with https://)",
-            )
 
 
 def build_credential_response(credential) -> CredentialResponse:
@@ -250,6 +184,7 @@ async def update_credential(
         )
 
     try:
+        # Pass through to service which handles validation and cache invalidation
         credential = await credential_service.update_credential_with_invalidation(
             credential_uuid=credential_uuid,
             organization_id=user.selected_organization_id,

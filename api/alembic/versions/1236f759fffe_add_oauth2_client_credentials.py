@@ -44,9 +44,23 @@ def upgrade() -> None:
     )
 
 def downgrade() -> None:
-    op.execute(
-        "DELETE FROM external_credentials WHERE credential_type = 'oauth2_client_credentials'"
+    # Safety guard: permanently deleting OAuth2 credentials (including encrypted
+    # config) without operator consent is data loss. Refuse the downgrade if any
+    # such rows still exist so the operator can migrate or delete them explicitly.
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM external_credentials "
+            "WHERE credential_type = 'oauth2_client_credentials'"
+        )
     )
+    count = result.scalar()
+    if count:
+        raise RuntimeError(
+            f"Cannot downgrade: {count} credential row(s) with "
+            "credential_type='oauth2_client_credentials' still exist. "
+            "Delete or migrate them first, then re-run the downgrade."
+        )
     op.sync_enum_values(
         enum_schema="public",
         enum_name="webhook_credential_type",

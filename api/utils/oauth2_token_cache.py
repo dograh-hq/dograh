@@ -215,6 +215,14 @@ async def _fetch_token(
     except ValueError as exc:
         raise ValueError(f"OAuth2 token_url is not permitted: {exc}") from exc
 
+    # Reject non-HTTPS token URLs to prevent sending client secrets in cleartext.
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(token_url)
+    if _parsed.scheme != "https":
+        raise ValueError(
+            "OAuth2 token_url must use HTTPS to protect client credentials."
+        )
+
     data: dict = {
         "grant_type": "client_credentials",
         "client_id": client_id,
@@ -254,8 +262,11 @@ async def _fetch_token(
             f"OAuth2 token endpoint returned non-JSON response: {exc}"
         ) from exc
 
+    if not isinstance(body, dict):
+        raise ValueError("OAuth2 token endpoint response must be a JSON object.")
+
     token = body.get("access_token")
-    if not token:
+    if not isinstance(token, str) or not token:
         raise ValueError(
             "OAuth2 token endpoint response missing 'access_token' field."
         )

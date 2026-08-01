@@ -19,10 +19,28 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.services.mcp_service import MCPClient
 
 from api.services.workflow.tools.mcp_tool import namespace_function_name
-from api.utils.credential_auth import build_auth_header
+from api.utils.credential_auth import build_auth_header, invalidate_and_rebuild_auth
 
 if TYPE_CHECKING:
     from api.db.models import ExternalCredentialModel
+
+
+def _is_auth_error(exc: BaseException) -> bool:
+    """Return True if the exception looks like an HTTP 401 / Unauthorized failure.
+
+    MCP connections use streamable-HTTP; a 401 may surface as an httpx.HTTPStatusError
+    or as a plain Exception whose message contains '401'/'Unauthorized'.
+    """
+    # httpx surfaces status errors directly in some code paths.
+    try:
+        import httpx as _httpx
+        if isinstance(exc, _httpx.HTTPStatusError) and exc.response.status_code == 401:
+            return True
+    except ImportError:
+        pass
+    # Fallback: string match for anyio/MCP-wrapped errors.
+    msg = str(exc).lower()
+    return "401" in msg or "unauthorized" in msg
 
 
 async def build_streamable_http_params(
@@ -31,12 +49,21 @@ async def build_streamable_http_params(
     credential: Optional["ExternalCredentialModel"],
     timeout_secs: int,
     sse_read_timeout_secs: int,
+    invalidate_first: bool = False,
 ) -> StreamableHttpParameters:
     """Build Pipecat/MCP streamable-HTTP params, injecting the auth header
-    from an ExternalCredentialModel (reuses the http_api credential path)."""
+    from an ExternalCredentialModel (reuses the http_api credential path).
+
+    Args:
+        invalidate_first: When True, invalidates any cached OAuth2 token before
+            building the auth header. Use this for the retry-after-401 path.
+    """
     headers: Optional[Dict[str, str]] = None
     if credential is not None:
-        auth = await build_auth_header(credential)
+        if invalidate_first:
+            auth = await invalidate_and_rebuild_auth(credential)
+        else:
+            auth = await build_auth_header(credential)
         headers = auth or None
     return StreamableHttpParameters(
         url=url,
@@ -141,6 +168,60 @@ class McpToolSession:
             # Defensive: if a future Pipecat/httpx version surfaces the connect
             # failure directly (e.g. httpx.ConnectError) instead of via the
             # anyio cancel-scope artifact above, still degrade gracefully.
+            #
+            # Special case: if this looks like an auth failure (401 / Unauthorized)
+            # and we have an OAuth2 credential, invalidate the cached token and
+            # retry once before degrading. This handles the common case where the
+            # cached token has expired or been revoked between calls.
+            if self._credential is not None and _is_auth_error(e):
+                try:
+                    logger.warning(
+                        f"MCP session '{self._tool_name}' ({self._tool_uuid}) received "
+                        "auth failure; invalidating cached OAuth2 token and retrying once."
+                    )
+                    params = await build_streamable_http_params(
+                        url=self._url,
+                        credential=self._credential,
+                        timeout_secs=self._timeout_secs,
+                        sse_read_timeout_secs=self._sse_read_timeout_secs,
+                        invalidate_first=True,
+                    )
+                    if self._client is not None:
+                        try:
+                            await self._client.close()
+                        except Exception:
+                            pass
+                        self._client = None
+                    self._client = MCPClient(params, tools_filter=self._tools_filter)
+                    await self._client.start()
+                    # Retry succeeded — rebuild schemas and mark available.
+                    self._session = self._client._active_session
+                    tools_schema = await self._client.get_tools_schema()
+                    fallback = self._tool_uuid[:8] if self._tool_uuid else "server"
+                    for fs in tools_schema.standard_tools:
+                        ns_name = namespace_function_name(
+                            self._tool_name, fs.name, fallback=fallback
+                        )
+                        self._name_map[ns_name] = fs.name
+                        self._schemas.append(
+                            FunctionSchema(
+                                name=ns_name,
+                                description=fs.description,
+                                properties=fs.properties,
+                                required=fs.required,
+                            )
+                        )
+                    self.available = True
+                    logger.info(
+                        f"MCP session ready for tool '{self._tool_name}' "
+                        f"({self._tool_uuid}) after token refresh: {sorted(self._name_map)}"
+                    )
+                    return
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except Exception as retry_exc:  # noqa: BLE001
+                    await self._degrade(retry_exc)
+                    return
             await self._degrade(e)
 
     async def _degrade(self, e: BaseException) -> None:

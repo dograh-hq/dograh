@@ -88,11 +88,28 @@ class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
     """HTTPX Transport that pins connections to a validated IP address while preserving SNI."""
 
     def __init__(self, pinned_ip: str, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+        # Build the ssl_context from kwargs the same way httpx.AsyncHTTPTransport
+        # does, then hand it straight to the pinned pool so we do not call
+        # super().__init__() only to discard the pool it creates.
+        verify = kwargs.pop("verify", True)
+        if isinstance(verify, ssl.SSLContext):
+            ssl_context: ssl.SSLContext | None = verify
+        elif verify is False:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+        elif verify is True:
+            ssl_context = None  # httpcore uses its own default when None
+        else:
+            # CA bundle path or any other truthy value — let httpcore handle it
+            # by delegating to httpx's default SSL context creation.
+            ssl_context = httpx.create_ssl_context(verify=verify)
+
+        # Do NOT call super().__init__(**kwargs) here — that would create a pool
+        # that is immediately overwritten, silently discarding all kwargs.
+        super().__init__()
         self._pool = httpcore.AsyncConnectionPool(
-            ssl_context=kwargs.get("verify", None)
-            if isinstance(kwargs.get("verify"), ssl.SSLContext)
-            else None,
+            ssl_context=ssl_context,
             network_backend=_PinnedNetworkBackend(pinned_ip),
         )
 

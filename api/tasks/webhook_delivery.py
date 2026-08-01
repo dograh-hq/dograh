@@ -207,7 +207,7 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     and credential.credential_type == "oauth2_client_credentials"
                 ):
                     try:
-                        await invalidate_and_rebuild_auth(credential)
+                        fresh_auth = await invalidate_and_rebuild_auth(credential)
                     except ValueError as reauth_exc:
                         await _handle_transient_failure(
                             delivery,
@@ -216,10 +216,51 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                             status_code,
                         )
                         return
-                    # Treat this as a transient failure so the fresh token is used.
-                    await _handle_transient_failure(
-                        delivery, attempt, error, status_code
-                    )
+                    # Retry immediately with the fresh token rather than scheduling
+                    # a transient failure — this ensures the last allowed attempt is
+                    # not wasted dead-lettering without ever sending the fresh token.
+                    retry_headers = dict(headers)
+                    # Remove stale auth headers case-insensitively before applying
+                    # the refreshed ones so no old Authorization header lingers.
+                    for fresh_key in fresh_auth:
+                        for existing_key in list(retry_headers):
+                            if existing_key.lower() == fresh_key.lower():
+                                del retry_headers[existing_key]
+                    retry_headers.update(fresh_auth)
+                    try:
+                        async with httpx.AsyncClient() as retry_client:
+                            if method in ("POST", "PUT", "PATCH"):
+                                retry_response = await retry_client.request(
+                                    method=method,
+                                    url=delivery.endpoint_url,
+                                    json=delivery.payload,
+                                    headers=retry_headers,
+                                    timeout=timeout,
+                                )
+                            else:
+                                retry_response = await retry_client.request(
+                                    method=method,
+                                    url=delivery.endpoint_url,
+                                    headers=retry_headers,
+                                    timeout=timeout,
+                                )
+                        retry_response.raise_for_status()
+                        await db_client.mark_webhook_delivery_succeeded(
+                            delivery.id, attempt, retry_response.status_code
+                        )
+                        logger.info(
+                            f"Webhook '{delivery.webhook_name}' delivery {delivery.id} "
+                            f"succeeded after OAuth token refresh: {retry_response.status_code}"
+                        )
+                        return
+                    except httpx.HTTPStatusError:
+                        # Fresh token also rejected — treat as transient so the row
+                        # gets one more scheduled attempt (or dead-letters if budget
+                        # is exhausted), matching the original behaviour.
+                        pass
+                    except httpx.RequestError:
+                        pass
+                    await _handle_transient_failure(delivery, attempt, error, status_code)
                     return
 
             # Permanent failure for all other 4xx. Dead-letter it.

@@ -278,15 +278,22 @@ async def _execute_http_resolver(
                         f"Authentication failed for transfer resolver credential: {exc}",
                     ) from exc
                 if credential_headers:
+                    # Remove any stale auth headers case-insensitively before
+                    # applying the refreshed ones so a previously set
+                    # Authorization header with different casing doesn't linger.
+                    for fresh_key in credential_headers:
+                        for existing_key in list(headers):
+                            if existing_key.lower() == fresh_key.lower():
+                                del headers[existing_key]
                     headers.update(credential_headers)
-                
+
                 response = await client.request(
                     method=method,
                     url=url,
                     headers=headers,
                     json=body,
                 )
-                
+
         duration_ms = int((time.monotonic() - started_at) * 1000)
     except httpx.TimeoutException as exc:
         raise TransferResolutionError(

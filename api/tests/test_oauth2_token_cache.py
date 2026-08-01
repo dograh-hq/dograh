@@ -183,3 +183,38 @@ class TestOAuth2TokenCache:
     async def test_invalidate_token(self, mock_redis):
         await OAuth2TokenCache.invalidate_token("test-uuid")
         mock_redis.delete.assert_called_once_with("oauth2_token:test-uuid")
+
+
+# ---------------------------------------------------------------------------
+# Security: SSRF guard and HTTPS enforcement (NOT using autouse mock_ssrf_guard)
+# These tests exercise the real validation path in _fetch_token so that a
+# regression in the guard (e.g. dropping the ValueError wrapping) is caught.
+# ---------------------------------------------------------------------------
+class TestFetchTokenSecurityGuards:
+    """Tests that verify security-critical rejection paths without mocking the guard."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_http_token_url(self):
+        """Client secret must not be sent over a plaintext HTTP connection."""
+        from api.utils.oauth2_token_cache import _fetch_token
+
+        with pytest.raises(ValueError, match="HTTPS"):
+            await _fetch_token(
+                client_id="id",
+                client_secret="secret",
+                token_url="http://example.com/token",  # HTTP, not HTTPS
+                scope=None,
+                audience=None,
+            )
+
+    def test_rejects_private_ip_token_url_in_saas(self, monkeypatch):
+        """In SaaS mode, localhost token URLs must be rejected by the SSRF guard."""
+        # Patch the DEPLOYMENT_MODE that url_security reads at call time.
+        monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
+        from api.utils.url_security import validate_user_configured_service_url
+
+        # localhost is special-cased before any DNS lookup in validate_user_configured_service_url.
+        with pytest.raises(ValueError, match="localhost"):
+            validate_user_configured_service_url(
+                "https://localhost/token", field_name="token_url"
+            )

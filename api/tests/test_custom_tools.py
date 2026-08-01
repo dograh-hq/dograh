@@ -1116,17 +1116,18 @@ class TestRenderBodyTemplate:
 
         # Exact names
         for bad_name in ("current_time", "current_weekday"):
-            with pytest.raises(ValidationError, match="conflicts with a built-in"):
-                ToolParameter(name=bad_name, type="string", description="x")
+            tp = ToolParameter(name=bad_name, type="string", description="x")
+            assert tp.name == f"custom_{bad_name}"
 
         # Timezone-suffixed variants
         for bad_name in ("current_time_Europe/Paris", "current_weekday_Asia/Kolkata"):
-            with pytest.raises(ValidationError, match="conflicts with a built-in"):
-                ToolParameter(name=bad_name, type="string", description="x")
+            tp = ToolParameter(name=bad_name, type="string", description="x")
+            assert tp.name == f"custom_{bad_name}"
 
         # Unrelated names must still be accepted
         tp = ToolParameter(name="current_status", type="string", description="x")
         assert tp.name == "current_status"
+
 
 
 

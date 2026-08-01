@@ -206,6 +206,8 @@ def _coerce_typed_leaves(
     rendered_node: Any,
     arguments: dict[str, Any],
     param_type_map: dict[str, str],
+    call_context_vars: dict[str, Any] | None = None,
+    gathered_context_vars: dict[str, Any] | None = None,
 ) -> Any:
     """Walk the original template and rendered output in parallel.
 
@@ -230,7 +232,7 @@ def _coerce_typed_leaves(
 
         return {
             rendered_key: _coerce_typed_leaves(
-                orig_v, rendered_v, arguments, param_type_map
+                orig_v, rendered_v, arguments, param_type_map, call_context_vars, gathered_context_vars
             )
             for (_, orig_v), (rendered_key, rendered_v) in zip(
                 original_node.items(), rendered_node.items()
@@ -242,7 +244,7 @@ def _coerce_typed_leaves(
             return rendered_node
         # render_template preserves list length (line 87); zip is safe.
         return [
-            _coerce_typed_leaves(orig_item, rend_item, arguments, param_type_map)
+            _coerce_typed_leaves(orig_item, rend_item, arguments, param_type_map, call_context_vars, gathered_context_vars)
             for orig_item, rend_item in zip(original_node, rendered_node)
         ]
 
@@ -250,6 +252,19 @@ def _coerce_typed_leaves(
         m = _WHOLE_PLACEHOLDER_RE.match(original_node)
         if m:
             param_name = m.group(1)
+            
+            if param_name.startswith("initial_context."):
+                key_path = param_name[len("initial_context."):]
+                from api.utils.template_renderer import get_nested_value
+                val = get_nested_value(call_context_vars or {}, key_path)
+                return val if val is not None else rendered_node
+
+            if param_name.startswith("gathered_context."):
+                key_path = param_name[len("gathered_context."):]
+                from api.utils.template_renderer import get_nested_value
+                val = get_nested_value(gathered_context_vars or {}, key_path)
+                return val if val is not None else rendered_node
+
             # LLM parameter names never contain dots; "initial_context.x" will
             # not appear in param_type_map and defaults to "string" → no coercion.
             declared_type = param_type_map.get(param_name, "string")
@@ -292,22 +307,6 @@ def render_body_template(
     Raises:
         ValueError: If a required parameter has no value.
     """
-    _RESERVED_NAMES = {"initial_context", "gathered_context"}
-    _BUILTIN_PREFIXES = ("current_time", "current_weekday")
-    for p in parameters or []:
-        p_name = p.get("name", "")
-        if p_name in _RESERVED_NAMES:
-            raise ValueError(
-                f"Parameter name '{p_name}' is reserved and cannot be used."
-            )
-        if any(
-            p_name == pref or p_name.startswith(pref + "_")
-            for pref in _BUILTIN_PREFIXES
-        ):
-            raise ValueError(
-                f"Parameter name '{p_name}' conflicts with a built-in template variable."
-            )
-
     # Build param name → declared type for post-render coercion.
     param_type_map: dict[str, str] = {
         p.get("name", ""): p.get("type", "string")
@@ -411,8 +410,14 @@ def render_body_template(
         raise ValueError("Rendered body template is not a JSON object.")
 
     # Restore correct types for whole-placeholder number/boolean/object/array leaves.
-    # _render_string stringifies these via str(value) (template_renderer.py:216).
-    return _coerce_typed_leaves(template, rendered, arguments, param_type_map)
+    return _coerce_typed_leaves(
+        template,
+        rendered,
+        arguments,
+        param_type_map,
+        call_context_vars=call_context_vars,
+        gathered_context_vars=gathered_context_vars,
+    )
 
 
 def _resolve_preset_parameters(

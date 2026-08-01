@@ -1045,12 +1045,9 @@ const data = await response.json();`;
                             httpMethod={httpMethod}
                             onHttpMethodChange={(method) => {
                                 setHttpMethod(method);
-                                // GET/DELETE do not support a body — hide the toggle
-                                // but keep bodyTemplate in state so switching back to
-                                // POST/PUT/PATCH restores the authored template.
-                                if (method === "GET" || method === "DELETE") {
-                                    setUseBodyTemplate(false);
-                                }
+                                // GET/DELETE do not support a body — the editor is hidden
+                                // but useBodyTemplate and bodyTemplate are preserved in state
+                                // so switching back to POST/PUT/PATCH restores them.
                             }}
                             url={url}
                             onUrlChange={setUrl}

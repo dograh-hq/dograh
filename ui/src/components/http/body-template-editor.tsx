@@ -73,7 +73,7 @@ export function BodyTemplateEditor({
                 setError("Body template must be a JSON object, not an array or primitive.");
                 return;
             }
-            const size = new TextEncoder().encode(text).length;
+            const size = new TextEncoder().encode(JSON.stringify(parsed)).length;
             if (size > 65_536) {
                 setError(`Template too large (${(size / 1024).toFixed(1)} KB). Max 64 KB.`);
                 return;

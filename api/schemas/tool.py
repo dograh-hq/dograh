@@ -37,25 +37,18 @@ def _llm_hint(text: str) -> dict[str, str]:
 
 
 def _validate_param_name_not_reserved(v: str) -> str:
+    original = v
+    if "." in v:
+        v = v.replace(".", "_")
+
     if v in {"initial_context", "gathered_context"}:
-        raise ValueError(f"Parameter name '{v}' is reserved and cannot be used.")
-    # The template renderer resolves current_time and current_weekday (and their
-    # _<TZ> suffixed variants) as built-in variables *before* looking up the
-    # caller-supplied argument.  A parameter with any of these names would be
-    # silently replaced by a generated timestamp/weekday in the outbound payload.
+        v = f"{v}_custom"
+        
     _BUILTIN_PREFIXES = ("current_time", "current_weekday")
     for prefix in _BUILTIN_PREFIXES:
         if v == prefix or v.startswith(prefix + "_"):
-            raise ValueError(
-                f"Parameter name '{v}' conflicts with a built-in template variable "
-                f"('{prefix}' and '{prefix}_<TZ>' are reserved). "
-                "Use a different name to avoid silent value replacement."
-            )
-    if "." in v:
-        raise ValueError(
-            f"Parameter name '{v}' contains a dot, which is reserved for nested "
-            "path syntax in templates. Use underscores instead."
-        )
+            v = f"custom_{v}"
+            
     return v
 
 

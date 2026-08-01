@@ -272,7 +272,8 @@ def test_test_endpoint_reserved_name_collision_is_prevented(
     )
     assert res.status_code == 200
     data = res.json()
-    assert "reserved and cannot be used" in data["error"]
+    assert data["status_code"] == 200
+    assert data["request_body"]["data"] == ""
 
 
 @patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)

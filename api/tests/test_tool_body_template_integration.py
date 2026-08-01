@@ -205,31 +205,40 @@ def test_test_endpoint_coerces_deeply_nested_types(mock_request, mock_get_tool):
                 "url": "http://test",
                 "body_template": {
                     "outer": {
-                        "inner_arr": [{"target": "{{val}}"}, {"other": "{{other_val}}"}],
-                        "deep": {"deeper": {"val": "{{val}}"}}
+                        "inner_arr": [
+                            {"target": "{{val}}"},
+                            {"other": "{{other_val}}"},
+                        ],
+                        "deep": {"deeper": {"val": "{{val}}"}},
                     }
                 },
-                "parameters": [{"name": "val", "type": "number"}, {"name": "other_val", "type": "boolean"}],
+                "parameters": [
+                    {"name": "val", "type": "number"},
+                    {"name": "other_val", "type": "boolean"},
+                ],
             }
         },
     )
 
     res = client.post(
-        "/tools/uuid/test", json={"llm_params": {"val": 42, "other_val": False}, "preset_params": {}}
+        "/tools/uuid/test",
+        json={"llm_params": {"val": 42, "other_val": False}, "preset_params": {}},
     )
     assert res.status_code == 200
     data = res.json()
     assert data["request_body"] == {
         "outer": {
             "inner_arr": [{"target": 42}, {"other": False}],
-            "deep": {"deeper": {"val": 42}}
+            "deep": {"deeper": {"val": 42}},
         }
     }
 
 
 @patch("api.routes.tool.db_client.get_tool_by_uuid")
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
-def test_test_endpoint_reserved_name_collision_is_prevented(mock_request, mock_get_tool):
+def test_test_endpoint_reserved_name_collision_is_prevented(
+    mock_request, mock_get_tool
+):
     app = _make_test_app()
     client = TestClient(app)
 
@@ -255,7 +264,11 @@ def test_test_endpoint_reserved_name_collision_is_prevented(mock_request, mock_g
     # In production, initial_context will be injected by the call runner.
     # In the test endpoint, initial_context won't be present so it defaults to "".
     res = client.post(
-        "/tools/uuid/test", json={"llm_params": {"initial_context": {"phone": "hacked"}}, "preset_params": {}}
+        "/tools/uuid/test",
+        json={
+            "llm_params": {"initial_context": {"phone": "hacked"}},
+            "preset_params": {},
+        },
     )
     assert res.status_code == 200
     data = res.json()

@@ -27,10 +27,10 @@ def validate_parameter_name(name: str) -> str:
     if not name:
         return ""
     clean_name = name.strip()
-    if not re.match(r"^[a-zA-Z0-9_]+$", clean_name):
+    if not re.match(r"^[a-zA-Z0-9_\-]+$", clean_name):
         raise ValueError(
             f"Invalid parameter name '{name}'. Parameter names must contain only "
-            "alphanumeric characters and underscores."
+            "alphanumeric characters, underscores, and dashes."
         )
     return clean_name
 
@@ -406,19 +406,16 @@ def render_body_template(
                         f"Required parameter '{name}' has no value. "
                         "The agent must collect this before calling the tool."
                     )
-            # Only enforce strict dotted-path existence for non-object parameters,
-            # or if the base object is missing entirely. If an object parameter is
-            # provided, we shouldn't fail the whole call just because a referenced
-            # sub-field inside it is legitimately absent.
-            if param_type != "object":
-                for dotted_path in required_dotted_paths:
-                    if dotted_path.startswith(f"{name}."):
-                        sub_val = _get_dotted_val(arguments, dotted_path)
-                        if sub_val is None or sub_val == "":
-                            raise ValueError(
-                                f"Required parameter path '{dotted_path}' has no value. "
-                                "The agent must collect this before calling the tool."
-                            )
+            # Enforce strict dotted-path existence for all parameters, including objects,
+            # so incomplete payloads never leave the service.
+            for dotted_path in required_dotted_paths:
+                if dotted_path.startswith(f"{name}."):
+                    sub_val = _get_dotted_val(arguments, dotted_path)
+                    if sub_val is None or sub_val == "":
+                        raise ValueError(
+                            f"Required parameter path '{dotted_path}' has no value. "
+                            "The agent must collect this before calling the tool."
+                        )
 
     # Build render context.
     #

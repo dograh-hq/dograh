@@ -101,8 +101,8 @@ export function ParameterEditor({
                                 placeholder="e.g., customer_name"
                                 value={param.name}
                                 onChange={(e) => {
-                                    // Strip invalid characters and whitespace
-                                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
+                                    // Trim whitespace but allow dashes to pass through to backend validation
+                                    const sanitized = e.target.value.trim();
                                     updateParameter(index, "name", sanitized);
                                 }}
                                 disabled={disabled}
@@ -248,7 +248,8 @@ export function PresetParameterEditor({
                                 placeholder="e.g., phone_number"
                                 value={param.name}
                                 onChange={(e) => {
-                                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
+                                    // Trim whitespace but allow dashes to pass through to backend validation
+                                    const sanitized = e.target.value.trim();
                                     updateParameter(index, "name", sanitized);
                                 }}
                                 disabled={disabled}

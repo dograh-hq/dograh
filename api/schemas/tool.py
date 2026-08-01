@@ -44,6 +44,12 @@ def _validate_param_name_not_reserved(v: str) -> str:
             "Use a flat snake_case name without spaces (e.g. 'email_address')."
         )
 
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+", v):
+        raise ValueError(
+            f"Parameter name '{v}' must contain only alphanumeric characters, underscores, and dashes. "
+            "Use a flat snake_case name (e.g. 'email_address')."
+        )
+
     # Reject dotted names — dots are path separators in the template renderer;
     # silently normalising customer.id → customer_id would leave {{customer.id}}
     # placeholders unresolvable.

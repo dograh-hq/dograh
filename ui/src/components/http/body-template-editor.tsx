@@ -47,12 +47,12 @@ function getObjectDepth(value: unknown): number {
 
     while (stack.length > 0) {
         const [curr, depth] = stack.pop()!;
-        if (depth > maxDepth) maxDepth = depth;
-
-        // Fast fail if we exceed the enforced limit (20)
-        if (maxDepth > 20) return maxDepth;
-
+        
         if (typeof curr === "object" && curr !== null) {
+            if (depth > maxDepth) maxDepth = depth;
+            // Fast fail if we exceed the enforced limit (20)
+            if (maxDepth > 20) return maxDepth;
+
             for (const key of Object.keys(curr)) {
                 stack.push([(curr as Record<string, unknown>)[key], depth + 1]);
             }
@@ -123,10 +123,11 @@ export function BodyTemplateEditor({
         (name) => !isParamUsed(name, raw)
     );
     const reservedConflicts = normalizedParams.filter(
-        (n) => RESERVED_PARAM_NAMES.includes(n) && isParamUsed(n, raw)
+        (n) => RESERVED_PARAM_NAMES.includes(n)
     );
-    const builtinConflicts = normalizedParams.filter(
-        (n) => isBuiltinConflict(n) && isParamUsed(n, raw)
+
+    const builtinConflicts = normalizedParams.filter((n) =>
+        isBuiltinConflict(n)
     );
 
     useEffect(() => {

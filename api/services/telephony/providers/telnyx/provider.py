@@ -100,11 +100,12 @@ class TelnyxProvider(TelephonyProvider):
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
 
         # Build the WebSocket stream URL for inline audio streaming
+        from api.services.telephony import ws_auth
+
         workflow_id = kwargs.get("workflow_id")
         organization_id = kwargs.get("organization_id")
-        stream_url = (
-            f"{wss_backend_endpoint}/api/v1/telephony/ws"
-            f"/{workflow_id}/{organization_id}/{workflow_run_id}"
+        stream_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
         )
 
         # Build the webhook URL for status callbacks

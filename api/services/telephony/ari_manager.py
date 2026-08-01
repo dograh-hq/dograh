@@ -505,11 +505,22 @@ class ARIConnection:
         """
         # v() appends URI query params to the websocket_client.conf URL
         # e.g. wss://api.dograh.com/ws/ari?workflow_id=1&organization_id=2&workflow_run_id=3
-        transport_data = (
-            f"v(workflow_id={workflow_id},"
+        from api.services.telephony import ws_auth
+
+        vparams = (
+            f"workflow_id={workflow_id},"
             f"organization_id={self.organization_id},"
-            f"workflow_run_id={workflow_run_id})"
+            f"workflow_run_id={workflow_run_id}"
         )
+        # Mint the same capability token the carrier providers use, so ARI media
+        # survives TELEPHONY_WS_TOKEN_ENFORCE (the shared handler verifies every
+        # /ws connection, including /ws/ari). No-op unless a secret is configured.
+        ws_token = ws_auth.mint_ws_token(
+            workflow_id, self.organization_id, workflow_run_id
+        )
+        if ws_token:
+            vparams += f",token={ws_token}"
+        transport_data = f"v({vparams})"
 
         params = {
             "app": self.app_name,

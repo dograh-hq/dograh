@@ -581,19 +581,36 @@ async def websocket_ari_endpoint(websocket: WebSocket):
     )
 
 
+@router.websocket("/ws/{workflow_id}/{organization_id}/{workflow_run_id}/{token}")
 @router.websocket("/ws/{workflow_id}/{organization_id}/{workflow_run_id}")
 async def websocket_endpoint(
-    websocket: WebSocket, workflow_id: int, organization_id: int, workflow_run_id: int
+    websocket: WebSocket,
+    workflow_id: int,
+    organization_id: int,
+    workflow_run_id: int,
+    token: str | None = None,
 ):
-    """WebSocket endpoint for real-time call handling - routes to provider-specific handlers."""
+    """WebSocket endpoint for real-time call handling - routes to provider-specific handlers.
+
+    Two shapes, one handler. The four-segment form carries the capability token
+    in the path because carriers strip query strings — Twilio documents that
+    outright, and no other carrier promises otherwise (see ``ws_auth``). The
+    three-segment form is what tokenless deployments dial (no secret set, the
+    default), and it is not a way around the check: with a secret configured
+    the shared handler rejects it 4401 like any other unauthenticated peer.
+    """
     await websocket.accept()
     await _handle_telephony_websocket(
-        websocket, workflow_id, organization_id, workflow_run_id
+        websocket, workflow_id, organization_id, workflow_run_id, token=token
     )
 
 
 async def _handle_telephony_websocket(
-    websocket: WebSocket, workflow_id: int, organization_id: int, workflow_run_id: int
+    websocket: WebSocket,
+    workflow_id: int,
+    organization_id: int,
+    workflow_run_id: int,
+    token: str | None = None,
 ):
     """Shared WebSocket handler logic (connection already accepted).
 
@@ -618,9 +635,12 @@ async def _handle_telephony_websocket(
         # is a no-op until an operator sets TELEPHONY_WS_TOKEN_SECRET; once set,
         # invalid tokens are logged, and rejected only when enforcement is on.
         if ws_auth.token_configured():
-            token = websocket.query_params.get("token")
+            # Carriers deliver the token as a path segment (query strings do not
+            # survive Twilio and are unpromised elsewhere); ARI delivers it as a
+            # query param through v(). Same HMAC over the same triple either way.
+            presented = token or websocket.query_params.get("token")
             if not ws_auth.verify_ws_token(
-                workflow_id, organization_id, workflow_run_id, token
+                workflow_id, organization_id, workflow_run_id, presented
             ):
                 if ws_auth.enforcement_enabled():
                     logger.warning(

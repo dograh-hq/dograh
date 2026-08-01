@@ -157,6 +157,8 @@ Tracing activates automatically as soon as credentials are available — either 
 
 Carriers dial the media WebSocket back at `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}`. Those ids travel in a caller-visible URL, so on their own they are a guessable capability. Setting a secret makes Dograh sign that URL with an HMAC and verify the signature when the socket opens.
 
+The signature travels as a trailing path segment — `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}/{token}` — because carriers do not reliably forward query strings. Twilio [documents that its `<Stream>` url "does not support query string parameters"](https://www.twilio.com/docs/voice/twiml/stream) and drops them outright. Asterisk ARI is the exception: it connects to `/api/v1/telephony/ws/ari` and passes `token` as a query parameter alongside its other routing values, which works because Asterisk builds that URL itself.
+
 | Variable | Default | Description |
 |---|---|---|
 | `TELEPHONY_WS_TOKEN_SECRET` | `null` | Secret used to sign the media WebSocket URL. Unset leaves URLs unchanged and the check disabled |
@@ -170,7 +172,7 @@ Roll it out in two steps so no call is dropped:
 Setting `TELEPHONY_WS_TOKEN_ENFORCE` without a secret does nothing at all — the check is skipped entirely rather than rejecting every connection.
 
 <Note>
-The signed URL is a bearer credential. Dograh redacts it from its own logs, but if you forward carrier-side request logs (Twilio's debugger, Telnyx's request inspector) to a third party, the token goes with them.
+The signed URL is a bearer credential, and it is not hidden: the token appears in full in the `api` and nginx access logs, and in carrier-side request logs (Twilio's debugger, Telnyx's request inspector). Anyone who can read those logs can open the media socket for a run that is still in `initialized`. Treat log access as socket access.
 </Note>
 
 ---

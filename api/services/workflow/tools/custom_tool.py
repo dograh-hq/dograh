@@ -307,16 +307,20 @@ def render_body_template(
     # source_uuid). HTTP tool parameters may legitimately share those names and must
     # still be validated.
     import re as _re
+    # Captures the top-level variable name before any dot path or fallback filter.
+    # Matches {{name}}, {{name.path}}, {{name | fallback}}, {{name.path | fallback}}.
     _TMPL_VAR_RE = _re.compile(
-        r"\{\{\s*([^.|\s}]+)(?:\s*\|[^}]*)?\s*\}\}"
+        r"\{\{\s*([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|[^}]*)?\s*\}\}"
     )
     template_str = json.dumps(template) if template else "{}"
-    # Only keep bare top-level names (no dot path) and no fallback filter.
+    # Collect all referenced top-level names (no fallback filter — those are optional by design).
+    # Skip system dot-path variables like initial_context.x and gathered_context.x.
+    _SYSTEM_PREFIXES = {"initial_context", "gathered_context", "current_time", "current_weekday"}
     required_in_template: set[str] = {
         m.group(1)
         for m in _TMPL_VAR_RE.finditer(template_str)
-        if "|" not in template_str[m.start():m.end()]  # skip fallback vars
-        and "." not in m.group(1)  # skip nested paths
+        if "|" not in template_str[m.start():m.end()]  # skip fallback vars (they're optional)
+        and m.group(1) not in _SYSTEM_PREFIXES  # skip system-injected prefixes
     }
 
     for param in parameters or []:

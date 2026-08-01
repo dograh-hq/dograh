@@ -757,9 +757,11 @@ export default function ToolDetailPage() {
             (useBodyTemplate ? (bodyTemplate !== null) : (parameters.length > 0 || presetParameters.length > 0));
 
         const bodyOutput = useBodyTemplate && bodyTemplate ? bodyTemplate : exampleBody;
+        const bodyComment = useBodyTemplate
+            ? "\n// Note: body below shows the unresolved template. Placeholders are filled at runtime."
 
         return `// ${tool.name}
-// ${tool.description || "HTTP API Tool"}
+// ${tool.description || "HTTP API Tool"}${useBodyTemplate && bodyTemplate ? bodyComment : ""}
 
 const response = await fetch("${url}", {
     method: "${httpMethod}",
@@ -1040,7 +1042,15 @@ const data = await response.json();`;
                             description={description}
                             onDescriptionChange={setDescription}
                             httpMethod={httpMethod}
-                            onHttpMethodChange={setHttpMethod}
+                            onHttpMethodChange={(method) => {
+                                setHttpMethod(method);
+                                // GET/DELETE do not support a body — silently reset the
+                                // template toggle so the user isn't surprised by dropped config.
+                                if (method === "GET" || method === "DELETE") {
+                                    setUseBodyTemplate(false);
+                                    setBodyTemplate(null);
+                                }
+                            }}
                             url={url}
                             onUrlChange={setUrl}
                             credentialUuid={credentialUuid}

@@ -138,7 +138,15 @@ export function BodyTemplateEditor({
                                 variant={unusedParams.includes(name) ? "outline" : "secondary"}
                                 className="font-mono text-xs cursor-pointer select-none"
                                 title={`Click to copy {{${name}}}`}
+                                tabIndex={0}
+                                role="button"
                                 onClick={() => navigator.clipboard.writeText(`{{${name}}}`)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        navigator.clipboard.writeText(`{{${name}}}`);
+                                    }
+                                }}
                             >
                                 {`{{${name}}}`}
                             </Badge>

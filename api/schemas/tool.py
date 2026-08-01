@@ -205,12 +205,15 @@ class HttpApiConfig(BaseModel):
             )
 
         def _check_depth(node: Any, level: int = 1) -> None:
-            if level > 20:
-                raise ValueError("body_template nesting depth exceeds maximum allowed (20).")
+            # Only containers (dict/list) consume a nesting level; scalars do not.
             if isinstance(node, dict):
+                if level > 20:
+                    raise ValueError("body_template nesting depth exceeds maximum allowed (20).")
                 for val in node.values():
                     _check_depth(val, level + 1)
             elif isinstance(node, list):
+                if level > 20:
+                    raise ValueError("body_template nesting depth exceeds maximum allowed (20).")
                 for item in node:
                     _check_depth(item, level + 1)
 

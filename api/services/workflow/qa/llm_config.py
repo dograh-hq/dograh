@@ -5,6 +5,8 @@ import random
 from api.db.models import WorkflowRunModel
 from api.services.workflow.dto import QANodeData
 
+QA_USAGE_CONTEXT = "qa_analysis"
+
 
 async def resolve_llm_config(
     qa_data: QANodeData, workflow_run: WorkflowRunModel

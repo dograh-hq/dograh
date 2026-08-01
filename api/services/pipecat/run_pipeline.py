@@ -643,6 +643,12 @@ async def _run_pipeline_impl(
     else:
         user_config = resolved_user_config
 
+    workflow_graph = WorkflowGraph(
+        ReactFlowDTO.model_validate(run_workflow_json),
+        skip_instance_constraints_for={"trigger"},
+    )
+    uses_variable_extraction = workflow_graph.uses_variable_extraction()
+
     from api.services.managed_model_services import (
         MPS_CORRELATION_ID_CONTEXT_KEY,
         ensure_mps_correlation_id,
@@ -686,6 +692,20 @@ async def _run_pipeline_impl(
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
 
+    # A shared LLM cannot carry an extraction usage_context without also tagging
+    # normal conversation or context-summarization requests. Create a dedicated
+    # client only for the managed provider; other providers ignore usage_context.
+    variable_extraction_llm = (
+        create_llm_service(
+            user_config,
+            correlation_id=mps_correlation_id,
+            usage_context="variable_extraction",
+        )
+        if uses_variable_extraction
+        and user_config.llm.provider == ServiceProviders.DOGRAH.value
+        else inference_llm or llm
+    )
+
     # Stamp the providers/models actually resolved for this run onto
     # initial_context so they're available for post-call analytics
     # (model_overrides may have shifted them away from the org-level
@@ -714,11 +734,6 @@ async def _run_pipeline_impl(
     }
     await db_client.update_workflow_run(
         workflow_run_id, initial_context=merged_call_context_vars
-    )
-
-    workflow_graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(run_workflow_json),
-        skip_instance_constraints_for={"trigger"},
     )
 
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
@@ -820,6 +835,7 @@ async def _run_pipeline_impl(
     engine = PipecatEngine(
         llm=llm,
         inference_llm=inference_llm,
+        variable_extraction_llm=variable_extraction_llm,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,

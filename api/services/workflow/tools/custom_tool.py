@@ -383,8 +383,6 @@ def render_body_template(
         r"\{\{\s*([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|[^}]*)?\s*\}\}"
     )
 
-
-
     template_str = json.dumps(template) if template else "{}"
     # Collect all referenced top-level names (no fallback filter — those are optional by design).
     # Skip system dot-path variables like initial_context.x and gathered_context.x.

@@ -11,16 +11,18 @@ unchanged versus what's checked in.
 import json
 from pathlib import Path
 
-# Bypass NLTK 3.9 bug on Python 3.13 that blocks importing 'regex' if CWD is in sys.path
-# by preemptively importing regex before NLTK's import hooks are registered.
-try:
-    import regex  # noqa: F401
-except ImportError:
-    pass
-
 from loguru import logger
 
 logger.remove()
+
+import sys
+import os
+
+# Prevent NLTK from crashing on Python 3.13 due to CWD in sys.path.
+# NLTK strictly checks if sys.path[0] in ("", ".", os.getcwd()).
+# We insert the repo root with a trailing slash to bypass the string match.
+ROOT_PATH = str(Path(__file__).resolve().parent.parent)
+sys.path.insert(0, ROOT_PATH + os.sep)
 
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 

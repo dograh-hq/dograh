@@ -77,9 +77,7 @@ jobs:
           ENABLE_AWS_S3: "false"
           MINIO_PUBLIC_ENDPOINT: http://localhost:9000
           DEPLOYMENT_MODE: oss
-          PYTHONSAFEPATH: "1"
-          PYTHONPATH: "."
-        run: python -u -m scripts.dump_docs_openapi
+        run: python -u scripts/dump_docs_openapi.py
 
       - name: Check for OpenAPI drift
         run: |
@@ -92,7 +90,7 @@ jobs:
 
   notify-slack-failure:
     needs: [drift-check]
-    if: always() && needs.drift-check.result == 'failure'
+    if: ${{ !startsWith(github.head_ref, 'release-please--') && always() && needs.drift-check.result == 'failure' }}
     runs-on: ubuntu-latest
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

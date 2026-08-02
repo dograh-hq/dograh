@@ -51,5 +51,3 @@ jobs:
           status: custom
           custom_payload: |
             ${{ steps.prepare_message.outputs.slack_payload }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DOGRAH_COMMUNITY_WEBHOOK_URL }}

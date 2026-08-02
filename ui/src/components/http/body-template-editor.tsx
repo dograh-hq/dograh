@@ -47,7 +47,7 @@ function getObjectDepth(value: unknown): number {
 
     while (stack.length > 0) {
         const [curr, depth] = stack.pop()!;
-        
+
         if (typeof curr === "object" && curr !== null) {
             if (depth > maxDepth) maxDepth = depth;
             // Fast fail if we exceed the enforced limit (20)

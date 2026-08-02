@@ -89,7 +89,7 @@ jobs:
           echo "OpenAPI spec is in sync."
 
       - name: Send Slack notification - Failure
-        if: failure()
+        if: failure() && secrets.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

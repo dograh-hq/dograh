@@ -421,8 +421,11 @@ def render_body_template(
         _top_level = _match.group(1)
 
         if (
-            _top_level in ("current_time", "current_weekday")
-            or _top_level.startswith(("current_time_", "current_weekday_"))
+            _top_level not in param_type_map
+            and (
+                _top_level in ("current_time", "current_weekday")
+                or _top_level.startswith(("current_time_", "current_weekday_"))
+            )
         ) and _placeholder_content.startswith(f"{_top_level}."):
             raise ValueError(
                 f"Malformed body template: built-in '{_top_level}' does not support dot notation."

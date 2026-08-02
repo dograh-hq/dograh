@@ -1,12 +1,11 @@
-import pytest
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.db import db_client
 from api.enums import ToolCategory
 from api.routes.tool import router
 from api.services.auth.depends import get_user
@@ -81,7 +80,9 @@ async def test_create_tool_with_body_template_service_layer_persistence(mock_db_
             "config": {
                 "method": "POST",
                 "url": "https://api.example.com/endpoint",
-                "body_template": {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}},
+                "body_template": {
+                    "user": {"id": "{{user_id}}", "name": "{{user_name}}"}
+                },
                 "parameters": [
                     {"name": "user_id", "type": "number", "description": "User ID"},
                     {"name": "user_name", "type": "string", "description": "User Name"},
@@ -92,9 +93,13 @@ async def test_create_tool_with_body_template_service_layer_persistence(mock_db_
 
     req = CreateToolRequest.model_validate(payload)
     # Verify schema dumps body_template properly
-    assert req.definition.config.body_template == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
+    assert req.definition.config.body_template == {
+        "user": {"id": "{{user_id}}", "name": "{{user_name}}"}
+    }
     dumped = req.model_dump()
-    assert dumped["definition"]["config"]["body_template"] == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
+    assert dumped["definition"]["config"]["body_template"] == {
+        "user": {"id": "{{user_id}}", "name": "{{user_name}}"}
+    }
 
     now = datetime.now()
     user = SimpleNamespace(id=1, provider_id="provider-1", selected_organization_id=11)
@@ -118,8 +123,12 @@ async def test_create_tool_with_body_template_service_layer_persistence(mock_db_
 
     # Verify definition config passed to db_client contains body_template
     passed_def = mock_db_create.call_args.kwargs["definition"]
-    assert passed_def["config"]["body_template"] == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
-    assert response.definition["config"]["body_template"] == {"user": {"id": "{{user_id}}", "name": "{{user_name}}"}}
+    assert passed_def["config"]["body_template"] == {
+        "user": {"id": "{{user_id}}", "name": "{{user_name}}"}
+    }
+    assert response.definition["config"]["body_template"] == {
+        "user": {"id": "{{user_id}}", "name": "{{user_name}}"}
+    }
 
 
 @patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
@@ -340,9 +349,7 @@ def test_test_endpoint_reserved_name_collision_is_prevented(
 
 @patch("api.routes.tool.db_client.get_tool_by_uuid", new_callable=AsyncMock)
 @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")
-def test_test_endpoint_rejects_key_collision(
-    mock_request, mock_get_tool
-):
+def test_test_endpoint_rejects_key_collision(mock_request, mock_get_tool):
     app = _make_test_app()
     client = TestClient(app)
 
@@ -372,7 +379,7 @@ def test_test_endpoint_rejects_key_collision(
             "preset_params": {},
         },
     )
-    
+
     # The endpoint should return a 200, but with the error caught and surfaced in the response.
     assert res.status_code == 200
     data = res.json()

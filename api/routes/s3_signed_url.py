@@ -1,12 +1,11 @@
 import re
 import uuid
-from typing import Annotated, Any, Dict, Optional
+from typing import Annotated, Any, Dict, Optional, TypedDict
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
-from typing import TypedDict
 
 from api.db import db_client
 from api.enums import StorageBackend

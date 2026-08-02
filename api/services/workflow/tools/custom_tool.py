@@ -34,6 +34,7 @@ def validate_parameter_name(name: str) -> str:
         )
     return clean_name
 
+
 # Matches a template leaf that is ENTIRELY one placeholder and nothing else.
 # "{{adults}}" → matches;  "Ref-{{id}}" → does NOT match.
 _WHOLE_PLACEHOLDER_RE = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
@@ -94,7 +95,7 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
             param_name = validate_parameter_name(param.get("name", ""))
         except ValueError:
             continue
-        
+
         param_type = param.get("type", "string")
         param_desc = param.get("description", "")
         param_required = param.get("required", True)
@@ -254,7 +255,12 @@ def _coerce_typed_leaves(
 
         return {
             rendered_key: _coerce_typed_leaves(
-                orig_v, rendered_v, arguments, param_type_map, call_context_vars, gathered_context_vars
+                orig_v,
+                rendered_v,
+                arguments,
+                param_type_map,
+                call_context_vars,
+                gathered_context_vars,
             )
             for (_, orig_v), (rendered_key, rendered_v) in zip(
                 original_node.items(), rendered_node.items()
@@ -266,7 +272,14 @@ def _coerce_typed_leaves(
             return rendered_node
         # render_template preserves list length (line 87); zip is safe.
         return [
-            _coerce_typed_leaves(orig_item, rend_item, arguments, param_type_map, call_context_vars, gathered_context_vars)
+            _coerce_typed_leaves(
+                orig_item,
+                rend_item,
+                arguments,
+                param_type_map,
+                call_context_vars,
+                gathered_context_vars,
+            )
             for orig_item, rend_item in zip(original_node, rendered_node)
         ]
 
@@ -276,16 +289,18 @@ def _coerce_typed_leaves(
             param_name = m.group(1)
 
             if param_name.startswith("initial_context."):
-                key_path = param_name[len("initial_context."):]
+                key_path = param_name[len("initial_context.") :]
                 from api.utils.template_renderer import get_nested_value
+
                 val = get_nested_value(call_context_vars or {}, key_path)
                 # Only prefer raw context when non-empty; empty lets the fallback
                 # filter in rendered_node (e.g. "{{phone | unknown}}") win.
                 return val if val not in (None, "") else rendered_node
 
             if param_name.startswith("gathered_context."):
-                key_path = param_name[len("gathered_context."):]
+                key_path = param_name[len("gathered_context.") :]
                 from api.utils.template_renderer import get_nested_value
+
                 val = get_nested_value(gathered_context_vars or {}, key_path)
                 return val if val not in (None, "") else rendered_node
 
@@ -293,6 +308,7 @@ def _coerce_typed_leaves(
             # "customer" is an object parameter. Resolve via nested lookup first.
             if "." in param_name:
                 from api.utils.template_renderer import get_nested_value
+
                 raw_arg = get_nested_value(arguments, param_name)
                 if raw_arg not in (None, ""):
                     return raw_arg
@@ -304,7 +320,11 @@ def _coerce_typed_leaves(
                 # If the raw argument is missing or empty, prefer the already-rendered
                 # value (which incorporates any fallback filter, e.g. {{qty | 5}}).
                 # Only attempt coercion when a non-empty raw argument exists.
-                val_to_coerce = raw_arg if (raw_arg is not None and raw_arg != "") else rendered_node
+                val_to_coerce = (
+                    raw_arg
+                    if (raw_arg is not None and raw_arg != "")
+                    else rendered_node
+                )
                 try:
                     return _coerce_parameter_value(val_to_coerce, declared_type)
                 except ValueError:
@@ -340,7 +360,7 @@ def render_body_template(
     """
     # Build param name → declared type for post-render coercion.
     param_type_map: dict[str, str] = {}
-    for p in (parameters or []):
+    for p in parameters or []:
         try:
             clean_name = validate_parameter_name(p.get("name", ""))
             if clean_name:
@@ -356,6 +376,7 @@ def render_body_template(
     # source_uuid). HTTP tool parameters may legitimately share those names and must
     # still be validated.
     import re as _re
+
     # Captures the top-level variable name before any dot path or fallback filter.
     # Matches {{name}}, {{name.path}}, {{name | fallback}}, {{name.path | fallback}}.
     _TMPL_VAR_RE = _re.compile(
@@ -364,20 +385,26 @@ def render_body_template(
     template_str = json.dumps(template) if template else "{}"
     # Collect all referenced top-level names (no fallback filter — those are optional by design).
     # Skip system dot-path variables like initial_context.x and gathered_context.x.
-    _SYSTEM_PREFIXES = {"initial_context", "gathered_context", "current_time", "current_weekday"}
+    _SYSTEM_PREFIXES = {
+        "initial_context",
+        "gathered_context",
+        "current_time",
+        "current_weekday",
+    }
     required_in_template: set[str] = {
         m.group(1)
         for m in _TMPL_VAR_RE.finditer(template_str)
-        if "|" not in template_str[m.start():m.end()]  # skip fallback vars (they're optional)
+        if "|"
+        not in template_str[
+            m.start() : m.end()
+        ]  # skip fallback vars (they're optional)
         and m.group(1) not in _SYSTEM_PREFIXES  # skip system-injected prefixes
     }
-    _TMPL_PATH_RE = _re.compile(
-        r"\{\{\s*([^|\s}]+\.[^|\s}]+)\s*\}\}"
-    )
+    _TMPL_PATH_RE = _re.compile(r"\{\{\s*([^|\s}]+\.[^|\s}]+)\s*\}\}")
     required_dotted_paths: set[str] = {
         m.group(1)
         for m in _TMPL_PATH_RE.finditer(template_str)
-        if "|" not in template_str[m.start():m.end()]
+        if "|" not in template_str[m.start() : m.end()]
         and m.group(1).split(".", 1)[0] not in _SYSTEM_PREFIXES
     }
 
@@ -494,7 +521,7 @@ def _resolve_preset_parameters(
             param_name = validate_parameter_name(param.get("name", ""))
         except ValueError as e:
             raise ValueError(str(e))
-        
+
         if not param_name:
             continue
 

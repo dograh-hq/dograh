@@ -1112,6 +1112,7 @@ class TestRenderBodyTemplate:
         rather than silently sending an incorrect timestamp in the outbound payload.
         """
         from pydantic import ValidationError
+
         from api.schemas.tool import ToolParameter
 
         # Exact names
@@ -1127,9 +1128,6 @@ class TestRenderBodyTemplate:
         # Unrelated names must still be accepted
         tp = ToolParameter(name="current_status", type="string", description="x")
         assert tp.name == "current_status"
-
-
-
 
     def test_static_template_no_placeholders(self):
         tpl = {"a": 1, "b": "two"}
@@ -1150,11 +1148,11 @@ class TestRenderBodyTemplate:
 
     def test_reserved_param_name_raises(self):
         tpl = {"key": "{{initial_context}}"}
-        with pytest.raises(
-            ValueError, match="reserved Dograh namespace"
-        ):
+        with pytest.raises(ValueError, match="reserved Dograh namespace"):
             render_body_template(
-                tpl, {"initial_context": "hacked"}, [{"name": "initial_context", "type": "string", "required": False}]
+                tpl,
+                {"initial_context": "hacked"},
+                [{"name": "initial_context", "type": "string", "required": False}],
             )
 
 

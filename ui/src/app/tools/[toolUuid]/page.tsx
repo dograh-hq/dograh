@@ -664,7 +664,7 @@ export default function ToolDetailPage() {
                                         required: p.required,
                                     }))
                                     : undefined,
-                            body_template: bodyTemplate || undefined,
+                            body_template: (useBodyTemplate || ['GET', 'DELETE'].includes(httpMethod)) ? (bodyTemplate || undefined) : undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,

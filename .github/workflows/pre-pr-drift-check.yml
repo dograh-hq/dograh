@@ -20,8 +20,6 @@ jobs:
   drift-check:
     if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     timeout-minutes: 25
     steps:
       - name: Checkout repo (with pipecat submodule)
@@ -90,8 +88,15 @@ jobs:
           fi
           echo "OpenAPI spec is in sync."
 
+  notify-slack-failure:
+    needs: [drift-check]
+    if: always() && needs.drift-check.result == 'failure'
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
       - name: Send Slack notification - Failure
-        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        if: env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

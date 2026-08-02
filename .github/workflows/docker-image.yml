@@ -29,8 +29,6 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     outputs:
       short_sha: ${{ steps.tags.outputs.short_sha }}
       version: ${{ steps.tags.outputs.version }}
@@ -139,8 +137,6 @@ jobs:
       - prepare
       - build
     runs-on: ubuntu-latest
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Download API digests
         uses: actions/download-artifact@v4

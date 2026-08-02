@@ -410,7 +410,8 @@ def render_body_template(
 
         _placeholder_content = template_str[_idx + 2 : _end_idx].strip()
         _match = _re.match(
-            r"^([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|[^}]*)?$", _placeholder_content
+            r"^([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|\s*[^:}]+(?::[^}]+)?)?$",
+            _placeholder_content,
         )
         if not _match:
             raise ValueError(
@@ -418,14 +419,25 @@ def render_body_template(
             )
 
         _top_level = _match.group(1)
-        if (
-            _top_level not in _SYSTEM_PREFIXES
-            and not _top_level.startswith(("current_time_", "current_weekday_"))
-            and _top_level not in param_type_map
-        ):
-            raise ValueError(
-                f"Undeclared placeholder: '{{{{{_top_level}}}}}' is not a configured parameter."
-            )
+        if _top_level not in _SYSTEM_PREFIXES and _top_level not in param_type_map:
+            is_valid_tz = False
+            for prefix in ("current_time_", "current_weekday_"):
+                if _top_level.startswith(prefix):
+                    tz_suffix = _top_level[len(prefix) :]
+                    if tz_suffix:
+                        try:
+                            import zoneinfo
+
+                            zoneinfo.ZoneInfo(tz_suffix)
+                            is_valid_tz = True
+                        except Exception:
+                            pass
+                    break
+
+            if not is_valid_tz:
+                raise ValueError(
+                    f"Undeclared placeholder: '{{{{{_top_level}}}}}' is not a configured parameter."
+                )
 
         _pos = _end_idx + 2
 

@@ -29,6 +29,8 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     outputs:
       short_sha: ${{ steps.tags.outputs.short_sha }}
       version: ${{ steps.tags.outputs.version }}
@@ -137,6 +139,8 @@ jobs:
       - prepare
       - build
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Download API digests
         uses: actions/download-artifact@v4
@@ -221,9 +225,11 @@ jobs:
       - merge
     if: always()
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Slack success
-        if: needs.merge.result == 'success' && secrets.SLACK_WEBHOOK_URL != ''
+        if: needs.merge.result == 'success' && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -234,7 +240,7 @@ jobs:
             }
 
       - name: Slack failure
-        if: needs.merge.result != 'success' && secrets.SLACK_WEBHOOK_URL != ''
+        if: needs.merge.result != 'success' && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

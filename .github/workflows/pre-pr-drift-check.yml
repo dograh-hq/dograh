@@ -78,7 +78,7 @@ jobs:
           MINIO_PUBLIC_ENDPOINT: http://localhost:9000
           DEPLOYMENT_MODE: oss
           PYTHONSAFEPATH: "1"
-        run: python -u scripts/dump_docs_openapi.py
+        run: python -u -m scripts.dump_docs_openapi
 
       - name: Check for OpenAPI drift
         run: |

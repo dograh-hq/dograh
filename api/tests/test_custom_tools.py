@@ -2187,7 +2187,8 @@ class TestUpdateLLMContext:
         with patch("api.services.workflow.tools.transfer_resolver.db_client.get_credential_by_uuid", AsyncMock(return_value=mock_cred)), \
              patch("api.services.workflow.tools.transfer_resolver.validate_user_configured_service_url"), \
              patch("api.services.workflow.tools.transfer_resolver.httpx.AsyncClient", return_value=MagicMock(__aenter__=AsyncMock(return_value=mock_client))), \
-             patch("api.utils.oauth2_token_cache.get_or_fetch_token", AsyncMock(side_effect=["old_tok", "new_tok"])):
+             patch("api.services.oauth2_token_cache.get_or_fetch_token", AsyncMock(side_effect=["old_tok", "new_tok"])), \
+             patch("api.services.oauth2_token_cache.invalidate_token", AsyncMock()):
 
             res = await resolve_transfer_config(
                 tool=MagicMock(),

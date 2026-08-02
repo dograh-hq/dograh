@@ -302,8 +302,11 @@ async def execute_http_tool(
                             del headers[existing_key]
                 headers.update(credential_headers)
                 if include_request_headers:
-                    for header_name, header_value in credential_headers.items():
-                        request_headers[header_name] = mask_key(str(header_value))
+                    for fresh_key, fresh_value in credential_headers.items():
+                        for req_key in list(request_headers):
+                            if req_key.lower() == fresh_key.lower():
+                                del request_headers[req_key]
+                        request_headers[fresh_key] = mask_key(str(fresh_value))
                 logger.debug(f"Applied credential '{credential.name}' to tool request")
             else:
                 logger.warning(

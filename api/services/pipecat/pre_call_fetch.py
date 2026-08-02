@@ -143,7 +143,7 @@ async def execute_pre_call_fetch(
                 )
                 return {}
 
-    except httpx.TimeoutException:
+    except (httpx.TimeoutException, TimeoutError):
         logger.error(
             f"Pre-call fetch: timed out after {PRE_CALL_FETCH_TIMEOUT_SECONDS}s"
         )

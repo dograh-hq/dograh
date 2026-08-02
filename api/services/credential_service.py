@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from api.db import db_client
 from api.db.models import ExternalCredentialModel
 from api.enums import WebhookCredentialType
-from api.utils.oauth2_token_cache import invalidate_token
+from api.services.oauth2_token_cache import invalidate_token
 
 
 def validate_credential_data(

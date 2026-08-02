@@ -290,7 +290,30 @@ class McpToolSession:
         original = self._name_map.get(namespaced_name)
         if original is None:
             raise RuntimeError(f"Unknown MCP function {namespaced_name}")
-        result = await self._session.call_tool(original, arguments=arguments)
+        try:
+            result = await self._session.call_tool(original, arguments=arguments)
+        except Exception as e:
+            if (
+                self._credential is not None
+                and getattr(self._credential, "credential_type", None) == "oauth2_client_credentials"
+                and _is_auth_error(e)
+            ):
+                logger.warning(
+                    f"MCP tool '{namespaced_name}' received auth failure; "
+                    "invalidating cached OAuth2 token and reconnecting."
+                )
+                try:
+                    await invalidate_and_rebuild_auth(self._credential)
+                except Exception:
+                    pass
+                await self._degrade(e)
+                await self.start()
+                if not self.available or self._session is None:
+                    raise RuntimeError(f"MCP session failed to reconnect after auth failure for {namespaced_name}")
+                result = await self._session.call_tool(original, arguments=arguments)
+            else:
+                raise
+
         text = ""
         for content in getattr(result, "content", []) or []:
             if getattr(content, "text", None):

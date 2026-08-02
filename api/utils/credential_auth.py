@@ -54,7 +54,7 @@ async def build_auth_header(
         return {header_name: header_value}
 
     elif cred_type == "oauth2_client_credentials":
-        from api.utils.oauth2_token_cache import get_or_fetch_token
+        from api.services.oauth2_token_cache import get_or_fetch_token
         token_url = cred_data.get("token_url")
         client_id = cred_data.get("client_id")
         client_secret = cred_data.get("client_secret")
@@ -94,7 +94,7 @@ async def invalidate_and_rebuild_auth(
 ) -> Dict[str, str]:
     """Invalidate cached OAuth2 token and rebuild auth headers for retry after 401."""
     if getattr(credential, "credential_type", None) == "oauth2_client_credentials":
-        from api.utils.oauth2_token_cache import invalidate_token
+        from api.services.oauth2_token_cache import invalidate_token
 
         cred_uuid = getattr(credential, "credential_uuid", None)
         if cred_uuid:

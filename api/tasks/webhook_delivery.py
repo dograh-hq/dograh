@@ -218,14 +218,8 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     # Retry immediately with the fresh token rather than scheduling
                     # a transient failure — this ensures the last allowed attempt is
                     # not wasted dead-lettering without ever sending the fresh token.
-                    retry_headers = dict(headers)
-                    # Remove stale auth headers case-insensitively before applying
-                    # the refreshed ones so no old Authorization header lingers.
-                    for fresh_key in fresh_auth:
-                        for existing_key in list(retry_headers):
-                            if existing_key.lower() == fresh_key.lower():
-                                del retry_headers[existing_key]
-                    retry_headers.update(fresh_auth)
+                    from api.utils.credential_auth import rebuild_headers_after_401
+                    retry_headers = rebuild_headers_after_401(headers, fresh_auth)
                     try:
                         async with httpx.AsyncClient() as retry_client:
                             if method in ("POST", "PUT", "PATCH"):
@@ -264,7 +258,12 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     except httpx.HTTPStatusError as retry_exc:
                         retry_status = retry_exc.response.status_code
                         retry_err = f"HTTP {retry_status} after OAuth token refresh"
-                        if retry_status in _RETRYABLE_STATUS_CODES or retry_status in (403, 404):
+                        
+                        if retry_status == 401:
+                            from api.services.oauth2_token_cache import invalidate_token
+                            await invalidate_token(delivery.credential_uuid)
+
+                        if retry_status in _RETRYABLE_STATUS_CODES:
                             await _handle_transient_failure(
                                 delivery, attempt, retry_err, retry_status
                             )

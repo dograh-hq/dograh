@@ -10,6 +10,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import WebhookCredentialType
 from api.sdk_expose import sdk_expose
+from api.services import credential_service
 from api.services.credential_service import validate_credential_data
 from api.services.auth.depends import get_user
 

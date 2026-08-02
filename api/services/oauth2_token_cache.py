@@ -41,6 +41,14 @@ def _get_redis() -> aioredis.Redis:
     return _redis_client
 
 
+async def close_redis() -> None:
+    """Close the global Redis client pool."""
+    global _redis_client
+    if _redis_client is not None:
+        await _redis_client.close()
+        _redis_client = None
+
+
 def _get_lock(credential_uuid: str) -> asyncio.Lock:
     if credential_uuid not in _locks:
         _locks[credential_uuid] = asyncio.Lock()
@@ -102,22 +110,6 @@ async def get_or_fetch_token(
             audience=audience,
         )
 
-        # Check if an invalidation occurred during the in-flight token fetch
-        invalidated_at = 0.0
-        try:
-            redis_client = _get_redis()
-            invalid_raw = await redis_client.get(f"oauth2_invalid:{credential_uuid}")
-            if invalid_raw:
-                invalidated_at = float(invalid_raw)
-        except Exception:
-            pass
-
-        if invalidated_at > fetch_start:
-            logger.info(
-                f"Skipping cache write for {credential_uuid}: invalidated during in-flight fetch."
-            )
-            return token
-
         # Write to cache if Redis is available.
         # Only cache when the token will still be valid after our pre-expiry margin.
         # Short-lived tokens (expires_in <= _EXPIRY_MARGIN) must not be cached.
@@ -126,11 +118,34 @@ async def get_or_fetch_token(
             cache_ttl = int(net_ttl)
             try:
                 redis_client = _get_redis()
-                await redis_client.setex(cache_key, cache_ttl, token)
-                logger.debug(
-                    f"OAuth2 token cached for {credential_uuid} "
-                    f"(TTL={cache_ttl}s, provider expires_in={expires_in}s)"
+                lua_script = """
+                local invalid_key = KEYS[1]
+                local cache_key = KEYS[2]
+                local fetch_start = tonumber(ARGV[1])
+                local cache_ttl = tonumber(ARGV[2])
+                local token_val = ARGV[3]
+
+                local invalid_raw = redis.call('GET', invalid_key)
+                if invalid_raw and tonumber(invalid_raw) > fetch_start then
+                    return 0
+                end
+                
+                redis.call('SETEX', cache_key, cache_ttl, token_val)
+                return 1
+                """
+                invalid_key = f"oauth2_invalid:{credential_uuid}"
+                success = await redis_client.eval(
+                    lua_script, 2, invalid_key, cache_key, fetch_start, cache_ttl, token
                 )
+                if success == 1:
+                    logger.debug(
+                        f"OAuth2 token cached for {credential_uuid} "
+                        f"(TTL={cache_ttl}s, provider expires_in={expires_in}s)"
+                    )
+                else:
+                    logger.info(
+                        f"Skipping cache write for {credential_uuid}: invalidated during in-flight fetch."
+                    )
             except Exception as exc:
                 logger.warning(
                     f"OAuth2 token cache write failed for {credential_uuid}: {exc}"
@@ -267,10 +282,16 @@ async def _fetch_token(
     if not isinstance(body, dict):
         raise ValueError("OAuth2 token endpoint response must be a JSON object.")
 
+    token_type = body.get("token_type", "")
+    if not isinstance(token_type, str) or token_type.lower() != "bearer":
+        raise ValueError(
+            f"Unsupported OAuth2 token_type '{token_type}'. Only 'Bearer' is supported."
+        )
+
     token = body.get("access_token")
     if not isinstance(token, str) or not token:
         raise ValueError(
-            "OAuth2 token endpoint response missing 'access_token' field."
+            "OAuth2 token response is missing a valid 'access_token' string."
         )
 
     expires_in = int(body.get("expires_in", 0))

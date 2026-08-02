@@ -110,7 +110,8 @@ class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
                 f"Unsupported kwargs for PinnedAsyncHTTPTransport: {list(kwargs.keys())}"
             )
 
-        super().__init__()
+        # httpx.AsyncHTTPTransport.__init__ creates an httpcore.AsyncConnectionPool
+        # which we immediately discard. We skip super().__init__() to avoid that.
         self._pool = httpcore.AsyncConnectionPool(
             ssl_context=ssl_context,
             http2=http2,

@@ -18,12 +18,6 @@ logger.remove()
 import sys
 import os
 
-# Prevent NLTK from crashing on Python 3.13 due to CWD in sys.path.
-# NLTK strictly checks if sys.path[0] in ("", ".", os.getcwd()).
-# We insert the repo root with a trailing slash to bypass the string match.
-ROOT_PATH = str(Path(__file__).resolve().parent.parent)
-sys.path.insert(0, ROOT_PATH + os.sep)
-
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 
 from api.app import app  # noqa: E402

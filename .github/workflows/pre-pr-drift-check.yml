@@ -71,14 +71,15 @@ jobs:
           echo "UI lint is clean."
 
       - name: Dump OpenAPI spec
+        working-directory: /tmp
         env:
           DATABASE_URL: postgresql+asyncpg://dummy:dummy@localhost/dummy
           REDIS_URL: redis://localhost:6379/0
           ENABLE_AWS_S3: "false"
           MINIO_PUBLIC_ENDPOINT: http://localhost:9000
           DEPLOYMENT_MODE: oss
-          NLTK_DISABLE_IMPORT_SECURITY: "1"
-        run: python -u -m scripts.dump_docs_openapi
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -u ${{ github.workspace }}/scripts/dump_docs_openapi.py
 
       - name: Check for OpenAPI drift
         run: |

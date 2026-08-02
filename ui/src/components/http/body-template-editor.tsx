@@ -95,7 +95,8 @@ export function BodyTemplateEditor({
         let parsed;
         try {
             // Auto-quote unquoted {{placeholders}} so users can type "adults": {{adults}} without JSON syntax errors.
-            const preprocessedText = text.replace(/(:\s*|\[\s*|,\s*)(\{\{[^}]+\}\})(?=\s*[,}\]])/g, '$1"$2"');
+            // We use a regex that matches string literals first and ignores them, to prevent breaking valid strings like "Hello, {{name}}".
+            const preprocessedText = text.replace(/("(?:\\"|[^"])*")|(:\s*|\[\s*|,\s*)(\{\{[^}]+\}\})(?=\s*[,}\]])/g, (match, stringLiteral, p1, p2) => stringLiteral ? stringLiteral : p1 + '"' + p2 + '"');
             parsed = JSON.parse(preprocessedText);
             if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
                 setError("Body template must be a JSON object, not an array or primitive.");

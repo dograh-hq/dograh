@@ -304,7 +304,7 @@ class McpToolSession:
                 )
                 try:
                     from api.services.oauth2_token_cache import invalidate_token
-                    await invalidate_token(str(self._credential.uuid))
+                    await invalidate_token(str(self._credential.credential_uuid))
                 except Exception:
                     pass
                 await self._degrade(e)

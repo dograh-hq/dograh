@@ -460,14 +460,17 @@ def render_body_template(
         not in template_str[
             m.start() : m.end()
         ]  # skip fallback vars (they're optional)
-        and m.group(1) not in _SYSTEM_PREFIXES  # skip system-injected prefixes
+        and (m.group(1) not in _SYSTEM_PREFIXES or m.group(1) in param_type_map)
     }
     _TMPL_PATH_RE = _re.compile(r"\{\{\s*([^|\s}]+\.[^|\s}]+)\s*\}\}")
     required_dotted_paths: set[str] = {
         m.group(1)
         for m in _TMPL_PATH_RE.finditer(template_str)
         if "|" not in template_str[m.start() : m.end()]
-        and m.group(1).split(".", 1)[0] not in _SYSTEM_PREFIXES
+        and (
+            m.group(1).split(".", 1)[0] not in _SYSTEM_PREFIXES
+            or m.group(1).split(".", 1)[0] in param_type_map
+        )
     }
 
     def _get_dotted_val(d: dict[str, Any], path: str) -> Any:

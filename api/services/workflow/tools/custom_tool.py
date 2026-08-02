@@ -382,6 +382,28 @@ def render_body_template(
     _TMPL_VAR_RE = _re.compile(
         r"\{\{\s*([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|[^}]*)?\s*\}\}"
     )
+
+    def _check_unmatched_closing(obj: Any) -> None:
+        if isinstance(obj, dict):
+            for v in obj.values():
+                _check_unmatched_closing(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                _check_unmatched_closing(item)
+        elif isinstance(obj, str):
+            pos = 0
+            while True:
+                idx = obj.find("}}", pos)
+                if idx == -1:
+                    break
+                left_idx = obj.rfind("{{", 0, idx)
+                if left_idx == -1 or left_idx < pos:
+                    raise ValueError("Malformed body template: unmatched '}}' found.")
+                pos = idx + 2
+
+    if template:
+        _check_unmatched_closing(template)
+
     template_str = json.dumps(template) if template else "{}"
     # Collect all referenced top-level names (no fallback filter — those are optional by design).
     # Skip system dot-path variables like initial_context.x and gathered_context.x.
@@ -398,13 +420,6 @@ def render_body_template(
     while True:
         _idx = template_str.find("{{", _pos)
         if _idx == -1:
-            # NOTE: We intentionally do NOT check for stray `}}` here.
-            # `template_str` is produced by `json.dumps`, so nested JSON objects
-            # naturally contain consecutive `}}` closing braces (e.g. the end of
-            # a `primaryGuest` object nested inside `reservations`).
-            # A simple `str.find("}}")` on the serialised string would produce
-            # false-positive "unmatched delimiter" errors for every such template,
-            # making deeply-nested booking payloads impossible to render.
             break
         _end_idx = template_str.find("}}", _idx + 2)
         if _end_idx == -1:

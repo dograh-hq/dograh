@@ -25,12 +25,11 @@ async def resolve_llm_config(
         kwargs = {}
         if provider == "azure":
             kwargs["endpoint"] = qa_data.qa_endpoint or ""
-        elif qa_data.qa_endpoint:
-            # Non-azure providers use qa_endpoint as an OpenAI-compatible
-            # base_url, mirroring the workflow-LLM path below so a QA node
-            # pointed at a custom endpoint (xAI/grok, local LLM, proxy) doesn't
-            # silently fall back to the provider's default endpoint.
-            kwargs["base_url"] = qa_data.qa_endpoint
+        # NOTE: the QA node's own-LLM path has no OpenAI-compatible base-URL
+        # field today (qa_endpoint is Azure-only in the UI), so a custom base
+        # URL can't be forwarded here yet. Supporting it needs a dedicated
+        # qa_base_url field + UI; tracked as a follow-up. This PR fixes the
+        # reported case, which is the shared workflow-LLM path below.
         return (
             provider,
             qa_data.qa_model,

@@ -398,8 +398,13 @@ def render_body_template(
     while True:
         _idx = template_str.find("{{", _pos)
         if _idx == -1:
-            if template_str.find("}}", _pos) != -1:
-                raise ValueError("Malformed body template: unmatched '}}' found.")
+            # NOTE: We intentionally do NOT check for stray `}}` here.
+            # `template_str` is produced by `json.dumps`, so nested JSON objects
+            # naturally contain consecutive `}}` closing braces (e.g. the end of
+            # a `primaryGuest` object nested inside `reservations`).
+            # A simple `str.find("}}")` on the serialised string would produce
+            # false-positive "unmatched delimiter" errors for every such template,
+            # making deeply-nested booking payloads impossible to render.
             break
         _end_idx = template_str.find("}}", _idx + 2)
         if _end_idx == -1:

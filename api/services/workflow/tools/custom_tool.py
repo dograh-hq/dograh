@@ -419,6 +419,14 @@ def render_body_template(
             )
 
         _top_level = _match.group(1)
+
+        if _top_level.startswith(
+            ("current_time", "current_weekday")
+        ) and _placeholder_content.startswith(f"{_top_level}."):
+            raise ValueError(
+                f"Malformed body template: built-in '{_top_level}' does not support dot notation."
+            )
+
         if _top_level not in _SYSTEM_PREFIXES and _top_level not in param_type_map:
             is_valid_tz = False
             for prefix in ("current_time_", "current_weekday_"):

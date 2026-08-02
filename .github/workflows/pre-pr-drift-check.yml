@@ -77,7 +77,6 @@ jobs:
           ENABLE_AWS_S3: "false"
           MINIO_PUBLIC_ENDPOINT: http://localhost:9000
           DEPLOYMENT_MODE: oss
-          PYTHONPATH: "."
         run: python -u scripts/dump_docs_openapi.py
 
       - name: Check for OpenAPI drift

@@ -398,6 +398,8 @@ def render_body_template(
     while True:
         _idx = template_str.find("{{", _pos)
         if _idx == -1:
+            if template_str.find("}}", _pos) != -1:
+                raise ValueError("Malformed body template: unmatched '}}' found.")
             break
         _end_idx = template_str.find("}}", _idx + 2)
         if _end_idx == -1:
@@ -416,7 +418,11 @@ def render_body_template(
             )
 
         _top_level = _match.group(1)
-        if _top_level not in _SYSTEM_PREFIXES and _top_level not in param_type_map:
+        if (
+            _top_level not in _SYSTEM_PREFIXES
+            and not _top_level.startswith(("current_time_", "current_weekday_"))
+            and _top_level not in param_type_map
+        ):
             raise ValueError(
                 f"Undeclared placeholder: '{{{{{_top_level}}}}}' is not a configured parameter."
             )

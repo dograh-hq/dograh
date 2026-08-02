@@ -7,6 +7,7 @@ and custom tool execution.
 
 import base64
 from typing import TYPE_CHECKING, Any, Dict, Optional
+
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -55,6 +56,7 @@ async def build_auth_header(
 
     elif cred_type == "oauth2_client_credentials":
         from api.services.oauth2_token_cache import get_or_fetch_token
+
         token_url = cred_data.get("token_url")
         client_id = cred_data.get("client_id")
         client_secret = cred_data.get("client_secret")
@@ -85,9 +87,12 @@ async def build_auth_header(
         except Exception as e:
             # Unexpected errors (e.g. import errors) — re-raise as ValueError
             # so the caller interface is consistent.
-            raise ValueError(f"Failed to fetch OAuth2 token for {cred_uuid}: {e}") from e
+            raise ValueError(
+                f"Failed to fetch OAuth2 token for {cred_uuid}: {e}"
+            ) from e
 
     return {}
+
 
 async def invalidate_and_rebuild_auth(
     credential: "ExternalCredentialModel",

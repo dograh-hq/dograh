@@ -194,10 +194,7 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
             # 401 on an OAuth2 credential: invalidate the cached token so the
             # next attempt fetches a fresh one, then schedule a single retry
             # instead of dead-lettering immediately.
-            if (
-                status_code == 401
-                and delivery.credential_uuid
-            ):
+            if status_code == 401 and delivery.credential_uuid:
                 credential = await db_client.get_credential_by_uuid(
                     delivery.credential_uuid, delivery.organization_id
                 )
@@ -261,9 +258,10 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     except httpx.HTTPStatusError as retry_exc:
                         retry_status = retry_exc.response.status_code
                         retry_err = f"HTTP {retry_status} after OAuth token refresh"
-                        
+
                         if retry_status == 401:
                             from api.services.oauth2_token_cache import invalidate_token
+
                             await invalidate_token(delivery.credential_uuid)
 
                         if retry_status in _RETRYABLE_STATUS_CODES:
@@ -276,8 +274,12 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                             )
                         return
                     except httpx.RequestError as retry_exc:
-                        retry_err = f"Network error after OAuth token refresh: {retry_exc}"
-                        await _handle_transient_failure(delivery, attempt, retry_err, None)
+                        retry_err = (
+                            f"Network error after OAuth token refresh: {retry_exc}"
+                        )
+                        await _handle_transient_failure(
+                            delivery, attempt, retry_err, None
+                        )
                         return
 
             # Permanent failure for all other 4xx. Dead-letter it.

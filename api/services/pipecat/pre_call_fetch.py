@@ -4,9 +4,9 @@ Executes an HTTP request before a voice call starts to enrich the
 call context with data from external systems (CRM, ERP, etc.).
 """
 
+import asyncio
 from typing import Any, Dict, Optional
 
-import asyncio
 import httpx
 from loguru import logger
 
@@ -92,19 +92,25 @@ async def execute_pre_call_fetch(
 
     try:
         async with asyncio.timeout(PRE_CALL_FETCH_TIMEOUT_SECONDS):
-            async with httpx.AsyncClient(timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(
+                timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS
+            ) as client:
                 response = await client.post(url, headers=headers, json=payload)
-            
+
                 # 401 token invalidation and single retry
                 if (
                     response.status_code == 401
                     and credential_uuid
                     and credential is not None
-                    and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
+                    and getattr(credential, "credential_type", None)
+                    == "oauth2_client_credentials"
                 ):
                     from api.utils.credential_auth import rebuild_headers_after_401
-                    logger.info(f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in pre-call fetch. Retrying once...")
-                    
+
+                    logger.info(
+                        f"Invalidated OAuth2 token for credential {credential.credential_uuid} after 401 response in pre-call fetch. Retrying once..."
+                    )
+
                     try:
                         await rebuild_headers_after_401(credential, headers)
                         response = await client.post(url, headers=headers, json=payload)

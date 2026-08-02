@@ -15,7 +15,6 @@ from api.services.organization_preferences import external_pbx_integrations_enab
 from api.services.workflow.tools.custom_tool import _resolve_preset_parameters
 from api.utils.credential_auth import (
     build_auth_header,
-    invalidate_and_rebuild_auth,
     rebuild_headers_after_401,
 )
 from api.utils.template_renderer import render_template
@@ -268,12 +267,13 @@ async def _execute_http_resolver(
                 headers=headers,
                 json=body,
             )
-            
+
             # 401 token invalidation and single retry
             if (
                 response.status_code == 401
                 and credential
-                and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
+                and getattr(credential, "credential_type", None)
+                == "oauth2_client_credentials"
             ):
                 logger.info(
                     f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response in transfer resolver. Retrying once..."
@@ -285,7 +285,6 @@ async def _execute_http_resolver(
                         "credential_auth_error",
                         f"Authentication failed for transfer resolver credential: {exc}",
                     ) from exc
-
 
                 response = await client.request(
                     method=method,

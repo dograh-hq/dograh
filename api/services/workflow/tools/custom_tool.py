@@ -11,7 +11,6 @@ from api.db import db_client
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import (
     build_auth_header,
-    invalidate_and_rebuild_auth,
     rebuild_headers_after_401,
 )
 from api.utils.template_renderer import render_template
@@ -376,13 +375,16 @@ async def execute_http_tool(
             if (
                 response.status_code == 401
                 and credential
-                and getattr(credential, "credential_type", None) == "oauth2_client_credentials"
+                and getattr(credential, "credential_type", None)
+                == "oauth2_client_credentials"
             ):
                 logger.info(
                     f"Invalidated OAuth2 token for credential {credential_uuid} after 401 response. Retrying once..."
                 )
                 try:
-                    credential_headers = await rebuild_headers_after_401(credential, headers)
+                    credential_headers = await rebuild_headers_after_401(
+                        credential, headers
+                    )
                 except ValueError as e:
                     logger.error(f"Authentication failed for tool '{tool.name}': {e}")
                     return build_result(
@@ -394,7 +396,7 @@ async def execute_http_tool(
                 if include_request_headers and credential_headers:
                     for header_name, header_value in credential_headers.items():
                         request_headers[header_name] = mask_key(str(header_value))
-                
+
                 response = await client.request(
                     method=method,
                     url=url,
@@ -402,7 +404,7 @@ async def execute_http_tool(
                     json=body,
                     params=params,
                 )
-            
+
             # Try to parse JSON response again in case we retried
             try:
                 response_data = response.json()

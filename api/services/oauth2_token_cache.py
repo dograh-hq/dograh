@@ -22,10 +22,12 @@ from api.utils.url_security import (
     validate_user_configured_service_url,
 )
 
-_MIN_TTL = 30          # Floor: never cache for less than 30s
-_EXPIRY_MARGIN = 60    # Pre-expire: refresh 60s before real expiry
+_MIN_TTL = 30  # Floor: never cache for less than 30s
+_EXPIRY_MARGIN = 60  # Pre-expire: refresh 60s before real expiry
 _FETCH_TIMEOUT = 10.0  # Token endpoint timeout in seconds
-_locks: cachetools.TTLCache[str, asyncio.Lock] = cachetools.TTLCache(maxsize=1000, ttl=3600)
+_locks: cachetools.TTLCache[str, asyncio.Lock] = cachetools.TTLCache(
+    maxsize=1000, ttl=3600
+)
 _redis_client: Optional[aioredis.Redis] = None
 
 
@@ -80,7 +82,9 @@ async def get_or_fetch_token(
             redis_client = _get_redis()
             cached = await redis_client.get(cache_key)
             if cached:
-                logger.debug(f"Using cached OAuth2 token for credential {credential_uuid}")
+                logger.debug(
+                    f"Using cached OAuth2 token for credential {credential_uuid}"
+                )
                 return cached
         except Exception as exc:
             # Redis unavailable: skip cache, fetch fresh. Never crash the call.
@@ -95,7 +99,9 @@ async def get_or_fetch_token(
                 redis_client = _get_redis()
                 cached = await redis_client.get(cache_key)
                 if cached:
-                    logger.debug(f"Using cached OAuth2 token for credential {credential_uuid} on recheck")
+                    logger.debug(
+                        f"Using cached OAuth2 token for credential {credential_uuid} on recheck"
+                    )
                     return cached
             except Exception:
                 pass
@@ -234,6 +240,7 @@ async def _fetch_token(
 
     # Reject non-HTTPS token URLs to prevent sending client secrets in cleartext.
     from urllib.parse import urlparse as _urlparse
+
     _parsed = _urlparse(token_url)
     if _parsed.scheme != "https":
         raise ValueError(
@@ -261,16 +268,12 @@ async def _fetch_token(
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
     except httpx.RequestError as exc:
-        raise ValueError(
-            f"OAuth2 token fetch failed (network error): {exc}"
-        ) from exc
+        raise ValueError(f"OAuth2 token fetch failed (network error): {exc}") from exc
 
     if response.status_code != 200:
         # Do NOT include the response body in the error — it may contain
         # sensitive private-service response data.
-        raise ValueError(
-            f"OAuth2 token endpoint returned HTTP {response.status_code}."
-        )
+        raise ValueError(f"OAuth2 token endpoint returned HTTP {response.status_code}.")
 
     try:
         body = response.json()

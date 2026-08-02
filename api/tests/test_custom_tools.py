@@ -2149,9 +2149,12 @@ class TestUpdateLLMContext:
     @pytest.mark.asyncio
     async def test_transfer_resolver_oauth2_401_retry_flow(self):
         """Transfer resolver retries once on 401 for OAuth2 credentials and replaces stale authorization header."""
-        from unittest.mock import AsyncMock, MagicMock, Mock, patch
-        from api.services.workflow.tools.transfer_resolver import resolve_transfer_config
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from api.db.models import ExternalCredentialModel
+        from api.services.workflow.tools.transfer_resolver import (
+            resolve_transfer_config,
+        )
 
         mock_cred = ExternalCredentialModel(
             credential_uuid="cred-123",
@@ -2170,7 +2173,9 @@ class TestUpdateLLMContext:
 
         resp_200 = MagicMock()
         resp_200.status_code = 200
-        resp_200.json.return_value = {"transfer_context": {"destination": "+15551234567"}}
+        resp_200.json.return_value = {
+            "transfer_context": {"destination": "+15551234567"}
+        }
 
         mock_client = AsyncMock()
         mock_client.request.side_effect = [resp_401, resp_200]
@@ -2184,12 +2189,24 @@ class TestUpdateLLMContext:
             },
         }
 
-        with patch("api.services.workflow.tools.transfer_resolver.db_client.get_credential_by_uuid", AsyncMock(return_value=mock_cred)), \
-             patch("api.services.workflow.tools.transfer_resolver.validate_user_configured_service_url"), \
-             patch("api.services.workflow.tools.transfer_resolver.httpx.AsyncClient", return_value=MagicMock(__aenter__=AsyncMock(return_value=mock_client))), \
-             patch("api.services.oauth2_token_cache.get_or_fetch_token", AsyncMock(side_effect=["old_tok", "new_tok"])), \
-             patch("api.services.oauth2_token_cache.invalidate_token", AsyncMock()):
-
+        with (
+            patch(
+                "api.services.workflow.tools.transfer_resolver.db_client.get_credential_by_uuid",
+                AsyncMock(return_value=mock_cred),
+            ),
+            patch(
+                "api.services.workflow.tools.transfer_resolver.validate_user_configured_service_url"
+            ),
+            patch(
+                "api.services.workflow.tools.transfer_resolver.httpx.AsyncClient",
+                return_value=MagicMock(__aenter__=AsyncMock(return_value=mock_client)),
+            ),
+            patch(
+                "api.services.oauth2_token_cache.get_or_fetch_token",
+                AsyncMock(side_effect=["old_tok", "new_tok"]),
+            ),
+            patch("api.services.oauth2_token_cache.invalidate_token", AsyncMock()),
+        ):
             res = await resolve_transfer_config(
                 tool=MagicMock(),
                 config=transfer_config,
@@ -2203,6 +2220,8 @@ class TestUpdateLLMContext:
             assert res.destination == "+15551234567"
             assert mock_client.request.call_count == 2
             # Verify the second request carried the refreshed Authorization header
-            second_call_headers = mock_client.request.call_args_list[1].kwargs["headers"]
+            second_call_headers = mock_client.request.call_args_list[1].kwargs[
+                "headers"
+            ]
             assert second_call_headers.get("Authorization") == "Bearer new_tok"
             assert "authorization" not in second_call_headers

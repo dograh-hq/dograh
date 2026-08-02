@@ -34,6 +34,7 @@ def _is_auth_error(exc: BaseException) -> bool:
     # httpx surfaces status errors directly in some code paths.
     try:
         import httpx as _httpx
+
         if isinstance(exc, _httpx.HTTPStatusError) and exc.response.status_code == 401:
             return True
     except ImportError:
@@ -178,7 +179,8 @@ class McpToolSession:
             # cached token has expired or been revoked between calls.
             if (
                 self._credential is not None
-                and getattr(self._credential, "credential_type", None) == "oauth2_client_credentials"
+                and getattr(self._credential, "credential_type", None)
+                == "oauth2_client_credentials"
                 and _is_auth_error(e)
             ):
                 try:
@@ -295,7 +297,8 @@ class McpToolSession:
         except Exception as e:
             if (
                 self._credential is not None
-                and getattr(self._credential, "credential_type", None) == "oauth2_client_credentials"
+                and getattr(self._credential, "credential_type", None)
+                == "oauth2_client_credentials"
                 and _is_auth_error(e)
             ):
                 logger.warning(
@@ -304,13 +307,16 @@ class McpToolSession:
                 )
                 try:
                     from api.services.oauth2_token_cache import invalidate_token
+
                     await invalidate_token(str(self._credential.credential_uuid))
                 except Exception:
                     pass
                 await self._degrade(e)
                 await self.start()
                 if not self.available or self._session is None:
-                    raise RuntimeError(f"MCP session failed to reconnect after auth failure for {namespaced_name}")
+                    raise RuntimeError(
+                        f"MCP session failed to reconnect after auth failure for {namespaced_name}"
+                    )
                 result = await self._session.call_tool(original, arguments=arguments)
             else:
                 raise

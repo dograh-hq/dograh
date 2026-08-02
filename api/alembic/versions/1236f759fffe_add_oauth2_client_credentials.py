@@ -8,18 +8,18 @@ Create Date: 2026-08-01 17:02:51.904611
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '1236f759fffe'
-down_revision: Union[str, None] = '00b0201ad918'
+revision: str = "1236f759fffe"
+down_revision: Union[str, None] = "00b0201ad918"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 from alembic_postgresql_enum import TableReference
+
 
 def upgrade() -> None:
     op.sync_enum_values(
@@ -42,6 +42,7 @@ def upgrade() -> None:
         ],
         enum_values_to_rename=[],
     )
+
 
 def downgrade() -> None:
     # Safety guard: permanently deleting OAuth2 credentials (including encrypted

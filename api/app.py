@@ -80,8 +80,9 @@ async def lifespan(app: FastAPI):
         logger.info("Starting graceful shutdown...")
         await sync_manager.stop()
         await loop_lag.stop()
-        
+
         from api.services.oauth2_token_cache import close_redis
+
         await close_redis()
 
 

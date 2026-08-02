@@ -1,5 +1,6 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
 
 from api.services.oauth2_token_cache import OAuth2TokenCache
 
@@ -14,7 +15,9 @@ def mock_ssrf_guard():
 @pytest.fixture
 def mock_redis():
     with patch("api.services.oauth2_token_cache._redis_client", None):
-        with patch("api.services.oauth2_token_cache.aioredis.from_url") as mock_from_url:
+        with patch(
+            "api.services.oauth2_token_cache.aioredis.from_url"
+        ) as mock_from_url:
             mock_client = AsyncMock()
             mock_client.eval.return_value = 1
             mock_from_url.return_value = mock_client
@@ -31,16 +34,17 @@ def mock_httpx():
 
 @pytest.mark.usefixtures("mock_ssrf_guard")
 class TestOAuth2TokenCache:
-
     @pytest.mark.asyncio
-    async def test_get_valid_token_uses_cache_if_available(self, mock_redis, mock_httpx):
+    async def test_get_valid_token_uses_cache_if_available(
+        self, mock_redis, mock_httpx
+    ):
         mock_redis.get.return_value = "cached_token_123"
 
         token = await OAuth2TokenCache.get_valid_token(
             credential_uuid="test-uuid",
             token_url="http://test/token",
             client_id="test-client",
-            client_secret="test-secret"
+            client_secret="test-secret",
         )
 
         assert token == "cached_token_123"
@@ -48,7 +52,9 @@ class TestOAuth2TokenCache:
         mock_httpx.post.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_get_valid_token_fetches_and_caches_new_token(self, mock_redis, mock_httpx):
+    async def test_get_valid_token_fetches_and_caches_new_token(
+        self, mock_redis, mock_httpx
+    ):
         mock_redis.get.return_value = None
 
         mock_response = AsyncMock()
@@ -56,7 +62,7 @@ class TestOAuth2TokenCache:
         mock_response.json = lambda: {
             "access_token": "new_token_456",
             "token_type": "Bearer",
-            "expires_in": 3600
+            "expires_in": 3600,
         }
         mock_httpx.post.return_value = mock_response
 
@@ -65,7 +71,7 @@ class TestOAuth2TokenCache:
             token_url="https://test.example.com/token",
             client_id="test-client",
             client_secret="test-secret",
-            scope="read write"
+            scope="read write",
         )
 
         assert token == "new_token_456"
@@ -84,7 +90,7 @@ class TestOAuth2TokenCache:
         mock_response.json = lambda: {
             "access_token": "new_token_789",
             "token_type": "Bearer",
-            "expires_in": 60  # Less than the 60s _EXPIRY_MARGIN
+            "expires_in": 60,  # Less than the 60s _EXPIRY_MARGIN
         }
         mock_httpx.post.return_value = mock_response
 
@@ -92,7 +98,7 @@ class TestOAuth2TokenCache:
             credential_uuid="test-uuid",
             token_url="https://test.example.com/token",
             client_id="test-client",
-            client_secret="test-secret"
+            client_secret="test-secret",
         )
 
         assert token == "new_token_789"
@@ -100,7 +106,9 @@ class TestOAuth2TokenCache:
         mock_redis.eval.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_get_valid_token_omitted_expires_in_skips_cache(self, mock_redis, mock_httpx):
+    async def test_get_valid_token_omitted_expires_in_skips_cache(
+        self, mock_redis, mock_httpx
+    ):
         """Tokens omitting expires_in are treated as having unknown lifetime and must NOT be cached."""
         mock_redis.get.return_value = None
 
@@ -116,7 +124,7 @@ class TestOAuth2TokenCache:
             credential_uuid="test-uuid",
             token_url="https://test.example.com/token",
             client_id="test-client",
-            client_secret="test-secret"
+            client_secret="test-secret",
         )
 
         assert token == "new_token_unknown_expiry"
@@ -137,11 +145,13 @@ class TestOAuth2TokenCache:
                 credential_uuid="test-uuid",
                 token_url="https://test.example.com/token",
                 client_id="test-client",
-                client_secret="test-secret"
+                client_secret="test-secret",
             )
 
     @pytest.mark.asyncio
-    async def test_get_valid_token_returns_token_even_if_cache_set_fails(self, mock_redis, mock_httpx):
+    async def test_get_valid_token_returns_token_even_if_cache_set_fails(
+        self, mock_redis, mock_httpx
+    ):
         mock_redis.get.return_value = None
         mock_redis.eval.side_effect = Exception("Redis went down")
 
@@ -150,7 +160,7 @@ class TestOAuth2TokenCache:
         mock_response.json = lambda: {
             "access_token": "new_token_abc",
             "token_type": "Bearer",
-            "expires_in": 3600
+            "expires_in": 3600,
         }
         mock_httpx.post.return_value = mock_response
 
@@ -158,13 +168,15 @@ class TestOAuth2TokenCache:
             credential_uuid="test-uuid",
             token_url="https://test.example.com/token",
             client_id="test-client",
-            client_secret="test-secret"
+            client_secret="test-secret",
         )
 
         assert token == "new_token_abc"
 
     @pytest.mark.asyncio
-    async def test_get_valid_token_fetches_if_cache_get_fails(self, mock_redis, mock_httpx):
+    async def test_get_valid_token_fetches_if_cache_get_fails(
+        self, mock_redis, mock_httpx
+    ):
         mock_redis.get.side_effect = Exception("Redis went down")
 
         mock_response = AsyncMock()
@@ -172,7 +184,7 @@ class TestOAuth2TokenCache:
         mock_response.json = lambda: {
             "access_token": "new_token_def",
             "token_type": "Bearer",
-            "expires_in": 3600
+            "expires_in": 3600,
         }
         mock_httpx.post.return_value = mock_response
 
@@ -180,12 +192,12 @@ class TestOAuth2TokenCache:
             credential_uuid="test-uuid",
             token_url="https://test.example.com/token",
             client_id="test-client",
-            client_secret="test-secret"
+            client_secret="test-secret",
         )
 
         assert token == "new_token_def"
         mock_httpx.post.assert_called_once()
-        
+
     @pytest.mark.asyncio
     async def test_invalidate_token(self, mock_redis):
         await OAuth2TokenCache.invalidate_token("test-uuid")

@@ -2,6 +2,7 @@
 
 from typing import Any, Optional
 from urllib.parse import urlparse
+
 from fastapi import HTTPException
 
 from api.db import db_client
@@ -56,7 +57,7 @@ def validate_credential_data(
                 status_code=400,
                 detail="Custom Header credential requires 'header_name' and 'header_value' fields",
             )
-            
+
     elif credential_type == WebhookCredentialType.OAUTH2_CLIENT_CREDENTIALS:
         required = {"client_id", "client_secret", "token_url"}
         missing_or_empty = [k for k in sorted(required) if not credential_data.get(k)]
@@ -94,8 +95,16 @@ async def update_credential_with_invalidation(
         return None
 
     # Validate against effective credential_type and effective credential_data
-    effective_type = credential_type if credential_type is not None else WebhookCredentialType(existing.credential_type)
-    effective_data = credential_data if credential_data is not None else (existing.credential_data or {})
+    effective_type = (
+        credential_type
+        if credential_type is not None
+        else WebhookCredentialType(existing.credential_type)
+    )
+    effective_data = (
+        credential_data
+        if credential_data is not None
+        else (existing.credential_data or {})
+    )
     validate_credential_data(effective_type, effective_data)
 
     type_str = credential_type.value if credential_type else None

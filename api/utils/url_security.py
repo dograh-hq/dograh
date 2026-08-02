@@ -94,7 +94,7 @@ class PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
         verify = kwargs.pop("verify", True)
         cert = kwargs.pop("cert", None)
         trust_env = kwargs.pop("trust_env", True)
-        
+
         if isinstance(verify, ssl.SSLContext):
             ssl_context: ssl.SSLContext | None = verify
         else:

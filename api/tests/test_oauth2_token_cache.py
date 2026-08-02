@@ -71,6 +71,7 @@ class TestOAuth2TokenCache:
         assert token == "new_token_456"
         # TTL = max(30, expires_in - _EXPIRY_MARGIN) = max(30, 3600 - 60) = 3540
         mock_redis.eval.assert_called_once()
+        assert mock_redis.eval.call_args[0][5] == 3540
 
     @pytest.mark.asyncio
     async def test_get_valid_token_handles_short_expiry(self, mock_redis, mock_httpx):

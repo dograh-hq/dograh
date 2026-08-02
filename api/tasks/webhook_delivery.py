@@ -218,8 +218,11 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                     # Retry immediately with the fresh token rather than scheduling
                     # a transient failure — this ensures the last allowed attempt is
                     # not wasted dead-lettering without ever sending the fresh token.
-                    from api.utils.credential_auth import rebuild_headers_after_401
-                    retry_headers = rebuild_headers_after_401(headers, fresh_auth)
+                    retry_headers = dict(headers)
+                    for k in list(retry_headers.keys()):
+                        if k.lower() == "authorization":
+                            del retry_headers[k]
+                    retry_headers.update(fresh_auth)
                     try:
                         async with httpx.AsyncClient() as retry_client:
                             if method in ("POST", "PUT", "PATCH"):

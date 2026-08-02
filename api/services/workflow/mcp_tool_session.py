@@ -303,7 +303,8 @@ class McpToolSession:
                     "invalidating cached OAuth2 token and reconnecting."
                 )
                 try:
-                    await invalidate_and_rebuild_auth(self._credential)
+                    from api.services.oauth2_token_cache import invalidate_token
+                    await invalidate_token(str(self._credential.uuid))
                 except Exception:
                     pass
                 await self._degrade(e)

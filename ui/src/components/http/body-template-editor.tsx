@@ -92,8 +92,11 @@ export function BodyTemplateEditor({
             lastPushedValue.current = null;
             return;
         }
+        let parsed;
         try {
-            const parsed = JSON.parse(text);
+            // Auto-quote unquoted {{placeholders}} so users can type "adults": {{adults}} without JSON syntax errors.
+            const preprocessedText = text.replace(/(:\s*|\[\s*|,\s*)(\{\{[^}]+\}\})(?=\s*[,}\]])/g, '$1"$2"');
+            parsed = JSON.parse(preprocessedText);
             if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
                 setError("Body template must be a JSON object, not an array or primitive.");
                 return;

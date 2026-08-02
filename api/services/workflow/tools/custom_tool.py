@@ -391,6 +391,32 @@ def render_body_template(
         "current_time",
         "current_weekday",
     }
+
+    # Guard against undeclared placeholders or malformed delimiters before rendering.
+    # Otherwise, undeclared placeholders render as "" and malformed syntax is sent literally.
+    _pos = 0
+    while True:
+        _idx = template_str.find("{{", _pos)
+        if _idx == -1:
+            break
+        _end_idx = template_str.find("}}", _idx + 2)
+        if _end_idx == -1:
+            raise ValueError("Malformed body template: unmatched '{{' found.")
+        _next_idx = template_str.find("{{", _idx + 2)
+        if _next_idx != -1 and _next_idx < _end_idx:
+            raise ValueError("Malformed body template: nested '{{' found.")
+        
+        _placeholder_content = template_str[_idx + 2 : _end_idx].strip()
+        _match = _re.match(r"^([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|[^}]*)?$", _placeholder_content)
+        if not _match:
+            raise ValueError(f"Malformed body template: invalid placeholder syntax '{{{{{_placeholder_content}}}}}'.")
+        
+        _top_level = _match.group(1)
+        if _top_level not in _SYSTEM_PREFIXES and _top_level not in param_type_map:
+            raise ValueError(f"Undeclared placeholder: '{{{{{_top_level}}}}}' is not a configured parameter.")
+        
+        _pos = _end_idx + 2
+
     required_in_template: set[str] = {
         m.group(1)
         for m in _TMPL_VAR_RE.finditer(template_str)

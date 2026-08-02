@@ -1134,6 +1134,11 @@ class TestRenderBodyTemplate:
         res = render_body_template(tpl, {}, [])
         assert res == {"a": 1, "b": "two"}
 
+    def test_static_template_with_literal_closing_braces(self):
+        tpl = {"syntax": "See placeholder syntax: }}"}
+        res = render_body_template(tpl, {}, [])
+        assert res == {"syntax": "See placeholder syntax: }}"}
+
     def test_null_literal_in_template(self):
         tpl = {"key": None}
         res = render_body_template(tpl, {}, [])
@@ -1267,6 +1272,7 @@ class TestExecuteHttpToolWithBodyTemplate:
                     "method": "PUT",
                     "url": "http://test",
                     "body_template": {"nested": "{{val}}"},
+                    "parameters": [{"name": "val", "type": "string"}],
                 }
             },
         )
@@ -1292,6 +1298,7 @@ class TestExecuteHttpToolWithBodyTemplate:
                     "method": "PATCH",
                     "url": "http://test",
                     "body_template": {"nested": "{{val}}"},
+                    "parameters": [{"name": "val", "type": "string"}],
                 }
             },
         )
@@ -1365,16 +1372,16 @@ class TestExecuteHttpToolWithBodyTemplate:
                     "method": "POST",
                     "url": "http://test",
                     "body_template": {"x": "{{llm_val}}", "y": "{{preset_val}}"},
+                    "parameters": [{"name": "llm_val", "type": "number"}],
+                    "preset_parameters": [{"name": "preset_val", "type": "number"}],
                 }
             },
         )
-        # We can pass preset_params directly to execute_http_tool if we use kwargs or it calls resolve.
-        # Wait, execute_http_tool takes: tool, arguments, call_context_vars, gathered_context_vars, preset_params
         res = await execute_http_tool(
             tool, {"llm_val": 1}, preset_params={"preset_val": 2}
         )
         kwargs = mock_request.call_args[1]
-        assert kwargs["json"] == {"x": "1", "y": "2"}
+        assert kwargs["json"] == {"x": 1, "y": 2}
 
     @pytest.mark.asyncio
     @patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient.request")

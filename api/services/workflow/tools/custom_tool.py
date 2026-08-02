@@ -383,26 +383,7 @@ def render_body_template(
         r"\{\{\s*([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|[^}]*)?\s*\}\}"
     )
 
-    def _check_unmatched_closing(obj: Any) -> None:
-        if isinstance(obj, dict):
-            for v in obj.values():
-                _check_unmatched_closing(v)
-        elif isinstance(obj, list):
-            for item in obj:
-                _check_unmatched_closing(item)
-        elif isinstance(obj, str):
-            pos = 0
-            while True:
-                idx = obj.find("}}", pos)
-                if idx == -1:
-                    break
-                left_idx = obj.rfind("{{", 0, idx)
-                if left_idx == -1 or left_idx < pos:
-                    raise ValueError("Malformed body template: unmatched '}}' found.")
-                pos = idx + 2
 
-    if template:
-        _check_unmatched_closing(template)
 
     template_str = json.dumps(template) if template else "{}"
     # Collect all referenced top-level names (no fallback filter — those are optional by design).

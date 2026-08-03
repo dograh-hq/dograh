@@ -131,14 +131,14 @@ class TryVoxProvider(TelephonyProvider):
         call_data = response_data.get("data", response_data)
         # Answer and status callbacks carry TryVox's call UUID (``call_uuid`` /
         # ``CallUUID``), which is not guaranteed to equal the ``request_uuid``
-        # from this REST response. Prefer the callback-compatible identifier
-        # so `_assert_call_matches` isn't comparing two different IDs; fall
-        # back to `request_uuid` only if the response didn't include one.
-        call_id = (
-            call_data.get("call_uuid")
-            or call_data.get("CallUUID")
-            or call_data.get("request_uuid")
-        )
+        # from this REST response. Persisting the wrong one into
+        # gathered_context would make `_assert_call_matches` permanently
+        # reject the real callback (it only lets the *first* callback claim
+        # an unset call ID). So only pre-bind the callback-compatible ID; if
+        # the response omitted it, leave gathered_context.call_id unset and
+        # let the first verified Answer/status callback claim it instead.
+        callback_call_id = call_data.get("call_uuid") or call_data.get("CallUUID")
+        call_id = callback_call_id or call_data.get("request_uuid")
         if not call_id:
             raise HTTPException(
                 status_code=502,
@@ -165,7 +165,9 @@ class TryVoxProvider(TelephonyProvider):
             call_id=call_id,
             status=call_data.get("status", "queued"),
             caller_number=selected_from,
-            provider_metadata={"call_id": call_id},
+            provider_metadata=(
+                {"call_id": callback_call_id} if callback_call_id else {}
+            ),
             raw_response=response_data,
         )
 

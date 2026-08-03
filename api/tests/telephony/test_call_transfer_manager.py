@@ -188,7 +188,9 @@ class TestTerminalEventDurability:
             )
         )
 
-        event = await manager.wait_for_transfer_completion("xfer-1", timeout_seconds=1.0)
+        event = await manager.wait_for_transfer_completion(
+            "xfer-1", timeout_seconds=1.0
+        )
 
         assert event is not None, "completion event lost: pub/sub has no retention"
         assert event.type == TransferEventType.DESTINATION_ANSWERED

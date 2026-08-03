@@ -28,8 +28,8 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
-from api.utils.telephony_address import normalize_telephony_address
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -105,10 +105,14 @@ class VoxProProvider(TelephonyProvider):
 
         endpoint = f"{self.api_base}/v1/calls/originate"
         async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json=payload, headers=self._headers()) as resp:
+            async with session.post(
+                endpoint, json=payload, headers=self._headers()
+            ) as resp:
                 if resp.status not in (200, 201):
                     body = await resp.text()
-                    logger.error(f"[VoxPro] originate failed: HTTP {resp.status} {body}")
+                    logger.error(
+                        f"[VoxPro] originate failed: HTTP {resp.status} {body}"
+                    )
                     raise HTTPException(
                         status_code=resp.status,
                         detail=f"Failed to initiate VoxPro call: {body}",
@@ -116,7 +120,9 @@ class VoxProProvider(TelephonyProvider):
                 data = await resp.json()
 
         call_id = data.get("call_id") or data.get("session_uuid", "")
-        logger.info(f"[VoxPro] call initiated {from_number} -> {to_number} (id={call_id})")
+        logger.info(
+            f"[VoxPro] call initiated {from_number} -> {to_number} (id={call_id})"
+        )
         return CallInitiationResult(
             call_id=call_id,
             status=data.get("state", "initiated"),
@@ -126,7 +132,10 @@ class VoxProProvider(TelephonyProvider):
             # the active call id from gathered_context['call_id'] (via
             # conference_name). VoxPro has no status-callback path that would
             # otherwise populate it (cf. Telnyx, which does the same).
-            provider_metadata={"call_id": call_id, "session_uuid": data.get("session_uuid")},
+            provider_metadata={
+                "call_id": call_id,
+                "session_uuid": data.get("session_uuid"),
+            },
             raw_response=data,
         )
 
@@ -146,7 +155,9 @@ class VoxProProvider(TelephonyProvider):
         return self.from_numbers
 
     def validate_config(self) -> bool:
-        return bool(self.api_key and self.tenant_id and self.api_base and self.from_numbers)
+        return bool(
+            self.api_key and self.tenant_id and self.api_base and self.from_numbers
+        )
 
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -162,8 +173,14 @@ class VoxProProvider(TelephonyProvider):
         # HMAC-SHA256 of the raw body with the tenant api_key. Fail closed.
         if not signature or not self.api_key:
             return False
-        body = kwargs.get("body") or (args[0] if args else "") or json.dumps(params, separators=(",", ":"))
-        expected = hmac.new(self.api_key.encode(), body.encode(), hashlib.sha256).hexdigest()
+        body = (
+            kwargs.get("body")
+            or (args[0] if args else "")
+            or json.dumps(params, separators=(",", ":"))
+        )
+        expected = hmac.new(
+            self.api_key.encode(), body.encode(), hashlib.sha256
+        ).hexdigest()
         return hmac.compare_digest(expected, signature)
 
     async def get_webhook_response(
@@ -187,7 +204,9 @@ class VoxProProvider(TelephonyProvider):
         start_msg = json.loads(first_msg)
 
         if start_msg.get("event") != "start":
-            logger.error(f"[VoxPro] expected 'start' event, got: {start_msg.get('event')}")
+            logger.error(
+                f"[VoxPro] expected 'start' event, got: {start_msg.get('event')}"
+            )
             await websocket.close(code=4400, reason="Expected start event")
             return
 
@@ -195,7 +214,9 @@ class VoxProProvider(TelephonyProvider):
         stream_id = start_data.get("streamId")
         call_id = start_data.get("callId")
         if not stream_id or not call_id:
-            logger.error(f"[VoxPro] missing streamId/callId in start event: {start_data}")
+            logger.error(
+                f"[VoxPro] missing streamId/callId in start event: {start_data}"
+            )
             await websocket.close(code=4400, reason="Missing streamId or callId")
             return
 
@@ -230,7 +251,9 @@ class VoxProProvider(TelephonyProvider):
 
     # ── Inbound ─────────────────────────────────────────────────────────
     @classmethod
-    def can_handle_webhook(cls, webhook_data: Dict[str, Any], headers: Dict[str, str]) -> bool:
+    def can_handle_webhook(
+        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+    ) -> bool:
         ua = headers.get("user-agent", "").lower()
         return "voxpro" in ua or "x-voxpro-tenant" in {k.lower() for k in headers}
 
@@ -238,7 +261,8 @@ class VoxProProvider(TelephonyProvider):
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
         return NormalizedInboundData(
             provider=VoxProProvider.PROVIDER_NAME,
-            call_id=webhook_data.get("call_id", "") or webhook_data.get("session_uuid", ""),
+            call_id=webhook_data.get("call_id", "")
+            or webhook_data.get("session_uuid", ""),
             from_number=webhook_data.get("from", ""),
             to_number=webhook_data.get("to", ""),
             direction="inbound",
@@ -267,7 +291,9 @@ class VoxProProvider(TelephonyProvider):
         if not signature:
             logger.warning("[VoxPro] inbound webhook missing X-VoxPro-Signature")
             return False
-        return await self.verify_webhook_signature(url, webhook_data, signature, body=body)
+        return await self.verify_webhook_signature(
+            url, webhook_data, signature, body=body
+        )
 
     @classmethod
     async def start_inbound_stream(
@@ -391,8 +417,12 @@ class VoxProProvider(TelephonyProvider):
         # transfer that real call directly rather than using the conference
         # bridge cloud providers rely on.
         call_id = kwargs.get("call_id")
-        if not call_id and conference_name and conference_name.startswith(TRANSFER_CONFERENCE_PREFIX):
-            call_id = conference_name[len(TRANSFER_CONFERENCE_PREFIX):]
+        if (
+            not call_id
+            and conference_name
+            and conference_name.startswith(TRANSFER_CONFERENCE_PREFIX)
+        ):
+            call_id = conference_name[len(TRANSFER_CONFERENCE_PREFIX) :]
         if not call_id:
             raise ValueError(
                 "VoxPro transfer_call could not resolve the active call id "
@@ -409,7 +439,9 @@ class VoxProProvider(TelephonyProvider):
         # Publishing from here would race the subscriber (it subscribes only
         # after we return), so the callback route is the correct seam.
         backend_endpoint, _ = await get_backend_endpoints()
-        result_url = f"{backend_endpoint}/api/v1/telephony/voxpro/transfer-result/{transfer_id}"
+        result_url = (
+            f"{backend_endpoint}/api/v1/telephony/voxpro/transfer-result/{transfer_id}"
+        )
 
         endpoint = f"{self.api_base}/v1/calls/{call_id}/transfer"
         payload = {
@@ -420,14 +452,22 @@ class VoxProProvider(TelephonyProvider):
             "result_url": result_url,
         }
         async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json=payload, headers=self._headers()) as resp:
+            async with session.post(
+                endpoint, json=payload, headers=self._headers()
+            ) as resp:
                 if resp.status not in (200, 202):
                     body = await resp.text()
-                    raise HTTPException(status_code=resp.status,
-                                        detail=f"VoxPro transfer failed: {body}")
+                    raise HTTPException(
+                        status_code=resp.status,
+                        detail=f"VoxPro transfer failed: {body}",
+                    )
                 data = await resp.json()
-        return {"call_sid": call_id, "status": "transferring",
-                "provider": self.PROVIDER_NAME, "raw": data}
+        return {
+            "call_sid": call_id,
+            "status": "transferring",
+            "provider": self.PROVIDER_NAME,
+            "raw": data,
+        }
 
     def supports_transfers(self) -> bool:
         return True

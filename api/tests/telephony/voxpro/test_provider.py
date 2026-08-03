@@ -3,7 +3,6 @@
 import hashlib
 import hmac
 import json
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -81,16 +80,29 @@ async def test_get_available_phone_numbers():
 
 @pytest.mark.asyncio
 async def test_initiate_call_posts_to_connector():
-    resp = _FakeResp(201, {"call_id": "sess-abc", "session_uuid": "sess-abc", "state": "ringing"})
+    resp = _FakeResp(
+        201, {"call_id": "sess-abc", "session_uuid": "sess-abc", "state": "ringing"}
+    )
     session = _FakeSession(resp)
 
-    with patch("api.services.telephony.providers.voxpro.provider.aiohttp.ClientSession",
-               return_value=session), \
-         patch("api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
-               new=AsyncMock(return_value=("https://api.dograh.example", "wss://api.dograh.example"))):
+    with (
+        patch(
+            "api.services.telephony.providers.voxpro.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
+            new=AsyncMock(
+                return_value=("https://api.dograh.example", "wss://api.dograh.example")
+            ),
+        ),
+    ):
         result = await _provider().initiate_call(
-            to_number="+919513049206", webhook_url="https://api.dograh.example/x",
-            workflow_run_id=42, workflow_id=7, organization_id=3,
+            to_number="+919513049206",
+            webhook_url="https://api.dograh.example/x",
+            workflow_run_id=42,
+            workflow_id=7,
+            organization_id=3,
         )
 
     assert result.call_id == "sess-abc"
@@ -102,20 +114,27 @@ async def test_initiate_call_posts_to_connector():
     assert url.endswith("/v1/calls/originate")
     assert headers["X-API-Key"] == "vpk_test_123"
     assert headers["X-Tenant-ID"] == "AI_Katha_1783948668"
-    assert body["to_number"] == "919513049206"           # + stripped
-    assert body["ws_url"].endswith("/api/v1/telephony/ws/7/3/42")   # generic mounted route
+    assert body["to_number"] == "919513049206"  # + stripped
+    assert body["ws_url"].endswith(
+        "/api/v1/telephony/ws/7/3/42"
+    )  # generic mounted route
     assert body["workflow_run_id"] == "42"
     assert "status_url" not in body
 
 
 @pytest.mark.asyncio
 async def test_initiate_call_requires_ids():
-    with patch("api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
-               new=AsyncMock(return_value=("https://x", "wss://x"))):
+    with patch(
+        "api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
+        new=AsyncMock(return_value=("https://x", "wss://x")),
+    ):
         with pytest.raises(ValueError):
             await _provider().initiate_call(
-                to_number="+91", webhook_url="u", workflow_run_id=None,
-                workflow_id=7, organization_id=3,
+                to_number="+91",
+                webhook_url="u",
+                workflow_run_id=None,
+                workflow_id=7,
+                organization_id=3,
             )
 
 
@@ -124,12 +143,21 @@ async def test_transfer_call_decodes_conference_name():
     # conference_name is "transfer-{original_call_sid}"; VoxPro must transfer the
     # real carrier call, not the generated transfer_id.
     session = _FakeSession(_FakeResp(200, {"ok": True}))
-    with patch("api.services.telephony.providers.voxpro.provider.aiohttp.ClientSession",
-               return_value=session), \
-         patch("api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
-               new=AsyncMock(return_value=("https://api.dograh.example", "wss://api.dograh.example"))):
+    with (
+        patch(
+            "api.services.telephony.providers.voxpro.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.voxpro.provider.get_backend_endpoints",
+            new=AsyncMock(
+                return_value=("https://api.dograh.example", "wss://api.dograh.example")
+            ),
+        ),
+    ):
         out = await _provider().transfer_call(
-            destination="+918888888888", transfer_id="tid-uuid",
+            destination="+918888888888",
+            transfer_id="tid-uuid",
             conference_name=f"{TRANSFER_CONFERENCE_PREFIX}CARRIER123",
         )
     assert out["call_sid"] == "CARRIER123"
@@ -138,12 +166,19 @@ async def test_transfer_call_decodes_conference_name():
     assert body["destination"] == "918888888888"
     # The connector must be told where to report completion, else the shared
     # wait_for_transfer_completion() never gets its event and the transfer times out.
-    assert body["result_url"].endswith("/api/v1/telephony/voxpro/transfer-result/tid-uuid")
+    assert body["result_url"].endswith(
+        "/api/v1/telephony/voxpro/transfer-result/tid-uuid"
+    )
 
 
 def test_parse_inbound_webhook():
-    data = {"call_id": "c1", "from": "+919999999999", "to": "08071661528",
-            "status": "ringing", "tenant_id": "AI_Katha_1783948668"}
+    data = {
+        "call_id": "c1",
+        "from": "+919999999999",
+        "to": "08071661528",
+        "status": "ringing",
+        "tenant_id": "AI_Katha_1783948668",
+    }
     n = VoxProProvider.parse_inbound_webhook(data)
     assert n.provider == "voxpro"
     assert n.direction == "inbound"
@@ -164,17 +199,28 @@ async def test_verify_inbound_signature_hmac():
     body = json.dumps({"call_id": "c1"}, separators=(",", ":"))
     good = hmac.new(b"vpk_test_123", body.encode(), hashlib.sha256).hexdigest()
 
-    assert await p.verify_inbound_signature("u", {"call_id": "c1"},
-                                            {"X-VoxPro-Signature": good}, body=body) is True
-    assert await p.verify_inbound_signature("u", {"call_id": "c1"},
-                                            {"X-VoxPro-Signature": "deadbeef"}, body=body) is False
-    assert await p.verify_inbound_signature("u", {"call_id": "c1"}, {}, body=body) is False
+    assert (
+        await p.verify_inbound_signature(
+            "u", {"call_id": "c1"}, {"X-VoxPro-Signature": good}, body=body
+        )
+        is True
+    )
+    assert (
+        await p.verify_inbound_signature(
+            "u", {"call_id": "c1"}, {"X-VoxPro-Signature": "deadbeef"}, body=body
+        )
+        is False
+    )
+    assert (
+        await p.verify_inbound_signature("u", {"call_id": "c1"}, {}, body=body) is False
+    )
 
 
 # ── Transfer-completion callback (greptile P1) ──────────────────────────────
 # A blind transfer completes asynchronously in the connector, which POSTs the
 # outcome to /voxpro/transfer-result/{transfer_id}. The route publishes the
 # TransferEvent the shared flow's wait_for_transfer_completion() blocks on.
+
 
 def _transfer_context():
     from api.services.telephony.transfer_event_protocol import TransferContext
@@ -199,7 +245,7 @@ def test_build_transfer_event_success():
         "tid-uuid", _transfer_context(), {"outcome": "answered", "call_sid": "DEST9"}
     )
     assert ev.type == TransferEventType.DESTINATION_ANSWERED
-    assert ev.action == "destination_answered"          # → tool ends pipeline (success)
+    assert ev.action == "destination_answered"  # → tool ends pipeline (success)
     assert ev.original_call_sid == "CARRIER123"
     assert ev.transfer_call_sid == "DEST9"
     assert ev.to_result_dict()["status"] == "success"
@@ -213,7 +259,7 @@ def test_build_transfer_event_failure():
         "tid-uuid", _transfer_context(), {"outcome": "failed", "reason": "no_answer"}
     )
     assert ev.type == TransferEventType.TRANSFER_FAILED
-    assert ev.action == "transfer_failed"               # → LLM tells the user
+    assert ev.action == "transfer_failed"  # → LLM tells the user
     assert ev.reason == "no_answer"
     assert ev.end_call is True
 
@@ -259,8 +305,9 @@ async def test_transfer_result_route_publishes_event():
     from api.services.telephony.transfer_event_protocol import TransferEventType
 
     mgr = _FakeManager(claim=True, context=_transfer_context())
-    with patch.object(routes_mod, "get_call_transfer_manager",
-                      new=AsyncMock(return_value=mgr)):
+    with patch.object(
+        routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+    ):
         res = await routes_mod.handle_voxpro_transfer_result(
             "tid-uuid", _FakeRequest({"outcome": "answered", "call_sid": "DEST9"})
         )
@@ -276,8 +323,9 @@ async def test_transfer_result_route_is_idempotent():
 
     # claim_transfer_step returns False on a retried delivery → no second publish.
     mgr = _FakeManager(claim=False, context=_transfer_context())
-    with patch.object(routes_mod, "get_call_transfer_manager",
-                      new=AsyncMock(return_value=mgr)):
+    with patch.object(
+        routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+    ):
         res = await routes_mod.handle_voxpro_transfer_result(
             "tid-uuid", _FakeRequest({"outcome": "answered"})
         )

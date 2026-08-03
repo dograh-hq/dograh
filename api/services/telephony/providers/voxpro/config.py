@@ -6,7 +6,7 @@ API with a per-tenant API key, and VoxPro originates/bridges the call on its own
 carrier and streams Plivo/Twilio-standard mu-law audio to Dograh.
 """
 
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 

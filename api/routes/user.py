@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
-from typing import List, Literal, Optional, TypedDict, Union
+from typing import List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, ValidationError
+from typing_extensions import TypedDict
 
 from api.db import db_client
 from api.db.models import (

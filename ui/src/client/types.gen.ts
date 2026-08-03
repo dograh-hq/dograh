@@ -803,6 +803,66 @@ export type CallDispositionCodes = {
 export type CallType = 'inbound' | 'outbound';
 
 /**
+ * CallbackConfigRequest
+ */
+export type CallbackConfigRequest = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Sociable Hours Start
+     */
+    sociable_hours_start?: string;
+    /**
+     * Sociable Hours End
+     */
+    sociable_hours_end?: string;
+    /**
+     * Sociable Hours Timezone
+     */
+    sociable_hours_timezone?: string;
+    /**
+     * Honor Campaign Window For Long Callbacks
+     */
+    honor_campaign_window_for_long_callbacks?: boolean;
+    /**
+     * Long Callback Threshold Minutes
+     */
+    long_callback_threshold_minutes?: number;
+};
+
+/**
+ * CallbackConfigResponse
+ */
+export type CallbackConfigResponse = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Sociable Hours Start
+     */
+    sociable_hours_start?: string;
+    /**
+     * Sociable Hours End
+     */
+    sociable_hours_end?: string;
+    /**
+     * Sociable Hours Timezone
+     */
+    sociable_hours_timezone?: string;
+    /**
+     * Honor Campaign Window For Long Callbacks
+     */
+    honor_campaign_window_for_long_callbacks?: boolean;
+    /**
+     * Long Callback Threshold Minutes
+     */
+    long_callback_threshold_minutes?: number;
+};
+
+/**
  * Camb.ai
  */
 export type CambTtsConfiguration = {
@@ -832,6 +892,64 @@ export type CambTtsConfiguration = {
      * BCP-47 language code.
      */
     language?: string;
+};
+
+/**
+ * CampaignCallbackItem
+ */
+export type CampaignCallbackItem = {
+    /**
+     * Queued Run Id
+     */
+    queued_run_id: number;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Scheduled For
+     */
+    scheduled_for: string | null;
+    /**
+     * Fires In Seconds
+     */
+    fires_in_seconds: number | null;
+    /**
+     * To Number
+     */
+    to_number: string | null;
+    /**
+     * From Number
+     */
+    from_number: string | null;
+    /**
+     * Conversation Summary
+     */
+    conversation_summary: string | null;
+    /**
+     * Callback Chain Depth
+     */
+    callback_chain_depth: number;
+    /**
+     * Original Run Id
+     */
+    original_run_id: number | null;
+    /**
+     * Outcome Run Id
+     */
+    outcome_run_id: number | null;
+    /**
+     * Outcome Status
+     */
+    outcome_status: string | null;
+    /**
+     * Outcome Disposition
+     */
+    outcome_disposition: string | null;
+    /**
+     * Created At
+     */
+    created_at: string | null;
 };
 
 /**
@@ -994,6 +1112,7 @@ export type CampaignResponse = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigResponse | null;
     circuit_breaker?: CircuitBreakerConfigResponse | null;
+    callback_config?: CallbackConfigResponse | null;
     /**
      * Executed Count
      */
@@ -1461,6 +1580,7 @@ export type CreateCampaignRequest = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
     circuit_breaker?: CircuitBreakerConfigRequest | null;
+    callback_config?: CallbackConfigRequest | null;
 };
 
 /**
@@ -1581,7 +1701,7 @@ export type CreateToolRequest = {
      *
      * Tool category. Must match definition.type.
      */
-    category?: 'http_api' | 'end_call' | 'transfer_call' | 'calculator' | 'native' | 'integration' | 'mcp';
+    category?: 'http_api' | 'end_call' | 'transfer_call' | 'calculator' | 'wait' | 'native' | 'integration' | 'mcp';
     /**
      * Icon
      *
@@ -1608,6 +1728,8 @@ export type CreateToolRequest = {
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
+        type: 'wait';
+    } & WaitToolDefinition) | ({
         type: 'mcp';
     } & McpToolDefinition);
 };
@@ -1626,6 +1748,10 @@ export type CreateWorkflowRequest = {
     workflow_definition: {
         [key: string]: unknown;
     };
+    /**
+     * Post Call Schema
+     */
+    post_call_schema?: Array<unknown> | null;
 };
 
 /**
@@ -2401,14 +2527,6 @@ export type EmbedConfigResponse = {
      * Auto Start
      */
     auto_start: boolean;
-    /**
-     * Turn Enabled
-     */
-    turn_enabled: boolean;
-    /**
-     * Force Turn Relay
-     */
-    force_turn_relay: boolean;
 };
 
 /**
@@ -3089,6 +3207,14 @@ export type HttpApiConfig = {
      * Recording ID for an audio custom message.
      */
     customMessageRecordingId?: string | null;
+    /**
+     * Body Template
+     *
+     * Optional nested JSON body template for POST/PUT/PATCH requests. Use {{placeholder}} for LLM/preset parameters, {{initial_context.*}} for call context, {{gathered_context.*}} for conversation context. When set, replaces the default flat-dict body. Static values in the template are sent as-is.
+     */
+    body_template?: {
+        [key: string]: unknown;
+    } | null;
 };
 
 /**
@@ -3323,11 +3449,6 @@ export type InitEmbedResponse = {
     config: {
         [key: string]: unknown;
     };
-    /**
-     * Widget Type
-     */
-    widget_type?: string;
-    chat_session?: PublicEmbedChatSessionResponse | null;
 };
 
 /**
@@ -4804,72 +4925,6 @@ export type ProviderSyncStatus = {
      * Message
      */
     message?: string | null;
-};
-
-/**
- * PublicEmbedChatMessage
- */
-export type PublicEmbedChatMessage = {
-    /**
-     * Text
-     */
-    text: string;
-    /**
-     * Created At
-     */
-    created_at?: string | null;
-};
-
-/**
- * PublicEmbedChatMessageRequest
- */
-export type PublicEmbedChatMessageRequest = {
-    /**
-     * Text
-     */
-    text: string;
-    /**
-     * Expected Revision
-     */
-    expected_revision?: number | null;
-};
-
-/**
- * PublicEmbedChatSessionResponse
- */
-export type PublicEmbedChatSessionResponse = {
-    /**
-     * Revision
-     */
-    revision: number;
-    /**
-     * State
-     */
-    state: string;
-    /**
-     * Is Completed
-     */
-    is_completed: boolean;
-    /**
-     * Turns
-     */
-    turns: Array<PublicEmbedChatTurn>;
-};
-
-/**
- * PublicEmbedChatTurn
- */
-export type PublicEmbedChatTurn = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Status
-     */
-    status: string;
-    user_message?: PublicEmbedChatMessage | null;
-    assistant_message?: PublicEmbedChatMessage | null;
 };
 
 /**
@@ -6498,6 +6553,94 @@ export type UltravoxRealtimeLlmConfiguration = {
 };
 
 /**
+ * UnifiedCallbackItem
+ */
+export type UnifiedCallbackItem = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Scheduled For
+     */
+    scheduled_for: string | null;
+    /**
+     * Fires In Seconds
+     */
+    fires_in_seconds: number | null;
+    /**
+     * Was Late Seconds
+     */
+    was_late_seconds: number | null;
+    /**
+     * To Number
+     */
+    to_number: string | null;
+    /**
+     * From Number
+     */
+    from_number: string | null;
+    /**
+     * Conversation Summary
+     */
+    conversation_summary: string | null;
+    /**
+     * Callback Chain Depth
+     */
+    callback_chain_depth: number;
+    /**
+     * Workflow Id
+     */
+    workflow_id: number | null;
+    /**
+     * Workflow Name
+     */
+    workflow_name: string | null;
+    /**
+     * Campaign Id
+     */
+    campaign_id: number | null;
+    /**
+     * Campaign Name
+     */
+    campaign_name: string | null;
+    /**
+     * Original Run Id
+     */
+    original_run_id: number | null;
+    /**
+     * Created At
+     */
+    created_at: string | null;
+};
+
+/**
+ * UnifiedCallbackListResponse
+ */
+export type UnifiedCallbackListResponse = {
+    /**
+     * Items
+     */
+    items: Array<UnifiedCallbackItem>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Has More
+     */
+    has_more: boolean;
+};
+
+/**
  * UpdateCampaignRequest
  */
 export type UpdateCampaignRequest = {
@@ -6512,6 +6655,7 @@ export type UpdateCampaignRequest = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
     circuit_breaker?: CircuitBreakerConfigRequest | null;
+    callback_config?: CallbackConfigRequest | null;
 };
 
 /**
@@ -6581,6 +6725,8 @@ export type UpdateToolRequest = {
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
+        type: 'wait';
+    } & WaitToolDefinition) | ({
         type: 'mcp';
     } & McpToolDefinition) | null;
     /**
@@ -6604,12 +6750,28 @@ export type UpdateWorkflowRequest = {
         [key: string]: unknown;
     } | null;
     /**
+     * Post Call Schema
+     */
+    post_call_schema?: Array<unknown> | null;
+    /**
      * Template Context Variables
      */
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
     workflow_configurations?: WorkflowConfigurationDefaults | null;
+    /**
+     * Enable Dtmf
+     */
+    enable_dtmf?: boolean | null;
+    /**
+     * Enable Callbacks
+     */
+    enable_callbacks?: boolean | null;
+    /**
+     * Callback Resume Mode
+     */
+    callback_resume_mode?: string | null;
 };
 
 /**
@@ -7078,11 +7240,31 @@ export type VonageConfigurationResponse = {
 };
 
 /**
+ * WaitToolDefinition
+ *
+ * Tool definition for Wait tools.
+ */
+export type WaitToolDefinition = {
+    /**
+     * Schema Version
+     *
+     * Schema version.
+     */
+    schema_version?: number;
+    /**
+     * Type
+     *
+     * Tool type.
+     */
+    type: 'wait';
+};
+
+/**
  * WebhookCredentialType
  *
  * Webhook credential authentication types
  */
-export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
+export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header' | 'oauth2_client_credentials';
 
 /**
  * WorkflowConfigurationDefaults
@@ -7259,6 +7441,10 @@ export type WorkflowResponse = {
     } | null;
     call_disposition_codes?: CallDispositionCodes | null;
     /**
+     * Post Call Schema
+     */
+    post_call_schema?: Array<unknown> | null;
+    /**
      * Total Runs
      */
     total_runs?: number | null;
@@ -7268,6 +7454,18 @@ export type WorkflowResponse = {
     workflow_configurations?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Enable Dtmf
+     */
+    enable_dtmf?: boolean;
+    /**
+     * Enable Callbacks
+     */
+    enable_callbacks?: boolean;
+    /**
+     * Callback Resume Mode
+     */
+    callback_resume_mode?: string;
     /**
      * Version Number
      */
@@ -7332,6 +7530,10 @@ export type WorkflowRunResponseSchema = {
      * Name
      */
     name: string;
+    /**
+     * Workflow Name
+     */
+    workflow_name?: string | null;
     /**
      * Mode
      */
@@ -7419,6 +7621,12 @@ export type WorkflowRunResponseSchema = {
      * Annotations
      */
     annotations?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Extracted Data
+     */
+    extracted_data?: {
         [key: string]: unknown;
     } | null;
 };
@@ -7725,6 +7933,10 @@ export type WorkflowVersionResponse = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Post Call Schema
+     */
+    post_call_schema?: Array<unknown> | null;
 };
 
 /**
@@ -9184,6 +9396,72 @@ export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses = {
 
 export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponse = GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses[keyof GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses];
 
+export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Page
+         */
+        page?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Filters
+         *
+         * JSON-encoded filter criteria
+         */
+        filters?: string | null;
+        /**
+         * Sort By
+         *
+         * Field to sort by (e.g., 'duration', 'created_at')
+         */
+        sort_by?: string | null;
+        /**
+         * Sort Order
+         *
+         * Sort order ('asc' or 'desc')
+         */
+        sort_order?: string | null;
+    };
+    url: '/api/v1/workflow/runs/all';
+};
+
+export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetError = GetAllWorkflowRunsApiV1WorkflowRunsAllGetErrors[keyof GetAllWorkflowRunsApiV1WorkflowRunsAllGetErrors];
+
+export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunsResponse;
+};
+
+export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponse = GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponses[keyof GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponses];
+
 export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetData = {
     body?: never;
     headers?: {
@@ -10038,6 +10316,127 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses = {
 
 export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponse = GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses[keyof GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses];
 
+export type ListCallbacksApiV1CallbacksGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Status
+         *
+         * Filter by status (e.g. pending, completed, failed, cancelled)
+         */
+        status?: string | null;
+        /**
+         * Source
+         *
+         * Source of callback: all, standalone, campaign
+         */
+        source?: string;
+        /**
+         * Campaign Id
+         */
+        campaign_id?: number | null;
+        /**
+         * Workflow Id
+         */
+        workflow_id?: number | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/api/v1/callbacks';
+};
+
+export type ListCallbacksApiV1CallbacksGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListCallbacksApiV1CallbacksGetError = ListCallbacksApiV1CallbacksGetErrors[keyof ListCallbacksApiV1CallbacksGetErrors];
+
+export type ListCallbacksApiV1CallbacksGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: UnifiedCallbackListResponse;
+};
+
+export type ListCallbacksApiV1CallbacksGetResponse = ListCallbacksApiV1CallbacksGetResponses[keyof ListCallbacksApiV1CallbacksGetResponses];
+
+export type CancelCallbackApiV1CallbacksCallbackIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Callback Id
+         */
+        callback_id: number;
+    };
+    query?: {
+        /**
+         * Source
+         */
+        source?: string;
+    };
+    url: '/api/v1/callbacks/{callback_id}';
+};
+
+export type CancelCallbackApiV1CallbacksCallbackIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CancelCallbackApiV1CallbacksCallbackIdDeleteError = CancelCallbackApiV1CallbacksCallbackIdDeleteErrors[keyof CancelCallbackApiV1CallbacksCallbackIdDeleteErrors];
+
+export type CancelCallbackApiV1CallbacksCallbackIdDeleteResponses = {
+    /**
+     * Response Cancel Callback Api V1 Callbacks  Callback Id  Delete
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type CancelCallbackApiV1CallbacksCallbackIdDeleteResponse = CancelCallbackApiV1CallbacksCallbackIdDeleteResponses[keyof CancelCallbackApiV1CallbacksCallbackIdDeleteResponses];
+
 export type CreateCampaignApiV1CampaignCreatePostData = {
     body: CreateCampaignRequest;
     headers?: {
@@ -10597,6 +10996,65 @@ export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetResponses = {
      */
     200: unknown;
 };
+
+export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Campaign Id
+         */
+        campaign_id: number;
+    };
+    query?: {
+        /**
+         * Status
+         */
+        status?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/api/v1/campaign/{campaign_id}/callbacks';
+};
+
+export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetError = ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetErrors[keyof ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetErrors];
+
+export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponses = {
+    /**
+     * Response List Campaign Callbacks Api V1 Campaign  Campaign Id  Callbacks Get
+     *
+     * Successful Response
+     */
+    200: Array<CampaignCallbackItem>;
+};
+
+export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponse = ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponses[keyof ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponses];
 
 export type ListCredentialsApiV1CredentialsGetData = {
     body?: never;
@@ -13405,138 +13863,6 @@ export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOpt
      */
     200: unknown;
 };
-
-export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetData = {
-    body?: never;
-    path: {
-        /**
-         * Session Token
-         */
-        session_token: string;
-    };
-    query?: never;
-    url: '/api/v1/public/embed/chat/{session_token}';
-};
-
-export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetError = GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors[keyof GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors];
-
-export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: PublicEmbedChatSessionResponse;
-};
-
-export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponse = GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses[keyof GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses];
-
-export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsData = {
-    body?: never;
-    path: {
-        /**
-         * Session Token
-         */
-        session_token: string;
-    };
-    query?: never;
-    url: '/api/v1/public/embed/chat/{session_token}';
-};
-
-export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsError = OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors[keyof OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors];
-
-export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsData = {
-    body?: never;
-    path: {
-        /**
-         * Session Token
-         */
-        session_token: string;
-    };
-    query?: never;
-    url: '/api/v1/public/embed/chat/{session_token}/messages';
-};
-
-export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsError = OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors[keyof OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors];
-
-export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostData = {
-    body: PublicEmbedChatMessageRequest;
-    path: {
-        /**
-         * Session Token
-         */
-        session_token: string;
-    };
-    query?: never;
-    url: '/api/v1/public/embed/chat/{session_token}/messages';
-};
-
-export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostError = PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors[keyof PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors];
-
-export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: PublicEmbedChatSessionResponse;
-};
-
-export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponse = PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses[keyof PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses];
 
 export type InitiateCallApiV1PublicAgentUuidPostData = {
     body: TriggerCallRequest;

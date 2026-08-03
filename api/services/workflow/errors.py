@@ -1,6 +1,7 @@
 # api/services/workflow/errors.py
 from enum import Enum
-from typing import TypedDict
+
+from typing_extensions import TypedDict
 
 
 class ItemKind(str, Enum):

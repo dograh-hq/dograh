@@ -23,7 +23,7 @@ from pipecat.transports.base_transport import TransportParams
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.services.observability import active_calls
 from api.services.pipecat.audio_config import create_audio_config
-from api.services.pipecat.run_pipeline import _run_pipeline
+from api.services.pipecat.run_pipeline import _run_pipeline, _run_pipeline_impl
 from api.services.pipecat.worker_runner import wait_for_pipeline_worker_started
 from api.tests.integrations._run_pipeline_helpers import (
     create_workflow_run_rows,
@@ -136,6 +136,60 @@ async def test_run_pipeline_fires_initial_response_and_completes_run(
     # on_pipeline_finished merges call_tags into gathered_context.
     assert "Start" in refreshed.gathered_context.get("nodes_visited", [])
     assert "call_tags" in refreshed.gathered_context
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_impl_propagates_cancellation_before_worker_started(
+    workflow_run_setup,
+):
+    """A cancellation delivered while ``_run_pipeline_impl`` is still waiting
+    for the worker to start must propagate rather than be swallowed.
+
+    Telephony callers (``_run_pipeline_telephony_impl``) key their shielded
+    startup-rollback (releasing/restoring a one-shot stream capability) on
+    whether ``_run_pipeline_impl`` raised. Swallowing a ``CancelledError``
+    here made that call return normally with the worker never having
+    started, so the caller never rolled back and the capability was leaked
+    as permanently consumed.
+    """
+    workflow_run, user, workflow = workflow_run_setup
+    transport = MockTransport(
+        TransportParams(audio_in_enabled=True, audio_out_enabled=True)
+    )
+
+    captured_task: list = []
+    worker_started_calls: list = []
+    audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
+    with patch_run_pipeline_externals(captured_task):
+        run_task = asyncio.create_task(
+            _run_pipeline_impl(
+                transport,
+                workflow.id,
+                workflow_run.id,
+                user.id,
+                audio_config=audio_config,
+                user_provider_id=user.provider_id,
+                on_worker_started=lambda: worker_started_calls.append(True),
+            )
+        )
+
+        for _ in range(60):
+            if captured_task or run_task.done():
+                break
+            await asyncio.sleep(0.05)
+        if run_task.done() and not captured_task:
+            run_task.result()  # re-raise the failure
+        assert captured_task, "create_pipeline_task was never invoked"
+
+        # Cancel immediately: the pipeline worker task exists but nothing has
+        # awaited it yet, so this lands squarely in the
+        # wait_for_pipeline_worker_started window the report describes --
+        # before on_worker_started can have fired.
+        run_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run_task
+
+    assert worker_started_calls == []
 
 
 @pytest.mark.asyncio

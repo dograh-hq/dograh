@@ -241,3 +241,43 @@ class TestTerminalEventDurability:
         assert (
             await fake.get(TransferRedisChannels.transfer_result_key("xfer-3")) is None
         )
+
+
+class TestPersistenceFailureDoesNotDropLiveEvent:
+    """A failed durable write must not suppress the live publish.
+
+    Persistence only rescues a waiter that has not subscribed yet; a waiter that
+    is already subscribed depends entirely on the publish. If a storage error
+    skipped publishing, a healthy pub/sub would still time out the transfer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_publish_still_happens_when_persist_fails(self):
+        from api.services.telephony.call_transfer_manager import CallTransferManager
+        from api.services.telephony.transfer_event_protocol import (
+            TransferEvent,
+            TransferEventType,
+            TransferRedisChannels,
+        )
+
+        class _FailingSetexRedis(_FakeRedis):
+            async def setex(self, key: str, ttl: int, value: str) -> None:
+                raise RuntimeError("redis write unavailable")
+
+        fake = _FailingSetexRedis()
+        manager = CallTransferManager(redis_client=fake)
+
+        await manager.publish_transfer_event(
+            TransferEvent(
+                type=TransferEventType.DESTINATION_ANSWERED,
+                transfer_id="xfer-4",
+                original_call_sid="orig-4",
+                transfer_call_sid="dest-4",
+            )
+        )
+
+        channel = TransferRedisChannels.transfer_events("xfer-4")
+        assert [c for c, _ in fake.published] == [channel], (
+            "publish was skipped after a persistence failure — an already "
+            "subscribed waiter would time out"
+        )

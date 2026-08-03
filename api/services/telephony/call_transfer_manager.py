@@ -156,11 +156,22 @@ class CallTransferManager:
                 TransferEventType.DESTINATION_ANSWERED,
                 TransferEventType.TRANSFER_FAILED,
             ):
-                await redis.setex(
-                    TransferRedisChannels.transfer_result_key(event.transfer_id),
-                    300,
-                    payload,
-                )
+                # Best-effort, and isolated on purpose: persistence only covers
+                # the waiter that has not subscribed yet. A waiter that IS
+                # subscribed depends on the publish below, so a failure to write
+                # the durable copy must never skip it — that would turn a
+                # storage hiccup into a transfer timeout on a healthy pub/sub.
+                try:
+                    await redis.setex(
+                        TransferRedisChannels.transfer_result_key(event.transfer_id),
+                        300,
+                        payload,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to persist terminal transfer event for "
+                        f"{event.transfer_id}: {e}"
+                    )
             await redis.publish(channel, payload)
             logger.info(f"Published {event.type} event for {event.transfer_id}")
         except Exception as e:

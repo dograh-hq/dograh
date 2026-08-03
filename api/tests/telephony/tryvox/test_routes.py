@@ -439,16 +439,20 @@ async def test_websocket_run_state_failure_marks_run_completed_when_rollback_fai
         ),
         patch(f"{ROUTES_MODULE}.db_client") as route_db,
     ):
-        route_db.update_workflow_run = AsyncMock(side_effect=RuntimeError("DB failed"))
+        # Only the RUNNING-state write fails; the terminal COMPLETED write
+        # must succeed so the test proves the run actually lands there, not
+        # just that the write was attempted.
+        route_db.update_workflow_run = AsyncMock(
+            side_effect=[RuntimeError("DB failed"), None]
+        )
         with pytest.raises(RuntimeError, match="DB failed"):
             await handle_tryvox_websocket(websocket, 7, 11, 13)
 
     rollback.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
-    assert route_db.update_workflow_run.await_args_list[-1] == call(
-        run_id=13,
-        state=WorkflowRunState.COMPLETED.value,
-        is_completed=True,
-    )
+    assert route_db.update_workflow_run.await_args_list == [
+        call(run_id=13, state=WorkflowRunState.RUNNING.value),
+        call(run_id=13, state=WorkflowRunState.COMPLETED.value, is_completed=True),
+    ]
 
 
 @pytest.mark.asyncio

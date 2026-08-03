@@ -3,6 +3,7 @@
 import json
 import re
 from typing import Any, Dict, Optional
+import urllib.parse
 
 import httpx
 from loguru import logger
@@ -10,7 +11,13 @@ from loguru import logger
 from api.db import db_client
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
-from api.utils.template_renderer import render_template
+from api.services.workflow.workflow_graph import TEMPLATE_VAR_PATTERN
+from api.utils.template_renderer import (
+    _extract_timezone_from_template,
+    _resolve_builtin_variable,
+    get_nested_value,
+    render_template,
+)
 
 # Map tool parameter types to JSON schema types
 TYPE_MAP = {
@@ -236,6 +243,108 @@ def _resolve_preset_parameters(
     return resolved
 
 
+
+def render_url_template(
+    url: str,
+    resolved_arguments: dict[str, Any],
+    call_context_vars: dict[str, Any] | None,
+    gathered_context_vars: dict[str, Any] | None,
+    param_type_map: dict[str, str],
+) -> tuple[str, set[str]]:
+    """Render {{placeholders}} in a URL string, percent-encoding each substituted value.
+
+    Returns:
+        (rendered_url, consumed_param_names)
+
+    Raises:
+        ValueError: If any required {{placeholder}} is unresolved, or template is malformed.
+    """
+
+    # Fast malformed checks
+    if url.count("{{") != url.count("}}"):
+        if url.count("{{") > url.count("}}"):
+            raise ValueError("Malformed URL template: unmatched '{{' found.")
+        else:
+            raise ValueError("Malformed URL template: unmatched '}}' found.")
+
+    if "{{{{" in url:
+        raise ValueError("Malformed URL template: nested '{{' found.")
+
+    if not url or "{{" not in url:
+        return url, set()
+
+    consumed_params = set()
+    default_tz = _extract_timezone_from_template(url)
+
+    def _replace(match: re.Match[str]) -> str:
+        variable_path = match.group(1).strip()
+        filter_name = match.group(2).strip() if match.group(2) else None
+        filter_value = match.group(3).strip() if match.group(3) else None
+
+        builtin_value = _resolve_builtin_variable(variable_path, default_tz)
+        if builtin_value is not None:
+            import urllib.parse
+            return urllib.parse.quote(builtin_value, safe="")
+
+        if variable_path.startswith("initial_context."):
+            key_path = variable_path[len("initial_context.") :]
+            val = get_nested_value(call_context_vars or {}, key_path)
+        elif variable_path.startswith("gathered_context."):
+            key_path = variable_path[len("gathered_context.") :]
+            val = get_nested_value(gathered_context_vars or {}, key_path)
+        else:
+            base_param_name = variable_path.split(".")[0]
+            if base_param_name not in param_type_map:
+                raise ValueError(
+                    f"Undeclared URL placeholder: '{base_param_name}' is not a configured parameter."
+                )
+
+            param_type = param_type_map[base_param_name]
+            if param_type == "array":
+                raise ValueError(
+                    "Array parameters cannot be used as URL path parameters."
+                )
+            if param_type == "object" and "." not in variable_path:
+                raise ValueError(
+                    "Object parameters cannot be used as URL path parameters directly."
+                )
+
+            consumed_params.add(base_param_name)
+            val = get_nested_value(resolved_arguments, variable_path)
+
+        # Fallback filter handling
+        if filter_name is not None:
+            if val is None or val == "":
+                if filter_name == "fallback":
+                    val = (
+                        filter_value
+                        if filter_value is not None
+                        else variable_path.title()
+                    )
+                else:
+                    val = filter_name if filter_name != "default" else ""
+
+        if val is None:
+            raise ValueError(
+                f"URL path parameter '{variable_path}' has no value. The agent must collect this before calling the tool."
+            )
+        if val == "" and filter_name is None:
+            raise ValueError(
+                f"URL path parameter '{variable_path}' resolved to an empty string."
+            )
+
+        if isinstance(val, bool):
+            val = str(val).lower()
+        else:
+            val = str(val)
+
+        import urllib.parse
+        return urllib.parse.quote(val, safe="")
+
+    rendered_url = re.sub(TEMPLATE_VAR_PATTERN, _replace, url)
+    return rendered_url, consumed_params
+
+
 async def execute_http_tool(
     tool: Any,
     arguments: Dict[str, Any],
@@ -297,9 +406,17 @@ async def execute_http_tool(
         for header_name, header_value in credential_headers.items():
             request_headers[header_name] = mask_key(str(header_value))
 
+    _rendered_url: str | None = None
+    _url_consumed: set[str] = set()
+
     def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
         if include_request_headers:
-            return {**result, "request_headers": request_headers}
+            return {
+                **result,
+                "request_headers": request_headers,
+                "rendered_url": _rendered_url,
+                "consumed_path_params": list(_url_consumed),
+            }
         return result
 
     # Get timeout
@@ -319,13 +436,43 @@ async def execute_http_tool(
 
     resolved_arguments = {**(arguments or {}), **preset_arguments}
 
+    parameters = [
+        *(config.get("parameters") or []),
+        *(config.get("preset_parameters") or []),
+    ]
+    param_type_map: Dict[str, str] = {}
+    for p in parameters:
+        clean_name = p.get("name", "")
+        if clean_name:
+            param_type_map[clean_name] = p.get("type", "string")
+
+    try:
+        url, _url_consumed_res = render_url_template(
+            url=url,
+            resolved_arguments=resolved_arguments,
+            call_context_vars=call_context_vars,
+            gathered_context_vars=gathered_context_vars,
+            param_type_map=param_type_map,
+        )
+        _rendered_url = url
+        _url_consumed = _url_consumed_res
+
+        query_arguments = {
+            k: v for k, v in resolved_arguments.items() if k not in _url_consumed
+        }
+    except ValueError as e:
+        logger.error(f"Custom tool '{tool.name}' URL template render failed: {e}")
+        return build_result(
+            {"status": "error", "error": f"URL template rendering failed: {e!s}"}
+        )
+
     # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
     params = None
     if method in ("POST", "PUT", "PATCH"):
-        body = resolved_arguments
-    elif method in ("GET", "DELETE") and resolved_arguments:
-        params = serialize_query_params(resolved_arguments)
+        body = query_arguments
+    elif method in ("GET", "DELETE") and query_arguments:
+        params = serialize_query_params(query_arguments)
 
     logger.info(
         f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): {method} {url}"

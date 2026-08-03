@@ -590,3 +590,4 @@ class ToolTestResponse(BaseModel):
     request_body: Optional[Dict[str, Any]] = None
     request_params: Optional[Dict[str, Any]] = None
     duration_ms: int
+    consumed_path_params: list[str] = Field(default_factory=list)

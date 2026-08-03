@@ -280,8 +280,10 @@ class _FakeManager:
         self._claim = claim
         self._context = context
         self.published = []
+        self.claims = []
 
     async def claim_transfer_step(self, transfer_id, step, ttl=300):
+        self.claims.append((transfer_id, step))
         return self._claim
 
     async def get_transfer_context(self, transfer_id):
@@ -291,12 +293,53 @@ class _FakeManager:
         self.published.append(event)
 
 
+_CALLBACK_KEY = "tenant-api-key"
+
+
 class _FakeRequest:
-    def __init__(self, payload):
+    """Request double carrying a raw body, headers and url, like Starlette's."""
+
+    def __init__(self, payload, *, signature=None, sign_with=_CALLBACK_KEY):
+        self._raw = json.dumps(payload, separators=(",", ":")).encode()
         self._payload = payload
+        if signature is None and sign_with is not None:
+            signature = hmac.new(
+                sign_with.encode(), self._raw, hashlib.sha256
+            ).hexdigest()
+        self.headers = {"X-VoxPro-Signature": signature} if signature else {}
+        self.url = (
+            "https://dograh.test/api/v1/telephony/voxpro/transfer-result/tid-uuid"
+        )
+
+    async def body(self):
+        return self._raw
 
     async def json(self):
         return self._payload
+
+
+def _patch_callback_auth(routes_mod, api_key=_CALLBACK_KEY):
+    """Resolve callback credentials to a VoxPro provider holding ``api_key``."""
+    from api.services.telephony.providers.voxpro.provider import VoxProProvider
+
+    provider = VoxProProvider({"api_key": api_key, "tenant_id": "T1"})
+
+    class _Run:
+        workflow_run_id = 7
+        workflow = type("W", (), {"organization_id": 1})()
+
+    return (
+        patch.object(
+            routes_mod.db_client,
+            "get_workflow_run_by_id",
+            new=AsyncMock(return_value=_Run()),
+        ),
+        patch.object(
+            routes_mod,
+            "get_telephony_provider_for_run",
+            new=AsyncMock(return_value=provider),
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -305,8 +348,13 @@ async def test_transfer_result_route_publishes_event():
     from api.services.telephony.transfer_event_protocol import TransferEventType
 
     mgr = _FakeManager(claim=True, context=_transfer_context())
-    with patch.object(
-        routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+    run_patch, provider_patch = _patch_callback_auth(routes_mod)
+    with (
+        patch.object(
+            routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+        ),
+        run_patch,
+        provider_patch,
     ):
         res = await routes_mod.handle_voxpro_transfer_result(
             "tid-uuid", _FakeRequest({"outcome": "answered", "call_sid": "DEST9"})
@@ -323,8 +371,13 @@ async def test_transfer_result_route_is_idempotent():
 
     # claim_transfer_step returns False on a retried delivery → no second publish.
     mgr = _FakeManager(claim=False, context=_transfer_context())
-    with patch.object(
-        routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+    run_patch, provider_patch = _patch_callback_auth(routes_mod)
+    with (
+        patch.object(
+            routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+        ),
+        run_patch,
+        provider_patch,
     ):
         res = await routes_mod.handle_voxpro_transfer_result(
             "tid-uuid", _FakeRequest({"outcome": "answered"})
@@ -350,3 +403,81 @@ def test_generate_validation_error_response_exists_and_returns_400():
     body = json.loads(resp.body)
     assert body["success"] is False
     assert str(TelephonyError.PHONE_NUMBER_NOT_CONFIGURED) in body["error"]
+
+
+@pytest.mark.asyncio
+async def test_transfer_result_rejects_unsigned_callback():
+    """An unsigned POST must not be able to complete a transfer.
+
+    Without this, anything that learned a transfer_id could post
+    {"outcome": "answered"} and the waiting workflow would end its pipeline leg
+    as if the destination had picked up, with no carrier confirmation.
+    """
+    from fastapi import HTTPException
+
+    import api.services.telephony.providers.voxpro.routes as routes_mod
+
+    mgr = _FakeManager(claim=True, context=_transfer_context())
+    run_patch, provider_patch = _patch_callback_auth(routes_mod)
+    with (
+        patch.object(
+            routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+        ),
+        run_patch,
+        provider_patch,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await routes_mod.handle_voxpro_transfer_result(
+                "tid-uuid",
+                _FakeRequest({"outcome": "answered"}, sign_with=None),
+            )
+
+    assert exc.value.status_code == 401
+    assert mgr.published == []
+    assert mgr.claims == [], "unauthenticated caller must not burn the one-shot claim"
+
+
+@pytest.mark.asyncio
+async def test_transfer_result_rejects_wrong_key_signature():
+    """A signature from any other key is rejected."""
+    from fastapi import HTTPException
+
+    import api.services.telephony.providers.voxpro.routes as routes_mod
+
+    mgr = _FakeManager(claim=True, context=_transfer_context())
+    run_patch, provider_patch = _patch_callback_auth(routes_mod)
+    with (
+        patch.object(
+            routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+        ),
+        run_patch,
+        provider_patch,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await routes_mod.handle_voxpro_transfer_result(
+                "tid-uuid",
+                _FakeRequest({"outcome": "answered"}, sign_with="attacker-key"),
+            )
+
+    assert exc.value.status_code == 401
+    assert mgr.published == []
+
+
+@pytest.mark.asyncio
+async def test_transfer_result_rejects_unknown_transfer():
+    """No context means no credentials to authenticate against — and nothing to unblock."""
+    from fastapi import HTTPException
+
+    import api.services.telephony.providers.voxpro.routes as routes_mod
+
+    mgr = _FakeManager(claim=True, context=None)
+    with patch.object(
+        routes_mod, "get_call_transfer_manager", new=AsyncMock(return_value=mgr)
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await routes_mod.handle_voxpro_transfer_result(
+                "tid-uuid", _FakeRequest({"outcome": "answered"})
+            )
+
+    assert exc.value.status_code == 404
+    assert mgr.published == []

@@ -15,10 +15,12 @@ the outcome and this route publishes the completion event that unblocks the wait
 import json
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
+from api.db import db_client
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import (
     TransferContext,
     TransferEvent,
@@ -79,17 +81,75 @@ def build_transfer_event(
     )
 
 
+async def _verify_transfer_result_signature(
+    context, request: "Request", raw_body: bytes, body: Dict[str, Any]
+) -> bool:
+    """Check X-VoxPro-Signature against the credentials used for this transfer.
+
+    Resolved through the run rather than a header-supplied tenant so a caller
+    cannot nominate which key verifies its own message.
+    """
+    signature = ""
+    for key, value in request.headers.items():
+        if key.lower() == "x-voxpro-signature":
+            signature = value
+            break
+    if not signature:
+        logger.warning("[VoxPro] transfer-result missing X-VoxPro-Signature")
+        return False
+
+    workflow_run_id = getattr(context, "workflow_run_id", None)
+    if not workflow_run_id:
+        logger.warning(
+            "[VoxPro] transfer context has no workflow_run_id; cannot authenticate"
+        )
+        return False
+
+    try:
+        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+        if workflow_run is None or workflow_run.workflow is None:
+            logger.warning(
+                f"[VoxPro] workflow run {workflow_run_id} not found for transfer-result"
+            )
+            return False
+        provider = await get_telephony_provider_for_run(
+            workflow_run, workflow_run.workflow.organization_id
+        )
+    except Exception as e:  # noqa: BLE001 — auth must fail closed.
+        logger.error(f"[VoxPro] could not resolve credentials to verify callback: {e}")
+        return False
+
+    verified = await provider.verify_webhook_signature(
+        str(request.url), body, signature, body=raw_body.decode("utf-8", "replace")
+    )
+    if not verified:
+        logger.warning("[VoxPro] transfer-result signature mismatch")
+    return verified
+
+
 @router.post("/voxpro/transfer-result/{transfer_id}")
 async def handle_voxpro_transfer_result(transfer_id: str, request: Request):
     """Publish the completion event for a blind transfer.
 
-    ``transfer_id`` is an unguessable UUID minted per transfer by the shared flow
-    and only known to the connector we handed it to via ``result_url`` — the same
-    trust model as Telnyx's transfer webhook_url (no separate signature).
+    Authenticated with ``X-VoxPro-Signature``: an HMAC-SHA256 of the raw body
+    keyed on the tenant's API key, the same scheme the connector uses for its
+    inbound webhook. The unguessable ``transfer_id`` alone is not treated as
+    proof — anything that learned one could otherwise post
+    ``{"outcome": "answered"}`` and make the waiting workflow end its pipeline
+    leg as if the destination had picked up, with no carrier confirmation.
+
+    The signing key is resolved per transfer: TransferContext carries the
+    ``workflow_run_id``, which yields the run's telephony configuration and so
+    the credentials this transfer was actually initiated with. A callback whose
+    context has expired cannot be authenticated (and has nothing left to
+    unblock), so it is rejected rather than published.
     """
+    raw_body = await request.body()
     try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001 — connector should send JSON; stay defensive.
+        body = json.loads(raw_body) if raw_body else {}
+        if not isinstance(body, dict):
+            body = {}
+    except ValueError:  # connector should send JSON; stay defensive.
         body = {}
     logger.info(
         f"[VoxPro] transfer-result (transfer_id={transfer_id}): {json.dumps(body)}"
@@ -97,18 +157,22 @@ async def handle_voxpro_transfer_result(transfer_id: str, request: Request):
 
     manager = await get_call_transfer_manager()
 
+    # Authenticate BEFORE claiming the step: an unauthenticated caller must not
+    # be able to burn the one-shot claim and lock out the genuine callback.
+    context = await manager.get_transfer_context(transfer_id)
+    if context is None:
+        logger.warning(
+            f"[VoxPro] no transfer context for {transfer_id}; rejecting callback"
+        )
+        raise HTTPException(status_code=404, detail="Unknown transfer")
+
+    if not await _verify_transfer_result_signature(context, request, raw_body, body):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
     # Connector callbacks may be retried; only the first delivery publishes.
     if not await manager.claim_transfer_step(transfer_id, "transfer-result"):
         logger.info(f"[VoxPro] duplicate transfer-result for {transfer_id}; ignoring")
         return {"status": "duplicate"}
-
-    context = await manager.get_transfer_context(transfer_id)
-    if context is None:
-        # Wait may have already timed out and cleaned up; nothing to unblock.
-        logger.warning(
-            f"[VoxPro] no transfer context for {transfer_id} — "
-            "publishing event anyway in case the wait is still active"
-        )
 
     event = build_transfer_event(transfer_id, context, body)
     await manager.publish_transfer_event(event)

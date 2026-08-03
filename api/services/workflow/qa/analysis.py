@@ -16,7 +16,7 @@ from api.services.workflow.qa.conversation import (
     format_transcript,
     split_events_by_node,
 )
-from api.services.workflow.qa.llm_config import resolve_llm_config
+from api.services.workflow.qa.llm_config import QA_USAGE_CONTEXT, resolve_llm_config
 from api.services.workflow.qa.metrics import compute_call_metrics
 from api.services.workflow.qa.node_summary import (
     CONVERSATION_SUMMARY_SYSTEM_PROMPT,
@@ -140,7 +140,12 @@ async def run_per_node_qa_analysis(
         getattr(workflow_run, "initial_context", None)
     )
     llm = create_llm_service_from_provider(
-        provider, model, api_key, correlation_id=mps_correlation_id, **service_kwargs
+        provider,
+        model,
+        api_key,
+        correlation_id=mps_correlation_id,
+        usage_context=QA_USAGE_CONTEXT,
+        **service_kwargs,
     )
 
     node_results: dict[str, Any] = {}
@@ -304,7 +309,12 @@ async def _run_whole_call_qa_analysis(
         getattr(workflow_run, "initial_context", None)
     )
     llm = create_llm_service_from_provider(
-        provider, model, api_key, correlation_id=mps_correlation_id, **service_kwargs
+        provider,
+        model,
+        api_key,
+        correlation_id=mps_correlation_id,
+        usage_context=QA_USAGE_CONTEXT,
+        **service_kwargs,
     )
 
     try:

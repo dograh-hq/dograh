@@ -40,7 +40,9 @@ def _patch_deps():
     mgr = patch("api.routes.webrtc_signaling.signaling_manager").start()
     db.get_embed_session_by_token = AsyncMock(return_value=_embed_session())
     db.get_embed_token_by_id = AsyncMock(return_value=_embed_token(["example.com"]))
-    db.get_workflow_run = AsyncMock(return_value=SimpleNamespace(workflow_id=3))
+    db.get_workflow_run = AsyncMock(
+        return_value=SimpleNamespace(workflow_id=3, mode="smallwebrtc")
+    )
     db.get_user_by_id = AsyncMock(return_value=SimpleNamespace(id=7))
     mgr.handle_websocket = AsyncMock()
     return db, mgr
@@ -77,3 +79,25 @@ async def test_public_signaling_accepts_allowed_origin():
 
     # An origin within the allowlist proceeds to the signaling handoff.
     mgr.handle_websocket.assert_awaited_once()
+    assert mgr.handle_websocket.await_args.kwargs["allow_client_context_vars"] is False
+
+
+@pytest.mark.asyncio
+async def test_public_signaling_rejects_non_voice_run():
+    from api.routes.webrtc_signaling import public_signaling_websocket
+
+    ws = _FakeWebSocket("https://example.com")
+    db, mgr = _patch_deps()
+    db.get_workflow_run = AsyncMock(
+        return_value=SimpleNamespace(workflow_id=3, mode="textchat")
+    )
+    try:
+        await public_signaling_websocket(ws, "emb_session_tok")
+    finally:
+        patch.stopall()
+
+    # A chat-widget session token must not open a voice pipeline on its
+    # textchat run — chat sessions speak REST (public_embed_chat), not this WS.
+    ws.close.assert_awaited_once()
+    assert ws.close.await_args.kwargs.get("code") == 1008
+    mgr.handle_websocket.assert_not_called()

@@ -31,7 +31,7 @@ from api.services.call_concurrency import (
     call_concurrency,
 )
 from api.services.quota_service import authorize_workflow_run_start
-from api.services.telephony import registry
+from api.services.telephony import registry, ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
@@ -581,11 +581,28 @@ async def websocket_ari_endpoint(websocket: WebSocket):
     )
 
 
+@router.websocket("/ws/{workflow_id}/{organization_id}/{workflow_run_id}/{token}")
 @router.websocket("/ws/{workflow_id}/{organization_id}/{workflow_run_id}")
 async def websocket_endpoint(
-    websocket: WebSocket, workflow_id: int, organization_id: int, workflow_run_id: int
+    websocket: WebSocket,
+    workflow_id: int,
+    organization_id: int,
+    workflow_run_id: int,
+    token: str | None = None,
 ):
-    """WebSocket endpoint for real-time call handling - routes to provider-specific handlers."""
+    """WebSocket endpoint for real-time call handling - routes to provider-specific handlers.
+
+    Two shapes, one handler. The four-segment form carries the capability token
+    in the path because carriers strip query strings — Twilio documents that
+    outright, and no other carrier promises otherwise (see ``ws_auth``). The
+    three-segment form is what tokenless deployments dial (no secret set, the
+    default), and it is not a way around the check: with a secret configured
+    the shared handler rejects it 4401 like any other unauthenticated peer.
+
+    Providers that require their own authenticated route (``REQUIRES_AUTHENTICATED_WEBSOCKET``,
+    e.g. TryVox) are rejected here before ``accept()`` — the ``ws_auth`` and
+    shared-handler checks below run only for providers that don't.
+    """
     workflow_run = await db_client.get_workflow_run(
         workflow_run_id, organization_id=organization_id
     )
@@ -609,7 +626,7 @@ async def websocket_endpoint(
 
     await websocket.accept()
     await _handle_telephony_websocket(
-        websocket, workflow_id, organization_id, workflow_run_id
+        websocket, workflow_id, organization_id, workflow_run_id, token=token
     )
 
 
@@ -619,24 +636,57 @@ async def _handle_telephony_websocket(
     organization_id: int,
     workflow_run_id: int,
     *,
+    token: str | None = None,
     provider_route_authenticated: bool = False,
     on_provider_ready=None,
     on_provider_startup_failure=None,
 ):
     """Shared WebSocket handler logic (connection already accepted).
 
-    TODO(security): ``organization_id`` arrives in the URL the provider dials
-    back, so it is caller-supplied and unauthenticated — this socket has no
-    signature check, and the id triple is a guessable bearer capability.
-    Scoping the lookups below by it prevents an accidental cross-org mismatch,
-    not a deliberate one. The real fix is a one-shot capability token minted at
-    run creation and redeemed here through an atomic
+    ``organization_id`` arrives in the URL the provider dials back, so it is
+    caller-supplied: scoping the lookups below by it prevents an accidental
+    cross-org mismatch, not a deliberate one. The capability token checked
+    first (see ``ws_auth``) closes the forgery gap — the id triple is no longer
+    enough on its own — but only once an operator sets a secret.
+
+    TODO(security): the token is stateless and replayable for as long as the
+    run sits in ``initialized``. Making it one-shot means minting it at run
+    creation and redeeming it here through an atomic
     ``initialized -> running`` compare-and-swap, which would also close the
     read-then-write race on the state check further down.
     """
     try:
         # Set the run context
         set_current_run_id(workflow_run_id)
+
+        # Capability-token check. The id triple in the URL is otherwise a
+        # guessable bearer capability (see the TODO above and ws_auth.py). This
+        # is a no-op until an operator sets TELEPHONY_WS_TOKEN_SECRET; once set,
+        # invalid tokens are logged, and rejected only when enforcement is on.
+        # Skipped when the provider's own route already authenticated the
+        # connection (e.g. TryVox's one-shot capability token) — that check is
+        # stronger, and its `token` query param is a different namespace from
+        # this HMAC token, so running both would reject legitimate calls.
+        if ws_auth.token_configured() and not provider_route_authenticated:
+            # Carriers deliver the token as a path segment (query strings do not
+            # survive Twilio and are unpromised elsewhere); ARI delivers it as a
+            # query param through v(). Same HMAC over the same triple either way.
+            presented = token or websocket.query_params.get("token")
+            if not ws_auth.verify_ws_token(
+                workflow_id, organization_id, workflow_run_id, presented
+            ):
+                if ws_auth.enforcement_enabled():
+                    logger.warning(
+                        f"[telephony ws] rejecting unauthenticated connection for "
+                        f"run {workflow_run_id} (org {organization_id})"
+                    )
+                    await websocket.close(code=4401, reason="Unauthorized")
+                    return
+                logger.warning(
+                    f"[telephony ws] UNVERIFIED media socket for run {workflow_run_id} "
+                    f"(org {organization_id}); allowed because TELEPHONY_WS_TOKEN_ENFORCE "
+                    f"is off — set it to enforce"
+                )
 
         # Get workflow run to determine provider type
         workflow_run = await db_client.get_workflow_run(
@@ -932,9 +982,11 @@ async def handle_inbound_run(request: Request):
                 )
 
             backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-            websocket_url = (
-                f"{wss_backend_endpoint}/api/v1/telephony/ws/"
-                f"{workflow_id}/{config.organization_id}/{workflow_run_id}"
+            websocket_url = ws_auth.build_media_ws_url(
+                wss_backend_endpoint,
+                workflow_id,
+                config.organization_id,
+                workflow_run_id,
             )
 
             return await provider_instance.start_inbound_stream(
@@ -1106,9 +1158,8 @@ async def handle_inbound_telephony(
 
             # Generate response URLs
             backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-            websocket_url = (
-                f"{wss_backend_endpoint}/api/v1/telephony/ws/"
-                f"{workflow_id}/{organization_id}/{workflow_run_id}"
+            websocket_url = ws_auth.build_media_ws_url(
+                wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
             )
 
             response = await provider_instance.start_inbound_stream(

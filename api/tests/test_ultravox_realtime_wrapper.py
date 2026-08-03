@@ -407,6 +407,17 @@ async def test_receive_messages_reports_unexpected_websocket_close():
     service.push_error.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_receive_messages_broadcasts_interruption_on_playback_clear_buffer():
+    service = _make_service()
+    service.broadcast_interruption = AsyncMock()
+    service._socket = _MessageSocket(['{"type":"playback_clear_buffer"}'])
+
+    await service._receive_messages()
+
+    service.broadcast_interruption.assert_awaited_once()
+
+
 def test_factory_creates_dograh_ultravox_realtime_service():
     effective_config = EffectiveAIModelConfiguration(
         is_realtime=True,

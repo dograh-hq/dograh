@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, Loader2, Mic, Plus, Rocket, Trash2 } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, MessageCircle, Mic, Plus, Rocket, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { WIDGET_CONTEXT_DOC_URL, WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { HEADLESS_CHAT_EXAMPLE } from "@/constants/embedExamples";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface EmbedDialogProps {
@@ -35,6 +36,21 @@ interface EmbedDialogProps {
     workflowId: number;
     workflowName: string;
 }
+
+type WidgetType = "voice" | "chat";
+
+// Per-type defaults, swapped on toggle only when the user hasn't customized
+// the text (i.e. it still equals the other type's default).
+const WIDGET_TYPE_DEFAULTS: Record<WidgetType, { buttonText: string; callToActionText: string }> = {
+    voice: {
+        buttonText: "Talk to Agent",
+        callToActionText: "Click to start voice conversation",
+    },
+    chat: {
+        buttonText: "Chat with Agent",
+        callToActionText: "Click to start chatting",
+    },
+};
 
 interface EmbedToken {
     id: number;
@@ -64,11 +80,21 @@ export function EmbedDialog({
     const [isEnabled, setIsEnabled] = useState(false);
     const [domains, setDomains] = useState<string[]>([]);
     const [newDomain, setNewDomain] = useState("");
+    const [widgetType, setWidgetType] = useState<WidgetType>("voice");
     const [embedMode, setEmbedMode] = useState<"floating" | "inline" | "headless">("floating");
     const [position, setPosition] = useState("bottom-right");
     const [buttonText, setButtonText] = useState("Talk to Agent");
     const [buttonColor, setButtonColor] = useState("#10b981");
     const [callToActionText, setCallToActionText] = useState("Click to start voice conversation");
+
+    const handleWidgetTypeChange = (type: WidgetType) => {
+        if (type === widgetType) return;
+        const from = WIDGET_TYPE_DEFAULTS[widgetType];
+        const to = WIDGET_TYPE_DEFAULTS[type];
+        if (buttonText === from.buttonText) setButtonText(to.buttonText);
+        if (callToActionText === from.callToActionText) setCallToActionText(to.callToActionText);
+        setWidgetType(type);
+    };
 
     const loadEmbedToken = useCallback(async () => {
         setLoading(true);
@@ -84,11 +110,13 @@ export function EmbedDialog({
                 // Load settings
                 if (response.data.settings) {
                     const settings = response.data.settings as Record<string, string>;
+                    const loadedType: WidgetType = settings.widgetType === "chat" ? "chat" : "voice";
+                    setWidgetType(loadedType);
                     setEmbedMode((settings.embedMode as "floating" | "inline" | "headless") || "floating");
                     setPosition(settings.position || "bottom-right");
-                    setButtonText(settings.buttonText || "Talk to Agent");
+                    setButtonText(settings.buttonText || WIDGET_TYPE_DEFAULTS[loadedType].buttonText);
                     setButtonColor(settings.buttonColor || "#10b981");
-                    setCallToActionText(settings.callToActionText || "Click to start voice conversation");
+                    setCallToActionText(settings.callToActionText || WIDGET_TYPE_DEFAULTS[loadedType].callToActionText);
                 }
 
                 // Load domains
@@ -125,6 +153,7 @@ export function EmbedDialog({
                     body: {
                         allowed_domains: domains.length > 0 ? domains : null,
                         settings: {
+                            widgetType,
                             embedMode,
                             position,
                             buttonText,
@@ -281,6 +310,51 @@ export function EmbedDialog({
                                     )}
                                 </div>
 
+                                {/* Widget Type Selection */}
+                                <div className="space-y-4">
+                                    <Label>Widget Type</Label>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleWidgetTypeChange("voice")}
+                                            className={`p-4 rounded-lg border-2 transition-all ${
+                                                widgetType === "voice"
+                                                    ? "border-primary bg-primary/5"
+                                                    : "border-muted hover:border-muted-foreground/20"
+                                            }`}
+                                        >
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-center gap-2 font-medium">
+                                                    <Mic className="h-4 w-4" />
+                                                    Voice Agent
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Visitors talk to your agent by voice
+                                                </div>
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleWidgetTypeChange("chat")}
+                                            className={`p-4 rounded-lg border-2 transition-all ${
+                                                widgetType === "chat"
+                                                    ? "border-primary bg-primary/5"
+                                                    : "border-muted hover:border-muted-foreground/20"
+                                            }`}
+                                        >
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-center gap-2 font-medium">
+                                                    <MessageCircle className="h-4 w-4" />
+                                                    Chat Agent
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Visitors type messages to your agent
+                                                </div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+
                                 {/* Embed Mode Selection */}
                                 <div className="space-y-4">
                                     <Label>Embed Mode</Label>
@@ -349,7 +423,7 @@ export function EmbedDialog({
                                                     id="button-text"
                                                     value={buttonText}
                                                     onChange={(e) => setButtonText(e.target.value)}
-                                                    placeholder="Talk to Agent"
+                                                    placeholder={WIDGET_TYPE_DEFAULTS[widgetType].buttonText}
                                                     maxLength={40}
                                                 />
                                             </div>
@@ -401,7 +475,7 @@ export function EmbedDialog({
                                                 id="cta-text"
                                                 value={callToActionText}
                                                 onChange={(e) => setCallToActionText(e.target.value)}
-                                                placeholder="Click to start voice conversation"
+                                                placeholder={WIDGET_TYPE_DEFAULTS[widgetType].callToActionText}
                                             />
                                         </div>
                                     )}
@@ -413,9 +487,46 @@ export function EmbedDialog({
                                                 className="inline-flex items-center gap-2 rounded-full px-5 py-3 font-medium text-white shadow-lg whitespace-nowrap"
                                                 style={{ backgroundColor: buttonColor }}
                                             >
-                                                <Mic className="h-4 w-4" />
-                                                {buttonText || "Talk to Agent"}
+                                                {widgetType === "chat" ? (
+                                                    <MessageCircle className="h-4 w-4" />
+                                                ) : (
+                                                    <Mic className="h-4 w-4" />
+                                                )}
+                                                {buttonText || WIDGET_TYPE_DEFAULTS[widgetType].buttonText}
                                             </button>
+                                        </div>
+                                    ) : widgetType === "chat" ? (
+                                        <div className="rounded-lg border bg-background p-6 flex items-center justify-center">
+                                            <div className="w-full max-w-sm rounded-lg border shadow-sm overflow-hidden">
+                                                <div
+                                                    className="px-4 py-3 text-sm font-semibold text-white"
+                                                    style={{ backgroundColor: buttonColor }}
+                                                >
+                                                    {buttonText || "Chat with Agent"}
+                                                </div>
+                                                <div className="p-4 space-y-2 bg-muted/20">
+                                                    <div className="max-w-[80%] rounded-lg rounded-bl-sm bg-muted px-3 py-2 text-sm">
+                                                        Hi! How can I help you today?
+                                                    </div>
+                                                    <div
+                                                        className="max-w-[80%] ml-auto rounded-lg rounded-br-sm px-3 py-2 text-sm text-white"
+                                                        style={{ backgroundColor: buttonColor }}
+                                                    >
+                                                        I have a question…
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2 border-t px-3 py-2">
+                                                    <div className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm text-muted-foreground">
+                                                        Type a message…
+                                                    </div>
+                                                    <span
+                                                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white"
+                                                        style={{ backgroundColor: buttonColor }}
+                                                    >
+                                                        <Send className="h-4 w-4" />
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </div>
                                     ) : (
                                         <div className="rounded-lg border bg-background p-6 flex items-center justify-center">
@@ -435,8 +546,33 @@ export function EmbedDialog({
                                         </div>
                                     )}
 
-                                    {/* Headless mode: Integration Instructions */}
-                                    {embedMode === "headless" && (
+                                    {/* Headless mode: Integration Instructions (chat) */}
+                                    {embedMode === "headless" && widgetType === "chat" && (
+                                        <div className="space-y-3">
+                                            <div className="rounded-lg bg-muted/50 p-4">
+                                                <h4 className="font-medium mb-2">Integration Instructions</h4>
+                                                <ul className="text-sm space-y-2 text-muted-foreground">
+                                                    <li>• Add the embed script tag to your page (see below).</li>
+                                                    <li>• The widget renders no UI - render your own chat interface.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.startChat()</code> to start a conversation (the agent greeting arrives via <code className="text-xs">onMessage</code>).</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.sendMessage(text)</code> to send a visitor message; it resolves with the updated transcript, or <code className="text-xs">null</code> if the message could not be delivered.</li>
+                                                    <li>• Use <code className="text-xs">getMessages()</code> to read the transcript at any time.</li>
+                                                    <li>• Subscribe to <code className="text-xs">onMessage</code> and <code className="text-xs">onChatStateChange</code> to drive your UI. States are <code className="text-xs">idle</code>, <code className="text-xs">starting</code>, <code className="text-xs">ready</code>, <code className="text-xs">waiting</code>, <code className="text-xs">ended</code>, <code className="text-xs">expired</code>, <code className="text-xs">error</code>.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.setContext({"{ ... }"})</code> before <code className="text-xs">startChat()</code> to pass visitor details the page learned after load.</li>
+                                                </ul>
+                                            </div>
+
+                                            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
+                                                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example - drive your own chat UI</h4>
+                                                <pre className="text-xs overflow-x-auto">
+                                                    <code className="text-blue-800 dark:text-blue-200">{HEADLESS_CHAT_EXAMPLE}</code>
+                                                </pre>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Headless mode: Integration Instructions (voice) */}
+                                    {embedMode === "headless" && widgetType === "voice" && (
                                         <div className="space-y-3">
                                             <div className="rounded-lg bg-muted/50 p-4">
                                                 <h4 className="font-medium mb-2">Integration Instructions</h4>
@@ -447,6 +583,7 @@ export function EmbedDialog({
                                                     <li>• Call <code className="text-xs">window.DograhWidget.end()</code> to end it.</li>
                                                     <li>• Subscribe to <code className="text-xs">onCallStart</code>, <code className="text-xs">onCallEnd</code>, <code className="text-xs">onStatusChange</code>, <code className="text-xs">onError</code> to drive your UI.</li>
                                                     <li>• <code className="text-xs">start()</code> must run inside a user-gesture handler (click) so the browser grants microphone access.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.setContext({"{ ... }"})</code> before <code className="text-xs">start()</code> to pass visitor details the page learned after load.</li>
                                                 </ul>
                                             </div>
 
@@ -502,15 +639,32 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                                     <li>• Add a div with id=&quot;dograh-inline-container&quot; where you want the widget</li>
                                                     <li>• The widget will render inside this container</li>
                                                     <li>• You have full control over the container&apos;s styling</li>
-                                                    <li>• Call window.DograhWidget.start() to begin the call</li>
-                                                    <li>• Call window.DograhWidget.end() to end the call</li>
+                                                    {widgetType === "chat" ? (
+                                                        <li>• The chat panel renders in the container; the conversation starts when the visitor clicks the button</li>
+                                                    ) : (
+                                                        <>
+                                                            <li>• Call window.DograhWidget.start() to begin the call</li>
+                                                            <li>• Call window.DograhWidget.end() to end the call</li>
+                                                        </>
+                                                    )}
                                                 </ul>
                                             </div>
 
-                                            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
-                                                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example React Component</h4>
-                                                <pre className="text-xs overflow-x-auto">
-                                                    <code className="text-blue-800 dark:text-blue-200">{`export function DograhAgent() {
+                                            {widgetType === "chat" ? (
+                                                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
+                                                    <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example</h4>
+                                                    <pre className="text-xs overflow-x-auto">
+                                                        <code className="text-blue-800 dark:text-blue-200">{`<h2>Chat with Our Agent</h2>
+<div id="dograh-inline-container" style="min-height: 480px">
+  <!-- Chat panel renders here; no extra JS needed -->
+</div>`}</code>
+                                                    </pre>
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
+                                                    <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example React Component</h4>
+                                                    <pre className="text-xs overflow-x-auto">
+                                                        <code className="text-blue-800 dark:text-blue-200">{`export function DograhAgent() {
   const [isCallActive, setIsCallActive] = useState(false);
 
   useEffect(() => {
@@ -538,8 +692,9 @@ document.getElementById('talk-btn').addEventListener('click', () => {
     </div>
   );
 }`}</code>
-                                                </pre>
-                                            </div>
+                                                    </pre>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -591,8 +746,23 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                                 </pre>
                                             </div>
                                             <p className="text-xs text-muted-foreground">
-                                                Add this script to your website&apos;s HTML to enable the voice widget.
+                                                Add this script to your website&apos;s HTML to enable the widget.
                                                 Configuration changes will apply automatically without re-embedding.
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">
+                                                To pass visitor details to the agent, edit the{" "}
+                                                <code className="text-xs">data-dograh-context</code> values above — or call{" "}
+                                                <code className="text-xs">{"window.DograhWidget.setContext({ ... })"}</code> for
+                                                details your page learns later. Each one is available in your prompts as{" "}
+                                                <code className="text-xs">{"{{initial_context.page_url}}"}</code>.{" "}
+                                                <a
+                                                    href={WIDGET_CONTEXT_DOC_URL}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="underline underline-offset-2 hover:text-foreground"
+                                                >
+                                                    Learn more
+                                                </a>
                                             </p>
                                         </div>
                                     </>

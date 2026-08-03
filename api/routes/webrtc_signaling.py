@@ -29,10 +29,10 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENVIRONMENT, FORCE_TURN_RELAY
+from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import Environment
+from api.enums import Environment, WorkflowRunMode
 from api.routes.turn_credentials import (
     TURN_HOST,
     TURN_PORT,
@@ -51,6 +51,7 @@ from api.services.pipecat.ws_sender_registry import (
     unregister_ws_sender,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.embed_session_service import validate_embed_origin
 
 router = APIRouter(prefix="/ws")
 
@@ -201,8 +202,11 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     """
     servers: List[RTCIceServer] = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 
-    # Check if TURN is configured
-    if not TURN_HOST:
+    # Check if TURN is configured. ENABLE_COTURN is the deployment's declared
+    # answer to "is there a TURN server?" — the same flag /health advertises to
+    # browsers — so the server side must respect it too, or it would try to
+    # relay through a TURN server the deployment says it doesn't have.
+    if not ENABLE_COTURN or not TURN_HOST:
         return servers
 
     # Use time-limited credentials if TURN_SECRET is configured (recommended)
@@ -329,6 +333,7 @@ class SignalingManager:
         organization_id: int,
         enforce_call_concurrency: bool = False,
         call_concurrency_source: str = "webrtc",
+        allow_client_context_vars: bool = True,
     ):
         """Handle WebSocket connection for signaling."""
         await websocket.accept()
@@ -349,6 +354,7 @@ class SignalingManager:
                     connection_key,
                     enforce_call_concurrency,
                     call_concurrency_source,
+                    allow_client_context_vars,
                 )
         except WebSocketDisconnect:
             logger.info(f"WebSocket disconnected for {connection_id}")
@@ -393,6 +399,7 @@ class SignalingManager:
         connection_key: str,
         enforce_call_concurrency: bool,
         call_concurrency_source: str = "webrtc",
+        allow_client_context_vars: bool = True,
     ):
         """Handle incoming WebSocket messages."""
         msg_type = message.get("type")
@@ -409,6 +416,7 @@ class SignalingManager:
                 connection_key,
                 enforce_call_concurrency,
                 call_concurrency_source,
+                allow_client_context_vars,
             )
         elif msg_type == "ice-candidate":
             await self._handle_ice_candidate(payload, connection_key)
@@ -426,12 +434,15 @@ class SignalingManager:
         connection_key: str,
         enforce_call_concurrency: bool,
         call_concurrency_source: str = "webrtc",
+        allow_client_context_vars: bool = True,
     ):
         """Handle offer message and create answer with ICE trickling."""
         pc_id = payload.get("pc_id")
         sdp = payload.get("sdp")
         type_ = payload.get("type")
-        call_context_vars = payload.get("call_context_vars", {})
+        call_context_vars = (
+            payload.get("call_context_vars", {}) if allow_client_context_vars else {}
+        )
 
         if not pc_id or not sdp or not type_:
             await ws.send_json(
@@ -779,14 +790,17 @@ async def public_signaling_websocket(
     if workflow_run.workflow_id != embed_token.workflow_id:
         await websocket.close(code=1008, reason="workflow_run_workflow_mismatch")
         return
+    # A chat-widget session token must not be able to open a voice pipeline on
+    # its textchat run — chat sessions speak REST (public_embed_chat), not this.
+    if workflow_run.mode != WorkflowRunMode.SMALLWEBRTC.value:
+        await websocket.close(code=1008, reason="Not a voice session")
+        return
 
     # Enforce the embed token's allowed-domain policy on the public signaling
     # path, mirroring the HTTP embed endpoints (issue #330). Without this a
     # leaked or replayed session token could attach from an arbitrary origin.
-    from api.routes.public_embed import validate_origin
-
     origin = websocket.headers.get("origin") or websocket.headers.get("referer", "")
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         logger.warning(
             f"Domain validation failed for public signaling: {origin} "
             f"not in {embed_token.allowed_domains}"
@@ -810,4 +824,7 @@ async def public_signaling_websocket(
         embed_token.organization_id,
         enforce_call_concurrency=True,
         call_concurrency_source="public_embed",
+        # Embed context was already sanitized and persisted during /init.
+        # Never let the signaling payload overwrite server-owned run context.
+        allow_client_context_vars=False,
     )

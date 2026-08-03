@@ -18,6 +18,7 @@ from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.services.telephony.providers.ari.external_pbx import create_adapter
@@ -176,6 +177,15 @@ class ARIProvider(TelephonyProvider):
     def validate_config(self) -> bool:
         """Validate ARI configuration."""
         return bool(self.ari_endpoint and self.app_name and self.app_password)
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Accept PBX-managed caller IDs and extensions.
+
+        ARI exposes channel endpoints and accepts ``callerId`` during channel
+        origination, but it has no carrier-number ownership resource. The PBX
+        dialplan and outbound trunk remain authoritative for these addresses.
+        """
+        return ProviderSyncResult(ok=True)
 
     async def verify_webhook_signature(
         self, url: str, params: Dict[str, Any], signature: str

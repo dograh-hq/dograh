@@ -179,6 +179,8 @@ services:
       FORWARDED_ALLOW_IPS: "*"
 
       # TURN — must match coturn. TURN_HOST is the VPS public IP / TURN domain.
+      # This stack always runs coturn, so TURN is unconditionally enabled.
+      ENABLE_COTURN: "true"
       TURN_HOST: "${TURN_HOST:?TURN_HOST is required for WebRTC media}"
       TURN_SECRET: "${TURN_SECRET:?TURN_SECRET is required for WebRTC media}"
       FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"

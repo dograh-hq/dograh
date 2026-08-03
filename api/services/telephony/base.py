@@ -41,6 +41,17 @@ class ProviderSyncResult:
     message: Optional[str] = None  # human-readable detail when ok=False
 
 
+class ProviderPhoneNumberLookupError(Exception):
+    """The provider could not determine whether it owns a phone number.
+
+    This is distinct from a successful lookup that reports ``ok=False``. The
+    latter means the address is definitely absent from the provider account;
+    this exception means credentials, transport, or the upstream API failed,
+    so callers should surface a provider error instead of treating the number
+    as unowned.
+    """
+
+
 @dataclass
 class NormalizedInboundData:
     """Standardized inbound call data across all providers."""
@@ -413,6 +424,17 @@ class TelephonyProvider(ABC):
         don't support programmatic webhook configuration (e.g. ARI).
         """
         return ProviderSyncResult(ok=True)
+
+    @abstractmethod
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Check that ``address`` belongs to this provider configuration.
+
+        Carrier-backed providers implement a read-only account-inventory
+        lookup. PBX-managed providers without a carrier ownership resource
+        must explicitly opt out so a newly registered provider cannot silently
+        bypass validation.
+        """
+        raise NotImplementedError
 
     @staticmethod
     @abstractmethod

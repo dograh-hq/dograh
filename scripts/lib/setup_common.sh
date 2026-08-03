@@ -253,6 +253,11 @@ dograh_sync_remote_env_file() {
     dograh_set_env_key "$env_file" PUBLIC_HOST "$public_host"
     dograh_set_env_key "$env_file" PUBLIC_BASE_URL "$public_base_url"
 
+    # Remote installs always run coturn (the "remote" compose profile). The API
+    # reports this flag to browsers, which skip TURN entirely when it is false,
+    # so sync it here for installs whose .env predates the key.
+    dograh_set_env_key "$env_file" ENABLE_COTURN true
+
     # BACKEND_API_ENDPOINT / MINIO_PUBLIC_ENDPOINT / TURN_HOST are derived in-app
     # from PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py), so sync neither
     # writes nor removes them: new installs simply omit them, and any value an

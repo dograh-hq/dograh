@@ -32,6 +32,7 @@ from api.services.call_concurrency import (
 )
 from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.telephony import ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.providers.ari.external_pbx import create_adapter
 from api.services.telephony.transfer_event_protocol import (
@@ -505,11 +506,20 @@ class ARIConnection:
         """
         # v() appends URI query params to the websocket_client.conf URL
         # e.g. wss://api.dograh.com/ws/ari?workflow_id=1&organization_id=2&workflow_run_id=3
-        transport_data = (
-            f"v(workflow_id={workflow_id},"
+        vparams = (
+            f"workflow_id={workflow_id},"
             f"organization_id={self.organization_id},"
-            f"workflow_run_id={workflow_run_id})"
+            f"workflow_run_id={workflow_run_id}"
         )
+        # Mint the same capability token the carrier providers use, so ARI media
+        # survives TELEPHONY_WS_TOKEN_ENFORCE (the shared handler verifies every
+        # /ws connection, including /ws/ari). No-op unless a secret is configured.
+        ws_token = ws_auth.mint_ws_token(
+            workflow_id, self.organization_id, workflow_run_id
+        )
+        if ws_token:
+            vparams += f",token={ws_token}"
+        transport_data = f"v({vparams})"
 
         params = {
             "app": self.app_name,
@@ -1314,6 +1324,12 @@ class ARIManager:
 
 async def main():
     """Entry point for the ARI manager process."""
+    # This process mints media-WS tokens while the API process verifies them, so
+    # the two must share TELEPHONY_WS_TOKEN_SECRET. A secret missing here but set
+    # on the API is exactly what turns enforcement into an ARI outage — log the
+    # state on both sides so the mismatch is visible before a call is placed.
+    ws_auth.log_configuration_status()
+
     manager = ARIManager()
 
     # Handle graceful shutdown

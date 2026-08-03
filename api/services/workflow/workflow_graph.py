@@ -262,6 +262,13 @@ class WorkflowGraph:
         except IndexError:
             self.global_node_id = None
 
+    def uses_variable_extraction(self) -> bool:
+        """Return whether any node has a usable variable-extraction config."""
+        return any(
+            node.extraction_enabled and node.extraction_variables
+            for node in self.nodes.values()
+        )
+
     # -----------------------------------------------------------
     # template variable extraction
     # -----------------------------------------------------------

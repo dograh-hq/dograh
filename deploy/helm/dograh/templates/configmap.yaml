@@ -16,9 +16,11 @@ data:
   POSTHOG_HOST: {{ .Values.config.posthogHost | quote }}
   POSTHOG_API_KEY: {{ .Values.config.posthogApiKey | quote }}
   FORCE_TURN_RELAY: {{ .Values.config.forceTurnRelay | quote }}
+  ENABLE_COTURN: {{ .Values.coturn.enabled | quote }}
   TURN_HOST: {{ .Values.config.turnHost | quote }}
   FASTAPI_WORKERS: {{ .Values.config.fastapiWorkers | quote }}
   ENABLE_SIGNUP: {{ .Values.config.enableSignup | quote }}
+  TELEPHONY_WS_TOKEN_ENFORCE: {{ .Values.config.telephonyWsTokenEnforce | quote }}
   {{- /* MinIO endpoints derived from storage mode. */ -}}
   {{- if eq .Values.storage.mode "internalMinio" }}
   MINIO_ENDPOINT: {{ printf "%s:9000" (include "dograh.minioHost" .) | quote }}

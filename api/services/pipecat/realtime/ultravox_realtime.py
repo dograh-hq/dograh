@@ -351,6 +351,11 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
                         case "state":
                             if self._bot_responding and data.get("state") != "speaking":
                                 await self._handle_response_end()
+                        case "playback_clear_buffer":
+                            # Ultravox's server-side barge-in signal. The base class
+                            # broadcasts an interruption here so buffered bot audio is
+                            # dropped before the following state message ends the response.
+                            await self.broadcast_interruption()
                         case "client_tool_invocation":
                             await self._handle_tool_invocation(
                                 data.get("toolName"),

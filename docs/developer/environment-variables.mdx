@@ -131,6 +131,7 @@ Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from t
 
 | Variable | Default | Description |
 |---|---|---|
+| `ENABLE_COTURN` | `false` | Whether this deployment runs a TURN server. Reported to browsers as `turn_enabled` on `/api/v1/health` and in the embed widget config; when `false` clients skip the TURN credential request and connect over STUN, and the server returns 503 from the credential endpoints. Set to `true` wherever coturn is running — the setup scripts and Helm chart do this for you |
 | `TURN_HOST` | `PUBLIC_HOST`, else `localhost` | TURN server hostname for WebRTC NAT traversal. Derives from `PUBLIC_HOST`; set explicitly only when TURN runs on a separate host |
 | `TURN_PORT` | `3478` | TURN server port |
 | `TURN_TLS_PORT` | `5349` | TURN server TLS port |
@@ -149,6 +150,30 @@ Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from t
 | `LANGFUSE_SECRET_KEY` | `null` | Langfuse secret key |
 
 Tracing activates automatically as soon as credentials are available — either via these environment variables (applied to all organizations) or per-organization in the UI under **Platform Settings**. If neither is set, spans are dropped silently. See the [Tracing guide](/configurations/tracing) for setup instructions.
+
+---
+
+## Telephony
+
+Carriers dial the media WebSocket back at `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}`. Those ids travel in a caller-visible URL, so on their own they are a guessable capability. Setting a secret makes Dograh sign that URL with an HMAC and verify the signature when the socket opens.
+
+The signature travels as a trailing path segment — `/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}/{token}` — because carriers do not reliably forward query strings. Twilio [documents that its `<Stream>` url "does not support query string parameters"](https://www.twilio.com/docs/voice/twiml/stream) and drops them outright. Asterisk ARI is the exception: it connects to `/api/v1/telephony/ws/ari` and passes `token` as a query parameter alongside its other routing values, which works because Asterisk builds that URL itself.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TELEPHONY_WS_TOKEN_SECRET` | `null` | Secret used to sign the media WebSocket URL. Unset leaves URLs unchanged and the check disabled |
+| `TELEPHONY_WS_TOKEN_ENFORCE` | `false` | Reject connections whose token is missing or invalid (WebSocket close `4401`) |
+
+Roll it out in two steps so no call is dropped:
+
+1. Set `TELEPHONY_WS_TOKEN_SECRET` on **every** process that places or receives calls — the `api` service and, if you run Asterisk, the `ari-manager`. They must share the same value: one mints the token, the other verifies it. Calls keep connecting either way; anything unverifiable is logged as `UNVERIFIED media socket`.
+2. Once those warnings stop, set `TELEPHONY_WS_TOKEN_ENFORCE=true` to start rejecting them.
+
+Setting `TELEPHONY_WS_TOKEN_ENFORCE` without a secret does nothing at all — the check is skipped entirely rather than rejecting every connection.
+
+<Note>
+The signed URL is a bearer credential, and it is not hidden: the token appears in full in the `api` and nginx access logs, and in carrier-side request logs (Twilio's debugger, Telnyx's request inspector). Anyone who can read those logs can open the media socket for a run that is still in `initialized`. Treat log access as socket access.
+</Note>
 
 ---
 

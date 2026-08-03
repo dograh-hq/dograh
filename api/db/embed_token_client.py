@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import List, Optional
 
 from loguru import logger
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db.base_client import BaseDBClient
@@ -65,7 +65,9 @@ class EmbedTokenClient(BaseDBClient):
             await session.commit()
             await session.refresh(embed_token)
 
-            logger.info(f"Created embed token {token} for workflow {workflow_id}")
+            logger.info(
+                f"Created embed token id={embed_token.id} for workflow {workflow_id}"
+            )
             return embed_token
 
     async def _token_exists(self, session: AsyncSession, token: str) -> bool:
@@ -183,19 +185,37 @@ class EmbedTokenClient(BaseDBClient):
         )
         return token is not None
 
-    async def increment_embed_token_usage(self, token_id: int) -> None:
-        """Increment the usage count for an embed token.
+    async def reserve_embed_token_usage(
+        self, token_id: int, organization_id: int
+    ) -> bool:
+        """Atomically reserve one use of an organization-scoped embed token.
 
         Args:
             token_id: ID of the token
+            organization_id: Organization that owns the token
+
+        Returns:
+            ``True`` when a use was reserved, or ``False`` when the token does
+            not exist in the organization or its usage limit is exhausted.
         """
         async with self.async_session() as session:
-            await session.execute(
+            result = await session.execute(
                 update(EmbedTokenModel)
-                .where(EmbedTokenModel.id == token_id)
+                .where(
+                    and_(
+                        EmbedTokenModel.id == token_id,
+                        EmbedTokenModel.organization_id == organization_id,
+                        or_(
+                            EmbedTokenModel.usage_limit.is_(None),
+                            EmbedTokenModel.usage_count < EmbedTokenModel.usage_limit,
+                        ),
+                    )
+                )
                 .values(usage_count=EmbedTokenModel.usage_count + 1)
+                .returning(EmbedTokenModel.id)
             )
             await session.commit()
+            return result.scalar_one_or_none() is not None
 
     async def create_embed_session(
         self,
@@ -240,7 +260,7 @@ class EmbedTokenClient(BaseDBClient):
             await session.commit()
             await session.refresh(embed_session)
 
-            logger.info(f"Created embed session {session_token}")
+            logger.info(f"Created embed session id={embed_session.id}")
             return embed_session
 
     async def get_embed_session_by_token(

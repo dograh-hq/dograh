@@ -107,7 +107,7 @@ class TestMaskedKeyRejection:
                     "llm": {
                         "provider": "google",
                         "api_key": MASKED_KEY,
-                        "model": "gemini-2.5-flash",
+                        "model": "gemini-3.5-flash",
                     }
                 },
             )
@@ -127,7 +127,7 @@ class TestMaskedKeyRejection:
                     "llm": {
                         "provider": "google",
                         "api_key": ["AIzaSyRealKey123456", MASKED_KEY],
-                        "model": "gemini-2.5-flash",
+                        "model": "gemini-3.5-flash",
                     }
                 },
             )
@@ -148,7 +148,7 @@ class TestMaskedKeyRejection:
                     "llm": {
                         "provider": "google",
                         "api_key": new_key,
-                        "model": "gemini-2.5-flash",
+                        "model": "gemini-3.5-flash",
                     }
                 },
             )
@@ -189,7 +189,7 @@ class TestMaskedKeyRejection:
             llm=GoogleVertexLLMConfiguration(
                 provider="google_vertex",
                 api_key=None,
-                model="gemini-2.5-flash",
+                model="gemini-3.5-flash",
                 project_id="demo-project",
                 location="us-east4",
                 credentials=real_credentials,
@@ -213,7 +213,7 @@ class TestMaskedKeyRejection:
                 json={
                     "llm": {
                         "provider": "google_vertex",
-                        "model": "gemini-2.5-flash",
+                        "model": "gemini-3.5-flash",
                         "project_id": "demo-project",
                         "location": "us-east4",
                         "credentials": masked_credentials,

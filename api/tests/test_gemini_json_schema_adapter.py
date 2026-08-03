@@ -98,13 +98,13 @@ def test_google_llm_service_factory_uses_dograh_service_class():
     ) as mock_service:
         result = create_llm_service_from_provider(
             provider=ServiceProviders.GOOGLE.value,
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             api_key="test-api-key",
         )
 
     assert result is mock_service.return_value
     assert mock_service.call_args.kwargs["api_key"] == "test-api-key"
-    assert mock_service.call_args.kwargs["settings"].model == "gemini-2.5-flash"
+    assert mock_service.call_args.kwargs["settings"].model == "gemini-3.5-flash"
 
 
 def test_google_vertex_llm_service_factory_uses_dograh_service_class():

@@ -445,11 +445,23 @@ export function HttpToolTestDialog({
                                                 Body: {JSON.stringify(result.request_body, null, 2)}
                                             </pre>
                                         )}
-                                        {result.request_params != null && (
+                                        {result.request_params != null && Object.keys(result.request_params).length > 0 && (
                                             <pre className="whitespace-pre-wrap">
                                                 Query:{" "}
                                                 {Object.entries(result.request_params)
                                                     .map(([key, value]) => `${key}=${value}`)
+                                                    .join("  ")}
+                                            </pre>
+                                        )}
+                                        {result.consumed_path_params && result.consumed_path_params.length > 0 && (
+                                            <pre className="whitespace-pre-wrap">
+                                                Path params:{" "}
+                                                {result.consumed_path_params
+                                                    .map((key) => {
+                                                        const llmVal = llmParamValues[key];
+                                                        const preVal = presetParamValues[key];
+                                                        return `${key}=${llmVal !== undefined ? llmVal : preVal}`;
+                                                    })
                                                     .join("  ")}
                                             </pre>
                                         )}

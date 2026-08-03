@@ -93,13 +93,6 @@ export function HttpApiToolConfig({
         return !declaredParamNames.has(baseName);
     });
 
-    const bodyTemplateString = bodyTemplate ? JSON.stringify(bodyTemplate) : "";
-    const overlappingParams = customUrlParams.filter(p => {
-        const baseName = p.split('.')[0];
-        // simple string check for presence in body template
-        return bodyTemplateString.includes('{{' + baseName) || bodyTemplateString.includes('{{ ' + baseName);
-    });
-
     return (
         <Card>
             <CardHeader>
@@ -182,12 +175,6 @@ export function HttpApiToolConfig({
                                 <div className="rounded-lg border border-orange-500/20 bg-orange-500/10 p-3 text-sm text-orange-600 flex gap-2 items-start mt-2">
                                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                                     <span>Warning: {undeclaredUrlParams.map(p => `{{${p}}}`).join(", ")} {undeclaredUrlParams.length === 1 ? 'is' : 'are'} not declared parameters and will cause an error at runtime.</span>
-                                </div>
-                            )}
-                            {overlappingParams.length > 0 && (
-                                <div className="rounded-lg border border-orange-500/20 bg-orange-500/10 p-3 text-sm text-orange-600 flex gap-2 items-start mt-2">
-                                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                                    <span>Warning: {overlappingParams.map(p => `{{${p}}}`).join(", ")} {overlappingParams.length === 1 ? 'is' : 'are'} used in both the URL path and the body template. {overlappingParams.length === 1 ? 'It' : 'They'} will be consumed by the URL and will be empty in the body.</span>
                                 </div>
                             )}
                         </div>

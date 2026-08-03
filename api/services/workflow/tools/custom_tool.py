@@ -3,6 +3,7 @@
 import json
 import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from api.db import db_client
@@ -281,8 +282,7 @@ def render_url_template(
 
         builtin_value = _resolve_builtin_variable(variable_path, default_tz)
         if builtin_value is not None:
-            import urllib.parse
-            return urllib.parse.quote(builtin_value, safe="")
+            return quote(builtin_value, safe="")
 
         if variable_path.startswith("initial_context."):
             key_path = variable_path[len("initial_context.") :]
@@ -336,8 +336,7 @@ def render_url_template(
         else:
             val = str(val)
 
-        import urllib.parse
-        return urllib.parse.quote(val, safe="")
+        return quote(val, safe="")
 
     rendered_url = re.sub(TEMPLATE_VAR_PATTERN, _replace, url)
     return rendered_url, consumed_params

@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Info } from "lucide-react";
+
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {

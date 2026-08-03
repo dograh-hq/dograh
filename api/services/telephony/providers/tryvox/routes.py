@@ -61,7 +61,7 @@ async def handle_tryvox_websocket(
             )
         except BaseException:
             try:
-                await asyncio.shield(
+                restored = await asyncio.shield(
                     tryvox_security.rollback_consumed_stream_token(
                         workflow_id,
                         organization_id,
@@ -71,10 +71,30 @@ async def handle_tryvox_websocket(
                     )
                 )
             except Exception:
+                restored = False
                 logger.exception(
                     f"[run {workflow_run_id}] Failed to roll back consumed "
                     "TryVox stream capability"
                 )
+            if not restored:
+                # The capability is stuck consumed with no way to redeem or
+                # reissue it -- there is no retry-safe state left to leave
+                # the run in. Mark it terminal instead of letting it sit
+                # stranded as "initialized" with a dead stream capability.
+                try:
+                    await asyncio.shield(
+                        db_client.update_workflow_run(
+                            run_id=workflow_run_id,
+                            state=WorkflowRunState.COMPLETED.value,
+                            is_completed=True,
+                        )
+                    )
+                except Exception:
+                    logger.exception(
+                        f"[run {workflow_run_id}] Failed to mark run completed "
+                        "after unrecoverable TryVox stream capability commit "
+                        "failure"
+                    )
             raise
         committed = True
         return True

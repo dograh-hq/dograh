@@ -1139,6 +1139,21 @@ class TestRenderBodyTemplate:
         res = render_body_template(tpl, {}, [])
         assert res == {"syntax": "See placeholder syntax: }}"}
 
+    def test_mixed_template_with_literal_braces_and_placeholders(self):
+        tpl = {
+            "static_literal": "See placeholder syntax: }}",
+            "dynamic_value": "User is {{user_id}}",
+        }
+        res = render_body_template(
+            tpl,
+            {"user_id": "123"},
+            [ToolParameter(name="user_id", type="string", description="x")],
+        )
+        assert res == {
+            "static_literal": "See placeholder syntax: }}",
+            "dynamic_value": "User is 123",
+        }
+
     def test_null_literal_in_template(self):
         tpl = {"key": None}
         res = render_body_template(tpl, {}, [])

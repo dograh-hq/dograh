@@ -20,11 +20,15 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.enums import WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
+    ProviderSyncResult,
     TelephonyProvider,
 )
+from api.utils.telephony_address import normalize_telephony_address
 from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
@@ -85,8 +89,8 @@ class VoxProProvider(TelephonyProvider):
             )
 
         _, ws_base = await get_backend_endpoints()
-        ws_url = (
-            f"{ws_base}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}"
+        ws_url = ws_auth.build_media_ws_url(
+            ws_base, workflow_id, organization_id, workflow_run_id
         )
 
         # The connector originates on VoxPro's carrier and connects the media leg
@@ -289,6 +293,59 @@ class VoxProProvider(TelephonyProvider):
                 "workflow_run_id": workflow_run_id,
                 "call_id": normalized_data.call_id,
             }
+        )
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify the DID belongs to this tenant, via the connector's inventory.
+
+        The connector's /v1/numbers is the ownership record for a tenant: an
+        API key can only originate on its own trunk / DIDs, so the same list that
+        authorizes calls is what a number must appear in. Non-PSTN addresses (SIP
+        URIs, extensions) have no carrier ownership resource and are left to the
+        dialplan, matching the other PBX-managed providers.
+        """
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            return ProviderSyncResult(ok=True)
+        if not (self.api_key and self.api_base and self.tenant_id):
+            raise ProviderPhoneNumberLookupError(
+                "VoxPro api_key, tenant_id and connector base URL are required to "
+                "validate phone-number ownership"
+            )
+
+        endpoint = f"{self.api_base}/v1/numbers"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(endpoint, headers=self._headers()) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        raise ProviderPhoneNumberLookupError(
+                            f"VoxPro number lookup failed: HTTP {resp.status} {body}"
+                        )
+                    data = await resp.json()
+        except ProviderPhoneNumberLookupError:
+            raise
+        except Exception as e:
+            raise ProviderPhoneNumberLookupError(
+                f"VoxPro number lookup failed: {e}"
+            ) from e
+
+        # Compare on digits only: the connector reports local form (08071661528)
+        # while Dograh canonicalises to E.164 (+918071661528).
+        def _digits(value: str) -> str:
+            return "".join(ch for ch in str(value) if ch.isdigit()).lstrip("0")
+
+        wanted = _digits(normalized.canonical)
+        owned = {_digits(d) for d in (data.get("dids") or [])}
+        if any(wanted.endswith(d) or d.endswith(wanted) for d in owned if d):
+            return ProviderSyncResult(ok=True)
+        return ProviderSyncResult(
+            ok=False,
+            message=(
+                f"Phone number {normalized.canonical} is not assigned to VoxPro "
+                f"tenant {self.tenant_id}. Ask VoxPro to add the DID to this "
+                "tenant first."
+            ),
         )
 
     @staticmethod

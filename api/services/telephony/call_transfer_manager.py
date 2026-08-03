@@ -98,6 +98,7 @@ class CallTransferManager:
             redis = await self._get_redis()
             context = await self.get_transfer_context(transfer_id)
             key = TransferRedisChannels.transfer_context_key(transfer_id)
+            await redis.delete(TransferRedisChannels.transfer_result_key(transfer_id))
             if context and context.original_call_sid:
                 index_key = TransferRedisChannels.transfer_context_by_call_sid_key(
                     context.original_call_sid
@@ -144,7 +145,23 @@ class CallTransferManager:
 
             redis = await self._get_redis()
             channel = TransferRedisChannels.transfer_events(event.transfer_id)
-            await redis.publish(channel, event.to_json())
+            payload = event.to_json()
+            # Persist terminal outcomes BEFORE publishing. Redis pub/sub keeps
+            # nothing for a subscriber that has not arrived yet, and a fast
+            # provider callback can land before the workflow starts waiting —
+            # the event would be lost and the transfer would time out even
+            # though the destination answered. The waiter reads this key right
+            # after subscribing, which closes that window from both sides.
+            if event.type in (
+                TransferEventType.DESTINATION_ANSWERED,
+                TransferEventType.TRANSFER_FAILED,
+            ):
+                await redis.setex(
+                    TransferRedisChannels.transfer_result_key(event.transfer_id),
+                    300,
+                    payload,
+                )
+            await redis.publish(channel, payload)
             logger.info(f"Published {event.type} event for {event.transfer_id}")
         except Exception as e:
             logger.error(f"Failed to publish transfer event: {e}")
@@ -170,6 +187,24 @@ class CallTransferManager:
             logger.info(
                 f"Waiting for transfer completion on {channel} (timeout: {timeout_seconds}s)"
             )
+
+            # Subscribe first, then read the durable copy: anything published
+            # before we subscribed is still here, and anything published after
+            # arrives on the subscription. Without this, a sub-second callback
+            # (the connector-driven providers are that fast) is simply missed.
+            stored = await redis.get(
+                TransferRedisChannels.transfer_result_key(transfer_id)
+            )
+            if stored:
+                try:
+                    event = TransferEvent.from_json(stored)
+                    logger.info(
+                        f"Read stored {event.type} event for {transfer_id} "
+                        "(published before the wait subscribed)"
+                    )
+                    return event
+                except Exception as e:
+                    logger.error(f"Failed to parse stored transfer event: {e}")
 
             # Wait for completion event with timeout
             async def wait_for_message():

@@ -96,6 +96,12 @@ class TransferRedisChannels:
         return f"transfer:events:{transfer_id}"
 
     @staticmethod
+    def transfer_result_key(transfer_id: str) -> str:
+        """Redis key holding the terminal event, so a completion published
+        before the waiter subscribes is not lost (pub/sub has no retention)."""
+        return f"transfer:result:{transfer_id}"
+
+    @staticmethod
     def transfer_context_key(transfer_id: str) -> str:
         """Redis key for transfer context storage."""
         return f"transfer:context:{transfer_id}"

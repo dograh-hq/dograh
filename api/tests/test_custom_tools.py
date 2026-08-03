@@ -9,7 +9,7 @@ This module tests:
 
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -28,6 +28,7 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.tests import MockLLMService, run_test
 
 from api.enums import WorkflowRunMode
 from api.services.configuration.masking import mask_key
@@ -38,7 +39,6 @@ from api.services.workflow.tools.custom_tool import (
     render_url_template,
     tool_to_function_schema,
 )
-from pipecat.tests import MockLLMService, run_test
 
 
 @dataclass
@@ -49,7 +49,7 @@ class MockToolModel:
     name: str
     description: str
     category: str
-    definition: Dict[str, Any]
+    definition: dict[str, Any]
 
 
 def test_empty_resolver_credential_uuid_is_ignored():

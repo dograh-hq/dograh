@@ -1,7 +1,6 @@
 """API routes for managing tools."""
 
 import time
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -103,10 +102,10 @@ def validate_status(status: str) -> None:
     ),
 )
 async def list_tools(
-    status: Optional[str] = None,
-    category: Optional[str] = None,
+    status: str | None = None,
+    category: str | None = None,
     user: UserModel = Depends(get_user),
-) -> List[ToolResponse]:
+) -> list[ToolResponse]:
     """
     List all tools for the user's organization.
 
@@ -285,8 +284,8 @@ async def test_tool(
 
 
 def _hint_for_status_code(
-    status_code: Optional[int], configured_method: str
-) -> Optional[str]:
+    status_code: int | None, configured_method: str
+) -> str | None:
     """Human-readable explanation for a status code a misconfigured tool
     is likely to hit. Returns None for 2xx and any code not covered."""
     if status_code == 400:

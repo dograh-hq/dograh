@@ -7,7 +7,6 @@ They handle CORS, domain validation, and session management for embedded workflo
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Optional
-from urllib.parse import urlsplit
 
 from fastapi import (
     APIRouter,
@@ -16,10 +15,12 @@ from fastapi import (
     Response,
 )
 from loguru import logger
+from pipecat.utils.run_context import set_current_run_id
 from pydantic import BaseModel
-from starlette.datastructures import Headers
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from api.constants import ENABLE_COTURN, FORCE_TURN_RELAY
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.routes.turn_credentials import (
@@ -27,12 +28,37 @@ from api.routes.turn_credentials import (
     TurnCredentialsResponse,
     generate_turn_credentials,
 )
+from api.schemas.embed_chat import PublicEmbedChatSessionResponse
+from api.services.workflow.embed_chat_limiter import allow_embed_chat_init
+from api.services.workflow.embed_context import sanitize_embed_context_variables
+from api.services.workflow.embed_session_service import (
+    EmbedSessionNotFoundError,
+    EmbedSessionValidationError,
+    EmbedTokenNotFoundError,
+    authorize_embed_workflow_run_start,
+    resolve_embed_session,
+    validate_embed_origin,
+)
+from api.services.workflow.embed_text_chat_service import (
+    build_public_chat_session_response,
+    start_embed_text_chat,
+)
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow.text_chat_session_service import (
+    TextChatPendingTurnLostError,
+    TextChatSessionExecutionError,
+    TextChatSessionRevisionConflictError,
+)
 
 router = APIRouter(prefix="/public/embed")
 
 EMBED_CORS_ALLOW_HEADERS = "Content-Type, Origin"
 EMBED_CORS_MAX_AGE = "86400"
+
+
+def _turn_credentials_available() -> bool:
+    """Return whether the public endpoint can mint TURN credentials."""
+    return ENABLE_COTURN and bool(TURN_SECRET)
 
 
 class InitEmbedRequest(BaseModel):
@@ -48,6 +74,10 @@ class InitEmbedResponse(BaseModel):
     session_token: str
     workflow_run_id: int
     config: dict
+    widget_type: str = "voice"
+    # For chat widgets the greeting turn runs synchronously during init, so the
+    # opening transcript rides along and the widget skips a fetch.
+    chat_session: PublicEmbedChatSessionResponse | None = None
 
 
 class EmbedConfigResponse(BaseModel):
@@ -61,81 +91,14 @@ class EmbedConfigResponse(BaseModel):
     button_color: str
     size: str
     auto_start: bool
-
-
-def validate_origin(origin: str, allowed_domains: list) -> bool:
-    """Validate if the origin is in the allowed domains list.
-
-    Args:
-        origin: The origin header from the request
-        allowed_domains: List of allowed domain patterns
-
-    Returns:
-        True if origin is allowed, False otherwise
-    """
-    if not allowed_domains:
-        # If no domains specified, allow all origins
-        return True
-
-    domain, origin_port = _parse_origin_host_port(origin)
-    if not domain:
-        return False
-
-    # Normalize domain for www matching
-    def normalize_www(d: str) -> tuple[str, str]:
-        """Return both www and non-www versions of a domain"""
-        if d.startswith("www."):
-            return (d, d[4:])  # (www.x.com, x.com)
-        else:
-            return (d, f"www.{d}")  # (x.com, www.x.com)
-
-    domain_variants = normalize_www(domain)
-
-    for allowed in allowed_domains:
-        allowed = str(allowed).strip().lower()
-        if allowed == "*":
-            return True
-        allowed_domain, allowed_port = _parse_origin_host_port(allowed)
-        if not allowed_domain:
-            continue
-        if allowed_port is not None and allowed_port != origin_port:
-            continue
-
-        if allowed_domain.startswith("*."):
-            # Wildcard subdomain matching
-            base_domain = allowed_domain[2:]
-            if domain == base_domain or domain.endswith("." + base_domain):
-                return True
-        else:
-            # Check both www and non-www versions
-            allowed_variants = normalize_www(allowed_domain)
-            # If any variant of domain matches any variant of allowed, it's valid
-            if any(
-                dv in allowed_variants or av in domain_variants
-                for dv in domain_variants
-                for av in allowed_variants
-            ):
-                return True
-
-    return False
-
-
-def _parse_origin_host_port(value: str) -> tuple[str, str | None]:
-    candidate = value.strip().lower()
-    if not candidate:
-        return "", None
-
-    if "://" not in candidate and not candidate.startswith("//"):
-        candidate = f"//{candidate}"
-
-    parsed = urlsplit(candidate)
-    try:
-        parsed_port = parsed.port
-    except ValueError:
-        parsed_port = None
-
-    port = str(parsed_port) if parsed_port is not None else None
-    return (parsed.hostname or "").rstrip("."), port
+    # WebRTC transport hints, mirroring the same fields on /health. The embed
+    # widget is a standalone script on a third-party page — it has no access to
+    # the first-party app config that /health feeds — so these ride along with
+    # the embed config. turn_enabled=False lets the widget skip the
+    # turn-credentials request that would only 503; force_turn_relay tells it to
+    # restrict ICE to relay candidates for TURN diagnostics.
+    turn_enabled: bool
+    force_turn_relay: bool
 
 
 def generate_session_token() -> str:
@@ -180,30 +143,34 @@ async def _config_preflight_response(token: str, origin: str) -> Response:
     if not embed_token or not embed_token.is_active:
         return Response(status_code=403)
 
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         return Response(status_code=403)
 
     return _cors_response(origin, "GET, OPTIONS")
 
 
-async def _turn_credentials_preflight_response(
-    session_token: str, origin: str
+async def _session_preflight_response(
+    session_token: str, origin: str, methods: str
 ) -> Response:
+    """Preflight for session-scoped endpoints gates on ORIGIN only.
+
+    Session-state problems (unknown/expired session, inactive token) must NOT
+    fail the preflight: the browser would surface them to the page as an opaque
+    network error. Letting the preflight succeed lets the real request return a
+    readable 4xx (PublicEmbedCORSMiddleware reflects ACAO onto embed responses,
+    including error responses).
+    """
     embed_session = await db_client.get_embed_session_by_token(session_token)
-    if not embed_session:
-        return Response(status_code=403)
+    if embed_session:
+        embed_token = await db_client.get_embed_token_by_id(
+            embed_session.embed_token_id
+        )
+        if embed_token and not validate_embed_origin(
+            origin, embed_token.allowed_domains or []
+        ):
+            return Response(status_code=403)
 
-    if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
-        return Response(status_code=403)
-
-    embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
-    if not embed_token:
-        return Response(status_code=403)
-
-    if not validate_origin(origin, embed_token.allowed_domains or []):
-        return Response(status_code=403)
-
-    return _cors_response(origin, "GET, OPTIONS")
+    return _cors_response(origin, methods)
 
 
 async def build_public_embed_preflight_response(
@@ -229,7 +196,16 @@ async def build_public_embed_preflight_response(
         if requested_method.upper() != "GET":
             return Response(status_code=405)
         session_token = path[len(turn_credentials_prefix) :].split("/", 1)[0]
-        return await _turn_credentials_preflight_response(session_token, origin)
+        return await _session_preflight_response(session_token, origin, "GET, OPTIONS")
+
+    chat_prefix = f"{public_embed_prefix}/chat/"
+    if path.startswith(chat_prefix):
+        if requested_method.upper() not in ("GET", "POST"):
+            return Response(status_code=405)
+        session_token = path[len(chat_prefix) :].split("/", 1)[0]
+        return await _session_preflight_response(
+            session_token, origin, "GET, POST, OPTIONS"
+        )
 
     return None
 
@@ -242,21 +218,52 @@ class PublicEmbedCORSMiddleware:
         self.api_prefix = api_prefix
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope.get("method") != "OPTIONS":
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
         headers = Headers(scope=scope)
         origin = headers.get("origin")
-        requested_method = headers.get("access-control-request-method")
 
-        if origin and requested_method:
-            response = await build_public_embed_preflight_response(
-                scope.get("path", ""), origin, requested_method, self.api_prefix
-            )
-            if response is not None:
-                await response(scope, receive, send)
-                return
+        if scope.get("method") == "OPTIONS":
+            requested_method = headers.get("access-control-request-method")
+            if origin and requested_method:
+                response = await build_public_embed_preflight_response(
+                    scope.get("path", ""), origin, requested_method, self.api_prefix
+                )
+                if response is not None:
+                    await response(scope, receive, send)
+                    return
+            await self.app(scope, receive, send)
+            return
+
+        embed_prefix = f"{self.api_prefix.rstrip('/')}/public/embed"
+        if origin and scope.get("path", "").startswith(embed_prefix):
+            # Reflect ACAO on every embed response, including error responses.
+            # Routes set ACAO on success via _allow_embed_origin, but raised
+            # HTTPExceptions bypass the injected Response object, so without
+            # this a third-party page can't read e.g. a 403 session-expired and
+            # sees an opaque CORS network error instead. Success data stays
+            # origin-gated in-route by validate_embed_origin — this only makes error
+            # statuses readable.
+            async def send_with_cors(message) -> None:
+                if message["type"] == "http.response.start":
+                    response_headers = MutableHeaders(
+                        raw=message.setdefault("headers", [])
+                    )
+                    if "access-control-allow-origin" not in response_headers:
+                        response_headers.append("Access-Control-Allow-Origin", origin)
+                        vary = response_headers.get("Vary")
+                        if not vary:
+                            response_headers.append("Vary", "Origin")
+                        elif "origin" not in {
+                            value.strip().lower() for value in vary.split(",")
+                        }:
+                            response_headers["Vary"] = f"{vary}, Origin"
+                await send(message)
+
+            await self.app(scope, receive, send_with_cors)
+            return
 
         await self.app(scope, receive, send)
 
@@ -289,12 +296,8 @@ async def initialize_embed_session(
     if embed_token.expires_at and embed_token.expires_at < datetime.now(UTC):
         raise HTTPException(status_code=403, detail="Embed token has expired")
 
-    # Check usage limit
-    if embed_token.usage_limit and embed_token.usage_count >= embed_token.usage_limit:
-        raise HTTPException(status_code=403, detail="Embed token usage limit exceeded")
-
     # Validate domain
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         logger.warning(
             f"Domain validation failed: {origin} not in {embed_token.allowed_domains}"
         )
@@ -302,6 +305,30 @@ async def initialize_embed_session(
 
     if origin:
         _allow_embed_origin(response, origin)
+
+    # Widget type is derived from the embed token's settings — never from the
+    # request — so a client can't turn a voice token into a chat session.
+    widget_type = (
+        "chat" if (embed_token.settings or {}).get("widgetType") == "chat" else "voice"
+    )
+    is_chat = widget_type == "chat"
+
+    # Chat initialization immediately performs billable greeting work. Keep it
+    # in an isolated token-scoped rate bucket so anonymous bursts cannot fan
+    # out unbounded LLM work, without consuming organization voice-call slots.
+    if is_chat and not await allow_embed_chat_init(embed_token.id):
+        raise HTTPException(
+            status_code=429, detail="Too many chat sessions. Please try again shortly"
+        )
+
+    # This conditional update is the authoritative usage-limit check. Keeping
+    # the comparison and increment in one statement prevents parallel public
+    # requests from all passing a stale in-memory usage_count check.
+    usage_reserved = await db_client.reserve_embed_token_usage(
+        embed_token.id, embed_token.organization_id
+    )
+    if not usage_reserved:
+        raise HTTPException(status_code=403, detail="Embed token usage limit exceeded")
 
     # Create workflow run
     try:
@@ -311,18 +338,39 @@ async def initialize_embed_session(
         if not workflow:
             raise ValueError("Workflow not found")
         run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
+        # Visitor context comes from the host page (script URL params or the
+        # data-dograh-context attribute) and is addressable from prompts as
+        # {{initial_context.<name>}}.
+        context_variables = sanitize_embed_context_variables(
+            init_request.context_variables
+        )
+        if is_chat:
+            mode = WorkflowRunMode.TEXTCHAT.value
+            name = f"Embed Chat - {datetime.now(UTC).isoformat()}"
+            # Text-chat runs carry no transport provider (mirrors the
+            # authenticated text-chat route).
+            initial_context = {**context_variables}
+        else:
+            mode = WorkflowRunMode.SMALLWEBRTC.value
+            name = f"Embed Run - {datetime.now(UTC).isoformat()}"
+            initial_context = {
+                **context_variables,
+                "provider": WorkflowRunMode.SMALLWEBRTC.value,
+            }
         workflow_run = await db_client.create_workflow_run(
-            name=f"Embed Run - {datetime.now(UTC).isoformat()}",
+            name=name,
             workflow_id=embed_token.workflow_id,
-            mode=WorkflowRunMode.SMALLWEBRTC.value,
+            mode=mode,
             user_id=embed_token.created_by,  # Use token creator as run owner
             organization_id=embed_token.organization_id,
-            initial_context={
-                **(init_request.context_variables or {}),
-                "provider": WorkflowRunMode.SMALLWEBRTC.value,
-            },
+            initial_context=initial_context,
             definition_id=run_inputs.definition_id,
         )
+        if is_chat:
+            workflow_run = await db_client.update_workflow_run(
+                workflow_run.id,
+                annotations={"embed": {"source": "embed_widget", "modality": "text"}},
+            )
     except Exception as e:
         logger.error(f"Failed to create workflow run: {e}")
         raise HTTPException(status_code=500, detail="Failed to create workflow run")
@@ -345,8 +393,35 @@ async def initialize_embed_session(
         logger.error(f"Failed to create embed session: {e}")
         raise HTTPException(status_code=500, detail="Failed to create session")
 
-    # Increment usage count
-    await db_client.increment_embed_token_usage(embed_token.id)
+    # For chat widgets, seed the text session and run the greeting turn
+    # synchronously so the widget opens with the agent's first message. Quota is
+    # checked first — before any LLM spend — mirroring the authenticated
+    # text-chat create flow. (Voice runs are quota-checked later, on the
+    # signaling WebSocket.)
+    chat_session = None
+    if is_chat:
+        set_current_run_id(workflow_run.id)
+        quota_result = await authorize_embed_workflow_run_start(
+            embed_token=embed_token,
+            workflow_run_id=workflow_run.id,
+        )
+        if not quota_result.has_quota:
+            raise HTTPException(
+                status_code=402, detail="The agent is unavailable right now"
+            )
+        try:
+            text_session = await start_embed_text_chat(
+                workflow_id=embed_token.workflow_id, run_id=workflow_run.id
+            )
+        except (
+            TextChatSessionRevisionConflictError,
+            TextChatPendingTurnLostError,
+            TextChatSessionExecutionError,
+        ) as e:
+            # Public surface: log the specifics, return a generic detail.
+            logger.error(f"Embed chat greeting failed for run {workflow_run.id}: {e}")
+            raise HTTPException(status_code=500, detail="Assistant failed to respond")
+        chat_session = build_public_chat_session_response(text_session)
 
     # Prepare configuration
     config = {
@@ -356,7 +431,11 @@ async def initialize_embed_session(
     }
 
     return InitEmbedResponse(
-        session_token=session_token, workflow_run_id=workflow_run.id, config=config
+        session_token=session_token,
+        workflow_run_id=workflow_run.id,
+        config=config,
+        widget_type=widget_type,
+        chat_session=chat_session,
     )
 
 
@@ -390,7 +469,7 @@ async def get_embed_config(token: str, request: Request, response: Response):
         raise HTTPException(status_code=403, detail="Embed token is inactive")
 
     # Validate domain
-    if not validate_origin(origin, embed_token.allowed_domains or []):
+    if not validate_embed_origin(origin, embed_token.allowed_domains or []):
         raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
 
     # Set CORS header explicitly; the global CORSMiddleware covers only
@@ -410,6 +489,8 @@ async def get_embed_config(token: str, request: Request, response: Response):
         button_color=settings.get("buttonColor", "#3B82F6"),
         size=settings.get("size", "medium"),
         auto_start=settings.get("autoStart", False),
+        turn_enabled=_turn_credentials_available(),
+        force_turn_relay=FORCE_TURN_RELAY,
     )
 
 
@@ -442,32 +523,20 @@ async def get_public_turn_credentials(
     """
     origin = get_request_origin(request)
 
-    # Validate session token
-    embed_session = await db_client.get_embed_session_by_token(session_token)
-    if not embed_session:
-        raise HTTPException(status_code=404, detail="Invalid session token")
-
-    # Check if session is expired
-    if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
-        raise HTTPException(status_code=403, detail="Session expired")
-
-    # Get the embed token to check allowed domains
-    embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
-    if not embed_token:
-        raise HTTPException(status_code=404, detail="Invalid embed token")
-
-    # Validate domain (empty allowed_domains means allow all)
-    if not validate_origin(origin, embed_token.allowed_domains or []):
-        logger.warning(
-            f"Domain validation failed for TURN credentials: {origin} not in {embed_token.allowed_domains}"
-        )
-        raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
+    try:
+        await resolve_embed_session(session_token, origin)
+    except (EmbedSessionNotFoundError, EmbedTokenNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedSessionValidationError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
 
     if origin:
         _allow_embed_origin(response, origin)
 
-    # Check if TURN is configured
-    if not TURN_SECRET:
+    # Check if TURN is configured. Both conditions matter: ENABLE_COTURN is what
+    # the config endpoint advertised, and without a secret there is nothing to
+    # sign credentials with.
+    if not _turn_credentials_available():
         raise HTTPException(
             status_code=503,
             detail="TURN server not configured",
@@ -489,6 +558,6 @@ async def get_public_turn_credentials(
 async def options_turn_credentials(request: Request, session_token: str):
     """Fallback OPTIONS handler for TURN credentials endpoint."""
     # Browser preflights are handled by PublicEmbedCORSMiddleware before global CORS.
-    return await _turn_credentials_preflight_response(
-        session_token, request.headers.get("origin", "")
+    return await _session_preflight_response(
+        session_token, request.headers.get("origin", ""), "GET, OPTIONS"
     )

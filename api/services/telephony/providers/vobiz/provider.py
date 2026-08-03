@@ -14,9 +14,11 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
@@ -264,10 +266,13 @@ class VobizProvider(TelephonyProvider):
         - contentType: audio/x-mulaw;rate=8000
         """
         _, wss_backend_endpoint = await get_backend_endpoints()
+        ws_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
+        )
 
         vobiz_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}</Stream>
+    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{ws_url}</Stream>
 </Response>"""
         return vobiz_xml
 
@@ -513,7 +518,7 @@ class VobizProvider(TelephonyProvider):
         - Attach: https://vobiz.ai/docs/applications/attach-number
         - Detach: https://vobiz.ai/docs/applications/detach-number
         """
-        if not self.validate_config():
+        if not (self.auth_id and self.auth_token):
             return ProviderSyncResult(
                 ok=False, message="Vobiz provider not properly configured"
             )
@@ -659,6 +664,70 @@ class VobizProvider(TelephonyProvider):
             f"{self.application_id}; answer_url set to {webhook_url}"
         )
         return ProviderSyncResult(ok=True)
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify PSTN ownership through Vobiz's account number inventory."""
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            return ProviderSyncResult(ok=True)
+        if not (self.auth_id and self.auth_token):
+            raise ProviderPhoneNumberLookupError(
+                "Vobiz auth ID and auth token are required to validate "
+                "phone-number ownership"
+            )
+
+        endpoint = f"{self.base_url}/v1/Account/{self.auth_id}/numbers"
+        headers = {
+            "X-Auth-ID": self.auth_id,
+            "X-Auth-Token": self.auth_token,
+            "Content-Type": "application/json",
+        }
+        page = 1
+        per_page = 100
+        try:
+            async with aiohttp.ClientSession() as session:
+                while True:
+                    params = {
+                        "page": page,
+                        "per_page": per_page,
+                        "search": normalized.canonical,
+                    }
+                    async with session.get(
+                        endpoint, params=params, headers=headers
+                    ) as response:
+                        if response.status != 200:
+                            body = await response.text()
+                            raise ProviderPhoneNumberLookupError(
+                                f"Vobiz API {response.status}: {body}"
+                            )
+                        data = await response.json()
+
+                    items = data.get("items") or []
+                    for item in items:
+                        if item.get("e164") == normalized.canonical:
+                            return ProviderSyncResult(ok=True)
+
+                    total = int(data.get("total") or len(items))
+                    response_page = int(data.get("page") or page)
+                    response_per_page = int(data.get("per_page") or per_page)
+                    if not items or response_page * response_per_page >= total:
+                        break
+                    page = response_page + 1
+        except ProviderPhoneNumberLookupError:
+            raise
+        except Exception as e:
+            raise ProviderPhoneNumberLookupError(
+                f"Vobiz phone-number lookup failed: {e}"
+            ) from e
+
+        return ProviderSyncResult(
+            ok=False,
+            message=(
+                f"Phone number {normalized.canonical} is not owned by this "
+                f"Vobiz account ({self.auth_id}). Add it in the Vobiz "
+                "console first."
+            ),
+        )
 
     async def start_inbound_stream(
         self,

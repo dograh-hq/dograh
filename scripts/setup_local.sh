@@ -188,6 +188,7 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     cat >> .env << ENV_EOF
 
 # TURN Server Configuration (time-limited credentials via TURN REST API)
+ENABLE_COTURN=true
 TURN_HOST=$TURN_HOST
 TURN_SECRET=$TURN_SECRET
 ENV_EOF

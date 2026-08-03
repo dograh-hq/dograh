@@ -18,6 +18,7 @@ from api.enums import TelephonyCallStatus
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
@@ -185,6 +186,47 @@ class TryVoxProvider(TelephonyProvider):
 
     async def get_available_phone_numbers(self) -> list[str]:
         return self.from_numbers
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify PSTN ownership through TryVox's account Numbers resource."""
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            return ProviderSyncResult(ok=True)
+        if not (self.auth_id and self.auth_token):
+            raise ProviderPhoneNumberLookupError(
+                "TryVox auth ID and auth token are required to validate "
+                "phone-number ownership"
+            )
+
+        encoded_address = quote(normalized.canonical, safe="+")
+        endpoint = (
+            f"{self.api_base_url}/v1/account/{self.auth_id}/numbers/"
+            f"{encoded_address}"
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(endpoint, auth=self._auth()) as response:
+                    if response.status == 200:
+                        return ProviderSyncResult(ok=True)
+                    if response.status == 404:
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=(
+                                f"Phone number {normalized.canonical} is not "
+                                f"owned by this TryVox account ({self.auth_id}). "
+                                "Add it in the TryVox console first."
+                            ),
+                        )
+                    body = await response.text()
+                    raise ProviderPhoneNumberLookupError(
+                        f"TryVox API {response.status}: {body}"
+                    )
+        except ProviderPhoneNumberLookupError:
+            raise
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise ProviderPhoneNumberLookupError(
+                f"TryVox phone-number lookup failed: {exc}"
+            ) from exc
 
     def validate_config(self) -> bool:
         return bool(
@@ -399,18 +441,33 @@ class TryVoxProvider(TelephonyProvider):
     ):
         from fastapi.responses import JSONResponse
 
-        websocket_url = websocket_url.replace(
-            "/api/v1/telephony/ws/",
-            "/api/v1/telephony/tryvox/ws/",
-            1,
+        # `websocket_url` is the generic media-WS URL minted by
+        # ws_auth.build_media_ws_url, ending in .../{workflow_id}/
+        # {organization_id}/{workflow_run_id} and, when a capability-token
+        # secret is configured, one more opaque token segment after that.
+        # Locate the run ID (already known) rather than assuming a fixed
+        # trailing segment count, so an extra token segment doesn't break
+        # parsing; TryVox mints its own one-shot capability below, so any
+        # generic token is simply dropped along with the rest of the URL.
+        parsed = urlparse(websocket_url)
+        segments = [part for part in parsed.path.split("/") if part]
+        target = str(workflow_run_id)
+        run_id_index = next(
+            (i for i in range(len(segments) - 1, 1, -1) if segments[i] == target),
+            None,
         )
-        path_parts = urlparse(websocket_url).path.rstrip("/").split("/")
+        if run_id_index is None:
+            raise ValueError("Invalid TryVox media WebSocket URL")
         try:
-            workflow_id, organization_id, url_run_id = map(int, path_parts[-3:])
+            workflow_id = int(segments[run_id_index - 2])
+            organization_id = int(segments[run_id_index - 1])
         except (TypeError, ValueError) as exc:
             raise ValueError("Invalid TryVox media WebSocket URL") from exc
-        if url_run_id != workflow_run_id:
-            raise ValueError("TryVox media WebSocket run ID mismatch")
+
+        websocket_url = (
+            f"{parsed.scheme}://{parsed.netloc}/api/v1/telephony/tryvox/ws/"
+            f"{workflow_id}/{organization_id}/{workflow_run_id}"
+        )
 
         stream_token = await tryvox_security.issue_stream_token(
             workflow_id, organization_id, workflow_run_id

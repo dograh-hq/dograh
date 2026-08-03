@@ -12,6 +12,7 @@ The key behavior being tested:
 """
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
 
@@ -216,3 +217,38 @@ class TestVariableExtractionDuringTransitions:
             f"Expected NO extraction calls for AGENT node (extraction disabled), "
             f"but got {len(agent_extraction_calls)} calls"
         )
+
+
+@pytest.mark.asyncio
+async def test_extraction_uses_dedicated_llm(simple_workflow: WorkflowGraph):
+    """Extraction must not fall back to the conversational LLM when one is supplied."""
+    conversation_llm = SimpleNamespace(run_inference=AsyncMock())
+    extraction_llm = SimpleNamespace(
+        run_inference=AsyncMock(return_value='{"user_intent": "support"}'),
+        model_name="variable-extraction-model",
+    )
+    context = LLMContext(messages=[{"role": "user", "content": "I need help"}])
+    engine = PipecatEngine(
+        llm=conversation_llm,
+        variable_extraction_llm=extraction_llm,
+        context=context,
+        workflow=simple_workflow,
+        call_context_vars={},
+        workflow_run_id=1,
+    )
+    manager = VariableExtractionManager(engine)
+    node = simple_workflow.nodes[simple_workflow.start_node_id]
+
+    with patch(
+        "api.services.workflow.pipecat_engine_variable_extractor.ensure_tracing",
+        return_value=False,
+    ):
+        result = await manager._perform_extraction(
+            node.extraction_variables,
+            parent_ctx=None,
+            extraction_prompt=node.extraction_prompt,
+        )
+
+    assert result == {"user_intent": "support"}
+    extraction_llm.run_inference.assert_awaited_once()
+    conversation_llm.run_inference.assert_not_awaited()

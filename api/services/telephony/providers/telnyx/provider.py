@@ -25,9 +25,11 @@ TELNYX_PUBLIC_KEY_BYTES = 32
 TELNYX_SIGNATURE_BYTES = 64
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
@@ -101,9 +103,8 @@ class TelnyxProvider(TelephonyProvider):
         # Build the WebSocket stream URL for inline audio streaming
         workflow_id = kwargs.get("workflow_id")
         organization_id = kwargs.get("organization_id")
-        stream_url = (
-            f"{wss_backend_endpoint}/api/v1/telephony/ws"
-            f"/{workflow_id}/{organization_id}/{workflow_run_id}"
+        stream_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
         )
 
         # Build the webhook URL for status callbacks
@@ -126,8 +127,12 @@ class TelnyxProvider(TelephonyProvider):
             "webhook_url_method": "POST",
         }
 
+        # Redacted: stream_url carries a bearer capability token.
         logger.info(
-            f"Telnyx dial payload: {json.dumps({k: v for k, v in payload.items() if k != 'connection_id'})}"
+            "Telnyx dial payload: "
+            + ws_auth.redact_token(
+                json.dumps({k: v for k, v in payload.items() if k != "connection_id"})
+            )
         )
 
         endpoint = f"{self.TELNYX_API_BASE}/calls"
@@ -649,6 +654,54 @@ class TelnyxProvider(TelephonyProvider):
             f"{self.connection_id} (triggered by address {address})"
         )
         return ProviderSyncResult(ok=True)
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify PSTN ownership through Telnyx's phone-number inventory."""
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            return ProviderSyncResult(ok=True)
+        if not self.api_key:
+            raise ProviderPhoneNumberLookupError(
+                "Telnyx API key is required to validate phone-number ownership"
+            )
+
+        endpoint = f"{self.TELNYX_API_BASE}/phone_numbers"
+        params = {
+            "filter[phone_number]": normalized.canonical,
+            "page[size]": 100,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    endpoint, params=params, headers=self._headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        raise ProviderPhoneNumberLookupError(
+                            f"Telnyx API {response.status}: {body}"
+                        )
+                    data = await response.json()
+        except ProviderPhoneNumberLookupError:
+            raise
+        except Exception as e:
+            raise ProviderPhoneNumberLookupError(
+                f"Telnyx phone-number lookup failed: {e}"
+            ) from e
+
+        owned = any(
+            item.get("phone_number") == normalized.canonical
+            for item in (data.get("data") or [])
+        )
+        if owned:
+            return ProviderSyncResult(ok=True)
+        return ProviderSyncResult(
+            ok=False,
+            message=(
+                f"Phone number {normalized.canonical} is not owned by this "
+                "Telnyx account. Add it in the Telnyx Mission Control "
+                "Portal first."
+            ),
+        )
 
     async def start_inbound_stream(
         self,

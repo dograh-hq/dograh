@@ -16,6 +16,7 @@ from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggr
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.posthog_client import capture_event
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
 from api.tasks.arq import enqueue_job
@@ -143,7 +144,9 @@ def register_event_handlers(
                     fetch_result = pre_call_fetch_task.result()
 
                 if fetch_result:
-                    engine._call_context_vars.update(fetch_result)
+                    engine._call_context_vars = merge_external_initial_context(
+                        engine._call_context_vars, fetch_result
+                    )
                     try:
                         await db_client.update_workflow_run(
                             workflow_run_id,

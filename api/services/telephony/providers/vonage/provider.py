@@ -13,13 +13,16 @@ from fastapi import HTTPException, Response
 from loguru import logger
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -212,6 +215,9 @@ class VonageProvider(TelephonyProvider):
         NCCO (Nexmo Call Control Objects) is JSON-based, unlike TwiML which is XML.
         """
         _, wss_backend_endpoint = await get_backend_endpoints()
+        ws_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
+        )
 
         # NCCO for WebSocket connection
         ncco = [
@@ -220,7 +226,7 @@ class VonageProvider(TelephonyProvider):
                 "endpoint": [
                     {
                         "type": "websocket",
-                        "uri": f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}",
+                        "uri": ws_url,
                         "content-type": "audio/l16;rate=16000",  # 16kHz Linear PCM
                         "headers": {},
                     }
@@ -676,6 +682,56 @@ class VonageProvider(TelephonyProvider):
             f"(triggered by address {address})"
         )
         return ProviderSyncResult(ok=True)
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify PSTN ownership through Vonage's owned-numbers endpoint."""
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            return ProviderSyncResult(ok=True)
+        if not (self.api_key and self.api_secret):
+            raise ProviderPhoneNumberLookupError(
+                "Vonage API key and secret are required to validate "
+                "phone-number ownership"
+            )
+
+        expected = normalized.canonical.lstrip("+")
+        endpoint = "https://rest.nexmo.com/account/numbers"
+        params = {
+            "pattern": expected,
+            "search_pattern": 0,
+            "size": 100,
+        }
+        auth = aiohttp.BasicAuth(self.api_key, self.api_secret)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(endpoint, params=params, auth=auth) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        raise ProviderPhoneNumberLookupError(
+                            f"Vonage API {response.status}: {body}"
+                        )
+                    data = await response.json()
+        except ProviderPhoneNumberLookupError:
+            raise
+        except Exception as e:
+            raise ProviderPhoneNumberLookupError(
+                f"Vonage phone-number lookup failed: {e}"
+            ) from e
+
+        owned = any(
+            str(item.get("msisdn") or item.get("number") or "").lstrip("+") == expected
+            for item in (data.get("numbers") or [])
+        )
+        if owned:
+            return ProviderSyncResult(ok=True)
+        return ProviderSyncResult(
+            ok=False,
+            message=(
+                f"Phone number {normalized.canonical} is not owned by this "
+                f"Vonage account ({self.api_key}). Add it in the Vonage "
+                "dashboard first."
+            ),
+        )
 
     async def start_inbound_stream(
         self,

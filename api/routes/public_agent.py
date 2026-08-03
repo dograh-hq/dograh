@@ -23,6 +23,7 @@ from api.services.telephony.factory import (
     get_default_telephony_provider,
     get_telephony_provider_by_id,
 )
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
@@ -247,7 +248,9 @@ async def _execute_resolved_target(
         initial_context["api_key_id"] = api_key_id
     if api_key_created_by is not None:
         initial_context["api_key_created_by"] = api_key_created_by
-    initial_context.update(request.initial_context or {})
+    initial_context = merge_external_initial_context(
+        initial_context, request.initial_context
+    )
     # The destination describes the actual call and must not be overridden by
     # caller-supplied context.
     initial_context["called_number"] = request.phone_number

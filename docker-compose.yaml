@@ -226,12 +226,22 @@ services:
       # LANGFUSE_HOST: ""
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
-      # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
+      # Uses time-limited credentials via TURN REST API (HMAC-SHA1).
+      ENABLE_COTURN: "${ENABLE_COTURN:-false}"
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
       FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret}"
+
+      # Telephony media WebSocket capability token. The carrier dials the media
+      # socket back, so its URL is caller-visible and the ids in it are otherwise
+      # guessable. Set a secret in .env to have providers sign that URL and the
+      # handler verify it; leave it unset and nothing changes. Roll out in two
+      # steps: set the secret first (invalid tokens are logged but allowed), then
+      # set ENFORCE=true once the logs stay clean.
+      TELEPHONY_WS_TOKEN_SECRET: "${TELEPHONY_WS_TOKEN_SECRET:-}"
+      TELEPHONY_WS_TOKEN_ENFORCE: "${TELEPHONY_WS_TOKEN_ENFORCE:-false}"
 
       # Telemetry
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"

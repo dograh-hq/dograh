@@ -53,6 +53,18 @@ class TestExtractInitialContext:
             "customer": {"address": {"city": "LA"}}
         }
 
+    def test_reserved_run_metadata_is_dropped(self):
+        response = {
+            "initial_context": {
+                "customer_name": "Jane",
+                "provider": "external-provider",
+                "runtime_configuration": {"llm_model": "external-model"},
+                "mps_correlation_id": "external-correlation-id",
+            }
+        }
+
+        assert _extract_initial_context(response) == {"customer_name": "Jane"}
+
     def test_empty_when_no_known_keys(self):
         """A response with neither key yields an empty dict."""
         assert _extract_initial_context({"call_inbound": {"agent_id": 1}}) == {}

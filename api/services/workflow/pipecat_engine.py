@@ -63,6 +63,7 @@ class PipecatEngine:
         task: Optional[PipelineWorker] = None,
         llm: Optional["LLMService"] = None,
         inference_llm: Optional["LLMService"] = None,
+        variable_extraction_llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
@@ -87,6 +88,9 @@ class PipecatEngine:
         # that does not implement run_inference, so a separate text LLM
         # must be passed in.
         self.inference_llm = inference_llm or llm
+        # Variable extraction can use a separately tagged managed-model client
+        # without rerouting normal conversation or context-summarization calls.
+        self.variable_extraction_llm = variable_extraction_llm or self.inference_llm
         self.context = context
         self.workflow = workflow
         self._call_context_vars = call_context_vars

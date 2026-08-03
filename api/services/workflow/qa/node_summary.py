@@ -10,7 +10,7 @@ from api.db.models import WorkflowRunModel
 from api.services.managed_model_services import get_mps_correlation_id
 from api.services.pipecat.service_factory import create_llm_service_from_provider
 from api.services.workflow.dto import NodeType, QANodeData
-from api.services.workflow.qa.llm_config import resolve_llm_config
+from api.services.workflow.qa.llm_config import QA_USAGE_CONTEXT, resolve_llm_config
 from api.services.workflow.qa.tracing import create_node_summary_trace
 
 NODE_SUMMARY_SYSTEM_PROMPT = (
@@ -83,7 +83,12 @@ async def ensure_node_summaries(
         getattr(workflow_run, "initial_context", None)
     )
     llm = create_llm_service_from_provider(
-        provider, model, api_key, correlation_id=mps_correlation_id, **service_kwargs
+        provider,
+        model,
+        api_key,
+        correlation_id=mps_correlation_id,
+        usage_context=QA_USAGE_CONTEXT,
+        **service_kwargs,
     )
 
     updated_summaries = dict(existing_summaries)

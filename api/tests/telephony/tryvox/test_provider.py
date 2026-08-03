@@ -386,6 +386,47 @@ async def test_inbound_stream_uses_tryvox_subprotocol_route():
     )
 
 
+@pytest.mark.asyncio
+async def test_inbound_stream_ignores_trailing_generic_capability_token():
+    """ws_auth.build_media_ws_url appends an opaque token segment after the
+    run ID when TELEPHONY_WS_TOKEN_SECRET is configured. TryVox mints its own
+    one-shot capability, so that segment must be dropped, not misparsed as
+    part of the id triple."""
+    provider = _provider()
+    with patch(
+        "api.services.telephony.providers.tryvox.provider."
+        "tryvox_security.issue_stream_token",
+        new_callable=AsyncMock,
+        return_value="stream-token",
+    ):
+        response = await provider.start_inbound_stream(
+            websocket_url=(
+                "wss://dograh.test/api/v1/telephony/ws/7/11/13/"
+                "deadbeefcafef00d"
+            ),
+            workflow_run_id=13,
+            normalized_data=SimpleNamespace(),
+            backend_endpoint="https://dograh.test",
+        )
+
+    payload = json.loads(response.body)
+    assert payload["instructions"][0]["url"] == (
+        "wss://dograh.test/api/v1/telephony/tryvox/ws/7/11/13?token=stream-token"
+    )
+
+
+@pytest.mark.asyncio
+async def test_inbound_stream_rejects_url_missing_run_id():
+    provider = _provider()
+    with pytest.raises(ValueError, match="Invalid TryVox media WebSocket URL"):
+        await provider.start_inbound_stream(
+            websocket_url="wss://dograh.test/api/v1/telephony/ws/7/11",
+            workflow_run_id=13,
+            normalized_data=SimpleNamespace(),
+            backend_endpoint="https://dograh.test",
+        )
+
+
 def test_parse_inbound_and_status_payloads():
     provider = _provider()
     inbound = provider.parse_inbound_webhook(

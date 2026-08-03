@@ -460,7 +460,9 @@ export function HttpToolTestDialog({
                                                     .map((key) => {
                                                         const llmVal = llmParamValues[key];
                                                         const preVal = presetParamValues[key];
-                                                        return `${key}=${llmVal !== undefined ? llmVal : preVal}`;
+                                                        const val = preVal !== undefined ? preVal : llmVal;
+                                                        const displayVal = typeof val === 'object' && val !== null ? JSON.stringify(val) : val;
+                                                        return `${key}=${displayVal}`;
                                                     })
                                                     .join("  ")}
                                             </pre>

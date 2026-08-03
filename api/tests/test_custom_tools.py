@@ -2297,13 +2297,41 @@ class TestUrlPathParameters:
 
     def test_object_param_in_url_raises(self):
         import pytest
-        with pytest.raises(ValueError, match="Object parameters cannot be used"):
+        with pytest.raises(
+            ValueError, match="Object parameters cannot be used"
+        ):
             render_url_template(
                 "https://api.com/users/{{user}}",
-                {"user": {"id": 1}},
+                {"user": {"id": "123"}},
                 None,
                 None,
                 {"user": "object"},
+            )
+
+    def test_host_injection_raises(self):
+        import pytest
+        with pytest.raises(
+            ValueError, match="URL placeholders cannot alter the scheme or host"
+        ):
+            render_url_template(
+                "https://{{host}}/v1/data",
+                {"host": "evil.com"},
+                None,
+                None,
+                {"host": "string"},
+            )
+
+    def test_malformed_placeholder_syntax_raises(self):
+        import pytest
+        with pytest.raises(
+            ValueError, match="invalid placeholder syntax"
+        ):
+            render_url_template(
+                "https://api.com/users/{{userId|}}",
+                {"userId": "123"},
+                None,
+                None,
+                {"userId": "string"},
             )
 
     def test_path_traversal_slash_is_encoded(self):

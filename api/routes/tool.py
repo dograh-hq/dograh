@@ -275,7 +275,7 @@ async def test_tool(
         duration_ms=duration_ms,
         hint=hint,
         request_method=configured_method,
-        request_url=result.get("rendered_url", configured_url),
+        request_url=result.get("rendered_url") or configured_url,
         request_headers=result.get("request_headers", {}),
         request_body=request_body,
         request_params=request_params,

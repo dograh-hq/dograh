@@ -79,9 +79,15 @@ export function HttpApiToolConfig({
     const systemPrefixes = ["initial_context", "gathered_context", "current_time", "current_weekday"];
 
     // Extract path params from URL
-    const urlMatches = url.match(/\{\{\s*([a-zA-Z0-9_.-]+)\s*(?:\|[^}]+)?\}\}/g) || [];
+    const urlMatches = url.match(/\{\{\s*([^|}\s]+)\s*(?:\|[^}]+)?\}\}/g) || [];
     const urlParams = urlMatches.map(m => m.replace(/[{}]/g, '').split('|')[0].trim());
-    const customUrlParams = Array.from(new Set(urlParams.filter(p => !systemPrefixes.some(prefix => p.startsWith(prefix)))));
+    const customUrlParams = Array.from(new Set(urlParams.filter(p =>
+        !systemPrefixes.some(prefix =>
+            p.startsWith(`${prefix}.`) ||
+            ((prefix === "current_time" || prefix === "current_weekday") &&
+                (p === prefix || p.startsWith(`${prefix}_`)))
+        )
+    )));
 
     const declaredParamNames = new Set([
         ...parameters.map(p => p.name),

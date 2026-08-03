@@ -1147,7 +1147,7 @@ class TestRenderBodyTemplate:
         res = render_body_template(
             tpl,
             {"user_id": "123"},
-            [ToolParameter(name="user_id", type="string", description="x")],
+            [{"name": "user_id", "type": "string", "description": "x"}],
         )
         assert res == {
             "static_literal": "See placeholder syntax: }}",

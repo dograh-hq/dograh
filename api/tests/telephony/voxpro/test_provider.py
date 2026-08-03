@@ -284,3 +284,21 @@ async def test_transfer_result_route_is_idempotent():
 
     assert res["status"] == "duplicate"
     assert mgr.published == []
+
+
+def test_generate_validation_error_response_exists_and_returns_400():
+    """The shared /inbound/run dispatcher calls this on the provider *class*.
+
+    Regression: it was missing, so a misconfigured DID raised AttributeError inside
+    the dispatcher and the caller got a bare hangup instead of the real reason.
+    """
+    from api.errors.telephony_errors import TelephonyError
+    from api.services.telephony.providers.voxpro.provider import VoxProProvider
+
+    resp = VoxProProvider.generate_validation_error_response(
+        TelephonyError.PHONE_NUMBER_NOT_CONFIGURED
+    )
+    assert resp.status_code == 400
+    body = json.loads(resp.body)
+    assert body["success"] is False
+    assert str(TelephonyError.PHONE_NUMBER_NOT_CONFIGURED) in body["error"]

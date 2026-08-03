@@ -292,6 +292,26 @@ class VoxProProvider(TelephonyProvider):
         )
 
     @staticmethod
+    def generate_validation_error_response(error_type) -> tuple:
+        """Error body for inbound validation failures (unknown DID, no workflow).
+
+        The shared /inbound/run dispatcher calls this on every provider, so it must
+        exist here too — without it the dispatcher raises AttributeError and falls
+        through to a bare hangup, hiding the real misconfiguration from the caller.
+        """
+        from fastapi.responses import JSONResponse
+
+        from api.errors.telephony_errors import TELEPHONY_ERROR_MESSAGES, TelephonyError
+
+        message = TELEPHONY_ERROR_MESSAGES.get(
+            error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED]
+        )
+        return JSONResponse(
+            {"success": False, "error": str(error_type), "message": message},
+            status_code=400,
+        )
+
+    @staticmethod
     def generate_error_response(error_type: str, message: str) -> tuple:
         from fastapi.responses import JSONResponse
 

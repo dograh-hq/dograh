@@ -70,7 +70,7 @@ async def handle_tryvox_websocket(
                         token,
                     )
                 )
-            except Exception:
+            except BaseException:
                 restored = False
                 logger.exception(
                     f"[run {workflow_run_id}] Failed to roll back consumed "
@@ -89,7 +89,7 @@ async def handle_tryvox_websocket(
                             is_completed=True,
                         )
                     )
-                except Exception:
+                except BaseException:
                     logger.exception(
                         f"[run {workflow_run_id}] Failed to mark run completed "
                         "after unrecoverable TryVox stream capability commit "

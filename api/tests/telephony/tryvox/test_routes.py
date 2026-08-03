@@ -400,6 +400,58 @@ async def test_websocket_run_state_failure_restores_consumed_capability():
 
 
 @pytest.mark.asyncio
+async def test_websocket_run_state_failure_marks_run_completed_when_rollback_fails():
+    """If the RUNNING-state update fails *and* the rollback can't restore the
+    consumed capability, there is no retry-safe state left: the run must be
+    moved to a terminal state instead of sitting "initialized" forever with
+    a permanently consumed, unusable stream capability."""
+    websocket = AsyncMock()
+    websocket.query_params = {"token": "stream-token"}
+
+    async def fail_run_update(*args, **kwargs):
+        await kwargs["on_provider_ready"]()
+
+    with (
+        patch(
+            "api.routes.telephony._handle_telephony_websocket",
+            new_callable=AsyncMock,
+            side_effect=fail_run_update,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.reserve_stream_token",
+            new_callable=AsyncMock,
+            return_value="reservation",
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.consume_stream_token",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.rollback_consumed_stream_token",
+            new_callable=AsyncMock,
+            return_value=False,
+        ) as rollback,
+        patch(
+            f"{ROUTES_MODULE}.tryvox_security.release_stream_token",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(f"{ROUTES_MODULE}.db_client") as route_db,
+    ):
+        route_db.update_workflow_run = AsyncMock(side_effect=RuntimeError("DB failed"))
+        with pytest.raises(RuntimeError, match="DB failed"):
+            await handle_tryvox_websocket(websocket, 7, 11, 13)
+
+    rollback.assert_awaited_once_with(7, 11, 13, "reservation", "stream-token")
+    assert route_db.update_workflow_run.await_args_list[-1] == call(
+        run_id=13,
+        state=WorkflowRunState.COMPLETED.value,
+        is_completed=True,
+    )
+
+
+@pytest.mark.asyncio
 async def test_websocket_run_state_cancellation_restores_consumed_capability():
     websocket = AsyncMock()
     websocket.query_params = {"token": "stream-token"}

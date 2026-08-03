@@ -296,6 +296,57 @@ async def test_initiate_call_prefers_callback_compatible_call_uuid():
 
 
 @pytest.mark.asyncio
+async def test_initiate_call_does_not_persist_request_uuid_as_call_id():
+    """When the REST response omits `call_uuid`/`CallUUID`, `request_uuid`
+    may still differ from what Answer/status callbacks send. Persisting it
+    into gathered_context would let `_assert_call_matches` permanently
+    reject the real callback (it only lets the *first* callback claim an
+    unset call ID). So provider_metadata must stay empty in that case and
+    let the first verified callback claim the call ID."""
+    provider = _provider()
+    session = _Session(
+        _Response(
+            201,
+            {"data": {"request_uuid": "request-123", "status": "queued"}},
+        )
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.tryvox.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://dograh.test", "wss://dograh.test"),
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.issue_call_correlation",
+            new_callable=AsyncMock,
+            return_value="callback-token",
+        ),
+        patch(
+            "api.services.telephony.providers.tryvox.provider."
+            "tryvox_security.activate_call_correlation",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+    ):
+        result = await provider.initiate_call(
+            "+15551230002",
+            "https://dograh.test/api/v1/telephony/tryvox/answer?workflow_run_id=9",
+            workflow_run_id=9,
+        )
+
+    # call_id is still reported for status/logging purposes...
+    assert result.call_id == "request-123"
+    # ...but not persisted, so it can't block the real callback's claim.
+    assert result.provider_metadata == {}
+
+
+@pytest.mark.asyncio
 async def test_verify_inbound_signature_accepts_exact_raw_body():
     provider = _provider()
     body = '{"call_uuid":"call-123","account_id":"TJaccount"}'

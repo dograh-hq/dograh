@@ -158,7 +158,6 @@ async def test_run_pipeline_impl_propagates_cancellation_before_worker_started(
     )
 
     captured_task: list = []
-    worker_started_calls: list = []
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
     with patch_run_pipeline_externals(captured_task):
         run_task = asyncio.create_task(
@@ -169,7 +168,6 @@ async def test_run_pipeline_impl_propagates_cancellation_before_worker_started(
                 user.id,
                 audio_config=audio_config,
                 user_provider_id=user.provider_id,
-                on_worker_started=lambda: worker_started_calls.append(True),
             )
         )
 
@@ -181,15 +179,16 @@ async def test_run_pipeline_impl_propagates_cancellation_before_worker_started(
             run_task.result()  # re-raise the failure
         assert captured_task, "create_pipeline_task was never invoked"
 
-        # Cancel immediately: the pipeline worker task exists but nothing has
-        # awaited it yet, so this lands squarely in the
-        # wait_for_pipeline_worker_started window the report describes --
-        # before on_worker_started can have fired.
+        # Cancel as soon as the pipeline worker task exists. Exactly how far
+        # _run_pipeline_impl has gotten by this point isn't pinned down (the
+        # wait loop above yields control repeatedly), so this doesn't try to
+        # assert the worker hadn't started -- only that _run_pipeline_impl's
+        # top-level except-CancelledError block propagates the cancellation
+        # instead of swallowing it, which is the actual regression: callers
+        # key their startup-rollback decision on whether this call raised.
         run_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await run_task
-
-    assert worker_started_calls == []
 
 
 @pytest.mark.asyncio

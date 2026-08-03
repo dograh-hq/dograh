@@ -6,6 +6,8 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 import httpx
+from loguru import logger
+
 from api.db import db_client
 from api.services.configuration.masking import mask_key
 from api.services.workflow.workflow_graph import TEMPLATE_VAR_PATTERN
@@ -16,7 +18,6 @@ from api.utils.template_renderer import (
     get_nested_value,
     render_template,
 )
-from loguru import logger
 
 # Map tool parameter types to JSON schema types
 TYPE_MAP = {
@@ -242,7 +243,6 @@ def _resolve_preset_parameters(
     return resolved
 
 
-
 def render_url_template(
     url: str,
     resolved_arguments: dict[str, Any],
@@ -339,15 +339,20 @@ def render_url_template(
         return quote(val, safe="")
 
     rendered_url = re.sub(TEMPLATE_VAR_PATTERN, _replace, url)
-    
+
     if "{{" in rendered_url or "}}" in rendered_url:
         raise ValueError("Malformed URL template: invalid placeholder syntax.")
-        
+
     original_parsed = urlparse(url)
     rendered_parsed = urlparse(rendered_url)
-    if original_parsed.scheme != rendered_parsed.scheme or original_parsed.netloc != rendered_parsed.netloc:
-        raise ValueError("URL placeholders cannot alter the scheme or host of the configured endpoint.")
-        
+    if (
+        original_parsed.scheme != rendered_parsed.scheme
+        or original_parsed.netloc != rendered_parsed.netloc
+    ):
+        raise ValueError(
+            "URL placeholders cannot alter the scheme or host of the configured endpoint."
+        )
+
     return rendered_url, consumed_params
 
 

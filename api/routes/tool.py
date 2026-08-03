@@ -229,7 +229,7 @@ async def test_tool(
     tool_config = (
         tool.definition.get("config", {}) if isinstance(tool.definition, dict) else {}
     )
-    configured_method = tool_config.get("method", "?")
+    configured_method = tool_config.get("method", "?").upper()
     configured_url = tool_config.get("url", "?")
 
     started_at = time.perf_counter()

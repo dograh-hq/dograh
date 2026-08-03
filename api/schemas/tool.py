@@ -444,7 +444,11 @@ class McpToolDefinition(BaseModel):
 
 
 ToolDefinition = Annotated[
-    HttpApiToolDefinition | EndCallToolDefinition | TransferCallToolDefinition | CalculatorToolDefinition | McpToolDefinition,
+    HttpApiToolDefinition
+    | EndCallToolDefinition
+    | TransferCallToolDefinition
+    | CalculatorToolDefinition
+    | McpToolDefinition,
     Field(discriminator="type"),
 ]
 

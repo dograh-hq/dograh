@@ -28,7 +28,6 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat.tests import MockLLMService, run_test
 
 from api.enums import WorkflowRunMode
 from api.services.configuration.masking import mask_key
@@ -39,6 +38,7 @@ from api.services.workflow.tools.custom_tool import (
     render_url_template,
     tool_to_function_schema,
 )
+from pipecat.tests import MockLLMService, run_test
 
 
 @dataclass
@@ -2244,6 +2244,7 @@ class TestUrlPathParameters:
 
     def test_unresolved_required_placeholder_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="has no value"):
             render_url_template(
                 "https://api.com/users/{{userId}}", {}, None, None, {"userId": "string"}
@@ -2251,6 +2252,7 @@ class TestUrlPathParameters:
 
     def test_empty_value_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="resolved to an empty string"):
             render_url_template(
                 "https://api.com/users/{{userId}}",
@@ -2262,6 +2264,7 @@ class TestUrlPathParameters:
 
     def test_undeclared_placeholder_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="is not a configured parameter"):
             render_url_template(
                 "https://api.com/users/{{typo}}", {"typo": "123"}, None, None, {}
@@ -2269,16 +2272,19 @@ class TestUrlPathParameters:
 
     def test_malformed_open_brace_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="unmatched '{{'"):
             render_url_template("https://api.com/users/{{userId", {}, None, None, {})
 
     def test_malformed_close_brace_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="unmatched '}}'"):
             render_url_template("https://api.com/users/userId}}", {}, None, None, {})
 
     def test_nested_brace_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="nested '{{'"):
             render_url_template(
                 "https://api.com/users/{{{{userId}}}}", {}, None, None, {}
@@ -2286,6 +2292,7 @@ class TestUrlPathParameters:
 
     def test_array_param_in_url_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="Array parameters cannot be used"):
             render_url_template(
                 "https://api.com/users/{{ids}}",
@@ -2297,9 +2304,8 @@ class TestUrlPathParameters:
 
     def test_object_param_in_url_raises(self):
         import pytest
-        with pytest.raises(
-            ValueError, match="Object parameters cannot be used"
-        ):
+
+        with pytest.raises(ValueError, match="Object parameters cannot be used"):
             render_url_template(
                 "https://api.com/users/{{user}}",
                 {"user": {"id": "123"}},
@@ -2310,6 +2316,7 @@ class TestUrlPathParameters:
 
     def test_host_injection_raises(self):
         import pytest
+
         with pytest.raises(
             ValueError, match="URL placeholders cannot alter the scheme or host"
         ):
@@ -2323,9 +2330,8 @@ class TestUrlPathParameters:
 
     def test_malformed_placeholder_syntax_raises(self):
         import pytest
-        with pytest.raises(
-            ValueError, match="invalid placeholder syntax"
-        ):
+
+        with pytest.raises(ValueError, match="invalid placeholder syntax"):
             render_url_template(
                 "https://api.com/users/{{userId|}}",
                 {"userId": "123"},
@@ -2405,9 +2411,11 @@ class TestUrlPathParameters:
         assert url == "https://api.com/users/test%40example.com"
 
     import pytest
+
     @pytest.mark.asyncio
     async def test_get_with_path_param_no_duplicate_query_param(self):
         from unittest.mock import patch
+
         tool = MockToolModel(
             tool_uuid="uuid",
             name="Get User",
@@ -2440,6 +2448,7 @@ class TestUrlPathParameters:
     @pytest.mark.asyncio
     async def test_put_cancel_url_with_path_param_no_body(self):
         from unittest.mock import patch
+
         tool = MockToolModel(
             tool_uuid="uuid",
             name="Cancel",
@@ -2471,6 +2480,7 @@ class TestUrlPathParameters:
     @pytest.mark.asyncio
     async def test_rendered_url_in_test_mode_result(self):
         from unittest.mock import patch
+
         tool = MockToolModel(
             tool_uuid="uuid",
             name="Cancel",
@@ -2501,6 +2511,7 @@ class TestUrlPathParameters:
     @pytest.mark.asyncio
     async def test_consumed_path_params_absent_in_live_mode(self):
         from unittest.mock import patch
+
         tool = MockToolModel(
             tool_uuid="uuid",
             name="Cancel",
@@ -2540,6 +2551,7 @@ class TestUrlPathParameters:
     @pytest.mark.asyncio
     async def test_delete_with_path_param(self):
         from unittest.mock import patch
+
         tool = MockToolModel(
             tool_uuid="uuid",
             name="Delete User",
@@ -2571,6 +2583,7 @@ class TestUrlPathParameters:
     @pytest.mark.asyncio
     async def test_consumed_path_params_in_test_mode_result(self):
         from unittest.mock import patch
+
         tool = MockToolModel(
             tool_uuid="uuid",
             name="Get User",

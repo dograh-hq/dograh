@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -19,7 +19,7 @@ from api.errors.failure import (
 )
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
-from api.utils.template_renderer import render_template
+from api.utils.template_renderer import render_template, render_url_template
 
 # Map tool parameter types to JSON schema types
 TYPE_MAP = {
@@ -37,7 +37,7 @@ def custom_tool_function_name(name: str) -> str:
     return re.sub(r"_+", "_", function_name).strip("_")
 
 
-def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def serialize_query_params(arguments: dict[str, Any]) -> dict[str, Any]:
     """JSON-stringify dict/list values so they're safe to pass as query params.
 
     httpx (and query strings in general) only support primitive param values.
@@ -50,7 +50,7 @@ def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
+def tool_to_function_schema(tool: Any) -> dict[str, Any]:
     """Convert a ToolModel to an LLM function schema.
 
     Args:
@@ -207,10 +207,10 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
 
 
 def _resolve_preset_parameters(
-    config: Dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]],
-    gathered_context_vars: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    config: dict[str, Any],
+    call_context_vars: dict[str, Any] | None,
+    gathered_context_vars: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Resolve fixed/template-backed parameters before executing the HTTP request."""
 
     preset_parameters = config.get("preset_parameters", []) or []
@@ -218,13 +218,15 @@ def _resolve_preset_parameters(
         return {}
 
     initial_context = dict(call_context_vars or {})
-    render_context: Dict[str, Any] = {
+    gathered_context = dict(gathered_context_vars or {})
+    render_context: dict[str, Any] = {
         **initial_context,
+        **gathered_context,
         "initial_context": initial_context,
-        "gathered_context": dict(gathered_context_vars or {}),
+        "gathered_context": gathered_context,
     }
 
-    resolved: Dict[str, Any] = {}
+    resolved: dict[str, Any] = {}
     for param in preset_parameters:
         param_name = (param.get("name") or "").strip()
         if not param_name:
@@ -247,13 +249,13 @@ def _resolve_preset_parameters(
 
 async def execute_http_tool(
     tool: Any,
-    arguments: Dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]] = None,
-    gathered_context_vars: Optional[Dict[str, Any]] = None,
-    preset_params: Optional[Dict[str, Any]] = None,
-    organization_id: Optional[int] = None,
+    arguments: dict[str, Any],
+    call_context_vars: dict[str, Any] | None = None,
+    gathered_context_vars: dict[str, Any] | None = None,
+    preset_params: dict[str, Any] | None = None,
+    organization_id: int | None = None,
     include_request_headers: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute an HTTP API tool.
 
     Args:
@@ -282,7 +284,7 @@ async def execute_http_tool(
 
     # Add auth header if credential is configured. Keep track of which headers
     # came from the credential so only those values are masked in test previews.
-    credential_headers: Dict[str, str] = {}
+    credential_headers: dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
     if credential_uuid and organization_id:
         try:
@@ -320,15 +322,21 @@ async def execute_http_tool(
                 tool_name=tool.name,
             )
 
-    request_headers: Dict[str, str] = {}
+    request_headers: dict[str, str] = {}
     if include_request_headers:
         request_headers = {str(name): str(value) for name, value in headers.items()}
         for header_name, header_value in credential_headers.items():
             request_headers[header_name] = mask_key(str(header_value))
 
-    def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    _rendered_url: str | None = None
+
+    def build_result(result: dict[str, Any]) -> dict[str, Any]:
         if include_request_headers:
-            return {**result, "request_headers": request_headers}
+            return {
+                **result,
+                "request_headers": request_headers,
+                "rendered_url": _rendered_url,
+            }
         return result
 
     # Get timeout
@@ -359,15 +367,44 @@ async def execute_http_tool(
     else:
         preset_arguments = dict(preset_params)
 
-    resolved_arguments = {**(arguments or {}), **preset_arguments}
+    llm_arguments = dict(arguments or {})
+    resolved_arguments = {**preset_arguments, **llm_arguments}
+
+    initial_context = dict(call_context_vars or {})
+    gathered_context = dict(gathered_context_vars or {})
+    # Unprefixed URL variables follow LLM > gathered > initial precedence.
+    # Preset aliases are context-derived fallbacks; explicit namespaces keep
+    # the original context maps available regardless of name collisions.
+    url_render_context: dict[str, Any] = {
+        **preset_arguments,
+        **initial_context,
+        **gathered_context,
+        **llm_arguments,
+        "initial_context": initial_context,
+        "gathered_context": gathered_context,
+    }
+
+    try:
+        url = render_url_template(
+            url=url,
+            context=url_render_context,
+        )
+        _rendered_url = url
+
+        request_arguments = resolved_arguments
+    except ValueError as e:
+        logger.error(f"Custom tool '{tool.name}' URL template render failed: {e}")
+        return build_result(
+            {"status": "error", "error": f"URL template rendering failed: {e!s}"}
+        )
 
     # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
     params = None
     if method in ("POST", "PUT", "PATCH"):
-        body = resolved_arguments
-    elif method in ("GET", "DELETE") and resolved_arguments:
-        params = serialize_query_params(resolved_arguments)
+        body = request_arguments
+    elif method in ("GET", "DELETE") and request_arguments:
+        params = serialize_query_params(request_arguments)
 
     logger.info(
         f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): "
@@ -450,7 +487,7 @@ async def execute_http_tool(
         return build_result(
             {
                 "status": "error",
-                "error": f"Request failed: {str(e)}",
+                "error": f"Request failed: {e!s}",
             }
         )
     except Exception as e:
@@ -467,6 +504,6 @@ async def execute_http_tool(
         return build_result(
             {
                 "status": "error",
-                "error": f"Tool execution failed: {str(e)}",
+                "error": f"Tool execution failed: {e!s}",
             }
         )

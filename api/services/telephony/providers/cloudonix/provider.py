@@ -184,21 +184,7 @@ class CloudonixProvider(TelephonyProvider):
                 response_text = await response.text()
                 response_status = response.status
 
-                # Log response
-                logger.info(
-                    f"[Cloudonix] API Response:\n"
-                    f"  HTTP Status: {response_status}\n"
-                    f"  Response Body: {response_text}"
-                )
-
                 if response_status != 200:
-                    logger.error(
-                        f"[Cloudonix] Call initiation FAILED:\n"
-                        f"  HTTP Status: {response_status}\n"
-                        f"  Error Details: {response_text}\n"
-                        f"  Request: POST {endpoint}\n"
-                        f"  Payload: {json.dumps(data, indent=2)}"
-                    )
                     raise HTTPException(
                         status_code=response_status,
                         detail=f"Failed to initiate call via Cloudonix (HTTP {response_status}): {response_text}",
@@ -212,10 +198,6 @@ class CloudonixProvider(TelephonyProvider):
                 subscriber_id = response_data.get("subscriberId")
 
                 if not session_token:
-                    logger.error(
-                        f"[Cloudonix] Missing session token in response:\n"
-                        f"  Response: {json.dumps(response_data, indent=2)}"
-                    )
                     raise Exception("No session token returned from Cloudonix")
 
                 logger.info(

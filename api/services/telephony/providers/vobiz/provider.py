@@ -127,7 +127,6 @@ class VobizProvider(TelephonyProvider):
             async with session.post(endpoint, json=data, headers=headers) as response:
                 if response.status != 201:
                     error_data = await response.text()
-                    logger.error(f"Vobiz API error: {error_data}")
                     raise HTTPException(
                         status_code=response.status,
                         detail=f"Failed to initiate Vobiz call: {error_data}",
@@ -145,9 +144,6 @@ class VobizProvider(TelephonyProvider):
                 )
 
                 if not call_id:
-                    logger.error(
-                        f"No call ID found in Vobiz response. Available keys: {list(response_data.keys())}"
-                    )
                     raise HTTPException(
                         status_code=response.status,
                         detail=f"Vobiz API response missing call identifier. Response: {response_data}"

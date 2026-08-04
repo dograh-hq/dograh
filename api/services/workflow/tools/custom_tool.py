@@ -8,6 +8,15 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    classify_http_response,
+    log_failure,
+    redact_failure_message,
+)
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
@@ -285,11 +294,31 @@ async def execute_http_tool(
                 headers.update(credential_headers)
                 logger.debug(f"Applied credential '{credential.name}' to tool request")
             else:
-                logger.warning(
-                    f"Credential {credential_uuid} not found for tool '{tool.name}'"
+                log_failure(
+                    DograhFailure(
+                        source=ErrorSource.TOOL,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="custom-http-credential-not-found",
+                        internal_message=f"Credential not found for custom tool '{tool.name}'",
+                        external_message="The credential configured for this tool no longer exists.",
+                        provider="custom-http",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    organization_id=organization_id,
+                    tool_name=tool.name,
                 )
         except Exception as e:
-            logger.error(f"Failed to fetch credential for tool '{tool.name}': {e}")
+            log_failure(
+                classify_exception(
+                    e,
+                    source=ErrorSource.TOOL,
+                    provider="custom-http",
+                    error_owner="user",
+                ),
+                organization_id=organization_id,
+                tool_name=tool.name,
+            )
 
     request_headers: Dict[str, str] = {}
     if include_request_headers:
@@ -312,7 +341,20 @@ async def execute_http_tool(
                 config, call_context_vars, gathered_context_vars
             )
         except ValueError as e:
-            logger.error(f"Custom tool '{tool.name}' preset parameter error: {e}")
+            log_failure(
+                DograhFailure(
+                    source=ErrorSource.TOOL,
+                    type=ErrorType.CONFIG_ERROR,
+                    code="custom-http-invalid-preset",
+                    internal_message=f"Custom tool '{tool.name}' preset parameter error: {e}",
+                    external_message="A configured tool parameter could not be resolved.",
+                    provider="custom-http",
+                    error_owner="user",
+                    retryable=False,
+                ),
+                organization_id=organization_id,
+                tool_name=tool.name,
+            )
             return build_result({"status": "error", "error": str(e)})
     else:
         preset_arguments = dict(preset_params)
@@ -328,7 +370,8 @@ async def execute_http_tool(
         params = serialize_query_params(resolved_arguments)
 
     logger.info(
-        f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): {method} {url}"
+        f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): "
+        f"{method} {redact_failure_message(url)}"
     )
     if preset_arguments:
         logger.debug(
@@ -361,10 +404,32 @@ async def execute_http_tool(
             logger.debug(
                 f"Custom tool '{tool.name}' completed with status {response.status_code}"
             )
+            if response.status_code >= 400:
+                log_failure(
+                    classify_http_response(
+                        response.status_code,
+                        f"Custom tool '{tool.name}' returned HTTP "
+                        f"{response.status_code}: {response.text[:200]}",
+                        source=ErrorSource.TOOL,
+                        provider="custom-http",
+                        error_owner="user",
+                    ),
+                    organization_id=organization_id,
+                    tool_name=tool.name,
+                )
             return build_result(result)
 
-    except httpx.TimeoutException:
-        logger.error(f"Custom tool '{tool.name}' timed out after {timeout_seconds}s")
+    except httpx.TimeoutException as e:
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",
@@ -372,7 +437,16 @@ async def execute_http_tool(
             }
         )
     except httpx.RequestError as e:
-        logger.error(f"Custom tool '{tool.name}' request failed: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",
@@ -380,7 +454,16 @@ async def execute_http_tool(
             }
         )
     except Exception as e:
-        logger.error(f"Custom tool '{tool.name}' execution failed: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",

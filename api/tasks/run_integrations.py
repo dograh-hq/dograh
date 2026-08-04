@@ -13,6 +13,13 @@ from api.constants import BACKEND_API_ENDPOINT, DEFAULT_WEBHOOK_DELIVERY_CONFIG
 from api.db import db_client
 from api.db.models import WorkflowRunModel
 from api.enums import OrganizationConfigurationKey
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    log_failure,
+)
 from api.services.integrations import (
     IntegrationCompletionContext,
     has_completion_handlers,
@@ -308,8 +315,20 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
             try:
                 webhook_node = WebhookRFNode.model_validate(node)
             except ValidationError as e:
-                logger.warning(
-                    f"Webhook node #{node_id} failed validation, skipping: {e}"
+                log_failure(
+                    DograhFailure(
+                        source=ErrorSource.WEBHOOK,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="webhook-invalid-config",
+                        internal_message=f"Webhook node #{node_id} failed validation: {e}",
+                        external_message="Check the webhook node configuration.",
+                        provider="webhook",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    organization_id=organization_id,
+                    workflow_run_id=workflow_run_id,
+                    node_id=str(node_id),
                 )
                 continue
 
@@ -323,10 +342,23 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                     webhook_node_id=str(node_id),
                 )
             except Exception as e:
-                logger.warning(f"Failed to enqueue webhook '{webhook_data.name}': {e}")
+                log_failure(
+                    classify_exception(
+                        e,
+                        source=ErrorSource.WEBHOOK,
+                        provider="webhook",
+                        error_owner="user",
+                    ),
+                    organization_id=organization_id,
+                    workflow_run_id=workflow_run_id,
+                    node_id=str(node_id),
+                )
 
     except Exception as e:
-        logger.error(f"Error running integrations: {e}", exc_info=True)
+        log_failure(
+            classify_exception(e, source=ErrorSource.INTEGRATION),
+            workflow_run_id=workflow_run_id,
+        )
         raise
 
 

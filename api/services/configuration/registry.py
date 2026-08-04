@@ -1,4 +1,5 @@
 import random
+from collections.abc import Iterable
 from enum import Enum, auto
 from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 
@@ -188,6 +189,50 @@ REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
 }
 
 T = TypeVar("T", bound=BaseServiceConfiguration)
+
+
+def registered_provider_names(
+    service_types: Iterable[ServiceType] | None = None,
+) -> tuple[str, ...]:
+    """Return canonical provider IDs from the live configuration registry."""
+
+    selected_types = (
+        tuple(service_types) if service_types is not None else tuple(REGISTRY)
+    )
+    providers = {
+        str(getattr(provider, "value", provider))
+        for service_type in selected_types
+        for provider in REGISTRY.get(service_type, {})
+    }
+    return tuple(sorted(provider for provider in providers if provider))
+
+
+def match_registered_provider(
+    candidate: str,
+    *,
+    service_types: Iterable[ServiceType] | None = None,
+) -> str | None:
+    """Find a registered provider ID embedded in a runtime class/name hint.
+
+    Separators and case are ignored, and the most specific (longest) provider
+    ID wins. This keeps best-effort runtime discovery tied to registrations
+    instead of maintaining another provider catalog at each consumer.
+    """
+
+    compact_candidate = "".join(
+        character for character in candidate.casefold() if character.isalnum()
+    )
+    matches: list[tuple[int, str]] = []
+    for provider in registered_provider_names(service_types):
+        compact_provider = "".join(
+            character for character in provider.casefold() if character.isalnum()
+        )
+        if compact_provider and compact_provider in compact_candidate:
+            matches.append((len(compact_provider), provider))
+
+    if not matches:
+        return None
+    return max(matches, key=lambda match: (match[0], match[1]))[1]
 
 
 def register_service(service_type: ServiceType):

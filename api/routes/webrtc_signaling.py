@@ -61,7 +61,25 @@ class NonRelayFilterPolicy(Enum):
 
     NONE = "none"  # filter nothing — pass all candidates
     PRIVATE = "private"  # filter non-relay candidates with private/CGNAT IPs
+    PUBLIC = "public"  # filter non-relay candidates that are NOT private/CGNAT
     ALL = "all"  # filter all non-relay candidates (relay-only mode)
+
+
+def is_cgnat_ip(ip_str: str) -> bool:
+    """Return True for CGNAT addresses (100.64.0.0/10) specifically — the
+    range Tailscale and similar overlay networks use. Distinct from the
+    broader is_local_or_cgnat_ip(): a CGNAT-addressed server (e.g. Tailscale-
+    only, no public IP) commonly has no route to the public internet at all,
+    whereas a plain RFC1918 LAN server usually still has normal NAT'd
+    internet access — the two need different inbound-candidate handling.
+    """
+
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+
+    return ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10")
 
 
 def is_local_or_cgnat_ip(ip_str: str) -> bool:
@@ -72,8 +90,7 @@ def is_local_or_cgnat_ip(ip_str: str) -> bool:
     except ValueError:
         return False
 
-    is_cgnat = ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10")
-    return ip.is_private or ip.is_loopback or ip.is_link_local or is_cgnat
+    return ip.is_private or ip.is_loopback or ip.is_link_local or is_cgnat_ip(ip_str)
 
 
 def resolve_ice_filter_policies(
@@ -91,11 +108,25 @@ def resolve_ice_filter_policies(
         # Relay-only diagnostics stay explicit. On private LAN deployments we
         # must still accept inbound private candidates for relay<->host pairs.
         outbound_policy = NonRelayFilterPolicy.ALL
-        inbound_policy = (
-            NonRelayFilterPolicy.NONE
-            if private_lan_deployment
-            else NonRelayFilterPolicy.PRIVATE
-        )
+        if private_lan_deployment:
+            # A CGNAT-addressed server (e.g. Tailscale-only, no public IP)
+            # commonly has no route to the public internet at all, so a
+            # genuinely public inbound candidate can never be reachable once
+            # we've committed to relay-only — e.g. a client-side STUN entry
+            # leaking a server-reflexive public-IP candidate despite
+            # iceTransportPolicy: 'relay'. Drop those instead of wasting the
+            # ICE timeout on a doomed direct-to-internet check.
+            #
+            # A plain RFC1918 LAN server usually still has normal NAT'd
+            # internet access, so a public candidate there might genuinely
+            # succeed — keep accepting everything inbound as before.
+            inbound_policy = (
+                NonRelayFilterPolicy.PUBLIC
+                if is_cgnat_ip(server_ip)
+                else NonRelayFilterPolicy.NONE
+            )
+        else:
+            inbound_policy = NonRelayFilterPolicy.PRIVATE
         return outbound_policy, inbound_policy
 
     if environment == Environment.LOCAL.value or private_lan_deployment:
@@ -151,6 +182,9 @@ def _keep_candidate(candidate_str: str, policy: NonRelayFilterPolicy) -> bool:
         return True
     if policy == NonRelayFilterPolicy.ALL:
         return False
+    if policy == NonRelayFilterPolicy.PUBLIC:
+        # PUBLIC: drop non-relay candidates that are NOT private/CGNAT
+        return is_private_ip_candidate(candidate_str)
     # PRIVATE: drop non-relay candidates with private/CGNAT IPs
     return not is_private_ip_candidate(candidate_str)
 

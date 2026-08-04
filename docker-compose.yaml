@@ -231,6 +231,12 @@ services:
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
       FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
+      # Same SERVER_IP set for dograh-init above. resolve_ice_filter_policies()
+      # reads this directly (os.getenv("SERVER_IP")) to detect a CGNAT/private-
+      # range deployment (e.g. behind Tailscale) and adjust ICE candidate
+      # filtering accordingly. Without it here, that detection silently always
+      # sees an empty string and falls back to public-deployment filtering.
+      SERVER_IP: "${SERVER_IP:-}"
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret}"
 

@@ -7,8 +7,8 @@ from api.errors.telephony_errors import (
     TelephonyError,
     failure_from_telephony_error,
 )
-from api.services.telephony.failure_reporting import instrument_telephony_provider
 from api.services.telephony import ari_manager
+from api.services.telephony.failure_reporting import instrument_telephony_provider
 
 
 def test_ari_failure_reporting_preserves_repeated_occurrences(monkeypatch):

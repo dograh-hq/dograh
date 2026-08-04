@@ -580,7 +580,7 @@ class GlobalNodeData(BaseNodeData, _PromptedNodeDataMixin):
 @node_spec(
     name="trigger",
     display_name="API Trigger",
-    description="Public HTTP endpoints that launch the workflow.",
+    description="Public HTTP endpoints that triggers the agent and make a call over telephone.",
     llm_hint=(
         "Exposes two public HTTP POST endpoints derived from the auto-generated "
         "`trigger_path`:\n"
@@ -640,7 +640,9 @@ class TriggerNodeData(BaseNodeData):
 @node_spec(
     name="webhook",
     display_name="Webhook",
-    description="Send HTTP request after the workflow completes.",
+    description=(
+        "Sync data extracted during the conversation back to your systems after the call."
+    ),
     llm_hint=(
         "Sends an HTTP request to an external system after the workflow completes. "
         "The payload is a Jinja-templated JSON body with access to "

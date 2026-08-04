@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -7,13 +7,14 @@ from api.services.workflow.qa import analysis, node_summary
 
 
 @pytest.mark.asyncio
-async def test_per_node_qa_uses_qa_analysis_context():
+async def test_per_node_qa_uses_centralized_qa_llm_service():
     qa_data = SimpleNamespace(qa_system_prompt="Review the call")
     workflow_run = SimpleNamespace(
         logs={"realtime_feedback_events": [{"type": "transcript"}]},
         initial_context={},
     )
-    llm_factory = Mock(return_value=object())
+    llm = object()
+    qa_llm_factory = AsyncMock(return_value=(llm, "default"))
 
     with (
         patch.object(
@@ -30,15 +31,14 @@ async def test_per_node_qa_uses_qa_analysis_context():
         patch.object(analysis, "compute_call_metrics", return_value={}),
         patch.object(
             analysis,
-            "resolve_llm_config",
-            new=AsyncMock(return_value=("dograh", "default", "mps-key", {})),
+            "create_qa_llm_service",
+            new=qa_llm_factory,
         ),
         patch.object(
             analysis,
             "ensure_node_summaries",
             new=AsyncMock(return_value={"start": {"summary": "Start node"}}),
         ),
-        patch.object(analysis, "create_llm_service_from_provider", llm_factory),
         patch.object(
             analysis,
             "_run_llm_inference",
@@ -55,11 +55,11 @@ async def test_per_node_qa_uses_qa_analysis_context():
             definition_id=None,
         )
 
-    assert llm_factory.call_args.kwargs["usage_context"] == "qa_analysis"
+    qa_llm_factory.assert_awaited_once_with(qa_data, workflow_run)
 
 
 @pytest.mark.asyncio
-async def test_node_summary_uses_qa_analysis_context():
+async def test_node_summary_uses_centralized_qa_llm_service():
     qa_data = SimpleNamespace()
     workflow_run = SimpleNamespace(initial_context={}, workflow=None)
     workflow_definition = {
@@ -77,15 +77,14 @@ async def test_node_summary_uses_qa_analysis_context():
         "edges": [],
     }
     llm = SimpleNamespace(run_inference=AsyncMock(return_value="A helpful agent"))
-    llm_factory = Mock(return_value=llm)
+    qa_llm_factory = AsyncMock(return_value=(llm, "default"))
 
     with (
         patch.object(
             node_summary,
-            "resolve_llm_config",
-            new=AsyncMock(return_value=("dograh", "default", "mps-key", {})),
+            "create_qa_llm_service",
+            new=qa_llm_factory,
         ),
-        patch.object(node_summary, "create_llm_service_from_provider", llm_factory),
         patch.object(node_summary, "create_node_summary_trace", return_value=None),
     ):
         result = await node_summary.ensure_node_summaries(
@@ -96,4 +95,4 @@ async def test_node_summary_uses_qa_analysis_context():
         )
 
     assert result["start"]["summary"] == "A helpful agent"
-    assert llm_factory.call_args.kwargs["usage_context"] == "qa_analysis"
+    qa_llm_factory.assert_awaited_once_with(qa_data, workflow_run)

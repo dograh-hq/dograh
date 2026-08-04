@@ -31,7 +31,7 @@ from api.services.call_concurrency import (
     call_concurrency,
 )
 from api.services.quota_service import authorize_workflow_run_start
-from api.services.telephony import ws_auth
+from api.services.telephony import registry, ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
@@ -598,7 +598,32 @@ async def websocket_endpoint(
     three-segment form is what tokenless deployments dial (no secret set, the
     default), and it is not a way around the check: with a secret configured
     the shared handler rejects it 4401 like any other unauthenticated peer.
+
+    Providers that require their own authenticated route (``REQUIRES_AUTHENTICATED_WEBSOCKET``,
+    e.g. TryVox) are rejected here before ``accept()`` — the ``ws_auth`` and
+    shared-handler checks below run only for providers that don't.
     """
+    workflow_run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=organization_id
+    )
+    if workflow_run:
+        provider_type = (workflow_run.initial_context or {}).get("provider") or getattr(
+            workflow_run, "mode", None
+        )
+        spec = registry.get_optional(provider_type) if provider_type else None
+        if spec and getattr(
+            spec.provider_cls, "REQUIRES_AUTHENTICATED_WEBSOCKET", False
+        ):
+            logger.warning(
+                f"Rejected generic WebSocket route for {provider_type} "
+                f"workflow run {workflow_run_id}"
+            )
+            await websocket.close(
+                code=4401,
+                reason="Provider-specific WebSocket authentication required",
+            )
+            return
+
     await websocket.accept()
     await _handle_telephony_websocket(
         websocket, workflow_id, organization_id, workflow_run_id, token=token
@@ -610,7 +635,11 @@ async def _handle_telephony_websocket(
     workflow_id: int,
     organization_id: int,
     workflow_run_id: int,
+    *,
     token: str | None = None,
+    provider_route_authenticated: bool = False,
+    on_provider_ready=None,
+    on_provider_startup_failure=None,
 ):
     """Shared WebSocket handler logic (connection already accepted).
 
@@ -634,7 +663,11 @@ async def _handle_telephony_websocket(
         # guessable bearer capability (see the TODO above and ws_auth.py). This
         # is a no-op until an operator sets TELEPHONY_WS_TOKEN_SECRET; once set,
         # invalid tokens are logged, and rejected only when enforcement is on.
-        if ws_auth.token_configured():
+        # Skipped when the provider's own route already authenticated the
+        # connection (e.g. TryVox's one-shot capability token) — that check is
+        # stronger, and its `token` query param is a different namespace from
+        # this HMAC token, so running both would reject legitimate calls.
+        if ws_auth.token_configured() and not provider_route_authenticated:
             # Carriers deliver the token as a path segment (query strings do not
             # survive Twilio and are unpromised elsewhere); ARI delivers it as a
             # query param through v(). Same HMAC over the same triple either way.
@@ -750,19 +783,41 @@ async def _handle_telephony_websocket(
             await websocket.close(code=4400, reason="Provider mismatch")
             return
 
-        # Set workflow run state to 'running' before starting the pipeline
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id, state=WorkflowRunState.RUNNING.value
-        )
-
-        logger.info(
-            f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_type} provider"
-        )
+        if (
+            getattr(provider, "REQUIRES_AUTHENTICATED_WEBSOCKET", False)
+            and not provider_route_authenticated
+        ):
+            logger.warning(
+                f"Rejected unauthenticated shared WebSocket route for "
+                f"{provider_type} workflow run {workflow_run_id}"
+            )
+            await websocket.close(
+                code=4401,
+                reason="Provider-specific WebSocket authentication required",
+            )
+            return
 
         # Delegate to provider-specific handler
-        await provider.handle_websocket(
-            websocket, workflow_id, organization_id, workflow_run_id
-        )
+        if on_provider_ready is not None:
+            await provider.handle_websocket(
+                websocket,
+                workflow_id,
+                organization_id,
+                workflow_run_id,
+                on_media_ready=on_provider_ready,
+                on_media_startup_failure=on_provider_startup_failure,
+            )
+        else:
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id, state=WorkflowRunState.RUNNING.value
+            )
+            logger.info(
+                f"[run {workflow_run_id}] Set workflow run state to 'running' "
+                f"for {provider_type} provider"
+            )
+            await provider.handle_websocket(
+                websocket, workflow_id, organization_id, workflow_run_id
+            )
 
     except WebSocketDisconnect as e:
         logger.info(f"WebSocket disconnected: code={e.code}, reason={e.reason}")

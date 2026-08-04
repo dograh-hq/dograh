@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from fastapi import HTTPException
 from loguru import logger
@@ -68,7 +68,10 @@ from api.services.pipecat.tracing_config import (
 )
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.pipecat.transport_setup import create_webrtc_transport
-from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.pipecat.worker_runner import (
+    run_pipeline_worker,
+    wait_for_pipeline_worker_started,
+)
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
@@ -262,6 +265,8 @@ async def run_pipeline_telephony(
     organization_id: int,
     call_id: str,
     transport_kwargs: dict,
+    on_ready: Callable[[], Awaitable[bool]] | None = None,
+    on_startup_failure: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run a pipeline for any telephony provider."""
     # Register before any async setup so deploy drains see calls that are still
@@ -276,6 +281,8 @@ async def run_pipeline_telephony(
             organization_id=organization_id,
             call_id=call_id,
             transport_kwargs=transport_kwargs,
+            on_ready=on_ready,
+            on_startup_failure=on_startup_failure,
         )
     finally:
         try:
@@ -293,6 +300,8 @@ async def _run_pipeline_telephony_impl(
     organization_id: int,
     call_id: str,
     transport_kwargs: dict,
+    on_ready: Callable[[], Awaitable[bool]] | None = None,
+    on_startup_failure: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run a pipeline for any telephony provider.
 
@@ -374,6 +383,23 @@ async def _run_pipeline_telephony_impl(
         **transport_kwargs,
     )
 
+    if on_ready is not None and not await on_ready():
+        try:
+            await transport.cleanup()
+        except Exception:
+            logger.exception(
+                f"[run {workflow_run_id}] Failed to clean up rejected "
+                f"{provider_name} transport"
+            )
+        await websocket.close(code=4401, reason="Stream capability unavailable")
+        return
+
+    worker_started = False
+
+    def mark_worker_started() -> None:
+        nonlocal worker_started
+        worker_started = True
+
     try:
         await _run_pipeline_impl(
             transport,
@@ -385,10 +411,19 @@ async def _run_pipeline_telephony_impl(
             workflow_run=workflow_run,
             resolved_user_config=user_config,
             organization_id=organization_id,
+            on_worker_started=mark_worker_started,
         )
-    except Exception as e:
+    except BaseException as exc:
+        if not worker_started and on_startup_failure is not None:
+            try:
+                await asyncio.shield(on_startup_failure())
+            except Exception:
+                logger.exception(
+                    f"[run {workflow_run_id}] Failed to roll back "
+                    f"{provider_name} pipeline startup"
+                )
         logger.error(
-            f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
+            f"[run {workflow_run_id}] Error in {provider_name} pipeline: {exc}",
             exc_info=True,
         )
         raise
@@ -553,6 +588,7 @@ async def _run_pipeline_impl(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    on_worker_started: Callable[[], None] | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -1147,10 +1183,21 @@ async def _run_pipeline_impl(
 
     try:
         # Run the pipeline
-        await run_pipeline_worker(task)
+        worker_task = asyncio.create_task(run_pipeline_worker(task))
+        try:
+            await wait_for_pipeline_worker_started(task, run_task=worker_task)
+            if on_worker_started is not None:
+                on_worker_started()
+            await worker_task
+        except BaseException:
+            if not worker_task.done():
+                worker_task.cancel()
+                await asyncio.gather(worker_task, return_exceptions=True)
+            raise
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
+        raise
     finally:
         # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
         # scopes opened by MCPClient.start() in engine.initialize() are

@@ -159,7 +159,11 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
     tts = MockTTSService(mock_audio_duration_ms=50, frame_delay=0)
 
     transport = MockTransport(
-        TransportParams(audio_in_enabled=True, audio_out_enabled=True)
+        TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_out_end_silence_secs=0,
+        )
     )
 
     captured_task: list = []

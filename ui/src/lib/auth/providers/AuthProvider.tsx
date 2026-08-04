@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((res) => res.json())
       .then((data) => {
         logger.debug(`Setting auth provider as ${data.provider}`)
-        setAuthProvider(data.provider || 'stack')
+        setAuthProvider(data.provider || 'local')
   })
       .catch((e) => {
         logger.error(`Got error ${e} while setting auth provider`)

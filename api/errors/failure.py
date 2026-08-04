@@ -50,8 +50,12 @@ _SECRET_NAME_PATTERN = (
     r"token|signature|secret|password|private[-_]?key|client[-_]?secret|"
     r"aws[-_]?access[-_]?key(?:[-_]?id)?|aws[-_]?secret[-_]?access[-_]?key)"
 )
+# Consume backslash escapes as a unit and allow literal newlines inside either
+# quote style, so only an unescaped matching quote can terminate the value.
 _QUOTED_SECRET_ASSIGNMENT_RE = re.compile(
-    rf"(?i)([\"']?{_SECRET_NAME_PATTERN}[\"']?\s*[:=]\s*)([\"'])(.*?)(\2)"
+    rf"(?P<prefix>[\"']?{_SECRET_NAME_PATTERN}[\"']?\s*[:=]\s*)"
+    r"(?P<quoted>\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*')",
+    re.IGNORECASE,
 )
 _SECRET_ASSIGNMENT_RE = re.compile(
     rf"(?i)([\"']?{_SECRET_NAME_PATTERN}[\"']?\s*[:=]\s*)([^\s,;\"'}}]+)"
@@ -65,6 +69,12 @@ _MAX_MESSAGE_LENGTH = 4000
 _FAILURE_METADATA_ATTR = "_dograh_failure_metadata"
 
 
+def _redact_quoted_secret_assignment(match: re.Match[str]) -> str:
+    quoted_value = match.group("quoted")
+    quote = quoted_value[0]
+    return f"{match.group('prefix')}{quote}[REDACTED]{quote}"
+
+
 def redact_failure_message(message: object) -> str:
     """Remove common credentials from exception text before it reaches a log sink."""
 
@@ -76,7 +86,7 @@ def redact_failure_message(message: object) -> str:
     value = _URL_USERINFO_RE.sub(r"\1[REDACTED]@", value)
     value = _SECRET_QUERY_RE.sub(r"\1[REDACTED]", value)
     value = _AUTH_HEADER_RE.sub(r"\1[REDACTED]", value)
-    value = _QUOTED_SECRET_ASSIGNMENT_RE.sub(r"\1\2[REDACTED]\4", value)
+    value = _QUOTED_SECRET_ASSIGNMENT_RE.sub(_redact_quoted_secret_assignment, value)
     value = _SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", value)
     if len(value) > _MAX_MESSAGE_LENGTH:
         value = f"{value[:_MAX_MESSAGE_LENGTH]}…"

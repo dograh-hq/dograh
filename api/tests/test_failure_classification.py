@@ -259,6 +259,29 @@ def test_redaction_removes_url_query_userinfo_and_auth_secrets():
     assert redacted.count("[REDACTED]") >= 5
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            r"payload={'client_secret': 'alpha\'omega', 'safe': 'visible'}",
+            "payload={'client_secret': '[REDACTED]', 'safe': 'visible'}",
+        ),
+        (
+            r'payload={"api_key": "alpha\"omega", "safe": "visible"}',
+            'payload={"api_key": "[REDACTED]", "safe": "visible"}',
+        ),
+        (
+            'payload={"private_key": "line-one\nline-two", "safe": "visible"}',
+            'payload={"private_key": "[REDACTED]", "safe": "visible"}',
+        ),
+    ],
+)
+def test_redaction_consumes_entire_escaped_or_multiline_quoted_secret(
+    message, expected
+):
+    assert redact_failure_message(message) == expected
+
+
 def test_factory_metadata_is_authoritative_over_wrapper_class_name():
     service = type("DograhOpenAIRealtimeLLMService", (), {})()
     annotate_failure_metadata(

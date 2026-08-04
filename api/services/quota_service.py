@@ -13,6 +13,13 @@ from loguru import logger
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    log_failure,
+)
 from api.services.configuration.ai_model_configuration import (
     get_effective_ai_model_configuration_for_workflow,
 )
@@ -66,6 +73,70 @@ class QuotaCheckResult:
     error_code: str = ""
 
 
+def _log_mps_exception(
+    error: BaseException,
+    *,
+    organization_id: int | None = None,
+    workflow_run_id: int | None = None,
+    operation: str | None = None,
+) -> None:
+    log_failure(
+        classify_exception(
+            error,
+            source=ErrorSource.PLATFORM,
+            provider="dograh",
+            error_owner="operator",
+        ),
+        organization_id=organization_id,
+        workflow_run_id=workflow_run_id,
+        operation=operation,
+    )
+
+
+def _log_mps_system_failure(
+    code: str,
+    message: str,
+    *,
+    organization_id: int | None = None,
+    workflow_run_id: int | None = None,
+) -> None:
+    log_failure(
+        DograhFailure(
+            source=ErrorSource.PLATFORM,
+            type=ErrorType.SYSTEM_ERROR,
+            code=f"dograh-{code}",
+            internal_message=message,
+            external_message="Dograh could not verify managed model access.",
+            provider="dograh",
+            error_owner="operator",
+            retryable=None,
+        ),
+        organization_id=organization_id,
+        workflow_run_id=workflow_run_id,
+    )
+
+
+def _log_insufficient_dograh_credits(
+    *,
+    organization_id: int | None = None,
+    workflow_run_id: int | None = None,
+) -> None:
+    log_failure(
+        DograhFailure(
+            source=ErrorSource.PLATFORM,
+            type=ErrorType.QUOTA_ERROR,
+            code="dograh-insufficient-credits",
+            internal_message="Insufficient Dograh credits",
+            external_message="Your organization has insufficient Dograh credits.",
+            provider="dograh",
+            error_owner="user",
+            retryable=False,
+        ),
+        organization_id=organization_id,
+        workflow_run_id=workflow_run_id,
+    )
+
+
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -92,12 +163,15 @@ def _insufficient_oss_quota_result() -> QuotaCheckResult:
 def _mps_unreachable_result(
     operation: str,
     error: httpx.RequestError,
+    *,
+    organization_id: int | None = None,
+    workflow_run_id: int | None = None,
 ) -> QuotaCheckResult:
-    logger.warning(
-        "MPS unreachable during {}; allowing workflow run to proceed without "
-        "quota verification: {}",
-        operation,
+    _log_mps_exception(
         error,
+        organization_id=organization_id,
+        workflow_run_id=workflow_run_id,
+        operation=operation,
     )
     return QuotaCheckResult(has_quota=True)
 
@@ -228,6 +302,12 @@ async def _authorize_hosted_workflow_run_start(
         get_dograh_service_api_key(user_config) if requires_correlation else None
     )
     if requires_correlation and not service_key:
+        _log_mps_system_failure(
+            "invalid-service-key",
+            "Managed-v2 workflow configuration has no Dograh service key",
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
+        )
         return QuotaCheckResult(
             has_quota=False,
             error_code="invalid_service_key",
@@ -255,19 +335,23 @@ async def _authorize_hosted_workflow_run_start(
             },
         )
     except _MPS_UNREACHABLE_ERRORS as e:
-        if requires_correlation:
-            logger.warning(
-                "MPS unreachable during hosted managed-v2 run authorization; "
-                "denying workflow run because a correlation id is required: {}",
-                e,
-            )
-            return _managed_v2_authorization_failed_result()
-        return _mps_unreachable_result("hosted run authorization", e)
-    except Exception as e:
-        logger.warning(
-            "Failed to authorize workflow start with MPS for org {}: {}",
-            organization_id,
+        _log_mps_exception(
             e,
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
+            operation="hosted run authorization",
+        )
+        if requires_correlation:
+            return _managed_v2_authorization_failed_result()
+        # Already emitted above because this branch needs the same record whether
+        # managed-v2 fails closed or a legacy check fails open.
+        return QuotaCheckResult(has_quota=True)
+    except Exception as e:
+        _log_mps_exception(
+            e,
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
+            operation="hosted run authorization",
         )
         if _is_service_key_org_mismatch_error(e):
             return QuotaCheckResult(
@@ -286,18 +370,19 @@ async def _authorize_hosted_workflow_run_start(
         not authorization.get("allowed", False)
         or remaining < MINIMUM_DOGRAH_CREDITS_FOR_CALL
     ):
-        logger.warning(
-            "Insufficient Dograh credits for org {}: {:.2f} credits remaining",
-            organization_id,
-            remaining,
+        _log_insufficient_dograh_credits(
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
         )
         return _insufficient_hosted_quota_result()
 
     correlation_id = _required_correlation_id(authorization)
     if requires_correlation and not correlation_id:
-        logger.error(
-            "MPS authorized hosted managed-v2 workflow run {} without a correlation id",
-            workflow_run_id,
+        _log_mps_system_failure(
+            "missing-correlation-id",
+            "MPS authorized a managed-v2 workflow run without a correlation id",
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
         )
         return _managed_v2_authorization_failed_result()
 
@@ -307,10 +392,11 @@ async def _authorize_hosted_workflow_run_start(
             correlation_id,
         )
     except Exception as e:
-        logger.error(
-            "Failed to store MPS correlation id for workflow_run_id {}: {}",
-            workflow_run_id,
+        _log_mps_exception(
             e,
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
+            operation="store run correlation id",
         )
         return QuotaCheckResult(
             has_quota=False,
@@ -337,10 +423,7 @@ async def _authorize_oss_dograh_keys(
 
             # Require at least $0.10 for a short call
             if remaining < MINIMUM_DOGRAH_CREDITS_FOR_CALL:
-                logger.warning(
-                    f"Insufficient Dograh credits for key ...{api_key[-8:]}: "
-                    f"${remaining:.2f} remaining"
-                )
+                _log_insufficient_dograh_credits()
                 return _insufficient_oss_quota_result()
 
             logger.info(
@@ -350,7 +433,7 @@ async def _authorize_oss_dograh_keys(
         except _MPS_UNREACHABLE_ERRORS as e:
             return _mps_unreachable_result("OSS service-key quota check", e)
         except Exception as e:
-            logger.error(f"Failed to check quota for Dograh key: {str(e)}")
+            _log_mps_exception(e, operation="OSS service-key quota check")
             error_str = str(e)
             if "404" in error_str or "not found" in error_str.lower():
                 return QuotaCheckResult(
@@ -378,6 +461,11 @@ async def _authorize_oss_managed_v2_correlation(
 
     service_key = get_dograh_service_api_key(user_config)
     if not service_key:
+        _log_mps_system_failure(
+            "invalid-service-key",
+            "OSS managed-v2 workflow configuration has no Dograh service key",
+            workflow_run_id=workflow_run_id,
+        )
         return QuotaCheckResult(
             has_quota=False,
             error_code="invalid_service_key",
@@ -394,11 +482,10 @@ async def _authorize_oss_managed_v2_correlation(
         )
         correlation_id = _required_correlation_id(response)
         if not correlation_id:
-            logger.error(
-                "MPS correlation endpoint returned no correlation id for OSS "
-                "managed-v2 workflow {} run {}",
-                workflow_id,
-                workflow_run_id,
+            _log_mps_system_failure(
+                "missing-correlation-id",
+                "MPS correlation endpoint returned no correlation id",
+                workflow_run_id=workflow_run_id,
             )
             return _managed_v2_authorization_failed_result()
         await _store_run_correlation_id(
@@ -406,18 +493,17 @@ async def _authorize_oss_managed_v2_correlation(
             correlation_id,
         )
     except _MPS_UNREACHABLE_ERRORS as e:
-        logger.warning(
-            "MPS unreachable during OSS managed-v2 correlation creation; "
-            "denying workflow run because a correlation id is required: {}",
+        _log_mps_exception(
             e,
+            workflow_run_id=workflow_run_id,
+            operation="OSS managed-v2 correlation creation",
         )
         return _managed_v2_authorization_failed_result()
     except Exception as e:
-        logger.error(
-            "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
-            workflow_id,
-            workflow_run_id,
+        _log_mps_exception(
             e,
+            workflow_run_id=workflow_run_id,
+            operation="OSS managed-v2 correlation creation",
         )
         return QuotaCheckResult(
             has_quota=False,
@@ -446,11 +532,10 @@ async def _authorize_oss_managed_v2_run(
     except httpx.HTTPStatusError as e:
         status_code = getattr(e.response, "status_code", None)
         if status_code not in {404, 405}:
-            logger.error(
-                "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
-                workflow_id,
-                workflow_run_id,
+            _log_mps_exception(
                 e,
+                workflow_run_id=workflow_run_id,
+                operation="OSS managed-v2 run authorization",
             )
             return QuotaCheckResult(
                 has_quota=False,
@@ -473,18 +558,17 @@ async def _authorize_oss_managed_v2_run(
             user_config=user_config,
         )
     except _MPS_UNREACHABLE_ERRORS as e:
-        logger.warning(
-            "MPS unreachable during OSS managed-v2 run authorization; "
-            "denying workflow run because a correlation id is required: {}",
+        _log_mps_exception(
             e,
+            workflow_run_id=workflow_run_id,
+            operation="OSS managed-v2 run authorization",
         )
         return _managed_v2_authorization_failed_result()
     except Exception as e:
-        logger.error(
-            "Failed to authorize OSS managed v2 workflow start for workflow {} run {}: {}",
-            workflow_id,
-            workflow_run_id,
+        _log_mps_exception(
             e,
+            workflow_run_id=workflow_run_id,
+            operation="OSS managed-v2 run authorization",
         )
         return QuotaCheckResult(
             has_quota=False,
@@ -497,19 +581,15 @@ async def _authorize_oss_managed_v2_run(
         not authorization.get("allowed", False)
         or remaining < MINIMUM_DOGRAH_CREDITS_FOR_CALL
     ):
-        logger.warning(
-            "Insufficient Dograh credits for key ...{}: {:.2f} credits remaining",
-            service_key[-8:],
-            remaining,
-        )
+        _log_insufficient_dograh_credits(workflow_run_id=workflow_run_id)
         return _oss_run_authorization_denied_result(authorization)
 
     correlation_id = _required_correlation_id(authorization)
     if not correlation_id:
-        logger.error(
-            "MPS authorized OSS managed-v2 workflow {} run {} without a correlation id",
-            workflow_id,
-            workflow_run_id,
+        _log_mps_system_failure(
+            "missing-correlation-id",
+            "MPS authorized an OSS managed-v2 run without a correlation id",
+            workflow_run_id=workflow_run_id,
         )
         return _managed_v2_authorization_failed_result()
 
@@ -519,10 +599,10 @@ async def _authorize_oss_managed_v2_run(
             correlation_id,
         )
     except Exception as e:
-        logger.error(
-            "Failed to store MPS correlation id for workflow_run_id {}: {}",
-            workflow_run_id,
+        _log_mps_exception(
             e,
+            workflow_run_id=workflow_run_id,
+            operation="store run correlation id",
         )
         return QuotaCheckResult(
             has_quota=False,
@@ -568,11 +648,12 @@ async def authorize_workflow_run_start(
             organization_id=organization_id,
         )
     except Exception as e:
-        logger.error(
-            "Workflow start authorization denied: failed to load workflow {} for org {}: {}",
-            workflow_id,
-            organization_id,
-            e,
+        log_failure(
+            classify_exception(e, source=ErrorSource.PLATFORM),
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
+            workflow_id=workflow_id,
+            operation="load workflow for quota authorization",
         )
         return QuotaCheckResult(
             has_quota=False,
@@ -613,12 +694,12 @@ async def authorize_workflow_run_start(
                     organization_id=organization_id,
                 )
             except Exception as e:
-                logger.error(
-                    "Workflow start authorization denied: failed to validate actor {} membership for workflow {} org {}: {}",
-                    actor_id,
-                    workflow_id,
-                    organization_id,
-                    e,
+                log_failure(
+                    classify_exception(e, source=ErrorSource.PLATFORM),
+                    organization_id=organization_id,
+                    workflow_run_id=workflow_run_id,
+                    workflow_id=workflow_id,
+                    operation="validate quota authorization actor",
                 )
                 return QuotaCheckResult(
                     has_quota=False,
@@ -704,6 +785,12 @@ async def authorize_workflow_run_start(
 
         correlation_service_key = get_dograh_service_api_key(user_config)
         if not correlation_service_key:
+            _log_mps_system_failure(
+                "invalid-service-key",
+                "Managed-v2 workflow configuration has no Dograh service key",
+                organization_id=organization_id,
+                workflow_run_id=workflow_run_id,
+            )
             return QuotaCheckResult(
                 has_quota=False,
                 error_code="invalid_service_key",
@@ -729,7 +816,12 @@ async def authorize_workflow_run_start(
         )
 
     except Exception as e:
-        logger.error(f"Error during quota check: {str(e)}")
+        log_failure(
+            classify_exception(e, source=ErrorSource.PLATFORM),
+            organization_id=organization_id,
+            workflow_run_id=workflow_run_id,
+            workflow_id=workflow_id,
+        )
         # Only an httpx transport failure raised while calling MPS is allowed to
         # fail open, and those failures are handled at the MPS call sites above.
         # Database, configuration, response-validation, and programming errors

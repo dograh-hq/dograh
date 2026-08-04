@@ -10,6 +10,15 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    classify_http_response,
+    log_failure,
+    redact_failure_message,
+)
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.credential_auth import build_auth_header
 
@@ -77,13 +86,33 @@ async def execute_pre_call_fetch(
             if credential:
                 headers.update(build_auth_header(credential))
             else:
-                logger.warning(
-                    f"Pre-call fetch: credential {credential_uuid} not found"
+                log_failure(
+                    DograhFailure(
+                        source=ErrorSource.INTEGRATION,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="pre-call-fetch-credential-not-found",
+                        internal_message="Pre-call fetch credential was not found",
+                        external_message="The credential configured for pre-call fetch no longer exists.",
+                        provider="pre-call-fetch",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    organization_id=organization_id,
+                    workflow_id=workflow_id,
                 )
         except Exception as e:
-            logger.error(f"Pre-call fetch: failed to resolve credential: {e}")
+            log_failure(
+                classify_exception(
+                    e,
+                    source=ErrorSource.INTEGRATION,
+                    provider="pre-call-fetch",
+                    error_owner="user",
+                ),
+                organization_id=organization_id,
+                workflow_id=workflow_id,
+            )
 
-    logger.info(f"Pre-call fetch: POST {url}")
+    logger.info(f"Pre-call fetch: POST {redact_failure_message(url)}")
 
     try:
         async with httpx.AsyncClient(timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS) as client:
@@ -96,8 +125,19 @@ async def execute_pre_call_fetch(
 
             if response.is_success:
                 if not isinstance(response_data, dict):
-                    logger.warning(
-                        "Pre-call fetch: response is not a JSON object, skipping"
+                    log_failure(
+                        DograhFailure(
+                            source=ErrorSource.INTEGRATION,
+                            type=ErrorType.CONFIG_ERROR,
+                            code="pre-call-fetch-invalid-response",
+                            internal_message="Pre-call fetch response was not a JSON object",
+                            external_message="The pre-call fetch endpoint returned an invalid response.",
+                            provider="pre-call-fetch",
+                            error_owner="user",
+                            retryable=False,
+                        ),
+                        organization_id=organization_id,
+                        workflow_id=workflow_id,
                     )
                     return {}
 
@@ -112,20 +152,53 @@ async def execute_pre_call_fetch(
                 )
                 return initial_context_vars
             else:
-                logger.warning(
-                    f"Pre-call fetch: HTTP {response.status_code} - "
-                    f"{response.text[:200]}"
+                log_failure(
+                    classify_http_response(
+                        response.status_code,
+                        f"Pre-call fetch returned HTTP {response.status_code}: "
+                        f"{response.text[:200]}",
+                        source=ErrorSource.INTEGRATION,
+                        provider="pre-call-fetch",
+                        error_owner="user",
+                    ),
+                    organization_id=organization_id,
+                    workflow_id=workflow_id,
                 )
                 return {}
 
-    except httpx.TimeoutException:
-        logger.error(
-            f"Pre-call fetch: timed out after {PRE_CALL_FETCH_TIMEOUT_SECONDS}s"
+    except httpx.TimeoutException as e:
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.INTEGRATION,
+                provider="pre-call-fetch",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            workflow_id=workflow_id,
         )
         return {}
     except httpx.RequestError as e:
-        logger.error(f"Pre-call fetch: request failed: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.INTEGRATION,
+                provider="pre-call-fetch",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            workflow_id=workflow_id,
+        )
         return {}
     except Exception as e:
-        logger.error(f"Pre-call fetch: unexpected error: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.INTEGRATION,
+                provider="pre-call-fetch",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            workflow_id=workflow_id,
+        )
         return {}

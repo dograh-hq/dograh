@@ -128,10 +128,6 @@ class ARIProvider(TelephonyProvider):
                 response_text = await response.text()
 
                 if response.status != 200:
-                    logger.error(
-                        f"[ARI] Channel creation failed: "
-                        f"HTTP {response.status} - {response_text}"
-                    )
                     raise HTTPException(
                         status_code=response.status,
                         detail=f"Failed to create ARI channel: {response_text}",

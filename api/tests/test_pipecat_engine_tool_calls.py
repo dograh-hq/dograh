@@ -4,12 +4,10 @@ This module tests the behavior when the LLM generates tool calls (single or para
 using PipecatEngine's actual function registration and execution logic.
 """
 
-import asyncio
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -20,10 +18,10 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
-from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from api.tests.conftest import END_CALL_SYSTEM_PROMPT
+from api.tests.pipecat_test_utils import run_engine_test_pipeline
 from pipecat.tests import MockLLMService, MockTTSService
 
 
@@ -74,6 +72,7 @@ async def run_pipeline_with_tool_calls(
             audio_out_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
         ),
     )
 
@@ -99,6 +98,7 @@ async def run_pipeline_with_tool_calls(
     # Create the pipeline with the mock LLM and TTS
     pipeline = Pipeline(
         [
+            mock_transport.input(),
             llm,
             tts,
             mock_transport.output(),
@@ -117,19 +117,7 @@ async def run_pipeline_with_tool_calls(
         new_callable=AsyncMock,
         return_value=1,
     ):
-
-        async def run_pipeline():
-            await run_pipeline_worker(task)
-
-        async def initialize_engine():
-            # Small delay to let runner start
-            await asyncio.sleep(0.01)
-            await engine.initialize()
-            await engine.set_node(engine.workflow.start_node_id)
-            await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-        # Run both concurrently
-        await asyncio.gather(run_pipeline(), initialize_engine())
+        await run_engine_test_pipeline(task, engine, mock_transport)
 
     return llm, context
 

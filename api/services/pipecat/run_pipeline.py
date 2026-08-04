@@ -1077,16 +1077,16 @@ async def _run_pipeline_impl(
     engine.set_task(task)
     engine.set_transport_output(transport.output())
 
-    # Initialize the engine to set the initial context with
-    # System Prompt and Tools
-    await engine.initialize()
-
-    # Add real-time feedback observer (always logs to buffer, streams to WS if available)
+    # Add the observer before initialization so early ErrorFrames are not missed.
     feedback_observer = RealtimeFeedbackObserver(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
     )
     task.add_observer(feedback_observer)
+
+    # Initialize the engine to set the initial context with
+    # System Prompt and Tools
+    await engine.initialize()
 
     # Register latency observer to log user-to-bot response latency
     if task.user_bot_latency_observer:

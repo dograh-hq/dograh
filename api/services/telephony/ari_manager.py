@@ -26,6 +26,14 @@ from loguru import logger
 from api.constants import REDIS_URL
 from api.db import db_client
 from api.enums import CallType, WorkflowRunMode
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    log_failure,
+    redact_failure_message,
+)
 from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
@@ -48,6 +56,23 @@ _EXT_CHANNEL_KEY_PREFIX = "ari:ext_channel:"
 _PENDING_BRIDGE_PREFIX = "ari:pending_bridge:"
 _CHANNEL_KEY_TTL = 3600  # 1 hour safety expiry
 _PENDING_BRIDGE_TTL = 300  # 5 min safety expiry for bridge-pending state
+
+
+def _log_ari_failure(
+    failure: DograhFailure,
+    *,
+    organization_id: int,
+    telephony_configuration_id: int | None = None,
+    **context: object,
+) -> None:
+    """Emit a classified ARI failure with its organization context."""
+
+    log_failure(
+        failure,
+        organization_id=organization_id,
+        telephony_configuration_id=telephony_configuration_id,
+        **context,
+    )
 
 
 class ARIConnection:
@@ -196,7 +221,8 @@ class ARIConnection:
         self._running = True
         self._task = asyncio.create_task(self._connection_loop())
         logger.info(
-            f"[ARI org={self.organization_id}] Started connection to {self.ari_endpoint}"
+            f"[ARI org={self.organization_id}] Started connection to "
+            f"{redact_failure_message(self.ari_endpoint)}"
         )
 
     async def stop(self):
@@ -211,7 +237,8 @@ class ARIConnection:
             except asyncio.CancelledError:
                 pass
         logger.info(
-            f"[ARI org={self.organization_id}] Stopped connection to {self.ari_endpoint}"
+            f"[ARI org={self.organization_id}] Stopped connection to "
+            f"{redact_failure_message(self.ari_endpoint)}"
         )
 
     async def _connection_loop(self):
@@ -224,9 +251,17 @@ class ARIConnection:
             except Exception as e:
                 if not self._running:
                     break
-                logger.warning(
-                    f"[ARI org={self.organization_id}] Connection error: {e}. "
-                    f"Reconnecting in {self._reconnect_delay}s..."
+                _log_ari_failure(
+                    classify_exception(
+                        e,
+                        source=ErrorSource.TELEPHONY,
+                        provider="ari",
+                        error_owner="user",
+                    ),
+                    organization_id=self.organization_id,
+                    telephony_configuration_id=self.telephony_configuration_id,
+                    operation="connect ARI websocket",
+                    reconnect_delay_seconds=self._reconnect_delay,
                 )
                 await asyncio.sleep(self._reconnect_delay)
                 # Exponential backoff
@@ -238,7 +273,8 @@ class ARIConnection:
         """Establish WebSocket connection and listen for events."""
         ws_url = self.ws_url
         logger.info(
-            f"[ARI org={self.organization_id}] Connecting to {self.ari_endpoint}..."
+            f"[ARI org={self.organization_id}] Connecting to "
+            f"{redact_failure_message(self.ari_endpoint)}..."
         )
 
         async for ws in websockets.connect(
@@ -254,7 +290,8 @@ class ARIConnection:
                 self._reconnect_delay = 1
 
                 logger.info(
-                    f"[ARI org={self.organization_id}] WebSocket connected to {self.ari_endpoint}"
+                    f"[ARI org={self.organization_id}] WebSocket connected to "
+                    f"{redact_failure_message(self.ari_endpoint)}"
                 )
 
                 async for message in ws:
@@ -271,9 +308,17 @@ class ARIConnection:
             except websockets.ConnectionClosed as e:
                 if not self._running:
                     return
-                logger.warning(
-                    f"[ARI org={self.organization_id}] WebSocket closed: "
-                    f"code={e.code}, reason={e.reason}. Reconnecting..."
+                _log_ari_failure(
+                    classify_exception(
+                        e,
+                        source=ErrorSource.TELEPHONY,
+                        provider="ari",
+                        error_owner="user",
+                    ),
+                    organization_id=self.organization_id,
+                    telephony_configuration_id=self.telephony_configuration_id,
+                    operation="listen to ARI websocket",
+                    websocket_close_code=e.code,
                 )
                 continue
             finally:
@@ -1235,7 +1280,7 @@ class ARIManager:
                 # New configuration - start connection
                 logger.info(
                     f"[ARI Manager] New ARI config {telephony_configuration_id} "
-                    f"for org {org_id}: {ari_endpoint}"
+                    f"for org {org_id}: {redact_failure_message(ari_endpoint)}"
                 )
                 self._connections[key] = conn
                 await conn.start()
@@ -1295,16 +1340,36 @@ class ARIManager:
                 external_pbx = None
 
             if not all([ari_endpoint, app_name, app_password]):
-                logger.warning(
-                    f"[ARI Manager] Incomplete ARI config {row.id} "
-                    f"for org {row.organization_id}, skipping"
+                _log_ari_failure(
+                    DograhFailure(
+                        source=ErrorSource.TELEPHONY,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="ari-incomplete-config",
+                        internal_message="ARI configuration is missing an endpoint, app name, or app password",
+                        external_message="Complete the required ARI connection settings.",
+                        provider="ari",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    organization_id=row.organization_id,
+                    telephony_configuration_id=row.id,
                 )
                 continue
 
             if not ws_client_name:
-                logger.warning(
-                    f"[ARI Manager] Missing ws_client_name for config {row.id} "
-                    f"(org {row.organization_id}), externalMedia WebSocket won't work"
+                _log_ari_failure(
+                    DograhFailure(
+                        source=ErrorSource.TELEPHONY,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="ari-missing-ws-client-name",
+                        internal_message="ARI configuration is missing ws_client_name",
+                        external_message="Set the ARI WebSocket client name in telephony configuration.",
+                        provider="ari",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    organization_id=row.organization_id,
+                    telephony_configuration_id=row.id,
                 )
 
             configs.append(

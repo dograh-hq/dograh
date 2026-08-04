@@ -136,7 +136,8 @@ services:
       - app-network
 
   api:
-    image: ${REGISTRY:-dograhai}/dograh-api:${DOGRAH_VERSION:-latest}
+    image: local/dograh-api:voicelink-v1
+    pull_policy: never
     restart: unless-stopped
     environment:
       # production => drop private-IP host ICE candidates on a public VPS and

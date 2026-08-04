@@ -22,6 +22,7 @@ from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 from pipecat.frames.frames import (
+    ErrorFrame,
     Frame,
 )
 from pipecat.pipeline.worker import PipelineWorker
@@ -198,7 +199,14 @@ def register_event_handlers(
 
     @task.event_handler("on_pipeline_error")
     async def on_pipeline_error(_task: PipelineWorker, frame: Frame):
-        logger.warning(f"Pipeline error for workflow run {workflow_run_id}: {frame}")
+        # Pipecat emits recoverable ErrorFrames for reconnect/retry paths.  The
+        # observer classifies them, but only fatal frames should dispose the call.
+        if isinstance(frame, ErrorFrame) and not frame.fatal:
+            return
+        if not isinstance(frame, ErrorFrame):
+            logger.warning(
+                f"Pipeline error for workflow run {workflow_run_id}: {frame}"
+            )
         try:
             workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
             if workflow_run and workflow_run.campaign_id:

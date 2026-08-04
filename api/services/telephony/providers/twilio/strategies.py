@@ -10,6 +10,15 @@ import aiohttp
 from loguru import logger
 from pipecat.serializers.call_strategies import HangupStrategy, TransferStrategy
 
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    classify_http_response,
+    log_failure,
+)
+
 
 class TwilioConferenceStrategy(TransferStrategy):
     """Implements conference-based call transfer for Twilio.
@@ -143,8 +152,18 @@ class TwilioHangupStrategy(HangupStrategy):
             edge = context.get("edge")
 
             if not account_sid or not auth_token or not call_sid:
-                logger.warning(
-                    "Cannot hang up Twilio call: missing required credentials or call_sid"
+                log_failure(
+                    DograhFailure(
+                        source=ErrorSource.TELEPHONY,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="twilio-missing-hangup-config",
+                        internal_message="Cannot hang up Twilio call: missing required credentials or call SID",
+                        external_message="Check the Twilio credentials configured for this call.",
+                        provider="twilio",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    operation="hang up call",
                 )
                 return False
 
@@ -166,12 +185,27 @@ class TwilioHangupStrategy(HangupStrategy):
                         return True
                     else:
                         response_text = await response.text()
-                        logger.error(
-                            f"Failed to terminate Twilio call {call_sid}: "
-                            f"Status {response.status}, Response: {response_text}"
+                        log_failure(
+                            classify_http_response(
+                                response.status,
+                                f"Twilio hangup returned HTTP {response.status}: "
+                                f"{response_text}",
+                                source=ErrorSource.TELEPHONY,
+                                provider="twilio",
+                                error_owner="user",
+                            ),
+                            operation="hang up call",
                         )
                         return False
 
         except Exception as e:
-            logger.exception(f"Failed to hang up Twilio call: {e}")
+            log_failure(
+                classify_exception(
+                    e,
+                    source=ErrorSource.TELEPHONY,
+                    provider="twilio",
+                    error_owner="user",
+                ),
+                operation="hang up call",
+            )
             return False

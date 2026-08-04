@@ -15,6 +15,8 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.db.telephony_configuration_client import TelephonyConfigurationInUseError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
+from api.errors.failure import ErrorSource, classify_exception, log_failure
+from api.errors.mps import MPSUnavailableError
 from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
     DOGRAH_DEFAULT_VOICE,
@@ -387,14 +389,23 @@ async def get_model_configuration_pricing(
             user.selected_organization_id,
         )
         return ModelConfigurationPricingResponse.model_validate(pricing)
+    except MPSUnavailableError:
+        # The MPS boundary emitted the classified failure. The app-level handler
+        # converts this typed dependency failure to a customer-safe HTTP 503.
+        raise
     except Exception as exc:
-        logger.error(
-            "Failed to get MPS model-configuration pricing for organization {}: {}",
-            user.selected_organization_id,
-            exc,
+        log_failure(
+            classify_exception(
+                exc,
+                source=ErrorSource.PLATFORM,
+                provider="dograh",
+                error_owner="operator",
+            ),
+            organization_id=user.selected_organization_id,
+            operation="validate_billing_pricing_response",
         )
         raise HTTPException(
-            status_code=502,
+            status_code=500,
             detail="Failed to retrieve model configuration pricing",
         ) from exc
 

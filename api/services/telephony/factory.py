@@ -20,11 +20,17 @@ joining ``telephony_phone_numbers``.
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 from loguru import logger
+from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.db.models import TelephonyConfigurationModel, WorkflowRunModel
+from api.errors.failure import log_failure
 from api.services.telephony import registry
 from api.services.telephony.base import TelephonyProvider
+from api.services.telephony.failure_reporting import (
+    classify_telephony_exception,
+    instrument_telephony_provider,
+)
 
 
 async def load_telephony_config_by_id(
@@ -125,6 +131,7 @@ async def get_telephony_provider_by_id(
     telephony_configuration_id: int | str | None,
     organization_id: int,
 ) -> TelephonyProvider:
+    set_current_org_id(organization_id)
     config = await load_telephony_config_by_id(
         telephony_configuration_id, organization_id
     )
@@ -150,6 +157,7 @@ async def get_telephony_provider_for_run(
 
 
 async def get_default_telephony_provider(organization_id: int) -> TelephonyProvider:
+    set_current_org_id(organization_id)
     config = await load_default_telephony_config(organization_id)
     return _instantiate(config)
 
@@ -158,6 +166,7 @@ async def get_telephony_provider_for_inbound(
     organization_id: int, provider_name: str, account_id: Optional[str]
 ) -> Optional[Tuple[int, TelephonyProvider]]:
     """Returns ``(config_id, provider_instance)`` or None when no config matches."""
+    set_current_org_id(organization_id)
     match = await find_telephony_config_for_inbound(
         organization_id, provider_name, account_id
     )
@@ -226,4 +235,12 @@ async def _normalize_with_phone_numbers(
 def _instantiate(config: Dict[str, Any]) -> TelephonyProvider:
     spec = registry.get(config["provider"])
     logger.info(f"Creating {spec.name} telephony provider")
-    return spec.provider_cls(config)
+    try:
+        provider = spec.provider_cls(config)
+    except Exception as exc:
+        log_failure(
+            classify_telephony_exception(exc, provider=spec.name),
+            operation="construct telephony provider",
+        )
+        raise
+    return instrument_telephony_provider(provider)

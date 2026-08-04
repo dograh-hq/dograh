@@ -12,6 +12,7 @@ plus a single import line in ``providers/__init__.py``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,6 +26,8 @@ from typing import (
 )
 
 from pydantic import BaseModel
+
+from api.errors.telephony_errors import log_telephony_error
 
 if TYPE_CHECKING:
     from api.services.telephony.base import TelephonyProvider
@@ -146,6 +149,26 @@ class ProviderSpec:
 _REGISTRY: Dict[str, ProviderSpec] = {}
 
 
+def _instrument_validation_error_response(spec: ProviderSpec) -> None:
+    """Emit classification whenever a provider renders an inbound rejection."""
+
+    original = getattr(spec.provider_cls, "generate_validation_error_response", None)
+    if not callable(original):
+        return
+    if getattr(original, "_dograh_failure_reporting_instrumented", False):
+        return
+
+    @wraps(original)
+    def generate_validation_error_response(error_type, *args, **kwargs):
+        log_telephony_error(error_type, provider=spec.name)
+        return original(error_type, *args, **kwargs)
+
+    generate_validation_error_response._dograh_failure_reporting_instrumented = True
+    spec.provider_cls.generate_validation_error_response = staticmethod(
+        generate_validation_error_response
+    )
+
+
 def register(spec: ProviderSpec) -> None:
     """Register a provider. Called once per provider at import time."""
     if spec.name in _REGISTRY:
@@ -154,6 +177,7 @@ def register(spec: ProviderSpec) -> None:
         if _REGISTRY[spec.name] is not spec:
             raise ValueError(f"Provider '{spec.name}' is already registered")
         return
+    _instrument_validation_error_response(spec)
     _REGISTRY[spec.name] = spec
 
 

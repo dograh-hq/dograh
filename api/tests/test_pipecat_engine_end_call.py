@@ -41,7 +41,6 @@ from pipecat.turns.user_mute import (
 from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory
-from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
@@ -58,6 +57,7 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
 )
 from api.services.workflow.workflow_graph import WorkflowGraph
 from api.tests.conftest import END_CALL_SYSTEM_PROMPT, START_CALL_SYSTEM_PROMPT
+from api.tests.pipecat_test_utils import run_engine_test_pipeline
 from pipecat.tests import MockLLMService, MockTTSService
 
 
@@ -136,6 +136,7 @@ async def create_engine_with_tracking(
             audio_out_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
         ),
     )
 
@@ -274,17 +275,7 @@ class TestEndCallViaNodeTransition:
                 new_callable=AsyncMock,
                 return_value={"user_intent": "end call"},
             ):
-
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_engine():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-                await asyncio.gather(run_pipeline(), initialize_engine())
+                await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called
         assert len(test_helper.end_call_reasons) >= 1, (
@@ -372,17 +363,7 @@ class TestEndCallViaNodeTransition:
                 new_callable=AsyncMock,
                 return_value={"greeting_type": "formal", "user_name": "John"},
             ):
-
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_engine():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-                await asyncio.gather(run_pipeline(), initialize_engine())
+                await run_engine_test_pipeline(task, engine, transport)
 
         # Should have 3 LLM generations
         assert llm.get_current_step() == 3
@@ -465,17 +446,7 @@ class TestEndCallViaCustomTool:
                 new_callable=AsyncMock,
                 return_value={"user_intent": "end"},
             ):
-
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_engine():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-                await asyncio.gather(run_pipeline(), initialize_engine())
+                await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called with END_CALL_TOOL_REASON
         assert len(test_helper.end_call_reasons) >= 1, (
@@ -551,17 +522,7 @@ class TestEndCallViaCustomTool:
                 new_callable=AsyncMock,
                 return_value={"user_intent": "end"},
             ):
-
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_engine():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-                await asyncio.gather(run_pipeline(), initialize_engine())
+                await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called
         assert len(test_helper.end_call_reasons) >= 1, (
@@ -624,12 +585,7 @@ class TestEndCallViaClientDisconnect:
                 return_value={"user_intent": "disconnected"},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_and_disconnect():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
+                async def disconnect_after_response():
                     await engine.set_node(engine.workflow.start_node_id)
                     await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
@@ -642,7 +598,12 @@ class TestEndCallViaClientDisconnect:
                         EndTaskReason.USER_HANGUP.value, abort_immediately=True
                     )
 
-                await asyncio.gather(run_pipeline(), initialize_and_disconnect())
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=disconnect_after_response,
+                )
 
         # Verify end_call_with_reason was called with USER_HANGUP
         assert EndTaskReason.USER_HANGUP.value in test_helper.end_call_reasons, (
@@ -709,12 +670,7 @@ class TestEndCallRaceConditions:
                 return_value={"user_intent": "end"},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_and_race():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
+                async def race_end_calls_after_response():
                     await engine.set_node(engine.workflow.start_node_id)
                     await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
@@ -736,7 +692,12 @@ class TestEndCallRaceConditions:
                         ),
                     )
 
-                await asyncio.gather(run_pipeline(), initialize_and_race())
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=race_end_calls_after_response,
+                )
 
         # Due to the _call_disposed guard, only one end_call should fully execute
         # The tracked end_call_reasons will show all attempted calls
@@ -815,13 +776,8 @@ class TestEndCallRaceConditions:
                 return_value={"user_intent": "end"},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_and_race_disconnect():
+                async def race_disconnect_after_response():
                     nonlocal disconnect_called
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
                     await engine.set_node(engine.workflow.start_node_id)
                     await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
@@ -834,7 +790,12 @@ class TestEndCallRaceConditions:
                         EndTaskReason.USER_HANGUP.value, abort_immediately=True
                     )
 
-                await asyncio.gather(run_pipeline(), initialize_and_race_disconnect())
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=race_disconnect_after_response,
+                )
 
         # Verify disconnect was attempted
         assert disconnect_called, "Disconnect should have been called"
@@ -902,12 +863,7 @@ class TestEndCallExtractionBehavior:
                 side_effect=mock_extraction,
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_and_end():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
+                async def end_after_response():
                     await engine.set_node(engine.workflow.start_node_id)
                     await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
@@ -924,7 +880,12 @@ class TestEndCallExtractionBehavior:
                         "Extraction should have completed before end_call returned"
                     )
 
-                await asyncio.gather(run_pipeline(), initialize_and_end())
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=end_after_response,
+                )
 
         # Verify synchronous extraction was used
         sync_extractions = [
@@ -1022,12 +983,7 @@ class TestEndCallExtractionBehavior:
                 extraction_mock,
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_and_end():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
+                async def end_after_response():
                     await engine.set_node(engine.workflow.start_node_id)
                     await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
@@ -1039,7 +995,12 @@ class TestEndCallExtractionBehavior:
                         EndTaskReason.USER_HANGUP.value, abort_immediately=True
                     )
 
-                await asyncio.gather(run_pipeline(), initialize_and_end())
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=end_after_response,
+                )
 
         # Extraction should have been called but the inner _perform_extraction
         # should not have been called because extraction_enabled=False

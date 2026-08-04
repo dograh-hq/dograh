@@ -7,6 +7,7 @@ import { WorkflowValidationError } from "@/components/flow/types";
 import type { ConversationNodeTransitionItem, RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { resolveBrowserBackendUrl } from '@/lib/apiClient';
+import { detailFromError } from '@/lib/apiError';
 import logger from '@/lib/logger';
 
 import { sdpFilterCodec } from "../utils";
@@ -704,16 +705,28 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             });
 
             if (response.error) {
+                const isServiceUnavailable = response.response?.status === 503;
+                const message = detailFromError(
+                    response.error,
+                    isServiceUnavailable
+                        ? 'Dograh is temporarily unavailable. Please try again later.'
+                        : 'API Key Error',
+                );
+
+                if (isServiceUnavailable) {
+                    // MPS is a Dograh-owned dependency. Do not tell the customer
+                    // to change credentials when Dograh could not validate them.
+                    setApiKeyModalOpen(false);
+                    setApiKeyError(null);
+                    setApiKeyErrorCode(null);
+                    setPermissionError(message);
+                    setConnectionStatus('failed');
+                    return;
+                }
+
                 setApiKeyModalOpen(true);
                 setApiKeyErrorCode('invalid_api_key');
-                let msg = 'API Key Error';
-                const detail = (response.error as unknown as { detail?: { errors: { model: string; message: string }[] } }).detail;
-                if (Array.isArray(detail)) {
-                    msg = detail
-                        .map((e: { model: string; message: string }) => `${e.model}: ${e.message}`)
-                        .join('\n');
-                }
-                setApiKeyError(msg);
+                setApiKeyError(message);
                 setConnectionStatus('failed');
                 return;
             }

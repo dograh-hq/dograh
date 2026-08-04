@@ -35,9 +35,9 @@ from api.services.workflow.pipecat_engine_custom_tools import get_function_schem
 from api.services.workflow.tools.custom_tool import (
     _coerce_parameter_value,
     execute_http_tool,
-    render_url_template,
     tool_to_function_schema,
 )
+from api.utils.template_renderer import render_url_template
 from pipecat.tests import MockLLMService, run_test
 
 
@@ -550,8 +550,8 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
 
     @pytest.mark.asyncio
-    async def test_post_request_accepts_pre_resolved_preset_params(self):
-        """The test endpoint can supply preset values without call context."""
+    async def test_llm_arguments_override_pre_resolved_preset_params(self):
+        """Context-derived presets remain fallbacks for LLM arguments."""
         tool = MockToolModel(
             tool_uuid="test-uuid-preset-override",
             name="Create Lead",
@@ -588,13 +588,17 @@ class TestExecuteHttpTool:
 
             result = await execute_http_tool(
                 tool,
-                {"name": "John"},
-                preset_params={"phone_number": "+14155550123"},
+                {"name": "John", "phone_number": "+14155550999"},
+                preset_params={
+                    "phone_number": "+14155550123",
+                    "source": "initial-context",
+                },
             )
 
             assert mock_client.request.call_args.kwargs["json"] == {
                 "name": "John",
-                "phone_number": "+14155550123",
+                "phone_number": "+14155550999",
+                "source": "initial-context",
             }
             assert result["status"] == "success"
 
@@ -2138,107 +2142,71 @@ class TestUpdateLLMContext:
 
 class TestUrlPathParameters:
     def test_single_path_param_substituted(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}",
             {"userId": "123"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/users/123"
-        assert consumed == {"userId"}
 
     def test_multiple_path_params_substituted(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/orgs/{{orgId}}/users/{{userId}}",
             {"orgId": "abc", "userId": "123"},
-            None,
-            None,
-            {"orgId": "string", "userId": "string"},
         )
         assert url == "https://api.com/orgs/abc/users/123"
-        assert consumed == {"orgId", "userId"}
 
     def test_preset_param_in_url(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/props/{{propertyId}}",
             {"propertyId": "prop-1"},
-            None,
-            None,
-            {"propertyId": "string"},
         )
         assert url == "https://api.com/props/prop-1"
-        assert consumed == {"propertyId"}
 
-    def test_static_url_unchanged_and_zero_consumed(self):
-        url, consumed = render_url_template(
+    def test_static_url_unchanged(self):
+        url = render_url_template(
             "https://api.com/static",
             {"userId": "123"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/static"
-        assert consumed == set()
 
     def test_fallback_filter_in_url_uses_fallback_when_empty(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId | default}}",
             {"userId": ""},
-            None,
-            None,
-            {"userId": "string"},
         )
-        assert url == "https://api.com/users/"
-        assert consumed == {"userId"}
+        assert url == "https://api.com/users/default"
 
-        url2, consumed2 = render_url_template(
+        url2 = render_url_template(
             "https://api.com/users/{{userId | fallback:me}}",
             {"userId": None},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url2 == "https://api.com/users/me"
 
     def test_dot_notation_path_param_in_url(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{user.id}}",
             {"user": {"id": "456"}},
-            None,
-            None,
-            {"user": "object"},
         )
         assert url == "https://api.com/users/456"
-        assert consumed == {"user"}
 
     def test_number_param_in_url_stringified(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}",
             {"userId": 123},
-            None,
-            None,
-            {"userId": "number"},
         )
         assert url == "https://api.com/users/123"
 
     def test_boolean_param_in_url_stringified(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{active}}",
             {"active": True},
-            None,
-            None,
-            {"active": "boolean"},
         )
         assert url == "https://api.com/users/true"
 
     def test_existing_query_string_preserved(self):
-        url, consumed = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}?limit=10&sort=desc",
             {"userId": "123"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/users/123?limit=10&sort=desc"
 
@@ -2246,9 +2214,7 @@ class TestUrlPathParameters:
         import pytest
 
         with pytest.raises(ValueError, match="has no value"):
-            render_url_template(
-                "https://api.com/users/{{userId}}", {}, None, None, {"userId": "string"}
-            )
+            render_url_template("https://api.com/users/{{userId}}", {})
 
     def test_empty_value_raises(self):
         import pytest
@@ -2257,61 +2223,49 @@ class TestUrlPathParameters:
             render_url_template(
                 "https://api.com/users/{{userId}}",
                 {"userId": ""},
-                None,
-                None,
-                {"userId": "string"},
             )
 
-    def test_undeclared_placeholder_raises(self):
-        import pytest
-
-        with pytest.raises(ValueError, match="is not a configured parameter"):
-            render_url_template(
-                "https://api.com/users/{{typo}}", {"typo": "123"}, None, None, {}
-            )
+    def test_context_variable_does_not_require_parameter_declaration(self):
+        url = render_url_template(
+            "https://api.com/users/{{path}}",
+            {"path": "123"},
+        )
+        assert url == "https://api.com/users/123"
 
     def test_malformed_open_brace_raises(self):
         import pytest
 
         with pytest.raises(ValueError, match="unmatched '{{'"):
-            render_url_template("https://api.com/users/{{userId", {}, None, None, {})
+            render_url_template("https://api.com/users/{{userId", {})
 
     def test_malformed_close_brace_raises(self):
         import pytest
 
         with pytest.raises(ValueError, match="unmatched '}}'"):
-            render_url_template("https://api.com/users/userId}}", {}, None, None, {})
+            render_url_template("https://api.com/users/userId}}", {})
 
     def test_nested_brace_raises(self):
         import pytest
 
         with pytest.raises(ValueError, match="nested '{{'"):
-            render_url_template(
-                "https://api.com/users/{{{{userId}}}}", {}, None, None, {}
-            )
+            render_url_template("https://api.com/users/{{{{userId}}}}", {})
 
     def test_array_param_in_url_raises(self):
         import pytest
 
-        with pytest.raises(ValueError, match="Array parameters cannot be used"):
+        with pytest.raises(ValueError, match="Arrays cannot be rendered"):
             render_url_template(
                 "https://api.com/users/{{ids}}",
                 {"ids": [1, 2, 3]},
-                None,
-                None,
-                {"ids": "array"},
             )
 
     def test_object_param_in_url_raises(self):
         import pytest
 
-        with pytest.raises(ValueError, match="Object parameters cannot be used"):
+        with pytest.raises(ValueError, match="Objects cannot be rendered"):
             render_url_template(
                 "https://api.com/users/{{user}}",
                 {"user": {"id": "123"}},
-                None,
-                None,
-                {"user": "object"},
             )
 
     def test_host_injection_raises(self):
@@ -2323,9 +2277,6 @@ class TestUrlPathParameters:
             render_url_template(
                 "https://{{host}}/v1/data",
                 {"host": "evil.com"},
-                None,
-                None,
-                {"host": "string"},
             )
 
     def test_malformed_placeholder_syntax_raises(self):
@@ -2335,85 +2286,116 @@ class TestUrlPathParameters:
             render_url_template(
                 "https://api.com/users/{{userId|}}",
                 {"userId": "123"},
-                None,
-                None,
-                {"userId": "string"},
             )
 
     def test_path_traversal_slash_is_encoded(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}",
             {"userId": "../admin"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/users/..%2Fadmin"
 
     def test_query_injection_ampersand_is_encoded(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}",
             {"userId": "123&evil=true"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/users/123%26evil%3Dtrue"
 
     def test_query_injection_question_mark_is_encoded(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}",
             {"userId": "123?evil=true"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/users/123%3Fevil%3Dtrue"
 
     def test_space_in_value_is_encoded(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}",
             {"userId": "john doe"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/users/john%20doe"
 
     def test_null_byte_is_encoded(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{userId}}",
             {"userId": "123\x00"},
-            None,
-            None,
-            {"userId": "string"},
         )
         assert url == "https://api.com/users/123%00"
 
     def test_initial_context_in_url(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{initial_context.phone}}",
-            {},
-            {"phone": "+1234567890"},
-            None,
-            {},
+            {"initial_context": {"phone": "+1234567890"}},
         )
         assert url == "https://api.com/users/%2B1234567890"
 
     def test_gathered_context_in_url(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{gathered_context.email}}",
-            {},
-            None,
-            {"email": "test@example.com"},
-            {},
+            {"gathered_context": {"email": "test@example.com"}},
         )
         assert url == "https://api.com/users/test%40example.com"
+
+    @pytest.mark.parametrize(
+        ("arguments", "gathered_context", "initial_context", "expected_path"),
+        [
+            (
+                {"path": "from-llm"},
+                {"path": "from-gathered"},
+                {"path": "from-initial"},
+                "from-llm",
+            ),
+            ({}, {"path": "from-gathered"}, {"path": "from-initial"}, "from-gathered"),
+            ({}, {}, {"path": "from-initial"}, "from-initial"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_url_render_context_precedence(
+        self,
+        arguments,
+        gathered_context,
+        initial_context,
+        expected_path,
+    ):
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Context URL",
+            description="Render a URL from runtime context",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.com/{{path}}",
+                }
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                arguments,
+                call_context_vars=initial_context,
+                gathered_context_vars=gathered_context,
+            )
+
+            assert mock_client.request.call_args.kwargs["url"] == (
+                f"https://api.com/{expected_path}"
+            )
 
     import pytest
 
     @pytest.mark.asyncio
-    async def test_get_with_path_param_no_duplicate_query_param(self):
+    async def test_get_with_path_param_is_also_sent_as_query_param(self):
         from unittest.mock import patch
 
         tool = MockToolModel(
@@ -2442,11 +2424,11 @@ class TestUrlPathParameters:
                 url="https://api.com/users/123",
                 headers={},
                 json=None,
-                params=None,
+                params={"userId": "123"},
             )
 
     @pytest.mark.asyncio
-    async def test_put_cancel_url_with_path_param_no_body(self):
+    async def test_put_path_param_is_also_sent_in_body(self):
         from unittest.mock import patch
 
         tool = MockToolModel(
@@ -2473,7 +2455,7 @@ class TestUrlPathParameters:
                 method="PUT",
                 url="https://api.apaleo.com/booking/v1/reservations/AWAEYPKI-1/actions/cancel",
                 headers={},
-                json={},
+                json={"reservationId": "AWAEYPKI-1"},
                 params=None,
             )
 
@@ -2506,10 +2488,9 @@ class TestUrlPathParameters:
                 result.get("rendered_url")
                 == "https://api.apaleo.com/booking/v1/reservations/123/actions/cancel"
             )
-            assert result.get("consumed_path_params") == ["reservationId"]
 
     @pytest.mark.asyncio
-    async def test_consumed_path_params_absent_in_live_mode(self):
+    async def test_rendered_url_absent_in_live_mode(self):
         from unittest.mock import patch
 
         tool = MockToolModel(
@@ -2534,14 +2515,10 @@ class TestUrlPathParameters:
                 tool, {"reservationId": "123"}, include_request_headers=False
             )
             assert "rendered_url" not in result
-            assert "consumed_path_params" not in result
 
     def test_current_time_timezone_in_url(self):
-        url, _ = render_url_template(
+        url = render_url_template(
             "https://api.com/users/{{current_time_Europe/Berlin}}",
-            {},
-            None,
-            None,
             {},
         )
         assert "https://api.com/users/" in url
@@ -2577,33 +2554,5 @@ class TestUrlPathParameters:
                 url="https://api.com/users/123",
                 headers={},
                 json=None,
-                params=None,
+                params={"userId": "123"},
             )
-
-    @pytest.mark.asyncio
-    async def test_consumed_path_params_in_test_mode_result(self):
-        from unittest.mock import patch
-
-        tool = MockToolModel(
-            tool_uuid="uuid",
-            name="Get User",
-            description="Get User",
-            category="http_api",
-            definition={
-                "config": {
-                    "method": "GET",
-                    "url": "https://api.com/users/{{userId}}",
-                    "parameters": [{"name": "userId", "type": "string"}],
-                }
-            },
-        )
-        with patch(
-            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
-        ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 200
-            mock_client.return_value.__aenter__.return_value.request.return_value.json.return_value = {}
-
-            result = await execute_http_tool(
-                tool, {"userId": "123"}, include_request_headers=True
-            )
-            assert result.get("consumed_path_params") == ["userId"]

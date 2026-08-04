@@ -249,13 +249,9 @@ async def test_tool(
 
     hint = _hint_for_status_code(status_code, configured_method)
 
-    # Preset values take precedence over model-supplied values, matching live
-    consumed = set(result.get("consumed_path_params", []))
-    resolved_arguments = {
-        k: v
-        for k, v in {**request.llm_params, **request.preset_params}.items()
-        if k not in consumed
-    }
+    # Model-supplied values take precedence over context-derived presets,
+    # matching live execution. URL variables remain in the body/query.
+    resolved_arguments = {**request.preset_params, **request.llm_params}
 
     # Mirror execute_http_tool's own branch: POST/PUT/PATCH send the
     # resolved arguments as a JSON body; GET/DELETE send them as query
@@ -279,7 +275,6 @@ async def test_tool(
         request_headers=result.get("request_headers", {}),
         request_body=request_body,
         request_params=request_params,
-        consumed_path_params=result.get("consumed_path_params", []),
     )
 
 

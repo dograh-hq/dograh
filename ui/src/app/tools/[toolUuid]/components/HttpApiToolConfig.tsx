@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Info } from "lucide-react";
+import { Info } from "lucide-react";
 
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
@@ -90,16 +90,6 @@ export function HttpApiToolConfig({
         )
     )));
 
-    const declaredParamNames = new Set([
-        ...parameters.map(p => p.name),
-        ...presetParameters.map(p => p.name)
-    ]);
-
-    const undeclaredUrlParams = customUrlParams.filter(p => {
-        const baseName = p.split('.')[0];
-        return !declaredParamNames.has(baseName);
-    });
-
     return (
         <Card>
             <CardHeader>
@@ -175,13 +165,9 @@ export function HttpApiToolConfig({
                             {customUrlParams.length > 0 && (
                                 <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-600 flex gap-2 items-start mt-2">
                                     <Info className="h-4 w-4 mt-0.5 shrink-0" />
-                                    <span>Path parameters detected: {customUrlParams.join(", ")}</span>
-                                </div>
-                            )}
-                            {undeclaredUrlParams.length > 0 && (
-                                <div className="rounded-lg border border-orange-500/20 bg-orange-500/10 p-3 text-sm text-orange-600 flex gap-2 items-start mt-2">
-                                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                                    <span>Warning: {undeclaredUrlParams.map(p => `{{${p}}}`).join(", ")} {undeclaredUrlParams.length === 1 ? 'is' : 'are'} not declared parameters and will cause an error at runtime.</span>
+                                    <span>
+                                        Path parameters detected: {customUrlParams.join(", ")}. Values resolve from LLM tool call arguments first, then initial context.
+                                    </span>
                                 </div>
                             )}
                         </div>

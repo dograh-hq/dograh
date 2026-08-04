@@ -453,20 +453,6 @@ export function HttpToolTestDialog({
                                                     .join("  ")}
                                             </pre>
                                         )}
-                                        {result.consumed_path_params && result.consumed_path_params.length > 0 && (
-                                            <pre className="whitespace-pre-wrap">
-                                                Path params:{" "}
-                                                {result.consumed_path_params
-                                                    .map((key) => {
-                                                        const llmVal = llmParamValues[key];
-                                                        const preVal = presetParamValues[key];
-                                                        const val = preVal !== undefined ? preVal : llmVal;
-                                                        const displayVal = typeof val === 'object' && val !== null ? JSON.stringify(val) : val;
-                                                        return `${key}=${displayVal}`;
-                                                    })
-                                                    .join("  ")}
-                                            </pre>
-                                        )}
                                     </div>
                                 )}
                                 <div className="flex items-center gap-3">

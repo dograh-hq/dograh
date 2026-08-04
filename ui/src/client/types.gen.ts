@@ -6257,7 +6257,6 @@ export type ToolTestResponse = {
      * Duration Ms
      */
     duration_ms: number;
-    consumed_path_params?: Array<string>;
 };
 
 /**

@@ -12,6 +12,31 @@ from typing import Dict, List
 import pytest
 
 
+class _FakePubSub:
+    """Pub/sub double that never delivers — models the real hazard.
+
+    A subscriber that arrives after the publish gets nothing from Redis pub/sub,
+    so a wait that only listens would hang until timeout. Any event the test
+    sees therefore had to come from the persisted copy.
+    """
+
+    async def subscribe(self, channel: str) -> None:
+        return None
+
+    async def unsubscribe(self, channel: str) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def listen(self):
+        import asyncio
+
+        while True:
+            await asyncio.sleep(3600)
+            yield {}  # pragma: no cover
+
+
 class _FakeRedis:
     """Minimal in-memory async Redis double.
 
@@ -22,6 +47,7 @@ class _FakeRedis:
     def __init__(self) -> None:
         self._store: Dict[str, str] = {}
         self.keys_call_count = 0
+        self.published: List[tuple] = []
 
     async def setex(self, key: str, ttl: int, value: str) -> None:
         self._store[key] = value
@@ -40,6 +66,13 @@ class _FakeRedis:
     async def delete(self, *keys: str) -> None:
         for key in keys:
             self._store.pop(key, None)
+
+    async def publish(self, channel: str, message: str) -> int:
+        self.published.append((channel, message))
+        return 0
+
+    def pubsub(self):
+        return _FakePubSub()
 
     async def keys(self, pattern: str) -> List[str]:
         self.keys_call_count += 1
@@ -122,3 +155,129 @@ async def test_claim_transfer_step_is_atomic_and_idempotent():
     assert await manager.claim_transfer_step("tx-1", "bridge_requested") is True
     assert await manager.claim_transfer_step("tx-1", "bridge_requested") is False
     assert await manager.claim_transfer_step("tx-1", "aleg_joined") is True
+
+
+class TestTerminalEventDurability:
+    """A completion published before the waiter subscribes must not be lost.
+
+    Redis pub/sub keeps nothing for a subscriber that has not arrived yet, and a
+    provider callback can land before the workflow calls
+    ``wait_for_transfer_completion`` — the connector-driven providers answer in
+    well under a second. Terminal events are therefore persisted before being
+    published, and the waiter reads that copy right after subscribing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_completion_published_before_wait_is_still_delivered(self):
+        from api.services.telephony.call_transfer_manager import CallTransferManager
+        from api.services.telephony.transfer_event_protocol import (
+            TransferEvent,
+            TransferEventType,
+        )
+
+        fake = _FakeRedis()
+        manager = CallTransferManager(redis_client=fake)
+
+        # Callback wins the race: published with no subscriber listening yet.
+        await manager.publish_transfer_event(
+            TransferEvent(
+                type=TransferEventType.DESTINATION_ANSWERED,
+                transfer_id="xfer-1",
+                original_call_sid="orig-1",
+                transfer_call_sid="dest-1",
+            )
+        )
+
+        event = await manager.wait_for_transfer_completion(
+            "xfer-1", timeout_seconds=1.0
+        )
+
+        assert event is not None, "completion event lost: pub/sub has no retention"
+        assert event.type == TransferEventType.DESTINATION_ANSWERED
+        assert event.transfer_id == "xfer-1"
+
+    @pytest.mark.asyncio
+    async def test_terminal_event_is_persisted_before_publish(self):
+        from api.services.telephony.call_transfer_manager import CallTransferManager
+        from api.services.telephony.transfer_event_protocol import (
+            TransferEvent,
+            TransferEventType,
+            TransferRedisChannels,
+        )
+
+        fake = _FakeRedis()
+        manager = CallTransferManager(redis_client=fake)
+        await manager.publish_transfer_event(
+            TransferEvent(
+                type=TransferEventType.TRANSFER_FAILED,
+                transfer_id="xfer-2",
+                original_call_sid="orig-2",
+            )
+        )
+        stored = await fake.get(TransferRedisChannels.transfer_result_key("xfer-2"))
+        assert stored is not None
+        assert TransferEvent.from_json(stored).type == TransferEventType.TRANSFER_FAILED
+
+    @pytest.mark.asyncio
+    async def test_removing_context_clears_stored_result(self):
+        from api.services.telephony.call_transfer_manager import CallTransferManager
+        from api.services.telephony.transfer_event_protocol import (
+            TransferEvent,
+            TransferEventType,
+            TransferRedisChannels,
+        )
+
+        fake = _FakeRedis()
+        manager = CallTransferManager(redis_client=fake)
+        await manager.store_transfer_context(_build_context("xfer-3", "orig-3"))
+        await manager.publish_transfer_event(
+            TransferEvent(
+                type=TransferEventType.TRANSFER_FAILED,
+                transfer_id="xfer-3",
+                original_call_sid="orig-3",
+            )
+        )
+        await manager.remove_transfer_context("xfer-3")
+        assert (
+            await fake.get(TransferRedisChannels.transfer_result_key("xfer-3")) is None
+        )
+
+
+class TestPersistenceFailureDoesNotDropLiveEvent:
+    """A failed durable write must not suppress the live publish.
+
+    Persistence only rescues a waiter that has not subscribed yet; a waiter that
+    is already subscribed depends entirely on the publish. If a storage error
+    skipped publishing, a healthy pub/sub would still time out the transfer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_publish_still_happens_when_persist_fails(self):
+        from api.services.telephony.call_transfer_manager import CallTransferManager
+        from api.services.telephony.transfer_event_protocol import (
+            TransferEvent,
+            TransferEventType,
+            TransferRedisChannels,
+        )
+
+        class _FailingSetexRedis(_FakeRedis):
+            async def setex(self, key: str, ttl: int, value: str) -> None:
+                raise RuntimeError("redis write unavailable")
+
+        fake = _FailingSetexRedis()
+        manager = CallTransferManager(redis_client=fake)
+
+        await manager.publish_transfer_event(
+            TransferEvent(
+                type=TransferEventType.DESTINATION_ANSWERED,
+                transfer_id="xfer-4",
+                original_call_sid="orig-4",
+                transfer_call_sid="dest-4",
+            )
+        )
+
+        channel = TransferRedisChannels.transfer_events("xfer-4")
+        assert [c for c, _ in fake.published] == [channel], (
+            "publish was skipped after a persistence failure — an already "
+            "subscribed waiter would time out"
+        )

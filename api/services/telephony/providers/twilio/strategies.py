@@ -145,22 +145,44 @@ class TwilioHangupStrategy(HangupStrategy):
     async def execute_hangup(self, context: Dict[str, Any]) -> bool:
         """Hang up the Twilio call via REST API."""
         try:
-            account_sid = context["account_sid"]
-            auth_token = context["auth_token"]
-            call_sid = context["call_sid"]
+            account_sid = context.get("account_sid")
+            auth_token = context.get("auth_token")
+            call_sid = context.get("call_sid")
             region = context.get("region")
             edge = context.get("edge")
 
-            if not account_sid or not auth_token or not call_sid:
+            if not account_sid or not auth_token:
                 log_failure(
                     DograhFailure(
                         source=ErrorSource.TELEPHONY,
                         type=ErrorType.CONFIG_ERROR,
-                        code="twilio-missing-hangup-config",
-                        internal_message="Cannot hang up Twilio call: missing required credentials or call SID",
+                        code="twilio-missing-hangup-credentials",
+                        internal_message="Cannot hang up Twilio call: missing required Twilio credentials",
                         external_message="Check the Twilio credentials configured for this call.",
                         provider="twilio",
                         error_owner="user",
+                        retryable=False,
+                    ),
+                    operation="hang up call",
+                )
+                return False
+
+            if not call_sid:
+                log_failure(
+                    DograhFailure(
+                        source=ErrorSource.TELEPHONY,
+                        type=ErrorType.SYSTEM_ERROR,
+                        code="twilio-missing-call-sid",
+                        internal_message=(
+                            "Cannot hang up Twilio call: call SID is missing from "
+                            "runtime call context"
+                        ),
+                        external_message=(
+                            "Dograh could not identify the active Twilio call. Please "
+                            "retry or contact support if the problem continues."
+                        ),
+                        provider="twilio",
+                        error_owner="operator",
                         retryable=False,
                     ),
                     operation="hang up call",

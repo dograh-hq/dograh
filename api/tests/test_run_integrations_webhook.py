@@ -16,7 +16,12 @@ from api.tasks.run_integrations import (
     _build_webhook_payload,
     _enqueue_webhook_delivery,
 )
-from api.tasks.webhook_delivery import deliver_webhook
+from api.tasks.webhook_delivery import (
+    _log_webhook_request,
+    _redact_webhook_value,
+    _safe_webhook_url,
+    deliver_webhook,
+)
 
 # ---------------------------------------------------------------------------
 # Payload rendering (call_disposition injection)
@@ -360,6 +365,67 @@ def _delivery_db(delivery):
     db.schedule_webhook_delivery_retry = AsyncMock()
     db.mark_webhook_delivery_dead_letter = AsyncMock()
     return db
+
+
+def test_webhook_request_log_redaction_preserves_debuggable_shape():
+    payload = {
+        "event": "call_done",
+        "customer": {
+            "email": "person@example.com",
+            "phone_number": "+15551234567",
+            "disposition": "booked",
+        },
+        "items": [{"client_secret": "secret", "sku": "sku-1"}],
+    }
+
+    assert _redact_webhook_value(payload) == {
+        "event": "call_done",
+        "customer": {
+            "email": "[REDACTED]",
+            "phone_number": "[REDACTED]",
+            "disposition": "booked",
+        },
+        "items": [{"client_secret": "[REDACTED]", "sku": "sku-1"}],
+    }
+
+
+def test_safe_webhook_url_hides_userinfo_query_values_and_fragment():
+    safe = _safe_webhook_url(
+        "https://user:password@example.com/hook?token=abc&source=crm#fragment"
+    )
+
+    assert safe == "https://example.com/hook?token=[REDACTED]&source=[REDACTED]"
+    assert "password" not in safe
+    assert "abc" not in safe
+
+
+def test_log_webhook_request_redacts_headers_and_payload():
+    delivery = _fake_delivery(
+        endpoint_url="https://example.com/hook?token=url-secret",
+        payload={"event": "done", "api_key": "payload-secret"},
+    )
+
+    with patch("api.tasks.webhook_delivery.logger.info") as log_info:
+        _log_webhook_request(
+            delivery,
+            method="POST",
+            attempt=1,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer header-secret",
+                "X-Dograh-Delivery-Id": "uuid-1",
+                "X-Customer": "customer-secret",
+            },
+        )
+
+    message = log_info.call_args.args[0]
+    assert '"event": "done"' in message
+    assert '"api_key": "[REDACTED]"' in message
+    assert "payload-secret" not in message
+    assert "header-secret" not in message
+    assert "customer-secret" not in message
+    assert "url-secret" not in message
+    assert "uuid-1" in message
 
 
 @pytest.mark.asyncio

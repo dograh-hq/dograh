@@ -111,7 +111,14 @@ export function EmbeddedVoiceTester({
                     : "Starting Test...";
 
     const handleConfigRetry = () => {
-        configRetriedRef.current = false;
+        // Deliberately NOT resetting configRetriedRef here. It's already
+        // true (that's the only way to reach configUnreachable), and the
+        // auto-start effect's own retry gate reads it — resetting it would
+        // make that effect think no retry has happened yet, so if this
+        // manual refresh also comes back unreachable, the effect would fire
+        // its own extra automatic refresh on top of this one (one click
+        // producing two fetches instead of one). Leaving it true keeps that
+        // budget spent; only this explicit call fetches.
         void refreshAppConfig();
     };
 

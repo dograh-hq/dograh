@@ -36,6 +36,8 @@ function baseHookReturn(opts: {
     refreshAppConfig: () => void;
     appConfigLoading: boolean;
     backendStatus?: BackendStatus;
+    isStarting?: boolean;
+    connectionStatus?: string;
 }) {
     return {
         audioRef: { current: null },
@@ -49,10 +51,10 @@ function baseHookReturn(opts: {
         workflowConfigError: null,
         workflowConfigModalOpen: false,
         setWorkflowConfigModalOpen: vi.fn(),
-        connectionStatus: "idle",
+        connectionStatus: opts.connectionStatus ?? "idle",
         start: opts.start,
         stop: vi.fn(),
-        isStarting: false,
+        isStarting: opts.isStarting ?? false,
         feedbackMessages: [],
         appConfig: opts.backendStatus ? { backendStatus: opts.backendStatus } : null,
         appConfigLoading: opts.appConfigLoading,
@@ -238,12 +240,22 @@ describe("EmbeddedVoiceTester auto-start", () => {
 
         const { rerender } = render(<EmbeddedVoiceTester {...props} />);
 
+        // isStarting: true (with connectionStatus staying non-"failed") makes
+        // the disabled-state check below meaningful: the component's disabled
+        // expression is `isStarting && connectionStatus !== "failed" &&
+        // !configUnreachable`, and with isStarting false (as every other test
+        // in this file uses) that whole expression is already false
+        // regardless of configUnreachable — the assertion would pass even if
+        // configUnreachable did nothing at all. Only with isStarting true does
+        // "not disabled" actually prove configUnreachable is short-circuiting
+        // it, as a review bot correctly pointed out.
         useWebSocketRTCMock.mockReturnValue(
             baseHookReturn({
                 start,
                 refreshAppConfig,
                 appConfigLoading: false,
                 backendStatus: "unreachable",
+                isStarting: true,
             })
         );
         rerender(<EmbeddedVoiceTester {...props} />);
@@ -257,8 +269,9 @@ describe("EmbeddedVoiceTester auto-start", () => {
         // render on their own.
         rerender(<EmbeddedVoiceTester {...props} />);
 
-        // Still just the one automatic retry; the button must now be a
-        // real, enabled retry action.
+        // Still just the one automatic retry; the button must now be a real,
+        // enabled retry action — meaningful specifically because isStarting
+        // is true here (see comment above).
         expect(refreshAppConfig).toHaveBeenCalledTimes(1);
         const retryButton = screen.getByRole("button", { name: /retry connection/i }) as HTMLButtonElement;
         expect(retryButton.disabled).toBe(false);
@@ -280,5 +293,78 @@ describe("EmbeddedVoiceTester auto-start", () => {
         rerender(<EmbeddedVoiceTester {...props} />);
 
         expect(start).toHaveBeenCalledTimes(1);
+    });
+
+    it("issues exactly one extra fetch per manual retry click, not two, when it also comes back unreachable", () => {
+        // Regression test for a review bot's own reproduction: the manual
+        // retry handler used to reset configRetriedRef to false before
+        // calling refreshAppConfig(). That made the auto-start effect think
+        // no retry had happened yet, so when the manual refresh resolved
+        // still unreachable, the effect fired its *own* extra automatic
+        // refresh on top of the manual one — one click producing two fetches
+        // (three total including the very first automatic retry) instead of
+        // one (two total).
+        const start = vi.fn();
+        const refreshAppConfig = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({ start, refreshAppConfig, appConfigLoading: true })
+        );
+
+        const { rerender } = render(<EmbeddedVoiceTester {...props} />);
+
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "unreachable",
+                isStarting: true,
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />); // effect fires the first automatic retry
+        rerender(<EmbeddedVoiceTester {...props} />); // configRetriedRef's flip becomes observable
+        expect(refreshAppConfig).toHaveBeenCalledTimes(1);
+
+        const retryButton = screen.getByRole("button", { name: /retry connection/i });
+        fireEvent.click(retryButton);
+        expect(refreshAppConfig).toHaveBeenCalledTimes(2);
+
+        // Simulate the manual refresh's async work actually resolving — the
+        // mock doesn't auto-update the way the real refreshAppConfig
+        // (AppConfigContext.loadConfig) would, so this has to be done
+        // explicitly: loading flips true then false again, still
+        // unreachable. Without an actual appConfigLoading change here the
+        // effect never re-runs at all and this test would pass unconditionally
+        // regardless of whether the bug exists (confirmed by running this
+        // test against the buggy handleConfigRetry — it must fail there).
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: true,
+                backendStatus: "unreachable",
+                isStarting: true,
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "unreachable",
+                isStarting: true,
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+        // One more render for configRetriedRef's own flip (if any) to become
+        // observable, same as earlier in this file.
+        rerender(<EmbeddedVoiceTester {...props} />);
+
+        // Exactly the one manual fetch — no extra automatic retry fired on
+        // top of it.
+        expect(refreshAppConfig).toHaveBeenCalledTimes(2);
+        expect(start).not.toHaveBeenCalled();
     });
 });

@@ -23,6 +23,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "app_name": value.get("app_name"),
         "app_password": value.get("app_password"),
         "external_pbx": value.get("external_pbx"),
+        "dial_string_template": value.get("dial_string_template"),
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -54,6 +55,13 @@ _UI_METADATA = ProviderUIMetadata(
             label="websocket_client.conf Name",
             type="text",
             description="websocket_client.conf connection name for externalMedia",
+        ),
+        ProviderUIField(
+            name="dial_string_template",
+            label="Dial String Template",
+            type="text",
+            required=False,
+            description="Asterisk dial string template for plain numbers (e.g. Local/{number}@from-internal)",
         ),
         ProviderUIField(
             name="from_numbers",

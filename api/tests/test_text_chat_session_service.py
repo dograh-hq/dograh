@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -7,12 +8,15 @@ from api.db.models import WorkflowRunTextSessionModel
 from api.services.workflow.text_chat_session_service import (
     TextChatSessionExecutionError,
     TextChatTurnNotFoundError,
+    _enqueue_text_chat_completion,
     _reload_text_chat_session,
     build_pending_text_chat_turn,
+    complete_text_chat_session,
     execute_pending_text_chat_turn,
     truncate_text_chat_future_turns,
     validate_text_chat_turn_cursor,
 )
+from api.tasks.function_names import FunctionNames
 
 
 def test_build_pending_text_chat_turn_sets_pending_shape():
@@ -106,6 +110,205 @@ async def test_execute_pending_turn_surfaces_original_exception_message(monkeypa
             run_id=42,
             text_session=session,
         )
+
+
+@pytest.mark.asyncio
+async def test_completed_pending_turn_enqueues_workflow_completion(monkeypatch):
+    session = SimpleNamespace(
+        revision=7,
+        session_data={
+            "status": "pending_assistant_turn",
+            "turns": [
+                {
+                    "id": "turn-1",
+                    "status": "pending",
+                    "created_at": "2026-08-05T00:00:00+00:00",
+                    "user_message": {
+                        "text": "Goodbye",
+                        "created_at": "2026-08-05T00:00:00+00:00",
+                    },
+                    "assistant_message": None,
+                    "events": [],
+                    "usage": {},
+                }
+            ],
+        },
+        checkpoint={},
+        workflow_run=SimpleNamespace(usage_info={}, is_completed=False),
+    )
+    execution = SimpleNamespace(
+        assistant_text="Goodbye!",
+        assistant_created_at="2026-08-05T00:00:01+00:00",
+        events=[],
+        usage={"call_duration_seconds": 1},
+        checkpoint={"current_node_id": "end"},
+        initial_context={},
+        gathered_context={"call_disposition": "end_call_tool"},
+        state="completed",
+        is_completed=True,
+    )
+    reloaded = SimpleNamespace(workflow_run=SimpleNamespace(is_completed=True))
+    update_text_session = AsyncMock()
+    update_workflow_run = AsyncMock()
+    enqueue_completion = AsyncMock()
+
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "execute_text_chat_pending_turn",
+        AsyncMock(return_value=execution),
+    )
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run_text_session",
+        update_text_session,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run",
+        update_workflow_run,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_enqueue_text_chat_completion",
+        enqueue_completion,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_reload_text_chat_session",
+        AsyncMock(return_value=reloaded),
+    )
+
+    result = await execute_pending_text_chat_turn(
+        workflow_id=3,
+        run_id=42,
+        text_session=session,
+    )
+
+    assert result is reloaded
+    persisted_session = update_text_session.await_args.kwargs["session_data"]
+    assert persisted_session["status"] == "completed"
+    assert persisted_session["turns"][-1]["status"] == "completed"
+    assert update_workflow_run.await_args.kwargs["is_completed"] is True
+    enqueue_completion.assert_awaited_once_with(42)
+
+
+@pytest.mark.asyncio
+async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(monkeypatch):
+    workflow_run = SimpleNamespace(
+        is_completed=False,
+        gathered_context={"call_tags": ["existing"]},
+    )
+    session = SimpleNamespace(
+        revision=4,
+        session_data={"status": "idle", "turns": []},
+        workflow_run=workflow_run,
+    )
+    reloaded = SimpleNamespace(workflow_run=SimpleNamespace(is_completed=True))
+    update_text_session = AsyncMock()
+    update_workflow_run = AsyncMock()
+    enqueue_completion = AsyncMock()
+
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run_text_session",
+        update_text_session,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run",
+        update_workflow_run,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_enqueue_text_chat_completion",
+        enqueue_completion,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_reload_text_chat_session",
+        AsyncMock(return_value=reloaded),
+    )
+
+    result = await complete_text_chat_session(
+        run_id=42,
+        text_session=session,
+        expected_revision=4,
+    )
+
+    assert result is reloaded
+    update_text_session.assert_awaited_once()
+    assert (
+        update_text_session.await_args.kwargs["session_data"]["status"] == "completed"
+    )
+    assert update_text_session.await_args.kwargs["expected_revision"] == 4
+    update = update_workflow_run.await_args.kwargs
+    assert update["is_completed"] is True
+    assert update["state"] == "completed"
+    assert update["gathered_context"] == {
+        "call_disposition": "user_hangup",
+        "mapped_call_disposition": "user_hangup",
+        "call_tags": ["existing", "user_hangup"],
+    }
+    enqueue_completion.assert_awaited_once_with(42)
+
+
+@pytest.mark.asyncio
+async def test_complete_text_chat_session_retries_enqueue_for_completed_run(
+    monkeypatch,
+):
+    session = SimpleNamespace(
+        workflow_run=SimpleNamespace(is_completed=True),
+    )
+    reloaded = SimpleNamespace(workflow_run=SimpleNamespace(is_completed=True))
+    enqueue_completion = AsyncMock()
+    update_text_session = AsyncMock()
+    update_workflow_run = AsyncMock()
+
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_enqueue_text_chat_completion",
+        enqueue_completion,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_reload_text_chat_session",
+        AsyncMock(return_value=reloaded),
+    )
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run_text_session",
+        update_text_session,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run",
+        update_workflow_run,
+    )
+
+    result = await complete_text_chat_session(
+        run_id=42,
+        text_session=session,
+        expected_revision=4,
+    )
+
+    assert result is reloaded
+    enqueue_completion.assert_awaited_once_with(42)
+    update_text_session.assert_not_awaited()
+    update_workflow_run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_text_chat_completion_uses_deterministic_job_id(monkeypatch):
+    enqueue = AsyncMock()
+    monkeypatch.setattr("api.tasks.arq.enqueue_job", enqueue)
+
+    await _enqueue_text_chat_completion(42)
+
+    enqueue.assert_awaited_once_with(
+        FunctionNames.PROCESS_WORKFLOW_COMPLETION,
+        42,
+        _job_id="workflow-completion-42",
+    )
 
 
 @pytest.mark.asyncio

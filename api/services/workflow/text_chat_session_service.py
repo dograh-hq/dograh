@@ -4,11 +4,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from pipecat.utils.enums import EndTaskReason
+
 from api.db import db_client
 from api.db.models import WorkflowRunTextSessionModel
 from api.db.workflow_run_text_session_client import (
     WorkflowRunTextSessionRevisionConflictError,
 )
+from api.enums import WorkflowRunState
 from api.services.workflow.text_chat_logs import (
     build_text_chat_realtime_feedback_events,
 )
@@ -18,6 +21,7 @@ from api.services.workflow.text_chat_runner import (
     merge_text_chat_usage_info,
     normalize_text_chat_checkpoint,
 )
+from api.tasks.function_names import FunctionNames
 
 TEXT_CHAT_SESSION_VERSION = 1
 
@@ -177,6 +181,63 @@ async def rewind_text_chat_session_state(
     return await _reload_text_chat_session(run_id)
 
 
+async def complete_text_chat_session(
+    *,
+    run_id: int,
+    text_session: WorkflowRunTextSessionModel,
+    expected_revision: int | None,
+) -> WorkflowRunTextSessionModel:
+    """End a text chat at the user's request and schedule post-run work.
+
+    The text-session revision is advanced before the workflow run is marked
+    complete. That makes an end request race safely with an in-flight message:
+    whichever operation updates the session first wins and the other receives
+    the normal revision conflict.
+    """
+    workflow_run = text_session.workflow_run
+    if workflow_run.is_completed:
+        # A previous request may have committed completion but failed while
+        # talking to Redis. Re-enqueue with the deterministic job id so callers
+        # can safely retry without duplicating completion work.
+        await _enqueue_text_chat_completion(run_id)
+        return await _reload_text_chat_session(run_id)
+
+    completed_session_data = normalize_text_chat_session_data(text_session.session_data)
+    completed_session_data["status"] = "completed"
+
+    try:
+        await db_client.update_workflow_run_text_session(
+            run_id,
+            session_data=completed_session_data,
+            expected_revision=expected_revision,
+        )
+    except WorkflowRunTextSessionRevisionConflictError as e:
+        raise TextChatSessionRevisionConflictError(
+            expected_revision=e.expected_revision,
+            actual_revision=e.actual_revision,
+        ) from e
+
+    disposition = EndTaskReason.USER_HANGUP.value
+    gathered_context = workflow_run.gathered_context or {}
+    call_tags = list(gathered_context.get("call_tags") or [])
+    if disposition not in call_tags:
+        call_tags.append(disposition)
+
+    await db_client.update_workflow_run(
+        run_id,
+        gathered_context={
+            "call_disposition": disposition,
+            "mapped_call_disposition": disposition,
+            "call_tags": call_tags,
+        },
+        state=WorkflowRunState.COMPLETED.value,
+        is_completed=True,
+    )
+    await _enqueue_text_chat_completion(run_id)
+
+    return await _reload_text_chat_session(run_id)
+
+
 async def execute_pending_text_chat_turn(
     *,
     workflow_id: int,
@@ -224,7 +285,7 @@ async def execute_pending_text_chat_turn(
     completed_turns[-1]["usage"] = execution.usage
     completed_turns[-1]["checkpoint_after_turn"] = execution.checkpoint
     completed_session_data["turns"] = completed_turns
-    completed_session_data["status"] = "idle"
+    completed_session_data["status"] = "completed" if execution.is_completed else "idle"
 
     try:
         await db_client.update_workflow_run_text_session(
@@ -255,6 +316,8 @@ async def execute_pending_text_chat_turn(
         state=execution.state,
         is_completed=execution.is_completed,
     )
+    if execution.is_completed:
+        await _enqueue_text_chat_completion(run_id)
 
     return await _reload_text_chat_session(run_id)
 
@@ -355,6 +418,19 @@ async def _mark_pending_turn_failed(
         return
 
 
+async def _enqueue_text_chat_completion(run_id: int) -> None:
+    """Schedule integrations, webhooks, and billing for a completed text chat."""
+    # Imported lazily so API route imports do not eagerly load the ARQ worker
+    # task graph.
+    from api.tasks.arq import enqueue_job
+
+    await enqueue_job(
+        FunctionNames.PROCESS_WORKFLOW_COMPLETION,
+        run_id,
+        _job_id=f"workflow-completion-{run_id}",
+    )
+
+
 async def _reload_text_chat_session(run_id: int) -> WorkflowRunTextSessionModel:
     organization_id = await db_client.get_organization_id_by_workflow_run_id(run_id)
     if organization_id is None:
@@ -375,6 +451,7 @@ __all__ = [
     "TextChatTurnNotFoundError",
     "append_text_chat_user_message",
     "build_pending_text_chat_turn",
+    "complete_text_chat_session",
     "TextChatPendingTurnLostError",
     "TextChatSessionExecutionError",
     "TextChatSessionRevisionConflictError",

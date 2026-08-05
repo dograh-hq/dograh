@@ -297,6 +297,34 @@ export type AssemblyAisttConfiguration = {
 };
 
 /**
+ * Atlas Cloud
+ *
+ * Atlas Cloud OpenAI-compatible LLM API.
+ */
+export type AtlasCloudLlmService = {
+    /**
+     * Provider
+     */
+    provider?: 'atlascloud';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Atlas Cloud OpenAI-compatible chat model identifier.
+     */
+    model?: string;
+    /**
+     * Base Url
+     *
+     * Atlas Cloud OpenAI-compatible API endpoint.
+     */
+    base_url?: string;
+};
+
+/**
  * AuthResponse
  */
 export type AuthResponse = {
@@ -531,6 +559,8 @@ export type ByokPipelineAiModelConfiguration = {
     llm: ({
         provider: 'openai';
     } & OpenAillmService) | ({
+        provider: 'atlascloud';
+    } & AtlasCloudLlmService) | ({
         provider: 'google_vertex';
     } & GoogleVertexLlmConfiguration) | ({
         provider: 'groq';
@@ -661,6 +691,8 @@ export type ByokRealtimeAiModelConfiguration = {
     llm: ({
         provider: 'openai';
     } & OpenAillmService) | ({
+        provider: 'atlascloud';
+    } & AtlasCloudLlmService) | ({
         provider: 'google_vertex';
     } & GoogleVertexLlmConfiguration) | ({
         provider: 'groq';
@@ -2543,6 +2575,16 @@ export type EndCallToolDefinition = {
      * End Call configuration.
      */
     config: EndCallConfig;
+};
+
+/**
+ * EndTextChatSessionRequest
+ */
+export type EndTextChatSessionRequest = {
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
 };
 
 /**
@@ -4804,6 +4846,16 @@ export type ProviderSyncStatus = {
      * Message
      */
     message?: string | null;
+};
+
+/**
+ * PublicEmbedChatEndRequest
+ */
+export type PublicEmbedChatEndRequest = {
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
 };
 
 /**
@@ -9482,6 +9534,54 @@ export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMes
 
 export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponse = AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses[keyof AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses];
 
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostData = {
+    body: EndTextChatSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/{run_id}/end';
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostError = EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors[keyof EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors];
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse;
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponse = EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses[keyof EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses];
+
 export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostData = {
     body: RewindTextChatSessionRequest;
     headers?: {
@@ -13471,6 +13571,72 @@ export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsRespo
      */
     200: unknown;
 };
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/end';
+};
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsError = OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors[keyof OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors];
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostData = {
+    body: PublicEmbedChatEndRequest;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/end';
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostError = EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors[keyof EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors];
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicEmbedChatSessionResponse;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponse = EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses[keyof EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses];
 
 export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsData = {
     body?: never;

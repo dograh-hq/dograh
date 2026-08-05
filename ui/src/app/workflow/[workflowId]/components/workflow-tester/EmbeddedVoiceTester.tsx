@@ -46,6 +46,7 @@ export function EmbeddedVoiceTester({
         stop,
         isStarting,
         feedbackMessages,
+        appConfigLoading,
     } = useWebSocketRTC({
         workflowId,
         workflowRunId,
@@ -56,12 +57,18 @@ export function EmbeddedVoiceTester({
     const autoStartedRef = useRef(false);
 
     useEffect(() => {
-        if (autoStartedRef.current) {
+        // Wait for appConfig (FORCE_TURN_RELAY) to finish loading before
+        // auto-starting. createPeerConnection reads it synchronously, and
+        // this effect only ever fires start() once (autoStartedRef) — a
+        // connection created while appConfig is still null permanently
+        // misses the relay-only restriction for the whole call, since
+        // resolving appConfig afterward doesn't recreate it.
+        if (autoStartedRef.current || appConfigLoading) {
             return;
         }
         autoStartedRef.current = true;
         void start();
-    }, [start]);
+    }, [start, appConfigLoading]);
 
     const endButtonLabel = connectionActive
         ? "End Call"

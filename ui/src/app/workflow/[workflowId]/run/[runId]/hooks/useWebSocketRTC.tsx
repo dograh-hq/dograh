@@ -51,7 +51,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [isStarting, setIsStarting] = useState(false);
     const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
     const initialContext = initialContextVariables || {};
-    const { config: appConfig } = useAppConfig();
+    const { config: appConfig, loading: appConfigLoading } = useAppConfig();
 
     const {
         audioInputs,
@@ -836,6 +836,13 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         audioInputs,
         selectedAudioInput,
         setSelectedAudioInput,
+        // Whether FORCE_TURN_RELAY/appConfig is still loading. createPeerConnection
+        // reads appConfig?.forceTurnRelay synchronously, and it's null until the
+        // async /api/config/version fetch resolves — starting a call before then
+        // silently creates a connection without the relay-only restriction, with
+        // no way to recreate it afterward. Callers that auto-start (no explicit
+        // user click to wait on) must gate on this being false first.
+        appConfigLoading,
         connectionActive,
         permissionError,
         isCompleted,

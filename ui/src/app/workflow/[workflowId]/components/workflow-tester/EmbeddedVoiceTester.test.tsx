@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { EmbeddedVoiceTester } from "./EmbeddedVoiceTester";
@@ -223,5 +223,62 @@ describe("EmbeddedVoiceTester auto-start", () => {
 
         expect(firstStart).toHaveBeenCalledTimes(1);
         expect(secondStart).not.toHaveBeenCalled();
+    });
+
+    it("offers a working manual retry instead of staying permanently stuck once unreachable", () => {
+        // Regression test for a review bot's reproduction: after the one
+        // bounded auto-retry, the tester must not be left with no way to
+        // ever start (a dead "Starting Test..." spinner with no functional
+        // click handler) if the backend is still unreachable.
+        const start = vi.fn();
+        const refreshAppConfig = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({ start, refreshAppConfig, appConfigLoading: true })
+        );
+
+        const { rerender } = render(<EmbeddedVoiceTester {...props} />);
+
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "unreachable",
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+        expect(refreshAppConfig).toHaveBeenCalledTimes(1);
+
+        // configRetriedRef flips inside the effect, which commits *after*
+        // this render's own render-phase read of it — one more render (with
+        // unchanged props/mocks) is needed to observe it, mirroring the real
+        // app: refreshAppConfig there is the actual context function, whose
+        // own state updates naturally trigger exactly this kind of follow-up
+        // render on their own.
+        rerender(<EmbeddedVoiceTester {...props} />);
+
+        // Still just the one automatic retry; the button must now be a
+        // real, enabled retry action.
+        expect(refreshAppConfig).toHaveBeenCalledTimes(1);
+        const retryButton = screen.getByRole("button", { name: /retry connection/i }) as HTMLButtonElement;
+        expect(retryButton.disabled).toBe(false);
+
+        fireEvent.click(retryButton);
+        expect(refreshAppConfig).toHaveBeenCalledTimes(2);
+        expect(start).not.toHaveBeenCalled();
+
+        // The manual retry succeeds — this must lead to a real start(), not
+        // just another no-op retry loop.
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "reachable",
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+
+        expect(start).toHaveBeenCalledTimes(1);
     });
 });

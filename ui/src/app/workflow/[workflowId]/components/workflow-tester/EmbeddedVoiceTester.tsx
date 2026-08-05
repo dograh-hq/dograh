@@ -90,13 +90,30 @@ export function EmbeddedVoiceTester({
         void start();
     }, [start, appConfig?.backendStatus, appConfigLoading, refreshAppConfig]);
 
+    // True once the one bounded retry above has run and the backend is
+    // still unreachable — the auto-start effect deliberately gives up at
+    // that point rather than starting with an unconfirmed forceTurnRelay
+    // value, which would otherwise leave the tester stuck with no way to
+    // ever start. Surface a manual retry instead.
+    const configUnreachable =
+        !appConfigLoading &&
+        configRetriedRef.current &&
+        appConfig?.backendStatus !== "reachable";
+
     const endButtonLabel = connectionActive
         ? "End Call"
         : isCompleted
             ? "Start Another Test"
             : connectionStatus === "failed"
                 ? "Retry Call"
-                : "Starting Test...";
+                : configUnreachable
+                    ? "Retry Connection"
+                    : "Starting Test...";
+
+    const handleConfigRetry = () => {
+        configRetriedRef.current = false;
+        void refreshAppConfig();
+    };
 
     const handleFooterAction = async () => {
         if (connectionActive) {
@@ -109,6 +126,10 @@ export function EmbeddedVoiceTester({
         }
         if (connectionStatus === "failed") {
             await start();
+            return;
+        }
+        if (configUnreachable) {
+            handleConfigRetry();
         }
     };
 
@@ -132,11 +153,16 @@ export function EmbeddedVoiceTester({
                         ) : null}
                         <Button
                             onClick={handleFooterAction}
-                            disabled={isStarting && connectionStatus !== "failed"}
+                            disabled={isStarting && connectionStatus !== "failed" && !configUnreachable}
                             variant={connectionActive ? "destructive" : "default"}
                             className="w-full"
                         >
-                            {isStarting && connectionStatus !== "failed" ? (
+                            {configUnreachable ? (
+                                <>
+                                    <RefreshCw className="h-4 w-4" />
+                                    {endButtonLabel}
+                                </>
+                            ) : isStarting && connectionStatus !== "failed" ? (
                                 <>
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Starting Test...
@@ -163,6 +189,11 @@ export function EmbeddedVoiceTester({
                                 </>
                             )}
                         </Button>
+                        {configUnreachable ? (
+                            <p className="text-center text-sm text-muted-foreground">
+                                Couldn&apos;t reach the backend to confirm call settings. Tap retry once it&apos;s back.
+                            </p>
+                        ) : null}
                     </div>
                 </div>
 

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from loguru import logger
 from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
@@ -21,7 +22,9 @@ from api.services.workflow.text_chat_runner import (
     merge_text_chat_usage_info,
     normalize_text_chat_checkpoint,
 )
+from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
 from api.tasks.function_names import FunctionNames
+from api.utils.transcript import generate_transcript_text
 
 TEXT_CHAT_SESSION_VERSION = 1
 
@@ -186,30 +189,51 @@ async def complete_text_chat_session(
     run_id: int,
     text_session: WorkflowRunTextSessionModel,
     expected_revision: int | None,
+    completion_reason: str = EndTaskReason.USER_HANGUP.value,
+    completed_at: datetime | None = None,
 ) -> WorkflowRunTextSessionModel:
-    """End a text chat at the user's request and schedule post-run work.
+    """End a text chat and schedule its artifact and post-run work.
 
-    The text-session revision is advanced before the workflow run is marked
-    complete. That makes an end request race safely with an in-flight message:
-    whichever operation updates the session first wins and the other receives
+    The session revision and workflow-run completion are committed atomically.
+    That makes an end request race safely with an in-flight message: whichever
+    operation locks and updates the session first wins, and the other receives
     the normal revision conflict.
     """
     workflow_run = text_session.workflow_run
     if workflow_run.is_completed:
-        # A previous request may have committed completion but failed while
-        # talking to Redis. Re-enqueue with the deterministic job id so callers
-        # can safely retry without duplicating completion work.
+        # Preserve the existing idempotent behavior for repeated end requests.
         await _enqueue_text_chat_completion(run_id)
         return await _reload_text_chat_session(run_id)
 
     completed_session_data = normalize_text_chat_session_data(text_session.session_data)
     completed_session_data["status"] = "completed"
+    completed_at = completed_at or datetime.now(UTC)
+    disposition = completion_reason
+    gathered_context = workflow_run.gathered_context or {}
+    call_tags = list(gathered_context.get("call_tags") or [])
+    if disposition not in call_tags:
+        call_tags.append(disposition)
+
+    feedback_events = build_text_chat_realtime_feedback_events(completed_session_data)
+    usage_info = dict(workflow_run.usage_info or {})
+    usage_info["call_duration_seconds"] = _text_chat_duration_seconds(
+        text_session,
+        completed_at=completed_at,
+    )
 
     try:
-        await db_client.update_workflow_run_text_session(
+        await db_client.complete_workflow_run_text_session(
             run_id,
             session_data=completed_session_data,
             expected_revision=expected_revision,
+            usage_info=usage_info,
+            gathered_context={
+                "call_disposition": disposition,
+                "mapped_call_disposition": disposition,
+                "call_tags": call_tags,
+            },
+            logs={"realtime_feedback_events": feedback_events},
+            state=WorkflowRunState.COMPLETED.value,
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
         raise TextChatSessionRevisionConflictError(
@@ -217,22 +241,7 @@ async def complete_text_chat_session(
             actual_revision=e.actual_revision,
         ) from e
 
-    disposition = EndTaskReason.USER_HANGUP.value
-    gathered_context = workflow_run.gathered_context or {}
-    call_tags = list(gathered_context.get("call_tags") or [])
-    if disposition not in call_tags:
-        call_tags.append(disposition)
-
-    await db_client.update_workflow_run(
-        run_id,
-        gathered_context={
-            "call_disposition": disposition,
-            "mapped_call_disposition": disposition,
-            "call_tags": call_tags,
-        },
-        state=WorkflowRunState.COMPLETED.value,
-        is_completed=True,
-    )
+    await _upload_text_chat_transcript(run_id, feedback_events)
     await _enqueue_text_chat_completion(run_id)
 
     return await _reload_text_chat_session(run_id)
@@ -287,37 +296,55 @@ async def execute_pending_text_chat_turn(
     completed_session_data["turns"] = completed_turns
     completed_session_data["status"] = "completed" if execution.is_completed else "idle"
 
+    completed_at = datetime.now(UTC)
+    existing_usage_info = text_session.workflow_run.usage_info or {}
+    merged_usage_info = merge_text_chat_usage_info(existing_usage_info, execution.usage)
+    merged_usage_info["call_duration_seconds"] = _text_chat_duration_seconds(
+        text_session,
+        completed_at=completed_at,
+    )
+    feedback_events = build_text_chat_realtime_feedback_events(completed_session_data)
+    text_chat_logs = {"realtime_feedback_events": feedback_events}
+
     try:
-        await db_client.update_workflow_run_text_session(
-            run_id,
-            session_data=completed_session_data,
-            checkpoint=execution.checkpoint,
-            expected_revision=text_session.revision,
-        )
+        if execution.is_completed:
+            await db_client.complete_workflow_run_text_session(
+                run_id,
+                session_data=completed_session_data,
+                checkpoint=execution.checkpoint,
+                expected_revision=text_session.revision,
+                usage_info=merged_usage_info,
+                initial_context=execution.initial_context,
+                gathered_context=execution.gathered_context,
+                logs=text_chat_logs,
+                state=execution.state,
+            )
+        else:
+            await db_client.update_workflow_run_text_session(
+                run_id,
+                session_data=completed_session_data,
+                checkpoint=execution.checkpoint,
+                expected_revision=text_session.revision,
+            )
     except WorkflowRunTextSessionRevisionConflictError as e:
         raise TextChatSessionRevisionConflictError(
             expected_revision=e.expected_revision,
             actual_revision=e.actual_revision,
         ) from e
 
-    existing_usage_info = text_session.workflow_run.usage_info or {}
-    merged_usage_info = merge_text_chat_usage_info(existing_usage_info, execution.usage)
-    text_chat_logs = {
-        "realtime_feedback_events": build_text_chat_realtime_feedback_events(
-            completed_session_data
-        )
-    }
-    await db_client.update_workflow_run(
-        run_id,
-        initial_context=execution.initial_context,
-        usage_info=merged_usage_info,
-        gathered_context=execution.gathered_context,
-        logs=text_chat_logs,
-        state=execution.state,
-        is_completed=execution.is_completed,
-    )
     if execution.is_completed:
+        await _upload_text_chat_transcript(run_id, feedback_events)
         await _enqueue_text_chat_completion(run_id)
+    else:
+        await db_client.update_workflow_run(
+            run_id,
+            initial_context=execution.initial_context,
+            usage_info=merged_usage_info,
+            gathered_context=execution.gathered_context,
+            logs=text_chat_logs,
+            state=execution.state,
+            is_completed=False,
+        )
 
     return await _reload_text_chat_session(run_id)
 
@@ -429,6 +456,46 @@ async def _enqueue_text_chat_completion(run_id: int) -> None:
         run_id,
         _job_id=f"workflow-completion-{run_id}",
     )
+
+
+def _text_chat_duration_seconds(
+    text_session: WorkflowRunTextSessionModel,
+    *,
+    completed_at: datetime,
+) -> float:
+    """Wall-clock duration from text-session creation through completion."""
+    started_at = getattr(text_session, "created_at", None) or getattr(
+        text_session.workflow_run,
+        "created_at",
+        None,
+    )
+    if started_at is None:
+        return 0.0
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=UTC)
+    return max(0.0, (completed_at - started_at).total_seconds())
+
+
+async def _upload_text_chat_transcript(
+    run_id: int,
+    feedback_events: list[dict[str, Any]],
+) -> None:
+    """Persist the text transcript before webhooks render their payload."""
+    transcript_text = generate_transcript_text(feedback_events)
+    if not transcript_text:
+        logger.debug(
+            f"No text-chat transcript events for run {run_id}; skipping upload"
+        )
+        return
+    try:
+        await upload_workflow_run_artifacts(
+            run_id,
+            transcript_text=transcript_text,
+        )
+    except Exception as e:  # noqa: BLE001 - artifact failure must not block webhooks
+        logger.error(f"Failed to upload text-chat transcript for run {run_id}: {e}")
 
 
 async def _reload_text_chat_session(run_id: int) -> WorkflowRunTextSessionModel:

@@ -45,6 +45,7 @@ from api.tasks.campaign_tasks import (
 )
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
+from api.tasks.text_chat_inactivity import sweep_inactive_text_chat_sessions
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
 from api.tasks.workflow_completion import process_workflow_completion
 
@@ -65,6 +66,14 @@ class WorkerSettings:
             sweep_webhook_deliveries,
             minute=set(range(0, 60, 5)),
             second=0,
+            run_at_startup=True,
+        ),
+        # Text chats do not have a transport disconnect callback. Close stale
+        # sessions so their transcript, webhooks, and billing are finalized.
+        cron(
+            sweep_inactive_text_chat_sessions,
+            minute=set(range(0, 60, 5)),
+            second=30,
             run_at_startup=True,
         ),
     ]

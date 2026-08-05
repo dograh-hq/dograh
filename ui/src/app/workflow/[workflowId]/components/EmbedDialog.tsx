@@ -28,13 +28,20 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { WIDGET_CONTEXT_DOC_URL, WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { HEADLESS_CHAT_EXAMPLE } from "@/constants/embedExamples";
+import { detailFromError } from "@/lib/apiError";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import type { WorkflowConfigurations } from "@/types/workflow-configurations";
 
 interface EmbedDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     workflowId: number;
     workflowName: string;
+    workflowConfigurations: WorkflowConfigurations;
+    onSaveWorkflowConfigurations: (
+        configurations: WorkflowConfigurations,
+        workflowName: string,
+    ) => Promise<void>;
 }
 
 type WidgetType = "voice" | "chat";
@@ -51,6 +58,9 @@ const WIDGET_TYPE_DEFAULTS: Record<WidgetType, { buttonText: string; callToActio
         callToActionText: "Click to start chatting",
     },
 };
+
+const SECONDS_PER_MINUTE = 60;
+const MIN_TEXT_CHAT_INACTIVITY_MINUTES = 1;
 
 interface EmbedToken {
     id: number;
@@ -70,6 +80,8 @@ export function EmbedDialog({
     onOpenChange,
     workflowId,
     workflowName,
+    workflowConfigurations,
+    onSaveWorkflowConfigurations,
 }: EmbedDialogProps) {
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -86,6 +98,14 @@ export function EmbedDialog({
     const [buttonText, setButtonText] = useState("Talk to Agent");
     const [buttonColor, setButtonColor] = useState("#10b981");
     const [callToActionText, setCallToActionText] = useState("Click to start voice conversation");
+    const [textChatInactivityMinutes, setTextChatInactivityMinutes] = useState(() =>
+        String(workflowConfigurations.text_chat_inactivity_timeout_seconds / SECONDS_PER_MINUTE),
+    );
+
+    const parsedTextChatInactivityMinutes = Number(textChatInactivityMinutes);
+    const textChatInactivityIsValid =
+        Number.isInteger(parsedTextChatInactivityMinutes) &&
+        parsedTextChatInactivityMinutes >= MIN_TEXT_CHAT_INACTIVITY_MINUTES;
 
     const handleWidgetTypeChange = (type: WidgetType) => {
         if (type === widgetType) return;
@@ -134,17 +154,44 @@ export function EmbedDialog({
     useEffect(() => {
         if (open) {
             loadEmbedToken();
+            setTextChatInactivityMinutes(
+                String(
+                    workflowConfigurations.text_chat_inactivity_timeout_seconds /
+                        SECONDS_PER_MINUTE,
+                ),
+            );
         }
-    }, [open, loadEmbedToken]);
+    }, [open, loadEmbedToken, workflowConfigurations.text_chat_inactivity_timeout_seconds]);
 
     const handleSave = async () => {
+        if (isEnabled && widgetType === "chat" && !textChatInactivityIsValid) {
+            toast.error("Chat inactivity timeout must be a whole number of minutes");
+            return;
+        }
+
         setSaving(true);
         try {
+            if (isEnabled && widgetType === "chat") {
+                await onSaveWorkflowConfigurations(
+                    {
+                        ...workflowConfigurations,
+                        text_chat_inactivity_timeout_seconds:
+                            parsedTextChatInactivityMinutes * SECONDS_PER_MINUTE,
+                    },
+                    workflowName,
+                );
+            }
+
             if (!isEnabled && embedToken) {
                 // Deactivate token
-                await deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete({
+                const response = await deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete({
                     path: { workflow_id: workflowId },
                 });
+                if (response.error) {
+                    throw new Error(
+                        detailFromError(response.error, "Failed to disable embedding"),
+                    );
+                }
                 setEmbedToken(null);
             } else if (isEnabled) {
                 // Create or update token
@@ -168,14 +215,23 @@ export function EmbedDialog({
                     },
                 });
 
+                if (response.error) {
+                    throw new Error(
+                        detailFromError(response.error, "Failed to save widget configuration"),
+                    );
+                }
                 if (response.data) {
                     setEmbedToken(response.data as EmbedToken);
                 }
             }
 
+            toast.success("Widget configuration saved");
             // Don't close modal after saving - let user copy the embed code
         } catch (error) {
             console.error("Failed to save embed token:", error);
+            toast.error(
+                error instanceof Error ? error.message : "Failed to save widget configuration",
+            );
         } finally {
             setSaving(false);
         }
@@ -354,6 +410,40 @@ export function EmbedDialog({
                                         </button>
                                     </div>
                                 </div>
+
+                                {widgetType === "chat" && (
+                                    <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
+                                        <Label htmlFor="text-chat-inactivity-timeout">
+                                            Chat Inactivity Timeout
+                                        </Label>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                id="text-chat-inactivity-timeout"
+                                                type="number"
+                                                min={MIN_TEXT_CHAT_INACTIVITY_MINUTES}
+                                                step="1"
+                                                value={textChatInactivityMinutes}
+                                                onChange={(event) =>
+                                                    setTextChatInactivityMinutes(event.target.value)
+                                                }
+                                                aria-invalid={!textChatInactivityIsValid}
+                                                className="w-32"
+                                            />
+                                            <span className="text-sm text-muted-foreground">
+                                                minutes
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            End a text chat and trigger its completion webhook after
+                                            this long without chat activity.
+                                        </p>
+                                        {!textChatInactivityIsValid && (
+                                            <p className="text-xs text-destructive">
+                                                Enter a whole number of at least one minute.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Embed Mode Selection */}
                                 <div className="space-y-4">
@@ -704,7 +794,14 @@ document.getElementById('talk-btn').addEventListener('click', () => {
 
                                 {/* Save Button */}
                                 <div className="flex justify-end">
-                                    <Button onClick={handleSave} disabled={saving}>
+                                    <Button
+                                        onClick={handleSave}
+                                        disabled={
+                                            saving ||
+                                            (widgetType === "chat" &&
+                                                !textChatInactivityIsValid)
+                                        }
+                                    >
                                         {saving ? (
                                             <>
                                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

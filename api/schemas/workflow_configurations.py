@@ -2,6 +2,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from api.constants import (
+    MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+)
+
 DEFAULT_MAX_CALL_DURATION_SECONDS = 300
 # Hard ceiling on configurable call duration. Must stay <= the concurrency
 # rate limiter's stale_call_timeout (20 min): a call running past that has
@@ -73,6 +78,10 @@ class WorkflowConfigurationDefaults(BaseModel):
     )
     dictionary: str = ""
     context_compaction_enabled: bool = DEFAULT_CONTEXT_COMPACTION_ENABLED
+    text_chat_inactivity_timeout_seconds: int = Field(
+        default=TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+        ge=MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    )
     external_pbx_field_mappings: list[ExternalPBXFieldMapping] = Field(
         default_factory=list,
         max_length=100,

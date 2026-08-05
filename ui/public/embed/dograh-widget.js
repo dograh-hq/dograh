@@ -41,11 +41,12 @@
       turns: [],
       pendingUserText: null, // optimistic bubble while a POST is in flight
       ending: false,
+      confirmingEnd: false,
       draft: '',
       banner: null,
       seenAssistantTurnIds: new Set() // for onMessage diffing
     },
-    chatEls: null, // { panel, messages, banner, input, sendBtn, endBtn } — null in headless
+    chatEls: null, // { panel, messages, banner, input, sendBtn, endBtn, endConfirmation, confirmEndBtn } — null in headless
     callbacks: {
       onReady: null,
       onCallStart: null,
@@ -333,6 +334,7 @@
       }
 
       .dograh-widget-cta:hover {
+        color: #ffffff !important;
         filter: brightness(1.08);
         box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
       }
@@ -1304,6 +1306,53 @@
       .dograh-chat-end:hover { background: rgba(0, 0, 0, 0.22); }
       .dograh-chat-end:disabled { cursor: default; opacity: 0.55; }
 
+      .dograh-chat-end-confirmation {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 12px;
+        color: #7f1d1d;
+        background: #fef2f2;
+        border-bottom: 1px solid #fecaca;
+        font-size: 12px;
+        font-weight: 500;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-end-confirm-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-end-confirm-cancel,
+      .dograh-chat-end-confirm-submit {
+        border-radius: 6px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1;
+        cursor: pointer;
+        padding: 6px 8px;
+        white-space: nowrap;
+      }
+      .dograh-chat-end-confirm-cancel {
+        border: 1px solid #d1d5db;
+        background: #ffffff;
+        color: #374151;
+      }
+      .dograh-chat-end-confirm-cancel:hover { background: #f9fafb; }
+      .dograh-chat-end-confirm-submit {
+        border: 1px solid #dc2626;
+        background: #dc2626;
+        color: #ffffff;
+      }
+      .dograh-chat-end-confirm-submit:hover {
+        border-color: #b91c1c;
+        background: #b91c1c;
+        color: #ffffff;
+      }
+
       .dograh-chat-close {
         background: none;
         border: none;
@@ -1498,10 +1547,12 @@
     endBtn.className = 'dograh-chat-end';
     endBtn.type = 'button';
     endBtn.textContent = 'End chat';
+    endBtn.setAttribute('aria-controls', 'dograh-chat-end-confirmation');
+    endBtn.setAttribute('aria-expanded', 'false');
     endBtn.onclick = () => {
-      if (window.confirm('End this chat? You will not be able to send more messages.')) {
-        endChatSession();
-      }
+      state.chat.confirmingEnd = true;
+      renderChat();
+      if (state.chatEls) state.chatEls.confirmEndBtn.focus();
     };
     headerActions.appendChild(endBtn);
 
@@ -1516,6 +1567,44 @@
     }
     header.appendChild(headerActions);
     panel.appendChild(header);
+
+    const endConfirmation = document.createElement('div');
+    endConfirmation.id = 'dograh-chat-end-confirmation';
+    endConfirmation.className = 'dograh-chat-end-confirmation';
+    endConfirmation.setAttribute('role', 'group');
+    endConfirmation.setAttribute('aria-label', 'Confirm ending chat');
+
+    const endConfirmationText = document.createElement('span');
+    endConfirmationText.textContent = 'End this chat?';
+    endConfirmation.appendChild(endConfirmationText);
+
+    const endConfirmActions = document.createElement('div');
+    endConfirmActions.className = 'dograh-chat-end-confirm-actions';
+
+    const cancelEndBtn = document.createElement('button');
+    cancelEndBtn.className = 'dograh-chat-end-confirm-cancel';
+    cancelEndBtn.type = 'button';
+    cancelEndBtn.textContent = 'Cancel';
+    cancelEndBtn.onclick = () => {
+      state.chat.confirmingEnd = false;
+      renderChat();
+      if (state.chatEls && state.chat.panelOpen && state.chat.status === 'ready') {
+        state.chatEls.input.focus();
+      }
+    };
+    endConfirmActions.appendChild(cancelEndBtn);
+
+    const confirmEndBtn = document.createElement('button');
+    confirmEndBtn.className = 'dograh-chat-end-confirm-submit';
+    confirmEndBtn.type = 'button';
+    confirmEndBtn.textContent = 'End chat';
+    confirmEndBtn.onclick = () => {
+      state.chat.confirmingEnd = false;
+      endChatSession();
+    };
+    endConfirmActions.appendChild(confirmEndBtn);
+    endConfirmation.appendChild(endConfirmActions);
+    panel.appendChild(endConfirmation);
 
     const messages = document.createElement('div');
     messages.className = 'dograh-chat-messages';
@@ -1553,7 +1642,16 @@
     composer.appendChild(sendBtn);
     panel.appendChild(composer);
 
-    state.chatEls = { panel, messages, banner, input, sendBtn, endBtn };
+    state.chatEls = {
+      panel,
+      messages,
+      banner,
+      input,
+      sendBtn,
+      endBtn,
+      endConfirmation,
+      confirmEndBtn
+    };
     return panel;
   }
 
@@ -1664,6 +1762,7 @@
 
   function closeChatPanel() {
     state.chat.panelOpen = false;
+    state.chat.confirmingEnd = false;
     if (state.chatEls && state.chatEls.panel) {
       state.chatEls.panel.style.display = 'none';
     }
@@ -1699,7 +1798,17 @@
     state.chat.turns = [];
     state.chat.pendingUserText = null;
     state.chat.ending = false;
+    state.chat.confirmingEnd = false;
     state.chat.seenAssistantTurnIds = new Set();
+  }
+
+  async function startNewChatSession() {
+    resetChatSession();
+    await startChatSession();
+
+    if (state.chatEls && state.chat.panelOpen && state.chat.status === 'ready') {
+      state.chatEls.input.focus();
+    }
   }
 
   /**
@@ -1879,6 +1988,7 @@
       return null;
     }
 
+    state.chat.confirmingEnd = false;
     state.chat.ending = true;
     renderChat();
 
@@ -1959,7 +2069,7 @@
     return false;
   }
 
-  function submitChatComposer() {
+  async function submitChatComposer() {
     const text = (state.chat.draft || '').trim();
     if (!text || state.chat.status !== 'ready') return;
     state.chat.draft = '';
@@ -1967,10 +2077,15 @@
       state.chatEls.input.value = '';
       autoGrowChatInput(state.chatEls.input);
     }
-    sendChatMessage(text);
+    await sendChatMessage(text);
+
+    if (state.chatEls && state.chat.panelOpen && state.chat.status === 'ready') {
+      state.chatEls.input.focus();
+    }
   }
 
   function updateChatStatus(status, banner) {
+    if (status !== 'ready') state.chat.confirmingEnd = false;
     state.chat.status = status;
     state.chat.banner = banner || null;
     renderChat();
@@ -1986,6 +2101,7 @@
     if (!state.chatEls) return;
     renderChatMessages();
     renderChatBanner();
+    updateChatEndConfirmationState();
     updateChatComposerState();
     updateChatEndButtonState();
   }
@@ -2050,15 +2166,12 @@
     span.textContent = text;
     banner.appendChild(span);
 
-    if (state.chat.status === 'expired') {
+    if (state.chat.status === 'expired' || state.chat.status === 'ended') {
       const restart = document.createElement('button');
       restart.type = 'button';
       restart.className = 'dograh-chat-restart';
       restart.textContent = 'Start new chat';
-      restart.onclick = () => {
-        resetChatSession();
-        startChatSession();
-      };
+      restart.onclick = startNewChatSession;
       banner.appendChild(restart);
     } else if (state.chat.status === 'error') {
       const retry = document.createElement('button');
@@ -2073,12 +2186,20 @@
   function updateChatComposerState() {
     const input = state.chatEls.input;
     const sendBtn = state.chatEls.sendBtn;
-    const canType = state.chat.status === 'ready' && !state.chat.ending;
+    const canType = state.chat.status === 'ready' && !state.chat.ending && !state.chat.confirmingEnd;
     input.disabled = !canType && state.chat.status !== 'idle';
     sendBtn.disabled = !canType;
     if (document.activeElement !== input) {
       input.value = state.chat.draft || '';
     }
+  }
+
+  function updateChatEndConfirmationState() {
+    const showConfirmation = state.chat.confirmingEnd
+      && state.chat.status === 'ready'
+      && !state.chat.ending;
+    state.chatEls.endConfirmation.style.display = showConfirmation ? 'flex' : 'none';
+    state.chatEls.endBtn.setAttribute('aria-expanded', showConfirmation ? 'true' : 'false');
   }
 
   function updateChatEndButtonState() {
@@ -2087,7 +2208,7 @@
       state.sessionToken && state.chat.status !== 'ended' && state.chat.status !== 'expired'
     );
     endBtn.style.display = hasActiveSession ? 'inline-flex' : 'none';
-    endBtn.disabled = state.chat.ending || state.chat.status !== 'ready';
+    endBtn.disabled = state.chat.ending || state.chat.confirmingEnd || state.chat.status !== 'ready';
     endBtn.textContent = state.chat.ending ? 'Ending…' : 'End chat';
   }
 

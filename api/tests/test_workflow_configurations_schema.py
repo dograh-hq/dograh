@@ -1,6 +1,10 @@
 import pytest
 from pydantic import ValidationError
 
+from api.constants import (
+    MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+)
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     MAX_CALL_DURATION_SECONDS,
@@ -26,6 +30,30 @@ def test_max_call_duration_rejects_over_cap():
 def test_max_call_duration_rejects_non_positive():
     with pytest.raises(ValidationError):
         WorkflowConfigurationDefaults(max_call_duration=0)
+
+
+def test_text_chat_inactivity_timeout_defaults_to_deployment_value():
+    config = WorkflowConfigurationDefaults()
+
+    assert (
+        config.text_chat_inactivity_timeout_seconds
+        == TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    )
+
+
+def test_text_chat_inactivity_timeout_accepts_workflow_override():
+    config = WorkflowConfigurationDefaults(text_chat_inactivity_timeout_seconds=15 * 60)
+
+    assert config.text_chat_inactivity_timeout_seconds == 15 * 60
+
+
+def test_text_chat_inactivity_timeout_rejects_values_below_minimum():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            text_chat_inactivity_timeout_seconds=(
+                MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS - 1
+            )
+        )
 
 
 def test_null_values_treated_as_unset():

@@ -1778,12 +1778,16 @@ function WorkflowSettingsInner({
             </div>
 
             {/* Dialogs for complex sections */}
-            <EmbedDialog
-                open={isEmbedDialogOpen}
-                onOpenChange={setIsEmbedDialogOpen}
-                workflowId={workflowId}
-                workflowName={workflowName || workflow.name}
-            />
+            {resolvedWorkflowConfigurationsForRender && (
+                <EmbedDialog
+                    open={isEmbedDialogOpen}
+                    onOpenChange={setIsEmbedDialogOpen}
+                    workflowId={workflowId}
+                    workflowName={workflowName || workflow.name}
+                    workflowConfigurations={resolvedWorkflowConfigurationsForRender}
+                    onSaveWorkflowConfigurations={saveWorkflowConfigurations}
+                />
+            )}
         </div>
     );
 }

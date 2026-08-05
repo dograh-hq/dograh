@@ -7178,6 +7178,10 @@ export type WorkflowConfigurationDefaults = {
      */
     context_compaction_enabled?: boolean;
     /**
+     * Text Chat Inactivity Timeout Seconds
+     */
+    text_chat_inactivity_timeout_seconds?: number;
+    /**
      * External Pbx Field Mappings
      */
     external_pbx_field_mappings?: Array<ExternalPbxFieldMapping>;

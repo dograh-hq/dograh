@@ -193,6 +193,12 @@ DEFAULT_WEBHOOK_DELIVERY_CONFIG = {
     "timeout_seconds": int(os.getenv("WEBHOOK_DELIVERY_TIMEOUT_SECONDS", 30)),
 }
 
+# Text chats have no transport disconnect event, so a periodic worker closes
+# sessions that have stopped changing. Workflows can override this default.
+MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS = 60
+TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS = 1800
+TEXT_CHAT_INACTIVITY_SWEEP_LOOKBACK_SECONDS = 3 * 60 * 60
+
 
 # Circuit breaker defaults for campaign call failure detection
 DEFAULT_CIRCUIT_BREAKER_CONFIG = {

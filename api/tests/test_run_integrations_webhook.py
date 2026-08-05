@@ -13,6 +13,7 @@ from api.db.models import (
 )
 from api.services.workflow.dto import WebhookNodeData
 from api.tasks.run_integrations import (
+    _build_render_context,
     _build_webhook_payload,
     _enqueue_webhook_delivery,
 )
@@ -53,6 +54,24 @@ def test_build_webhook_payload_preserves_template_disposition():
     assert payload["call_disposition"] == "custom-from-template"
 
 
+def test_build_webhook_payload_renders_requested_transcript_url():
+    """transcript_url remains available to explicitly configured templates."""
+    webhook = WebhookNodeData(
+        name="Test Webhook",
+        enabled=True,
+        endpoint_url="https://example.com/hook",
+        payload_template={"transcript_url": "{{transcript_url}}"},
+    )
+    render_context = {
+        "transcript_url": "https://example.com/transcript",
+        "gathered_context": {},
+    }
+
+    payload = _build_webhook_payload(webhook, render_context)
+
+    assert payload["transcript_url"] == "https://example.com/transcript"
+
+
 def test_build_webhook_payload_empty_disposition_when_context_missing():
     """Missing gathered_context values fall back to an empty string, not omission."""
     webhook = WebhookNodeData(
@@ -65,6 +84,35 @@ def test_build_webhook_payload_empty_disposition_when_context_missing():
     payload = _build_webhook_payload(webhook, {})
 
     assert payload == {"call_disposition": ""}
+
+
+def test_build_render_context_exposes_public_transcript_download_url():
+    workflow_run = SimpleNamespace(
+        id=42,
+        name="Text chat",
+        workflow_id=7,
+        workflow=SimpleNamespace(name="Support bot"),
+        campaign_id=None,
+        created_at=None,
+        initial_context={},
+        gathered_context={},
+        usage_info={},
+        annotations={},
+        extra={},
+        recording_url=None,
+        transcript_url="transcripts/42.txt",
+    )
+
+    with patch(
+        "api.tasks.run_integrations.BACKEND_API_ENDPOINT",
+        "https://api.example.com",
+    ):
+        context = _build_render_context(workflow_run, public_token="public-token")
+
+    assert context["transcript_url"] == (
+        "https://api.example.com/api/v1/public/download/workflow/"
+        "public-token/transcript"
+    )
 
 
 # ---------------------------------------------------------------------------

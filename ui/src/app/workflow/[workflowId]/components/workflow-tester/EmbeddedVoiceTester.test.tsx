@@ -3,8 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { EmbeddedVoiceTester } from "./EmbeddedVoiceTester";
 
-const { startMock, useWebSocketRTCMock } = vi.hoisted(() => ({
-    startMock: vi.fn(),
+const { useWebSocketRTCMock } = vi.hoisted(() => ({
     useWebSocketRTCMock: vi.fn(),
 }));
 
@@ -26,10 +25,18 @@ vi.mock("../../run/[runId]/components", () => ({
     WorkflowConfigErrorDialog: () => null,
 }));
 
+type BackendStatus = "reachable" | "unreachable";
+
 // Base shape of everything EmbeddedVoiceTester destructures off the hook.
-// Only `appConfigLoading` varies per test — this is the field the auto-start
-// gate in EmbeddedVoiceTester depends on.
-function baseHookReturn(appConfigLoading: boolean) {
+// start/refreshAppConfig are passed in per-test so each test can use its own
+// mock instances (needed to genuinely exercise identity-dependent effect
+// re-runs rather than relying on React's dependency-array bailout).
+function baseHookReturn(opts: {
+    start: () => void;
+    refreshAppConfig: () => void;
+    appConfigLoading: boolean;
+    backendStatus?: BackendStatus;
+}) {
     return {
         audioRef: { current: null },
         connectionActive: false,
@@ -43,11 +50,13 @@ function baseHookReturn(appConfigLoading: boolean) {
         workflowConfigModalOpen: false,
         setWorkflowConfigModalOpen: vi.fn(),
         connectionStatus: "idle",
-        start: startMock,
+        start: opts.start,
         stop: vi.fn(),
         isStarting: false,
         feedbackMessages: [],
-        appConfigLoading,
+        appConfig: opts.backendStatus ? { backendStatus: opts.backendStatus } : null,
+        appConfigLoading: opts.appConfigLoading,
+        refreshAppConfig: opts.refreshAppConfig,
     };
 }
 
@@ -60,45 +69,159 @@ describe("EmbeddedVoiceTester auto-start", () => {
     };
 
     it("does not call start() while appConfig is still loading", () => {
-        startMock.mockClear();
-        useWebSocketRTCMock.mockReturnValue(baseHookReturn(true));
+        const start = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({ start, refreshAppConfig: vi.fn(), appConfigLoading: true })
+        );
 
         render(<EmbeddedVoiceTester {...props} />);
 
-        // createPeerConnection reads appConfig?.forceTurnRelay synchronously —
-        // calling start() before appConfig has loaded would silently create a
-        // connection missing the relay-only restriction, with no way to
-        // recreate it once appConfig resolves (see PR description / commit
-        // message for the full failure mode this reproduces).
-        expect(startMock).not.toHaveBeenCalled();
+        expect(start).not.toHaveBeenCalled();
     });
 
-    it("calls start() exactly once, only after appConfig finishes loading", () => {
-        startMock.mockClear();
-        useWebSocketRTCMock.mockReturnValue(baseHookReturn(true));
+    it("calls start() once appConfig finishes loading with a reachable backend", () => {
+        const start = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({ start, refreshAppConfig: vi.fn(), appConfigLoading: true })
+        );
 
         const { rerender } = render(<EmbeddedVoiceTester {...props} />);
-        expect(startMock).not.toHaveBeenCalled();
+        expect(start).not.toHaveBeenCalled();
 
-        // appConfig resolves — re-render with appConfigLoading now false, as
-        // React would after the async /api/config/version fetch completes.
-        useWebSocketRTCMock.mockReturnValue(baseHookReturn(false));
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig: vi.fn(),
+                appConfigLoading: false,
+                backendStatus: "reachable",
+            })
+        );
         rerender(<EmbeddedVoiceTester {...props} />);
 
-        expect(startMock).toHaveBeenCalledTimes(1);
-
-        // A further re-render (e.g. any other state change) must not
-        // trigger a second start() — autoStartedRef still guards that.
-        rerender(<EmbeddedVoiceTester {...props} />);
-        expect(startMock).toHaveBeenCalledTimes(1);
+        expect(start).toHaveBeenCalledTimes(1);
     });
 
-    it("calls start() immediately when appConfig was already loaded on mount", () => {
-        startMock.mockClear();
-        useWebSocketRTCMock.mockReturnValue(baseHookReturn(false));
+    it("calls start() immediately when appConfig was already loaded and reachable on mount", () => {
+        const start = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig: vi.fn(),
+                appConfigLoading: false,
+                backendStatus: "reachable",
+            })
+        );
 
         render(<EmbeddedVoiceTester {...props} />);
 
-        expect(startMock).toHaveBeenCalledTimes(1);
+        expect(start).toHaveBeenCalledTimes(1);
+    });
+
+    it("never starts, and never calls start with a stale config, once loading finishes with an unreachable backend even after retrying", () => {
+        // Regression test for the exact failure mode a review bot flagged:
+        // /api/config/version can resolve (loading -> false) with HTTP 200
+        // while backendStatus is 'unreachable' (the server-side healthcheck
+        // it performs failed/timed out) — forceTurnRelay silently defaults to
+        // false in that response. Starting on "loading finished" alone would
+        // create a connection missing the relay-only restriction whenever
+        // this happens on a deployment that actually needs it.
+        const start = vi.fn();
+        const refreshAppConfig = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({ start, refreshAppConfig, appConfigLoading: true })
+        );
+
+        const { rerender } = render(<EmbeddedVoiceTester {...props} />);
+
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "unreachable",
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+
+        // One retry attempted, not started.
+        expect(refreshAppConfig).toHaveBeenCalledTimes(1);
+        expect(start).not.toHaveBeenCalled();
+
+        // Backend still unreachable after the retry resolves — must not
+        // retry again or start; a genuinely down backend must not spin
+        // forever, and must never fall through to starting unprotected.
+        rerender(<EmbeddedVoiceTester {...props} />);
+        expect(refreshAppConfig).toHaveBeenCalledTimes(1);
+        expect(start).not.toHaveBeenCalled();
+    });
+
+    it("starts once the retried config comes back reachable", () => {
+        const start = vi.fn();
+        const refreshAppConfig = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({ start, refreshAppConfig, appConfigLoading: true })
+        );
+
+        const { rerender } = render(<EmbeddedVoiceTester {...props} />);
+
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "unreachable",
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+        expect(start).not.toHaveBeenCalled();
+
+        // The retry succeeds this time.
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "reachable",
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+
+        expect(refreshAppConfig).toHaveBeenCalledTimes(1);
+        expect(start).toHaveBeenCalledTimes(1);
+    });
+
+    it("never calls start a second time even when the effect re-runs on an unrelated dependency change", () => {
+        // The guard under test is autoStartedRef, not React's dependency-array
+        // bailout — using a *new* start identity on the extra render forces
+        // the effect to actually re-execute (the real hook recreates start on
+        // every render), so this only passes if the ref guard itself, not
+        // React skipping an unchanged effect, is what prevents a second call.
+        const firstStart = vi.fn();
+        const secondStart = vi.fn();
+        const refreshAppConfig = vi.fn();
+
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start: firstStart,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "reachable",
+            })
+        );
+        const { rerender } = render(<EmbeddedVoiceTester {...props} />);
+        expect(firstStart).toHaveBeenCalledTimes(1);
+
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start: secondStart,
+                refreshAppConfig,
+                appConfigLoading: false,
+                backendStatus: "reachable",
+            })
+        );
+        rerender(<EmbeddedVoiceTester {...props} />);
+
+        expect(firstStart).toHaveBeenCalledTimes(1);
+        expect(secondStart).not.toHaveBeenCalled();
     });
 });

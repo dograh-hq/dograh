@@ -46,7 +46,9 @@ export function EmbeddedVoiceTester({
         stop,
         isStarting,
         feedbackMessages,
+        appConfig,
         appConfigLoading,
+        refreshAppConfig,
     } = useWebSocketRTC({
         workflowId,
         workflowRunId,
@@ -55,20 +57,38 @@ export function EmbeddedVoiceTester({
         onNodeTransition,
     });
     const autoStartedRef = useRef(false);
+    const configRetriedRef = useRef(false);
 
     useEffect(() => {
         // Wait for appConfig (FORCE_TURN_RELAY) to finish loading before
-        // auto-starting. createPeerConnection reads it synchronously, and
-        // this effect only ever fires start() once (autoStartedRef) — a
-        // connection created while appConfig is still null permanently
-        // misses the relay-only restriction for the whole call, since
-        // resolving appConfig afterward doesn't recreate it.
+        // auto-starting — this effect only ever fires start() once
+        // (autoStartedRef), and createPeerConnection reads
+        // appConfig?.forceTurnRelay synchronously, so a connection created
+        // before that resolves permanently misses the relay-only
+        // restriction for the whole call.
         if (autoStartedRef.current || appConfigLoading) {
             return;
         }
+
+        // Loading having finished isn't enough by itself: /api/config/version
+        // always resolves with HTTP 200 even when the backend healthcheck it
+        // performs server-side failed or timed out, silently defaulting
+        // forceTurnRelay to false in that response instead of reflecting the
+        // deployment's real setting. Only a 'reachable' backendStatus
+        // confirms forceTurnRelay actually came from the backend. Give it one
+        // retry rather than either starting with an unconfirmed (possibly
+        // wrong) value or waiting forever if the backend stays down.
+        if (appConfig?.backendStatus !== "reachable") {
+            if (!configRetriedRef.current) {
+                configRetriedRef.current = true;
+                void refreshAppConfig();
+            }
+            return;
+        }
+
         autoStartedRef.current = true;
         void start();
-    }, [start, appConfigLoading]);
+    }, [start, appConfig?.backendStatus, appConfigLoading, refreshAppConfig]);
 
     const endButtonLabel = connectionActive
         ? "End Call"

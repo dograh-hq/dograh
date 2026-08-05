@@ -51,7 +51,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [isStarting, setIsStarting] = useState(false);
     const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
     const initialContext = initialContextVariables || {};
-    const { config: appConfig, loading: appConfigLoading } = useAppConfig();
+    const { config: appConfig, loading: appConfigLoading, refresh: refreshAppConfig } = useAppConfig();
 
     const {
         audioInputs,
@@ -836,13 +836,26 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         audioInputs,
         selectedAudioInput,
         setSelectedAudioInput,
-        // Whether FORCE_TURN_RELAY/appConfig is still loading. createPeerConnection
-        // reads appConfig?.forceTurnRelay synchronously, and it's null until the
-        // async /api/config/version fetch resolves — starting a call before then
-        // silently creates a connection without the relay-only restriction, with
-        // no way to recreate it afterward. Callers that auto-start (no explicit
-        // user click to wait on) must gate on this being false first.
+        // createPeerConnection reads appConfig?.forceTurnRelay synchronously to
+        // decide whether to add the public STUN server / set iceTransportPolicy:
+        // 'relay'. Callers that auto-start (no explicit user click to wait on)
+        // need both of these to know it's safe to trust that value:
+        //   - appConfigLoading: false once the async /api/config/version fetch
+        //     has settled at all (it's still loading, and appConfig still null,
+        //     before that).
+        //   - appConfig.backendStatus === 'reachable': loading finishing is NOT
+        //     enough by itself — /api/config/version always resolves with HTTP
+        //     200 even when the actual backend healthcheck it performs
+        //     server-side failed or timed out, silently defaulting
+        //     forceTurnRelay to false in that response rather than reflecting
+        //     the deployment's real setting. Only a 'reachable' backendStatus
+        //     confirms forceTurnRelay came from the backend itself.
+        // Starting while either signal says "not confirmed yet" risks silently
+        // creating a connection without the relay-only restriction, with no way
+        // to recreate it afterward once appConfig does resolve/correct itself.
+        appConfig,
         appConfigLoading,
+        refreshAppConfig,
         connectionActive,
         permissionError,
         isCompleted,

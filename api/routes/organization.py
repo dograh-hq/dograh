@@ -4,7 +4,6 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
 
 from api.constants import (
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
@@ -13,7 +12,11 @@ from api.constants import (
 )
 from api.db import db_client
 from api.db.models import UserModel
-from api.db.telephony_configuration_client import TelephonyConfigurationInUseError
+from api.db.telephony_configuration_client import (
+    TelephonyConfigurationConflictError,
+    TelephonyConfigurationInUseError,
+)
+from api.db.telephony_phone_number_client import TelephonyPhoneNumberConflictError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.errors.mps import MPSUnavailableError
@@ -722,7 +725,7 @@ async def create_telephony_configuration(
             credentials=credentials,
             is_default_outbound=request.is_default_outbound,
         )
-    except IntegrityError as e:
+    except TelephonyConfigurationConflictError as e:
         if "uq_telephony_configurations_org_name" in str(e):
             raise HTTPException(
                 status_code=409,
@@ -965,7 +968,7 @@ async def create_phone_number(
             is_default_caller_id=request.is_default_caller_id,
             extra_metadata=request.extra_metadata,
         )
-    except IntegrityError:
+    except TelephonyPhoneNumberConflictError:
         raise HTTPException(
             status_code=409,
             detail="A phone number with this address already exists in the org.",
@@ -1195,7 +1198,7 @@ async def save_telephony_configuration(
                 telephony_configuration_id=row.id,
                 address=addr,
             )
-        except IntegrityError:
+        except TelephonyPhoneNumberConflictError:
             logger.warning(
                 f"Skipping duplicate phone number {addr!r} for config {row.id}"
             )

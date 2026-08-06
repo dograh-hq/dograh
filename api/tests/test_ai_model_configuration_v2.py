@@ -19,6 +19,7 @@ from api.services.configuration.ai_model_configuration import (
     mask_ai_model_configuration_v2,
     merge_ai_model_configuration_v2_secrets,
     migrate_workflow_configuration_model_override_to_v2,
+    migrate_workflow_model_configurations_to_v2,
     upsert_organization_ai_model_configuration_v2,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -482,6 +483,58 @@ def test_workflow_model_override_migration_removes_invalid_v1_override_marker():
     assert changed is True
     assert "model_overrides" not in migrated
     assert migrated["ambient_noise_configuration"] == {"enabled": False}
+
+
+@pytest.mark.asyncio
+async def test_workflow_model_configuration_migration_delegates_db_access(
+    monkeypatch,
+):
+    from api.services.configuration import ai_model_configuration
+
+    workflow = SimpleNamespace(
+        id=7,
+        workflow_configurations={"model_overrides": None, "scope": "workflow"},
+        definitions=[
+            SimpleNamespace(
+                id=11,
+                workflow_configurations={
+                    "model_overrides": None,
+                    "scope": "definition",
+                },
+            ),
+            SimpleNamespace(
+                id=12,
+                workflow_configurations={"scope": "unchanged"},
+            ),
+        ],
+    )
+    list_workflows = AsyncMock(return_value=[workflow])
+    bulk_update = AsyncMock()
+    monkeypatch.setattr(
+        ai_model_configuration.db_client,
+        "list_workflows_for_model_configuration_migration",
+        list_workflows,
+    )
+    monkeypatch.setattr(
+        ai_model_configuration.db_client,
+        "bulk_update_workflow_model_configurations",
+        bulk_update,
+    )
+
+    result = await migrate_workflow_model_configurations_to_v2(
+        organization_id=42,
+        fallback_user_config=EffectiveAIModelConfiguration(),
+    )
+
+    list_workflows.assert_awaited_once_with(42)
+    bulk_update.assert_awaited_once_with(
+        organization_id=42,
+        workflow_updates=[(7, {"scope": "workflow"})],
+        definition_updates=[(11, {"scope": "definition"})],
+    )
+    assert result.workflow_count == 1
+    assert result.definition_count == 1
+    assert result.workflow_ids == [7]
 
 
 @pytest.mark.asyncio

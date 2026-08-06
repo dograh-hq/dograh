@@ -254,9 +254,7 @@ export function EmbedDialog({
             }
 
             toast.success(
-                isEnabled && widgetType === "chat"
-                    ? "Widget configuration saved. Publish the workflow to apply the inactivity timeout."
-                    : "Widget configuration saved",
+                "Widget configuration saved. Publish the agent to apply the changes.",
             );
             // Don't close modal after saving - let user copy the embed code
         } catch (error) {
@@ -467,12 +465,7 @@ export function EmbedDialog({
                                             </span>
                                         </div>
                                         <p className="text-xs text-muted-foreground">
-                                            End a text chat and trigger its completion webhook after
-                                            this long without chat activity.
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            Publish the workflow after saving to apply this timeout to
-                                            website chats.
+                                            End a text chat and trigger its completion webhook after this long without chat activity. 
                                         </p>
                                         {!textChatInactivityIsValid && (
                                             <p className="text-xs text-destructive">

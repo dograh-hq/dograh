@@ -19,6 +19,10 @@ class TelephonyConfigurationInUseError(Exception):
     """Raised when deleting a config that is still referenced by a campaign."""
 
 
+class TelephonyConfigurationConflictError(Exception):
+    """Raised when a telephony configuration violates a DB constraint."""
+
+
 class TelephonyConfigurationClient(BaseDBClient):
     async def list_telephony_configurations(
         self, organization_id: int
@@ -176,7 +180,7 @@ class TelephonyConfigurationClient(BaseDBClient):
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
-                raise e
+                raise TelephonyConfigurationConflictError(str(e)) from e
             await session.refresh(row)
             return row
 
@@ -201,7 +205,7 @@ class TelephonyConfigurationClient(BaseDBClient):
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
-                raise e
+                raise TelephonyConfigurationConflictError(str(e)) from e
             await session.refresh(row)
             return row
 

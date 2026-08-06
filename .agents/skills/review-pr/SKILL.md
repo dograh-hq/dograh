@@ -23,12 +23,8 @@ The main failure modes in this repo are:
    - GitHub PR: `gh pr diff <N>` or `gh pr view <N> --json files,additions,deletions`
    - Local branch: `git diff origin/main...HEAD`
 2. Bucket changed files into the sections below.
-3. Read the current repo as source of truth before finalizing findings:
-   - `api/AGENTS.md` for org scoping and worker-sync
-   - `ui/AGENTS.md` for generated client rules
-   - Touched models, DB clients, routes, services, and migrations
-4. Run only the sections relevant to the changed files.
-5. Report findings as `<file>:<line> -> <problem> -> <correct pattern>`.
+3. Run only the sections relevant to the changed files.
+4. Report findings as `<file>:<line> -> <problem> -> <correct pattern>`.
 
 ## Freshness rule
 

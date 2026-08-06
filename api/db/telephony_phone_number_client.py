@@ -20,6 +20,10 @@ from api.db.models import (
 from api.utils.telephony_address import normalize_telephony_address
 
 
+class TelephonyPhoneNumberConflictError(Exception):
+    """Raised when a phone number violates a DB constraint."""
+
+
 class TelephonyPhoneNumberClient(BaseDBClient):
     async def list_phone_numbers_for_config(
         self, telephony_configuration_id: int
@@ -257,7 +261,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
-                raise e
+                raise TelephonyPhoneNumberConflictError(str(e)) from e
             await session.refresh(row)
             return row
 

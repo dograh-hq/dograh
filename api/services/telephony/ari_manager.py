@@ -1465,11 +1465,47 @@ class ARIManager:
             return True
         return False
 
+    async def _deactivate_invalid_config(self, row, failure: DograhFailure) -> None:
+        """Park a config whose stored settings cannot work, and record why.
+
+        There is nothing to retry here, unlike a connection failure: the defect
+        is in the row itself, so re-reading it only ever reaches the same
+        verdict. Park on the first look rather than after a streak.
+        """
+        if self._should_log_validation_failure(row.id, failure.code):
+            _log_ari_failure(
+                failure,
+                organization_id=row.organization_id,
+                telephony_configuration_id=row.id,
+            )
+
+        try:
+            await db_client.set_telephony_configuration_inactive(
+                config_id=row.id,
+                organization_id=row.organization_id,
+                reason=f"{failure.code}: {failure.external_message}",
+            )
+        except Exception as e:
+            # Deliberately left active: the next refresh retries the write, which
+            # beats dropping the config on the floor with no record of why.
+            logger.error(
+                f"[ARI Manager] Failed to mark config {row.id} "
+                f"(org {row.organization_id}) inactive: {e}"
+            )
+            return
+
+        logger.warning(
+            f"[ARI Manager] Deactivated config {row.id} (org {row.organization_id}): "
+            f"{failure.internal_message}. It stays disabled until reactivated "
+            f"from the telephony settings."
+        )
+
     async def _load_ari_configs(self) -> list:
         """Load the ARI configurations the manager should be connected to now.
 
-        Rows parked by :meth:`ARIConnection._deactivate` are excluded until
-        someone reactivates them.
+        Rows parked by :meth:`ARIConnection._deactivate` or by
+        :meth:`_deactivate_invalid_config` are excluded until someone
+        reactivates them.
         """
         rows = await db_client.list_active_telephony_configurations_by_provider("ari")
 
@@ -1504,13 +1540,14 @@ class ARIManager:
                     )
                 continue
 
-            # A missing ws_client_name is not fatal to the connection itself —
-            # inbound events still arrive, only externalMedia audio is broken —
-            # so this stays a report rather than a reason to park the config.
-            if not ws_client_name and self._should_log_validation_failure(
-                row.id, "ari-missing-ws-client-name"
-            ):
-                _log_ari_failure(
+            # The websocket itself still connects without a ws_client_name, so
+            # this config looks healthy while externalMedia audio cannot be set
+            # up at all — calls are answered and the caller hears nothing. That
+            # silent half-working state is worse than being visibly off, so park
+            # it and tell the customer what to fill in.
+            if not ws_client_name:
+                await self._deactivate_invalid_config(
+                    row,
                     DograhFailure(
                         source=ErrorSource.TELEPHONY,
                         type=ErrorType.CONFIG_ERROR,
@@ -1521,9 +1558,8 @@ class ARIManager:
                         error_owner="user",
                         retryable=False,
                     ),
-                    organization_id=row.organization_id,
-                    telephony_configuration_id=row.id,
                 )
+                continue
 
             configs.append(
                 {

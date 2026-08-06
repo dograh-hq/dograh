@@ -17,6 +17,10 @@ class _FakeDBClient:
     def __init__(self):
         self.deactivated = []
         self.reactivated = []
+        self.rows = []
+
+    async def list_active_telephony_configurations_by_provider(self, provider):
+        return self.rows
 
     async def set_telephony_configuration_inactive(
         self, config_id, organization_id, reason
@@ -226,6 +230,66 @@ async def test_immediate_clean_close_is_accounted_as_a_failure(
     assert logged[0][0].code == "ari-closed-immediately"
     # Backoff must have grown rather than spinning at the initial delay.
     assert conn._reconnect_delay > 1
+
+
+def _row(config_id: int, ws_client_name: str = "dograh_ws") -> SimpleNamespace:
+    return SimpleNamespace(
+        id=config_id,
+        organization_id=100 + config_id,
+        credentials={
+            "ari_endpoint": "http://pbx.example.com:8088",
+            "app_name": "dograh",
+            "app_password": "secret",
+            "ws_client_name": ws_client_name,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_missing_ws_client_name_parks_the_config(clock, db, logged):
+    """The socket would connect, but externalMedia audio can never be set up."""
+    db.rows = [_row(1, ws_client_name=""), _row(2)]
+    manager = ari_manager.ARIManager()
+
+    configs = await manager._load_ari_configs()
+
+    # The broken row is dropped from the active set; the healthy one survives.
+    assert [c["telephony_configuration_id"] for c in configs] == [2]
+    assert len(db.deactivated) == 1
+    config_id, organization_id, reason = db.deactivated[0]
+    assert (config_id, organization_id) == (1, 101)
+    assert reason.startswith("ari-missing-ws-client-name:")
+    assert logged[0][0].code == "ari-missing-ws-client-name"
+
+
+@pytest.mark.asyncio
+async def test_missing_ws_client_name_parks_on_the_first_look(clock, db, logged):
+    """No streak to build: re-reading the row can only reach the same verdict."""
+    db.rows = [_row(1, ws_client_name="")]
+    manager = ari_manager.ARIManager()
+
+    await manager._load_ari_configs()
+
+    assert len(db.deactivated) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_park_write_leaves_the_row_for_the_next_refresh(
+    clock, logged, monkeypatch
+):
+    class _BrokenDBClient(_FakeDBClient):
+        async def set_telephony_configuration_inactive(self, *_args, **_kwargs):
+            raise RuntimeError("database unavailable")
+
+    broken = _BrokenDBClient()
+    broken.rows = [_row(1, ws_client_name="")]
+    monkeypatch.setattr(ari_manager, "db_client", broken)
+    manager = ari_manager.ARIManager()
+
+    # Still excluded, so no half-working connection is started meanwhile, and
+    # nothing was recorded — the row returns next refresh and the write retries.
+    assert await manager._load_ari_configs() == []
+    assert broken.deactivated == []
 
 
 def test_validation_failures_are_throttled_per_config(clock):

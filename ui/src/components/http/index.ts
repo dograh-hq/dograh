@@ -9,4 +9,10 @@ export {
     type PresetToolParameter,
     type ToolParameter,
 } from "./parameter-editor";
-export { UrlInput, type UrlValidationResult, validateUrl } from "./url-input";
+export {
+    extractUrlHostnameParameters,
+    extractUrlPathParameters,
+    UrlInput,
+    type UrlValidationResult,
+    validateUrl,
+} from "./url-input";

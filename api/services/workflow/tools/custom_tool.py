@@ -20,6 +20,7 @@ from api.errors.failure import (
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template, render_url_template
+from api.utils.url_security import validate_user_configured_service_url
 
 # Map tool parameter types to JSON schema types
 TYPE_MAP = {
@@ -390,13 +391,21 @@ async def execute_http_tool(
             context=url_render_context,
         )
         _rendered_url = url
-
-        request_arguments = resolved_arguments
     except ValueError as e:
         logger.error(f"Custom tool '{tool.name}' URL template render failed: {e}")
         return build_result(
             {"status": "error", "error": f"URL template rendering failed: {e!s}"}
         )
+
+    try:
+        validate_user_configured_service_url(url, field_name="config.url")
+    except ValueError as e:
+        logger.error(f"Custom tool '{tool.name}' URL validation failed: {e}")
+        return build_result(
+            {"status": "error", "error": f"URL validation failed: {e!s}"}
+        )
+
+    request_arguments = resolved_arguments
 
     # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None

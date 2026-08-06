@@ -13,8 +13,10 @@ from api.errors.failure import (
     annotate_failure_metadata,
     classify_exception,
     classify_http_response,
+    failure_already_reported,
     failure_metadata_for_processor,
     log_failure,
+    mark_failure_reported,
     redact_failure_message,
 )
 from api.services.configuration.registry import REGISTRY, ServiceType
@@ -32,7 +34,10 @@ from api.services.configuration.registry import REGISTRY, ServiceType
         (408, ErrorType.PROVIDER_ERROR, True),
         (500, ErrorType.PROVIDER_ERROR, True),
         (503, ErrorType.PROVIDER_ERROR, True),
-        (302, ErrorType.SYSTEM_ERROR, None),
+        # A redirect means the configured URL was the wrong one to give us.
+        (301, ErrorType.CONFIG_ERROR, False),
+        (302, ErrorType.CONFIG_ERROR, False),
+        (307, ErrorType.CONFIG_ERROR, False),
     ],
 )
 def test_classify_http_response_status_bands(status_code, expected_type, retryable):
@@ -47,12 +52,8 @@ def test_classify_http_response_status_bands(status_code, expected_type, retryab
     assert failure.type == expected_type
     assert failure.code == f"deepgram-{status_code}"
     assert failure.retryable is retryable
-    expected_owner = (
-        ErrorOwner.OPERATOR
-        if expected_type == ErrorType.SYSTEM_ERROR
-        else ErrorOwner.USER
-    )
-    assert failure.error_owner == expected_owner
+    # The caller declared the user, and nothing here overrides that.
+    assert failure.error_owner == ErrorOwner.USER
 
 
 @pytest.mark.parametrize(
@@ -63,7 +64,14 @@ def test_classify_http_response_status_bands(status_code, expected_type, retryab
         (ErrorType.PROVIDER_ERROR, ErrorOwner.USER, ErrorOwner.USER),
         (ErrorType.PROVIDER_ERROR, ErrorOwner.OPERATOR, ErrorOwner.OPERATOR),
         (ErrorType.PROVIDER_ERROR, None, ErrorOwner.OPERATOR),
-        (ErrorType.SYSTEM_ERROR, ErrorOwner.USER, ErrorOwner.OPERATOR),
+        # A seam that knows whose credentials were in play outranks the type:
+        # an unclassifiable error from a customer's provider is still theirs.
+        (ErrorType.SYSTEM_ERROR, ErrorOwner.USER, ErrorOwner.USER),
+        (ErrorType.SYSTEM_ERROR, ErrorOwner.OPERATOR, ErrorOwner.OPERATOR),
+        (ErrorType.SYSTEM_ERROR, None, ErrorOwner.OPERATOR),
+        # config/quota stay user-owned however the caller argues.
+        (ErrorType.CONFIG_ERROR, ErrorOwner.OPERATOR, ErrorOwner.USER),
+        (ErrorType.QUOTA_ERROR, ErrorOwner.OPERATOR, ErrorOwner.USER),
     ],
 )
 def test_failure_resolves_binary_owner(error_type, requested_owner, expected_owner):
@@ -457,3 +465,45 @@ def test_http_status_embedded_in_exception_text_is_classified(
 
     assert failure.type == expected_type
     assert failure.code == expected_code
+
+
+def test_reported_mark_travels_with_the_exception():
+    """One failure gets one report, however many layers it passes through."""
+    exc = RuntimeError("pipeline blew up")
+    assert failure_already_reported(exc) is False
+
+    mark_failure_reported(exc)
+
+    assert failure_already_reported(exc) is True
+
+
+def test_reported_mark_survives_a_reraise():
+    inner = ValueError("boom")
+
+    def failing_layer():
+        raise inner
+
+    def reporting_layer():
+        try:
+            failing_layer()
+        except Exception as e:
+            mark_failure_reported(e)
+            raise
+
+    with pytest.raises(ValueError) as caught:
+        reporting_layer()
+
+    # The outer catch-all can tell this was already accounted for.
+    assert failure_already_reported(caught.value) is True
+
+
+def test_marking_an_exception_that_rejects_attributes_is_survivable():
+    class _Unsettable(Exception):
+        def __setattr__(self, name, value):
+            raise AttributeError("attributes are not accepted")
+
+    exc = _Unsettable("no attribute storage")
+    mark_failure_reported(exc)
+
+    # Losing the mark costs a duplicate line; it must never raise.
+    assert failure_already_reported(exc) is False

@@ -67,6 +67,7 @@ _HTTP_STATUS_IN_MESSAGE_RE = re.compile(
 )
 _MAX_MESSAGE_LENGTH = 4000
 _FAILURE_METADATA_ATTR = "_dograh_failure_metadata"
+_FAILURE_REPORTED_ATTR = "_dograh_failure_reported"
 
 
 def _redact_quoted_secret_assignment(match: re.Match[str]) -> str:
@@ -113,11 +114,22 @@ def _normalize_code(code: str) -> str:
 def _resolve_error_owner(
     error_type: ErrorType, error_owner: ErrorOwner | str | None
 ) -> ErrorOwner:
-    """Route responsibility without treating an external provider as an owner."""
+    """Route responsibility without treating an external provider as an owner.
+
+    ``config_error`` and ``quota_error`` are user-owned by definition, so a
+    caller cannot argue its way out of them. Every other type defers to the
+    owner the seam declared: the seam knows whose credentials were in play,
+    which the shape of the exception cannot tell us. ``system_error`` used to
+    force operator here, which silently overrode seams that had correctly said
+    "user" and made every unclassifiable provider error look like a Dograh bug.
+
+    An unstated owner still falls back to operator — an unattributed failure is
+    Dograh's to investigate until a seam claims otherwise.
+    """
 
     if error_type in (ErrorType.CONFIG_ERROR, ErrorType.QUOTA_ERROR):
         return ErrorOwner.USER
-    if error_type == ErrorType.SYSTEM_ERROR or error_owner is None:
+    if error_owner is None:
         return ErrorOwner.OPERATOR
     if isinstance(error_owner, ErrorOwner):
         return error_owner
@@ -236,6 +248,12 @@ def _type_for_http_status(status_code: int) -> tuple[ErrorType, bool | None]:
     if status_code == 408 or 500 <= status_code <= 599:
         return ErrorType.PROVIDER_ERROR, True
     if 400 <= status_code <= 499:
+        return ErrorType.CONFIG_ERROR, False
+    # A redirect reaching a classifier means the caller does not follow them, so
+    # the configured URL is the wrong one to have given us. This is a protocol
+    # signal rather than a guess at intent, which is why it may name a config
+    # error where ambiguous evidence may not.
+    if 300 <= status_code <= 399:
         return ErrorType.CONFIG_ERROR, False
     return ErrorType.SYSTEM_ERROR, None
 
@@ -456,6 +474,29 @@ def classify_exception(
         retryable=True if transient_exception else None,
         context=failure_context,
     )
+
+
+def mark_failure_reported(exc: BaseException) -> None:
+    """Record that a seam has already reported this exception.
+
+    An exception propagating through several layers used to be logged by each
+    of them, so one failure arrived as several unrelated-looking records. Layers
+    that re-raise mark the exception instead, and any outer catch-all checks
+    :func:`failure_already_reported` before adding a report of its own.
+    """
+
+    try:
+        setattr(exc, _FAILURE_REPORTED_ATTR, True)
+    except Exception:
+        # Exceptions with __slots__ cannot carry the mark. Losing it costs a
+        # duplicate log line, which must never be worse than losing the error.
+        pass
+
+
+def failure_already_reported(exc: BaseException) -> bool:
+    """Whether an inner layer already reported this exception."""
+
+    return bool(getattr(exc, _FAILURE_REPORTED_ATTR, False))
 
 
 def annotate_failure_metadata(

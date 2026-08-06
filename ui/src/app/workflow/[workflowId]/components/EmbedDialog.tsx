@@ -465,7 +465,7 @@ export function EmbedDialog({
                                             </span>
                                         </div>
                                         <p className="text-xs text-muted-foreground">
-                                            End a text chat and trigger its completion webhook after this long without chat activity. 
+                                            End a text chat and trigger its completion webhook after this long without chat activity.
                                         </p>
                                         {!textChatInactivityIsValid && (
                                             <p className="text-xs text-destructive">

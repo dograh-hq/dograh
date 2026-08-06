@@ -697,6 +697,9 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 name=row.name,
                 provider=row.provider,
                 is_default_outbound=row.is_default_outbound,
+                inactive=row.inactive,
+                inactive_since=row.inactive_since,
+                inactive_reason=row.inactive_reason,
                 phone_number_count=len([n for n in numbers if n.is_active]),
                 created_at=row.created_at,
                 updated_at=row.updated_at,
@@ -825,6 +828,36 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
     return _detail_response(row)
 
 
+@router.post(
+    "/telephony-configs/{config_id}/reactivate",
+    response_model=TelephonyConfigurationDetail,
+)
+async def reactivate_telephony_configuration(
+    config_id: int, user: UserModel = Depends(get_user)
+):
+    """Clear the inactive flag so connection workers pick the config up again.
+
+    A config is deactivated automatically when it keeps failing to connect, and
+    workers never re-enable it on their own. This endpoint is the only way back,
+    so the customer fixes their PBX and then explicitly retries.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    updated = await db_client.set_telephony_configuration_active(
+        config_id, user.selected_organization_id
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+
+    row = await db_client.get_telephony_configuration_for_org(
+        config_id, user.selected_organization_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+    return _detail_response(row)
+
+
 @router.delete("/telephony-configs/{config_id}")
 async def delete_telephony_configuration(
     config_id: int, user: UserModel = Depends(get_user)
@@ -851,6 +884,9 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
         name=row.name,
         provider=row.provider,
         is_default_outbound=row.is_default_outbound,
+        inactive=row.inactive,
+        inactive_since=row.inactive_since,
+        inactive_reason=row.inactive_reason,
         credentials=masked,
         created_at=row.created_at,
         updated_at=row.updated_at,

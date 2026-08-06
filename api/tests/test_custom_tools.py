@@ -2268,15 +2268,27 @@ class TestUrlPathParameters:
                 {"user": {"id": "123"}},
             )
 
-    def test_host_injection_raises(self):
+    def test_initial_context_hostname_substituted(self):
+        url = render_url_template(
+            "https://{{initial_context.host}}/v1/data",
+            {"initial_context": {"host": "api.example.com"}},
+        )
+        assert url == "https://api.example.com/v1/data"
+
+    def test_hostname_parameter_can_be_embedded_in_domain(self):
+        url = render_url_template(
+            "https://{{tenant}}.example.com/v1/data",
+            {"tenant": "acme"},
+        )
+        assert url == "https://acme.example.com/v1/data"
+
+    def test_scheme_injection_raises(self):
         import pytest
 
-        with pytest.raises(
-            ValueError, match="URL placeholders cannot alter the scheme or host"
-        ):
+        with pytest.raises(ValueError, match="cannot alter the scheme"):
             render_url_template(
-                "https://{{host}}/v1/data",
-                {"host": "evil.com"},
+                "{{scheme}}://api.example.com/v1/data",
+                {"scheme": "https"},
             )
 
     def test_malformed_placeholder_syntax_raises(self):
@@ -2391,6 +2403,71 @@ class TestUrlPathParameters:
             assert mock_client.request.call_args.kwargs["url"] == (
                 f"https://api.com/{expected_path}"
             )
+
+    @pytest.mark.asyncio
+    async def test_initial_context_hostname_used_for_request(self):
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Tenant API",
+            description="Call a tenant-specific API",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "GET",
+                    "url": "https://{{initial_context.host}}/v1/data",
+                }
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(
+                tool,
+                {},
+                call_context_vars={"host": "tenant.example.com"},
+            )
+
+            assert result["status"] == "success"
+            assert mock_client.request.call_args.kwargs["url"] == (
+                "https://tenant.example.com/v1/data"
+            )
+
+    @pytest.mark.asyncio
+    async def test_saas_rejects_private_rendered_hostname(self, monkeypatch):
+        monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Tenant API",
+            description="Call a tenant-specific API",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "GET",
+                    "url": "https://{{initial_context.host}}/v1/data",
+                }
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            result = await execute_http_tool(
+                tool,
+                {},
+                call_context_vars={"host": "127.0.0.1"},
+            )
+
+        assert result["status"] == "error"
+        assert "public IP" in result["error"]
+        mock_client_class.assert_not_called()
 
     import pytest
 

@@ -43,41 +43,52 @@ class TelephonyConfigurationClient(BaseDBClient):
             return await session.get(TelephonyConfigurationModel, config_id)
 
     async def get_telephony_configuration_for_org(
-        self, config_id: int, organization_id: int
+        self,
+        config_id: int,
+        organization_id: int,
+        active_only: bool = True,
     ) -> Optional[TelephonyConfigurationModel]:
-        """Lookup scoped to an org — used to authorize per-org access."""
+        """Lookup scoped to an org, excluding parked configs by default.
+
+        Management flows that need to display, repair, or reactivate a parked
+        row must opt in with ``active_only=False``.
+        """
         async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.id == config_id,
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                )
+            query = select(TelephonyConfigurationModel).where(
+                TelephonyConfigurationModel.id == config_id,
+                TelephonyConfigurationModel.organization_id == organization_id,
             )
+            if active_only:
+                query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            result = await session.execute(query)
             return result.scalars().first()
 
     async def get_default_telephony_configuration(
-        self, organization_id: int
+        self, organization_id: int, active_only: bool = True
     ) -> Optional[TelephonyConfigurationModel]:
+        """Return the default outbound config, if it is usable for routing."""
         async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                    TelephonyConfigurationModel.is_default_outbound.is_(True),
-                )
+            query = select(TelephonyConfigurationModel).where(
+                TelephonyConfigurationModel.organization_id == organization_id,
+                TelephonyConfigurationModel.is_default_outbound.is_(True),
             )
+            if active_only:
+                query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            result = await session.execute(query)
             return result.scalars().first()
 
     async def list_telephony_configurations_by_provider(
-        self, organization_id: int, provider: str
+        self, organization_id: int, provider: str, active_only: bool = True
     ) -> List[TelephonyConfigurationModel]:
-        """Used by inbound matching to enumerate candidates of a given provider."""
+        """List provider configs usable for inbound matching by default."""
         async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                    TelephonyConfigurationModel.provider == provider,
-                )
+            query = select(TelephonyConfigurationModel).where(
+                TelephonyConfigurationModel.organization_id == organization_id,
+                TelephonyConfigurationModel.provider == provider,
             )
+            if active_only:
+                query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            result = await session.execute(query)
             return list(result.scalars().all())
 
     async def count_telnyx_configs_missing_webhook_public_key(

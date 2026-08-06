@@ -765,7 +765,7 @@ async def get_telephony_configuration_by_id(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     row = await db_client.get_telephony_configuration_for_org(
-        config_id, user.selected_organization_id
+        config_id, user.selected_organization_id, active_only=False
     )
     if not row:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -784,7 +784,7 @@ async def update_telephony_configuration(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     existing = await db_client.get_telephony_configuration_for_org(
-        config_id, user.selected_organization_id
+        config_id, user.selected_organization_id, active_only=False
     )
     if not existing:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -900,7 +900,7 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
 
 async def _ensure_config_belongs_to_org(config_id: int, organization_id: int):
     cfg = await db_client.get_telephony_configuration_for_org(
-        config_id, organization_id
+        config_id, organization_id, active_only=False
     )
     if not cfg:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -1164,7 +1164,7 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
         raise HTTPException(status_code=400, detail="No organization selected")
 
     cfg = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id
+        user.selected_organization_id, active_only=False
     )
     if not cfg:
         return TelephonyConfigurationResponse()
@@ -1197,7 +1197,7 @@ async def save_telephony_configuration(
     payload.pop("provider", None)
 
     default = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id
+        user.selected_organization_id, active_only=False
     )
 
     if default and default.provider == request.provider:

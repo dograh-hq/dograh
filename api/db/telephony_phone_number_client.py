@@ -105,8 +105,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         provider: str,
         country_hint: Optional[str] = None,
     ) -> Optional[TelephonyPhoneNumberModel]:
-        """Inbound routing primary lookup: normalize the called address and find
-        the matching active row whose config is for the detected provider."""
+        """Inbound routing primary lookup for an active number and config."""
         normalized = normalize_telephony_address(address, country_hint=country_hint)
 
         async with self.async_session() as session:
@@ -123,6 +122,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     == normalized.canonical,
                     TelephonyPhoneNumberModel.is_active.is_(True),
                     TelephonyConfigurationModel.provider == provider,
+                    TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
             return result.scalars().first()
@@ -142,9 +142,9 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         ``telephony_phone_numbers`` and matches all of:
         provider, ``credentials[account_id_field] == account_id``,
         ``phone.address_normalized == canonical(to_number)``, and
-        ``phone.is_active``. Replaces the previous pattern of resolving the
-        config and the phone number in two separate queries with a Python-side
-        loop over candidate configs.
+        ``phone.is_active``, and a non-parked configuration. Replaces the
+        previous pattern of resolving the config and the phone number in two
+        separate queries with a Python-side loop over candidate configs.
 
         Returns ``(config, phone_number)`` or None when the primary path
         misses (e.g. legacy non-E.164 stored addresses); the caller should
@@ -170,6 +170,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     TelephonyPhoneNumberModel.address_normalized
                     == normalized.canonical,
                     TelephonyPhoneNumberModel.is_active.is_(True),
+                    TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
             if organization_id is not None:

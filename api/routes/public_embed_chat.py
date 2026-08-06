@@ -16,6 +16,7 @@ from api.routes.public_embed import (
     get_request_origin,
 )
 from api.schemas.embed_chat import (
+    PublicEmbedChatEndRequest,
     PublicEmbedChatMessageRequest,
     PublicEmbedChatSessionResponse,
 )
@@ -32,6 +33,7 @@ from api.services.workflow.embed_text_chat_service import (
     EmbedChatSessionNotFoundError,
     EmbedChatTurnLimitExceededError,
     build_public_chat_session_response,
+    end_embed_text_chat_session,
     load_embed_text_chat_session,
     process_embed_text_chat_message,
 )
@@ -72,6 +74,36 @@ async def get_public_chat_session(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except EmbedChatModeError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if origin:
+        _allow_embed_origin(response, origin)
+    return build_public_chat_session_response(text_session)
+
+
+@router.post("/{session_token}/end", response_model=PublicEmbedChatSessionResponse)
+async def end_public_chat_session(
+    session_token: str,
+    body: PublicEmbedChatEndRequest,
+    request: Request,
+    response: Response,
+) -> PublicEmbedChatSessionResponse:
+    origin = get_request_origin(request)
+    try:
+        text_session = await end_embed_text_chat_session(
+            session_token=session_token,
+            origin=origin,
+            expected_revision=body.expected_revision,
+        )
+    except (EmbedSessionNotFoundError, EmbedTokenNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedSessionValidationError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except EmbedChatSessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedChatModeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except TextChatSessionRevisionConflictError as e:
+        raise HTTPException(status_code=409, detail=_revision_conflict_detail(e)) from e
 
     if origin:
         _allow_embed_origin(response, origin)
@@ -139,4 +171,12 @@ async def options_public_chat_messages(request: Request, session_token: str):
     """Fallback OPTIONS handler; browser preflights hit PublicEmbedCORSMiddleware."""
     return await _session_preflight_response(
         session_token, request.headers.get("origin", ""), "GET, POST, OPTIONS"
+    )
+
+
+@router.options("/{session_token}/end")
+async def options_public_chat_end(request: Request, session_token: str):
+    """Fallback OPTIONS handler; browser preflights hit PublicEmbedCORSMiddleware."""
+    return await _session_preflight_response(
+        session_token, request.headers.get("origin", ""), "POST, OPTIONS"
     )

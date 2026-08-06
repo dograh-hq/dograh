@@ -3,7 +3,7 @@ import { loadEnvConfig } from '@next/env';
 
 // Load .env.local / .env the same way Next.js does, so client generation targets
 // the backend THIS worktree actually runs on (per-worktree BACKEND_URL set by
-// scripts/worktree-assign-port.sh). Falls back to the default dev port if unset.
+// scripts/worktree-sync-env.sh). Falls back to the default dev port if unset.
 loadEnvConfig(process.cwd());
 
 const backendUrl = (

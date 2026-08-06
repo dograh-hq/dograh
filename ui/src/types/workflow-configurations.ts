@@ -115,6 +115,7 @@ type WorkflowConfigurationBase = Omit<
     | "turn_stop_strategy"
     | "dictionary"
     | "context_compaction_enabled"
+    | "text_chat_inactivity_timeout_seconds"
     | "external_pbx_field_mappings"
 >;
 
@@ -131,6 +132,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     voicemail_detection?: VoicemailDetectionConfiguration;
     transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
+    text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
     external_pbx_field_mappings: ExternalPBXFieldMapping[];
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
@@ -204,6 +206,9 @@ export function resolveWorkflowConfigurations(
             configurations?.context_compaction_enabled
             ?? defaults?.context_compaction_enabled
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
+        text_chat_inactivity_timeout_seconds:
+            configurations?.text_chat_inactivity_timeout_seconds
+            ?? defaults?.text_chat_inactivity_timeout_seconds,
         external_pbx_field_mappings:
             configurations?.external_pbx_field_mappings
             ?? defaults?.external_pbx_field_mappings

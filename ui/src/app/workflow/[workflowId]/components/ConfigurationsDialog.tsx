@@ -82,6 +82,7 @@ export const ConfigurationsDialog = ({
         setIsSaving(true);
         try {
             await onSave({
+                ...resolvedWorkflowConfigurations,
                 ambient_noise_configuration: ambientNoiseConfig,
                 max_call_duration: maxCallDuration,
                 max_user_idle_timeout: maxUserIdleTimeout,

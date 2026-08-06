@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from api.enums import WorkflowRunMode
 from api.services import workflow_run_billing as workflow_run_billing_mod
 from api.services.workflow_run_billing import (
     _is_usage_not_ready_error,
@@ -121,6 +122,24 @@ async def test_report_workflow_run_platform_usage_skips_oss(monkeypatch):
     report_usage = AsyncMock()
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "oss")
+    monkeypatch.setattr(
+        workflow_run_billing_mod.mps_service_key_client,
+        "report_platform_usage",
+        report_usage,
+    )
+
+    await report_workflow_run_platform_usage(workflow_run)
+
+    report_usage.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_report_workflow_run_platform_usage_skips_text_chat(monkeypatch):
+    workflow_run = _make_workflow_run()
+    workflow_run.mode = WorkflowRunMode.TEXTCHAT.value
+    report_usage = AsyncMock()
+
+    monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "report_platform_usage",

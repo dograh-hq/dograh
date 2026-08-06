@@ -6,6 +6,7 @@ type HeadlessWidget = {
     onChatStateChange: (callback: (state: string) => void) => void;
     onMessage: (callback: (text: string, turn: unknown) => void) => void;
     startChat: () => void;
+    endChat: () => Promise<unknown[] | null>;
     sendMessage: (text: string) => Promise<unknown[]>;
 };
 
@@ -25,6 +26,7 @@ describe("headless chat embed example", () => {
             <button id="open-chat"></button>
             <input id="chat-input" />
             <button id="send-btn"></button>
+            <button id="end-chat"></button>
         `;
         vi.stubGlobal("appendAgentBubble", vi.fn());
         vi.stubGlobal("appendVisitorBubble", vi.fn());
@@ -35,6 +37,7 @@ describe("headless chat embed example", () => {
             onChatStateChange,
             onMessage,
             startChat: vi.fn(),
+            endChat: vi.fn(async () => []),
             sendMessage: vi.fn(async () => []),
         };
 

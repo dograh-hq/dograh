@@ -1,5 +1,8 @@
 "use client";
 
+import { Loader2, Square } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ConversationItem } from "@/components/workflow/conversation";
 import { ConversationTimeline } from "@/components/workflow/conversation";
@@ -38,6 +41,7 @@ export function ManualTextChatPanel({
         editingTurnId,
         creatingSession,
         sendingMessage,
+        endingSession,
         activeTurnAction,
         composerId,
         inputDisabled,
@@ -48,6 +52,7 @@ export function ManualTextChatPanel({
         startEditingTurn,
         cancelEditingTurn,
         submitComposer,
+        endSession,
     } = useTextChatSession({
         workflowId,
         ready,
@@ -116,7 +121,9 @@ export function ManualTextChatPanel({
 
                             return (
                                 <TurnMessageActions
-                                    disabled={disabled || sendingMessage}
+                                    disabled={
+                                        disabled || sendingMessage || endingSession || Boolean(session?.is_completed)
+                                    }
                                     editing={editingTurnId === turn.id}
                                     rewinding={rewindingThisTurn}
                                     rerunningEdit={rerunningEditedTurn}
@@ -129,10 +136,42 @@ export function ManualTextChatPanel({
                 )}
             </div>
 
+            {session ? (
+                <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-3">
+                    <p className="text-xs text-muted-foreground">
+                        {session.is_completed
+                            ? "This conversation has ended."
+                            : "End the conversation and run its completion integrations."}
+                    </p>
+                    {!session.is_completed ? (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={disabled || sendingMessage || endingSession}
+                            onClick={() => {
+                                if (window.confirm("End this chat? You will not be able to send more messages.")) {
+                                    void endSession();
+                                }
+                            }}
+                            className="shrink-0"
+                        >
+                            {endingSession ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Square className="h-3.5 w-3.5" />
+                            )}
+                            {endingSession ? "Ending" : "End chat"}
+                        </Button>
+                    ) : null}
+                </div>
+            ) : null}
+
             <ChatComposer
                 composerId={composerId}
                 draft={draft}
                 ready={ready}
+                ended={Boolean(session?.is_completed)}
                 editing={!!editingTurn}
                 sendingMessage={sendingMessage}
                 inputDisabled={inputDisabled}

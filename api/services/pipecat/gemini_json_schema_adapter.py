@@ -40,7 +40,9 @@ class DograhGeminiJSONSchemaAdapter(GeminiLLMAdapter):
         return formatted_standard_tools + custom_gemini_tools
 
 
-class DograhGeminiLiveJSONSchemaAdapter(GeminiLiveLLMAdapter, DograhGeminiJSONSchemaAdapter):
+class DograhGeminiLiveJSONSchemaAdapter(
+    GeminiLiveLLMAdapter, DograhGeminiJSONSchemaAdapter
+):
     """Gemini Live adapter with the JSON Schema tool-parameter fix.
 
     Combines :class:`GeminiLiveLLMAdapter` (tool calls and results converted to

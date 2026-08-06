@@ -9,9 +9,10 @@ The flow under test:
 2. ``MockTTSService`` synthesises audio for the greeting; the real
    ``MediaSender`` machinery in ``MockOutputTransport`` emits
    ``BotStartedSpeakingFrame`` and ``BotStoppedSpeakingFrame``.
-3. The TTS service emits an ``LLMAssistantPushAggregationFrame`` after
-   ``TTSStoppedFrame``, so the greeting is appended to the assistant
-   context by ``LLMAssistantAggregator``.
+3. The TTS service emits an ``LLMAssistantPushAggregationFrame``, so the
+   greeting is appended to the assistant context by ``LLMAssistantAggregator``.
+   Audio playback can still be draining at this point, so the test also waits
+   for ``BotStoppedSpeakingFrame`` to unmute user input.
 4. We then push a ``TranscriptionFrame`` into the pipeline. After the
    user-turn-stop timeout, ``LLMUserAggregator`` pushes a context frame
    to the LLM, ``MockLLMService`` returns an ``end_call`` tool call, and
@@ -206,9 +207,16 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
             )
             context = assistant_aggregator.context
 
+            user_aggregator = _find_processor_by_class_name(
+                pipeline_task, "LLMUserAggregator"
+            )
+            assert user_aggregator is not None, (
+                "LLMUserAggregator not found in pipeline"
+            )
+
             # Wait for the greeting to be appended to the assistant context. The
-            # TTSSpeakFrame -> audio frames -> BotStoppedSpeaking -> assistant
-            # aggregation push chain runs through the real pipeline.
+            # TTSSpeakFrame -> audio frames -> assistant aggregation push chain
+            # runs through the real pipeline.
             appeared = await _wait_for(
                 lambda: _greeting_in_assistant_context(context), timeout=5.0
             )
@@ -216,6 +224,16 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
                 "Greeting was not appended to the assistant context. "
                 f"Messages: {context.get_messages()}"
             )
+
+            # Context aggregation can finish before the output transport has
+            # drained the greeting audio. Until BotStoppedSpeakingFrame reaches
+            # the user aggregator, MuteUntilFirstBotCompleteUserMuteStrategy
+            # intentionally suppresses transcripts. Wait for that real playback
+            # boundary before simulating the caller's reply.
+            unmuted = await _wait_for(
+                lambda: not user_aggregator._user_is_muted, timeout=2.0
+            )
+            assert unmuted, "User input stayed muted after greeting playback"
 
             # The LLM must not have been invoked yet — the greeting bypasses
             # the LLM entirely (goes straight to TTS via TTSSpeakFrame).

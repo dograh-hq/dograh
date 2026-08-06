@@ -5,6 +5,7 @@ Each row represents one provider account that an organization has connected
 ``OrganizationConfiguration(TELEPHONY_CONFIGURATION)`` storage.
 """
 
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, update
@@ -131,21 +132,65 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return int(result.scalar() or 0)
 
-    async def list_all_telephony_configurations_by_provider(
+    async def list_active_telephony_configurations_by_provider(
         self, provider: str
     ) -> List[TelephonyConfigurationModel]:
-        """List configs of a given provider across every organization.
+        """List the non-deactivated configs of a given provider, across all orgs.
 
         Used by background workers like the ARI manager that maintain
         long-lived connections per config row, independent of any one org.
+        Deactivated rows stay excluded until someone reactivates them.
         """
         async with self.async_session() as session:
             result = await session.execute(
                 select(TelephonyConfigurationModel).where(
                     TelephonyConfigurationModel.provider == provider,
+                    TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
             return list(result.scalars().all())
+
+    async def set_telephony_configuration_inactive(
+        self, config_id: int, organization_id: int, reason: str
+    ) -> bool:
+        """Deactivate a config, recording when and why."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(TelephonyConfigurationModel)
+                .where(
+                    TelephonyConfigurationModel.id == config_id,
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                )
+                .values(
+                    inactive=True,
+                    inactive_since=datetime.now(UTC),
+                    inactive_reason=reason[:255],
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+            return bool(result.rowcount)
+
+    async def set_telephony_configuration_active(
+        self, config_id: int, organization_id: int
+    ) -> bool:
+        """Clear the inactive flag and the recorded deactivation details."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(TelephonyConfigurationModel)
+                .where(
+                    TelephonyConfigurationModel.id == config_id,
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                )
+                .values(
+                    inactive=False,
+                    inactive_since=None,
+                    inactive_reason=None,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+            return bool(result.rowcount)
 
     async def create_telephony_configuration(
         self,

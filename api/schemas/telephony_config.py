@@ -110,6 +110,9 @@ class TelephonyConfigurationListItem(BaseModel):
     name: str
     provider: str
     is_default_outbound: bool
+    inactive: bool = False
+    inactive_since: datetime | None = None
+    inactive_reason: str | None = None
     phone_number_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -122,6 +125,9 @@ class TelephonyConfigurationDetail(BaseModel):
     name: str
     provider: str
     is_default_outbound: bool
+    inactive: bool = False
+    inactive_since: datetime | None = None
+    inactive_reason: str | None = None
     credentials: dict
     created_at: datetime
     updated_at: datetime

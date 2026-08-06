@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  AlertTriangle,
   ArrowLeft,
   Copy,
   ExternalLink,
   Pencil,
   Plus,
+  RotateCcw,
   Star,
   Trash2,
 } from "lucide-react";
@@ -18,6 +20,7 @@ import {
   deletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDelete,
   getTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGet,
   listPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGet,
+  reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost,
   setDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPost,
   setDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPost,
 } from "@/client/sdk.gen";
@@ -139,6 +142,26 @@ export default function TelephonyConfigurationDetailPage() {
     }
   };
 
+  const onReactivate = async () => {
+    if (!config) return;
+    try {
+      const token = await getAccessToken();
+      const res = await reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost(
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          path: { config_id: config.id },
+        },
+      );
+      if (res.error) throw new Error(detailFromError(res.error));
+      toast.success("Reactivated — reconnecting within a minute");
+      fetchAll();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to reactivate configuration",
+      );
+    }
+  };
+
   const onSetDefaultCaller = async (n: PhoneNumberResponse) => {
     try {
       const token = await getAccessToken();
@@ -222,6 +245,7 @@ export default function TelephonyConfigurationDetailPage() {
                   Default
                 </Badge>
               )}
+              {config.inactive && <Badge variant="destructive">Inactive</Badge>}
             </div>
             <CardDescription>
               Updated {formatDateTime(config.updated_at, organizationTimezone)}
@@ -241,6 +265,11 @@ export default function TelephonyConfigurationDetailPage() {
             </button>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {config.inactive && (
+              <Button variant="outline" size="sm" onClick={onReactivate}>
+                <RotateCcw className="h-4 w-4 mr-2" /> Reactivate
+              </Button>
+            )}
             {!config.is_default_outbound && (
               <Button variant="outline" size="sm" onClick={onSetDefaultOutbound}>
                 <Star className="h-4 w-4 mr-2" /> Set as default
@@ -252,6 +281,31 @@ export default function TelephonyConfigurationDetailPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {config.inactive && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-destructive" />
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-destructive">
+                    This configuration is disabled
+                  </p>
+                  <p className="text-muted-foreground">
+                    Dograh stopped reconnecting after repeated connection
+                    failures
+                    {config.inactive_reason ? `: ${config.inactive_reason}` : ""}.
+                    Calls will not work until it is reconnected. Correct the
+                    settings below, then choose Reactivate to try again.
+                  </p>
+                  {config.inactive_since && (
+                    <p className="text-muted-foreground">
+                      Disabled{" "}
+                      {formatDateTime(config.inactive_since, organizationTimezone)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {})
               .filter(([key]) => key !== "external_pbx" || externalPbxIntegrationsEnabled)

@@ -1995,6 +1995,7 @@ export type DefaultConfigurationsResponse = {
         [key: string]: string;
     };
     workflow_configurations: WorkflowConfigurationDefaults;
+    text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints;
 };
 
 /**
@@ -2575,6 +2576,16 @@ export type EndCallToolDefinition = {
      * End Call configuration.
      */
     config: EndCallConfig;
+};
+
+/**
+ * EndTextChatSessionRequest
+ */
+export type EndTextChatSessionRequest = {
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
 };
 
 /**
@@ -4839,6 +4850,16 @@ export type ProviderSyncStatus = {
 };
 
 /**
+ * PublicEmbedChatEndRequest
+ */
+export type PublicEmbedChatEndRequest = {
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
+};
+
+/**
  * PublicEmbedChatMessage
  */
 export type PublicEmbedChatMessage = {
@@ -6087,6 +6108,26 @@ export type TelnyxConfigurationResponse = {
 };
 
 /**
+ * TextChatInactivityTimeoutConstraints
+ *
+ * Backend-owned timeout metadata consumed by generated API clients.
+ */
+export type TextChatInactivityTimeoutConstraints = {
+    /**
+     * Default Seconds
+     */
+    default_seconds?: number;
+    /**
+     * Minimum Seconds
+     */
+    minimum_seconds?: number;
+    /**
+     * Maximum Seconds
+     */
+    maximum_seconds?: number;
+};
+
+/**
  * TimeSlotRequest
  */
 export type TimeSlotRequest = {
@@ -7157,6 +7198,10 @@ export type WorkflowConfigurationDefaults = {
      * Context Compaction Enabled
      */
     context_compaction_enabled?: boolean;
+    /**
+     * Text Chat Inactivity Timeout Seconds
+     */
+    text_chat_inactivity_timeout_seconds?: number;
     /**
      * External Pbx Field Mappings
      */
@@ -9513,6 +9558,54 @@ export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMes
 };
 
 export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponse = AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses[keyof AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses];
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostData = {
+    body: EndTextChatSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/{run_id}/end';
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostError = EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors[keyof EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors];
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse;
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponse = EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses[keyof EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses];
 
 export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostData = {
     body: RewindTextChatSessionRequest;
@@ -13503,6 +13596,72 @@ export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsRespo
      */
     200: unknown;
 };
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/end';
+};
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsError = OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors[keyof OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors];
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostData = {
+    body: PublicEmbedChatEndRequest;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/end';
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostError = EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors[keyof EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors];
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicEmbedChatSessionResponse;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponse = EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses[keyof EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses];
 
 export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsData = {
     body?: never;

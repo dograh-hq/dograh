@@ -31,3 +31,7 @@ class PublicEmbedChatSessionResponse(BaseModel):
 class PublicEmbedChatMessageRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     expected_revision: int | None = None
+
+
+class PublicEmbedChatEndRequest(BaseModel):
+    expected_revision: int | None = None

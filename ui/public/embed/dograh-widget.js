@@ -40,11 +40,13 @@
       revision: null,
       turns: [],
       pendingUserText: null, // optimistic bubble while a POST is in flight
+      ending: false,
+      confirmingEnd: false,
       draft: '',
       banner: null,
       seenAssistantTurnIds: new Set() // for onMessage diffing
     },
-    chatEls: null, // { panel, messages, banner, input, sendBtn } — null in headless
+    chatEls: null, // { panel, messages, banner, input, sendBtn, endBtn, endConfirmation, confirmEndBtn } — null in headless
     callbacks: {
       onReady: null,
       onCallStart: null,
@@ -221,6 +223,19 @@
   }
 
   /**
+   * Generic public end alias. In chat mode this ends the server session; stop()
+   * remains the non-destructive way to hide a floating chat panel.
+   */
+  async function endWidget(...args) {
+    await init();
+    if (!state.isInitialized) {
+      console.warn('Dograh Widget: Cannot end before initialization succeeds');
+      return;
+    }
+    return isChatWidget() ? endChatSession() : stopCall(...args);
+  }
+
+  /**
    * Parse context variables from JSON string
    */
   function parseContextVariables(contextStr) {
@@ -319,6 +334,7 @@
       }
 
       .dograh-widget-cta:hover {
+        color: #ffffff !important;
         filter: brightness(1.08);
         box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
       }
@@ -1259,6 +1275,84 @@
         flex: 0 0 auto;
       }
 
+      .dograh-chat-header-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dograh-chat-header-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 12px;
+      }
+
+      .dograh-chat-end {
+        display: none;
+        border: 1px solid rgba(255, 255, 255, 0.55);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.12);
+        color: #ffffff;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1;
+        cursor: pointer;
+        padding: 6px 8px;
+        white-space: nowrap;
+      }
+      .dograh-chat-end:hover { background: rgba(0, 0, 0, 0.22); }
+      .dograh-chat-end:disabled { cursor: default; opacity: 0.55; }
+
+      .dograh-chat-end-confirmation {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 12px;
+        color: #7f1d1d;
+        background: #fef2f2;
+        border-bottom: 1px solid #fecaca;
+        font-size: 12px;
+        font-weight: 500;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-end-confirm-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-end-confirm-cancel,
+      .dograh-chat-end-confirm-submit {
+        border-radius: 6px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1;
+        cursor: pointer;
+        padding: 6px 8px;
+        white-space: nowrap;
+      }
+      .dograh-chat-end-confirm-cancel {
+        border: 1px solid #d1d5db;
+        background: #ffffff;
+        color: #374151;
+      }
+      .dograh-chat-end-confirm-cancel:hover { background: #f9fafb; }
+      .dograh-chat-end-confirm-submit {
+        border: 1px solid #dc2626;
+        background: #dc2626;
+        color: #ffffff;
+      }
+      .dograh-chat-end-confirm-submit:hover {
+        border-color: #b91c1c;
+        background: #b91c1c;
+        color: #ffffff;
+      }
+
       .dograh-chat-close {
         background: none;
         border: none;
@@ -1442,8 +1536,26 @@
     header.className = 'dograh-chat-header';
     header.style.backgroundColor = state.config.buttonColor;
     const title = document.createElement('span');
+    title.className = 'dograh-chat-header-title';
     title.textContent = state.config.buttonText || 'Chat with Agent';
     header.appendChild(title);
+
+    const headerActions = document.createElement('div');
+    headerActions.className = 'dograh-chat-header-actions';
+
+    const endBtn = document.createElement('button');
+    endBtn.className = 'dograh-chat-end';
+    endBtn.type = 'button';
+    endBtn.textContent = 'End chat';
+    endBtn.setAttribute('aria-controls', 'dograh-chat-end-confirmation');
+    endBtn.setAttribute('aria-expanded', 'false');
+    endBtn.onclick = () => {
+      state.chat.confirmingEnd = true;
+      renderChat();
+      if (state.chatEls) state.chatEls.confirmEndBtn.focus();
+    };
+    headerActions.appendChild(endBtn);
+
     if (withClose) {
       const closeBtn = document.createElement('button');
       closeBtn.className = 'dograh-chat-close';
@@ -1451,9 +1563,48 @@
       closeBtn.setAttribute('aria-label', 'Close chat');
       closeBtn.textContent = '×';
       closeBtn.onclick = closeChatPanel;
-      header.appendChild(closeBtn);
+      headerActions.appendChild(closeBtn);
     }
+    header.appendChild(headerActions);
     panel.appendChild(header);
+
+    const endConfirmation = document.createElement('div');
+    endConfirmation.id = 'dograh-chat-end-confirmation';
+    endConfirmation.className = 'dograh-chat-end-confirmation';
+    endConfirmation.setAttribute('role', 'group');
+    endConfirmation.setAttribute('aria-label', 'Confirm ending chat');
+
+    const endConfirmationText = document.createElement('span');
+    endConfirmationText.textContent = 'End this chat?';
+    endConfirmation.appendChild(endConfirmationText);
+
+    const endConfirmActions = document.createElement('div');
+    endConfirmActions.className = 'dograh-chat-end-confirm-actions';
+
+    const cancelEndBtn = document.createElement('button');
+    cancelEndBtn.className = 'dograh-chat-end-confirm-cancel';
+    cancelEndBtn.type = 'button';
+    cancelEndBtn.textContent = 'Cancel';
+    cancelEndBtn.onclick = () => {
+      state.chat.confirmingEnd = false;
+      renderChat();
+      if (state.chatEls && state.chat.panelOpen && state.chat.status === 'ready') {
+        state.chatEls.input.focus();
+      }
+    };
+    endConfirmActions.appendChild(cancelEndBtn);
+
+    const confirmEndBtn = document.createElement('button');
+    confirmEndBtn.className = 'dograh-chat-end-confirm-submit';
+    confirmEndBtn.type = 'button';
+    confirmEndBtn.textContent = 'End chat';
+    confirmEndBtn.onclick = () => {
+      state.chat.confirmingEnd = false;
+      endChatSession();
+    };
+    endConfirmActions.appendChild(confirmEndBtn);
+    endConfirmation.appendChild(endConfirmActions);
+    panel.appendChild(endConfirmation);
 
     const messages = document.createElement('div');
     messages.className = 'dograh-chat-messages';
@@ -1491,7 +1642,16 @@
     composer.appendChild(sendBtn);
     panel.appendChild(composer);
 
-    state.chatEls = { panel, messages, banner, input, sendBtn };
+    state.chatEls = {
+      panel,
+      messages,
+      banner,
+      input,
+      sendBtn,
+      endBtn,
+      endConfirmation,
+      confirmEndBtn
+    };
     return panel;
   }
 
@@ -1602,6 +1762,7 @@
 
   function closeChatPanel() {
     state.chat.panelOpen = false;
+    state.chat.confirmingEnd = false;
     if (state.chatEls && state.chatEls.panel) {
       state.chatEls.panel.style.display = 'none';
     }
@@ -1636,7 +1797,18 @@
     state.chat.revision = null;
     state.chat.turns = [];
     state.chat.pendingUserText = null;
+    state.chat.ending = false;
+    state.chat.confirmingEnd = false;
     state.chat.seenAssistantTurnIds = new Set();
+  }
+
+  async function startNewChatSession() {
+    resetChatSession();
+    await startChatSession();
+
+    if (state.chatEls && state.chat.panelOpen && state.chat.status === 'ready') {
+      state.chatEls.input.focus();
+    }
   }
 
   /**
@@ -1794,6 +1966,82 @@
   }
 
   /**
+   * End the active chat and persist completion before updating local UI state.
+   * The endpoint is revision-guarded, and one resync/retry handles a session
+   * advanced from another browser tab.
+   */
+  async function endChatSession(retryOnConflict = true) {
+    if (!state.isInitialized) {
+      await init();
+    }
+    if (!state.isInitialized) {
+      return null;
+    }
+    if (!isChatWidget()) {
+      console.warn('Dograh Widget: endChat() called on a voice widget');
+      return null;
+    }
+    if (!state.sessionToken || state.chat.status === 'ended' || state.chat.status === 'expired') {
+      return state.chat.turns.slice();
+    }
+    if (state.chat.status === 'starting' || state.chat.status === 'waiting' || state.chat.ending) {
+      return null;
+    }
+
+    state.chat.confirmingEnd = false;
+    state.chat.ending = true;
+    renderChat();
+
+    try {
+      const response = await fetch(
+        `${state.config.apiBaseUrl}/api/v1/public/embed/chat/${state.sessionToken}/end`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Origin': window.location.origin
+          },
+          body: JSON.stringify({ expected_revision: state.chat.revision })
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        applyChatSession(data);
+        state.chat.ending = false;
+        updateChatStatus('ended', 'Conversation ended.');
+        return state.chat.turns.slice();
+      }
+
+      if (response.status === 409 && retryOnConflict) {
+        const resynced = await resyncChatSession();
+        state.chat.ending = false;
+        if (resynced) {
+          return endChatSession(false);
+        }
+        if (state.chat.status === 'expired') {
+          updateChatStatus('expired');
+          return null;
+        }
+      }
+      if (response.status === 403 || response.status === 404) {
+        state.chat.ending = false;
+        updateChatStatus('expired');
+        return null;
+      }
+      throw new Error(`Failed to end chat: ${response.status}`);
+    } catch (error) {
+      console.error('Dograh Widget: Failed to end chat', error);
+      state.chat.ending = false;
+      updateChatStatus('ready', 'Could not end the chat. Please try again.');
+      if (state.callbacks.onError) {
+        state.callbacks.onError(error);
+      }
+      return null;
+    }
+  }
+
+  /**
    * Refetch the transcript (409 recovery). Marks the session expired on
    * 403/404 so the caller can surface the restart UI.
    */
@@ -1821,7 +2069,7 @@
     return false;
   }
 
-  function submitChatComposer() {
+  async function submitChatComposer() {
     const text = (state.chat.draft || '').trim();
     if (!text || state.chat.status !== 'ready') return;
     state.chat.draft = '';
@@ -1829,10 +2077,15 @@
       state.chatEls.input.value = '';
       autoGrowChatInput(state.chatEls.input);
     }
-    sendChatMessage(text);
+    await sendChatMessage(text);
+
+    if (state.chatEls && state.chat.panelOpen && state.chat.status === 'ready') {
+      state.chatEls.input.focus();
+    }
   }
 
   function updateChatStatus(status, banner) {
+    if (status !== 'ready') state.chat.confirmingEnd = false;
     state.chat.status = status;
     state.chat.banner = banner || null;
     renderChat();
@@ -1848,7 +2101,9 @@
     if (!state.chatEls) return;
     renderChatMessages();
     renderChatBanner();
+    updateChatEndConfirmationState();
     updateChatComposerState();
+    updateChatEndButtonState();
   }
 
   function renderChatMessages() {
@@ -1911,15 +2166,12 @@
     span.textContent = text;
     banner.appendChild(span);
 
-    if (state.chat.status === 'expired') {
+    if (state.chat.status === 'expired' || state.chat.status === 'ended') {
       const restart = document.createElement('button');
       restart.type = 'button';
       restart.className = 'dograh-chat-restart';
       restart.textContent = 'Start new chat';
-      restart.onclick = () => {
-        resetChatSession();
-        startChatSession();
-      };
+      restart.onclick = startNewChatSession;
       banner.appendChild(restart);
     } else if (state.chat.status === 'error') {
       const retry = document.createElement('button');
@@ -1934,7 +2186,7 @@
   function updateChatComposerState() {
     const input = state.chatEls.input;
     const sendBtn = state.chatEls.sendBtn;
-    const canType = state.chat.status === 'ready';
+    const canType = state.chat.status === 'ready' && !state.chat.ending && !state.chat.confirmingEnd;
     input.disabled = !canType && state.chat.status !== 'idle';
     sendBtn.disabled = !canType;
     if (document.activeElement !== input) {
@@ -1942,14 +2194,32 @@
     }
   }
 
+  function updateChatEndConfirmationState() {
+    const showConfirmation = state.chat.confirmingEnd
+      && state.chat.status === 'ready'
+      && !state.chat.ending;
+    state.chatEls.endConfirmation.style.display = showConfirmation ? 'flex' : 'none';
+    state.chatEls.endBtn.setAttribute('aria-expanded', showConfirmation ? 'true' : 'false');
+  }
+
+  function updateChatEndButtonState() {
+    const endBtn = state.chatEls.endBtn;
+    const hasActiveSession = Boolean(
+      state.sessionToken && state.chat.status !== 'ended' && state.chat.status !== 'expired'
+    );
+    endBtn.style.display = hasActiveSession ? 'inline-flex' : 'none';
+    endBtn.disabled = state.chat.ending || state.chat.confirmingEnd || state.chat.status !== 'ready';
+    endBtn.textContent = state.chat.ending ? 'Ending…' : 'End chat';
+  }
+
   // Public API
   window.DograhWidget = {
-    // Core methods. In chat mode start()/stop() degrade sensibly: start opens
-    // the chat, stop closes the panel (REST sessions need no teardown).
+    // Core methods. In chat mode start() opens the chat, stop() only hides a
+    // floating panel, and end() completes the server-side session.
     init: init,
     start: startWidget,
     stop: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
-    end: (...args) => (isChatWidget() ? closeChatPanel() : stopCall(...args)),
+    end: endWidget,
     retry: retryCall,
 
     // Visitor context (voice and chat, every embed mode). Merges into whatever
@@ -1963,6 +2233,7 @@
 
     // Chat API (widgetType === 'chat')
     startChat: startChat,
+    endChat: endChatSession,
     sendMessage: sendChatMessage,
     getMessages: () => state.chat.turns.slice(),
     isChatMode: () => isChatWidget(),

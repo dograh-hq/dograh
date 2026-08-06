@@ -27,6 +27,7 @@ from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
     TextChatSessionExecutionError,
     append_text_chat_user_message,
+    complete_text_chat_session,
     default_text_chat_checkpoint,
     default_text_chat_session_data,
     execute_pending_text_chat_turn,
@@ -97,7 +98,11 @@ async def process_embed_text_chat_message(
     )
     workflow_run = text_session.workflow_run
 
-    if workflow_run.is_completed:
+    if (
+        workflow_run.is_completed
+        or normalize_text_chat_session_data(text_session.session_data)["status"]
+        == "completed"
+    ):
         raise EmbedChatCompletedError("Conversation has ended")
 
     if not await allow_embed_chat_message(workflow_run.id):
@@ -122,6 +127,23 @@ async def process_embed_text_chat_message(
     except (TextChatPendingTurnLostError, TextChatSessionExecutionError) as e:
         logger.error(f"Embed chat turn failed for run {workflow_run.id}: {e}")
         raise
+
+
+async def end_embed_text_chat_session(
+    *,
+    session_token: str,
+    origin: str,
+    expected_revision: int | None,
+) -> WorkflowRunTextSessionModel:
+    """Authenticate and end a public embed chat without consuming quota."""
+    _, text_session = await load_embed_text_chat_session(
+        session_token=session_token, origin=origin
+    )
+    return await complete_text_chat_session(
+        run_id=text_session.workflow_run.id,
+        text_session=text_session,
+        expected_revision=expected_revision,
+    )
 
 
 async def start_embed_text_chat(

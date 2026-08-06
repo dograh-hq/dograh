@@ -12,6 +12,7 @@ from loguru import logger
 
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
+from api.enums import WorkflowRunMode
 from api.services.managed_model_services import get_mps_correlation_id
 from api.services.mps_service_key_client import mps_service_key_client
 
@@ -42,6 +43,13 @@ def _is_usage_not_ready_error(exc: Exception) -> bool:
 async def report_workflow_run_platform_usage(workflow_run) -> None:
     """Report hosted platform usage for a completed workflow run to MPS."""
     if DEPLOYMENT_MODE == "oss":
+        return
+
+    if getattr(workflow_run, "mode", None) == WorkflowRunMode.TEXTCHAT.value:
+        logger.info(
+            "Skipping platform usage report for text chat workflow run {}",
+            workflow_run.id,
+        )
         return
 
     if not getattr(workflow_run, "is_completed", False):

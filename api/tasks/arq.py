@@ -3,7 +3,7 @@
 import ssl
 from urllib.parse import urlparse
 
-from api.constants import REDIS_URL
+from api.constants import REDIS_URL, TEXT_CHAT_INACTIVITY_SWEEP_INTERVAL_MINUTES
 
 # Setup logging - this is now idempotent and safe to call multiple times
 from api.logging_config import setup_logging
@@ -45,7 +45,10 @@ from api.tasks.campaign_tasks import (
 )
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
-from api.tasks.text_chat_inactivity import sweep_inactive_text_chat_sessions
+from api.tasks.text_chat_inactivity import (
+    complete_inactive_text_chat_session,
+    sweep_inactive_text_chat_sessions,
+)
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
 from api.tasks.workflow_completion import process_workflow_completion
 
@@ -58,6 +61,7 @@ class WorkerSettings:
         process_campaign_batch,
         process_knowledge_base_document,
         deliver_webhook,
+        complete_inactive_text_chat_session,
     ]
     cron_jobs = [
         # Safety net for webhook deliveries whose ARQ job was lost (worker
@@ -69,10 +73,10 @@ class WorkerSettings:
             run_at_startup=True,
         ),
         # Text chats do not have a transport disconnect callback. Close stale
-        # sessions so their transcript, webhooks, and billing are finalized.
+        # sessions so their transcript and completion integrations are finalized.
         cron(
             sweep_inactive_text_chat_sessions,
-            minute=set(range(0, 60, 5)),
+            minute=set(range(0, 60, TEXT_CHAT_INACTIVITY_SWEEP_INTERVAL_MINUTES)),
             second=30,
             run_at_startup=True,
         ),

@@ -145,7 +145,6 @@ describe('public embed widget chat lifecycle', () => {
     it('shows an end-chat action that completes the server session', async () => {
         const fetchMock = createFetchMock(false);
         const widget = await loadWidget(fetchMock);
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         await widget.startChat();
         await flushMicrotasks();
@@ -155,6 +154,17 @@ describe('public embed widget chat lifecycle', () => {
         expect(endButton?.disabled).toBe(false);
 
         endButton?.click();
+        await flushMicrotasks();
+
+        expect(fetchMock.mock.calls.some(([url]) =>
+            String(url).endsWith('/api/v1/public/embed/chat/emb_session_TEST/end'),
+        )).toBe(false);
+
+        const confirmEndButton = document.querySelector<HTMLButtonElement>(
+            '.dograh-chat-end-confirm-submit',
+        );
+        expect(confirmEndButton).not.toBeNull();
+        confirmEndButton?.click();
         await flushMicrotasks();
 
         const endCalls = fetchMock.mock.calls.filter(([url]) =>

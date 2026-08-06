@@ -4,9 +4,7 @@ import type {
     WorkflowConfigurationDefaults as GeneratedWorkflowConfigurationDefaults,
 } from "@/client/types.gen";
 
-export type WorkflowConfigurationDefaults = GeneratedWorkflowConfigurationDefaults & {
-    text_chat_inactivity_timeout_seconds?: number;
-};
+export type WorkflowConfigurationDefaults = GeneratedWorkflowConfigurationDefaults;
 
 export type AmbientNoiseConfiguration = Omit<
     AmbientNoiseConfigurationDefaults,
@@ -134,7 +132,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     voicemail_detection?: VoicemailDetectionConfiguration;
     transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
-    text_chat_inactivity_timeout_seconds: number;  // End inactive text chats after this many seconds
+    text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
     external_pbx_field_mappings: ExternalPBXFieldMapping[];
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
@@ -156,7 +154,6 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     dictionary: '',
     transcript_configuration: DEFAULT_TRANSCRIPT_CONFIGURATION,
     context_compaction_enabled: false,
-    text_chat_inactivity_timeout_seconds: 1800,
     external_pbx_field_mappings: [],
 };
 
@@ -211,8 +208,7 @@ export function resolveWorkflowConfigurations(
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
         text_chat_inactivity_timeout_seconds:
             configurations?.text_chat_inactivity_timeout_seconds
-            ?? defaults?.text_chat_inactivity_timeout_seconds
-            ?? FALLBACK_WORKFLOW_CONFIGURATIONS.text_chat_inactivity_timeout_seconds,
+            ?? defaults?.text_chat_inactivity_timeout_seconds,
         external_pbx_field_mappings:
             configurations?.external_pbx_field_mappings
             ?? defaults?.external_pbx_field_mappings

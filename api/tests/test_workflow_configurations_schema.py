@@ -2,12 +2,14 @@ import pytest
 from pydantic import ValidationError
 
 from api.constants import (
+    MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
     MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
     TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
 )
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     MAX_CALL_DURATION_SECONDS,
+    TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
 )
 
@@ -54,6 +56,32 @@ def test_text_chat_inactivity_timeout_rejects_values_below_minimum():
                 MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS - 1
             )
         )
+
+
+def test_text_chat_inactivity_timeout_rejects_values_beyond_sweep_lookback():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            text_chat_inactivity_timeout_seconds=(
+                MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS + 1
+            )
+        )
+
+
+def test_text_chat_inactivity_timeout_bounds_are_exported_in_schema():
+    field_schema = WorkflowConfigurationDefaults.model_json_schema()["properties"][
+        "text_chat_inactivity_timeout_seconds"
+    ]
+
+    assert field_schema["minimum"] == MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    assert field_schema["maximum"] == MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+
+
+def test_text_chat_inactivity_timeout_constraints_export_backend_constants():
+    constraints = TextChatInactivityTimeoutConstraints()
+
+    assert constraints.default_seconds == TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    assert constraints.minimum_seconds == MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    assert constraints.maximum_seconds == MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
 
 
 def test_null_values_treated_as_unset():

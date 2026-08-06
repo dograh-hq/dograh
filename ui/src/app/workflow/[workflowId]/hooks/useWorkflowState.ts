@@ -19,7 +19,11 @@ import {
     updateWorkflowApiV1WorkflowWorkflowIdPut,
     validateWorkflowApiV1WorkflowWorkflowIdValidatePost
 } from "@/client";
-import { NodeSpec, WorkflowError } from "@/client/types.gen";
+import {
+    NodeSpec,
+    TextChatInactivityTimeoutConstraints,
+    WorkflowError,
+} from "@/client/types.gen";
 import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, FlowNodeData, NodeType } from "@/components/flow/types";
 import { PostHogEvent } from "@/constants/posthog-events";
@@ -118,6 +122,8 @@ export const useWorkflowState = ({
     const rfInstance = useRef<ReactFlowInstance<FlowNode, FlowEdge> | null>(null);
     const [workflowConfigurationDefaults, setWorkflowConfigurationDefaults] =
         useState<WorkflowConfigurationDefaults | null>(null);
+    const [textChatInactivityTimeoutConstraints, setTextChatInactivityTimeoutConstraints] =
+        useState<TextChatInactivityTimeoutConstraints | null>(null);
     const [workflowConfigurationDefaultsLoaded, setWorkflowConfigurationDefaultsLoaded] =
         useState(false);
 
@@ -172,13 +178,18 @@ export const useWorkflowState = ({
                         `Failed to load workflow configuration defaults: ${JSON.stringify(response.error)}`,
                     );
                     setWorkflowConfigurationDefaults(null);
+                    setTextChatInactivityTimeoutConstraints(null);
                 } else {
                     setWorkflowConfigurationDefaults(response.data.workflow_configurations);
+                    setTextChatInactivityTimeoutConstraints(
+                        response.data.text_chat_inactivity_timeout_constraints,
+                    );
                 }
             } catch (error) {
                 if (cancelled) return;
                 logger.error(`Failed to load workflow configuration defaults: ${error}`);
                 setWorkflowConfigurationDefaults(null);
+                setTextChatInactivityTimeoutConstraints(null);
             } finally {
                 if (!cancelled) {
                     setWorkflowConfigurationDefaultsLoaded(true);
@@ -632,6 +643,7 @@ export const useWorkflowState = ({
         workflowValidationErrors,
         templateContextVariables,
         workflowConfigurations,
+        textChatInactivityTimeoutConstraints,
         dictionary,
         setNodes,
         setEdges,

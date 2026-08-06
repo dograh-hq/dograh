@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api.constants import (
+    MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
     MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
     TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
 )
@@ -81,11 +82,20 @@ class WorkflowConfigurationDefaults(BaseModel):
     text_chat_inactivity_timeout_seconds: int = Field(
         default=TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
         ge=MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+        le=MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
     )
     external_pbx_field_mappings: list[ExternalPBXFieldMapping] = Field(
         default_factory=list,
         max_length=100,
     )
+
+
+class TextChatInactivityTimeoutConstraints(BaseModel):
+    """Backend-owned timeout metadata consumed by generated API clients."""
+
+    default_seconds: int = TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    minimum_seconds: int = MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    maximum_seconds: int = MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
 
 
 def get_default_workflow_configurations() -> WorkflowConfigurationDefaults:

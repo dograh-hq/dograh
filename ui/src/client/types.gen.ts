@@ -1995,6 +1995,7 @@ export type DefaultConfigurationsResponse = {
         [key: string]: string;
     };
     workflow_configurations: WorkflowConfigurationDefaults;
+    text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints;
 };
 
 /**
@@ -6104,6 +6105,26 @@ export type TelnyxConfigurationResponse = {
      * From Numbers
      */
     from_numbers: Array<string>;
+};
+
+/**
+ * TextChatInactivityTimeoutConstraints
+ *
+ * Backend-owned timeout metadata consumed by generated API clients.
+ */
+export type TextChatInactivityTimeoutConstraints = {
+    /**
+     * Default Seconds
+     */
+    default_seconds?: number;
+    /**
+     * Minimum Seconds
+     */
+    minimum_seconds?: number;
+    /**
+     * Maximum Seconds
+     */
+    maximum_seconds?: number;
 };
 
 /**

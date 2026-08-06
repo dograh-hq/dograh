@@ -7,6 +7,7 @@ import {
     deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete,
     getEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGet,
 } from "@/client/sdk.gen";
+import type { TextChatInactivityTimeoutConstraints } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -38,6 +39,7 @@ interface EmbedDialogProps {
     workflowId: number;
     workflowName: string;
     workflowConfigurations: WorkflowConfigurations;
+    textChatInactivityTimeoutConstraints: TextChatInactivityTimeoutConstraints | null;
     onSaveWorkflowConfigurations: (
         configurations: WorkflowConfigurations,
         workflowName: string,
@@ -60,7 +62,6 @@ const WIDGET_TYPE_DEFAULTS: Record<WidgetType, { buttonText: string; callToActio
 };
 
 const SECONDS_PER_MINUTE = 60;
-const MIN_TEXT_CHAT_INACTIVITY_MINUTES = 1;
 
 interface EmbedToken {
     id: number;
@@ -81,6 +82,7 @@ export function EmbedDialog({
     workflowId,
     workflowName,
     workflowConfigurations,
+    textChatInactivityTimeoutConstraints,
     onSaveWorkflowConfigurations,
 }: EmbedDialogProps) {
     const [loading, setLoading] = useState(false);
@@ -98,14 +100,42 @@ export function EmbedDialog({
     const [buttonText, setButtonText] = useState("Talk to Agent");
     const [buttonColor, setButtonColor] = useState("#10b981");
     const [callToActionText, setCallToActionText] = useState("Click to start voice conversation");
+    const configuredTextChatInactivitySeconds =
+        workflowConfigurations.text_chat_inactivity_timeout_seconds
+        ?? textChatInactivityTimeoutConstraints?.default_seconds;
     const [textChatInactivityMinutes, setTextChatInactivityMinutes] = useState(() =>
-        String(workflowConfigurations.text_chat_inactivity_timeout_seconds / SECONDS_PER_MINUTE),
+        configuredTextChatInactivitySeconds === undefined
+            ? ""
+            : String(configuredTextChatInactivitySeconds / SECONDS_PER_MINUTE),
     );
 
     const parsedTextChatInactivityMinutes = Number(textChatInactivityMinutes);
+    const parsedTextChatInactivitySeconds =
+        parsedTextChatInactivityMinutes * SECONDS_PER_MINUTE;
+    const minimumTextChatInactivitySeconds =
+        textChatInactivityTimeoutConstraints?.minimum_seconds;
+    const maximumTextChatInactivitySeconds =
+        textChatInactivityTimeoutConstraints?.maximum_seconds;
+    const minimumTextChatInactivityMinutes = minimumTextChatInactivitySeconds !== undefined
+        ? minimumTextChatInactivitySeconds / SECONDS_PER_MINUTE
+        : undefined;
+    const maximumTextChatInactivityMinutes = maximumTextChatInactivitySeconds !== undefined
+        ? maximumTextChatInactivitySeconds / SECONDS_PER_MINUTE
+        : undefined;
+    const hasTextChatInactivityBounds =
+        minimumTextChatInactivitySeconds !== undefined &&
+        maximumTextChatInactivitySeconds !== undefined;
     const textChatInactivityIsValid =
+        textChatInactivityMinutes.trim() !== "" &&
         Number.isInteger(parsedTextChatInactivityMinutes) &&
-        parsedTextChatInactivityMinutes >= MIN_TEXT_CHAT_INACTIVITY_MINUTES;
+        (!hasTextChatInactivityBounds ||
+            (parsedTextChatInactivitySeconds >=
+                minimumTextChatInactivitySeconds &&
+                parsedTextChatInactivitySeconds <=
+                    maximumTextChatInactivitySeconds));
+    const textChatInactivityValidationMessage = hasTextChatInactivityBounds
+        ? `Chat inactivity timeout must be a whole number between ${minimumTextChatInactivityMinutes} and ${maximumTextChatInactivityMinutes} minutes`
+        : "Chat inactivity timeout must be a whole number of minutes";
 
     const handleWidgetTypeChange = (type: WidgetType) => {
         if (type === widgetType) return;
@@ -155,17 +185,16 @@ export function EmbedDialog({
         if (open) {
             loadEmbedToken();
             setTextChatInactivityMinutes(
-                String(
-                    workflowConfigurations.text_chat_inactivity_timeout_seconds /
-                        SECONDS_PER_MINUTE,
-                ),
+                configuredTextChatInactivitySeconds === undefined
+                    ? ""
+                    : String(configuredTextChatInactivitySeconds / SECONDS_PER_MINUTE),
             );
         }
-    }, [open, loadEmbedToken, workflowConfigurations.text_chat_inactivity_timeout_seconds]);
+    }, [open, loadEmbedToken, configuredTextChatInactivitySeconds]);
 
     const handleSave = async () => {
         if (isEnabled && widgetType === "chat" && !textChatInactivityIsValid) {
-            toast.error("Chat inactivity timeout must be a whole number of minutes");
+            toast.error(textChatInactivityValidationMessage);
             return;
         }
 
@@ -175,8 +204,7 @@ export function EmbedDialog({
                 await onSaveWorkflowConfigurations(
                     {
                         ...workflowConfigurations,
-                        text_chat_inactivity_timeout_seconds:
-                            parsedTextChatInactivityMinutes * SECONDS_PER_MINUTE,
+                        text_chat_inactivity_timeout_seconds: parsedTextChatInactivitySeconds,
                     },
                     workflowName,
                 );
@@ -225,7 +253,11 @@ export function EmbedDialog({
                 }
             }
 
-            toast.success("Widget configuration saved");
+            toast.success(
+                isEnabled && widgetType === "chat"
+                    ? "Widget configuration saved. Publish the workflow to apply the inactivity timeout."
+                    : "Widget configuration saved",
+            );
             // Don't close modal after saving - let user copy the embed code
         } catch (error) {
             console.error("Failed to save embed token:", error);
@@ -420,7 +452,8 @@ export function EmbedDialog({
                                             <Input
                                                 id="text-chat-inactivity-timeout"
                                                 type="number"
-                                                min={MIN_TEXT_CHAT_INACTIVITY_MINUTES}
+                                                min={minimumTextChatInactivityMinutes}
+                                                max={maximumTextChatInactivityMinutes}
                                                 step="1"
                                                 value={textChatInactivityMinutes}
                                                 onChange={(event) =>
@@ -437,9 +470,13 @@ export function EmbedDialog({
                                             End a text chat and trigger its completion webhook after
                                             this long without chat activity.
                                         </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Publish the workflow after saving to apply this timeout to
+                                            website chats.
+                                        </p>
                                         {!textChatInactivityIsValid && (
                                             <p className="text-xs text-destructive">
-                                                Enter a whole number of at least one minute.
+                                                {textChatInactivityValidationMessage}.
                                             </p>
                                         )}
                                     </div>

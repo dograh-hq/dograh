@@ -1569,6 +1569,7 @@ function WorkflowSettingsInner({
     const {
         workflowName,
         workflowConfigurations,
+        textChatInactivityTimeoutConstraints,
         templateContextVariables,
         dictionary,
         saveWorkflowConfigurations,
@@ -1785,6 +1786,7 @@ function WorkflowSettingsInner({
                     workflowId={workflowId}
                     workflowName={workflowName || workflow.name}
                     workflowConfigurations={resolvedWorkflowConfigurationsForRender}
+                    textChatInactivityTimeoutConstraints={textChatInactivityTimeoutConstraints}
                     onSaveWorkflowConfigurations={saveWorkflowConfigurations}
                 />
             )}

@@ -1,0 +1,156 @@
+---
+title: "TryVox Integration"
+description: "Configure TryVox for voice communication in Dograh AI"
+---
+
+## Overview
+
+TryVox is a cloud telephony platform offering numbers, KYC-verified voice calling, and real-time PCM audio streaming. Dograh AI's TryVox integration uses TryVox's native REST API for outbound calls, TryVox **Voice Applications** for inbound routing, and TryVox's VoxML `Stream` verb for bidirectional audio — all callbacks are HMAC-signed and verified.
+
+## Prerequisites
+
+Before setting up TryVox integration, you'll need:
+
+- A [TryVox account](https://tryvox.io) with KYC completed (KYC is required before you can provision or use a phone number)
+- Auth ID and Auth Token from your TryVox dashboard
+- A per-account webhook secret (set when you create your API credentials)
+- A TryVox **Voice Application** — required for automatic inbound number setup. Create one in the TryVox dashboard under **Voice → Applications** and copy its Application ID (leave any URL fields blank; Dograh sets them for you)
+- At least one active TryVox E.164 phone number, owned by the same account
+- That same number added as a **verified caller ID** on your TryVox account — required separately from owning the number before it can be used as the outbound `from` number
+- Dograh AI instance running and accessible over HTTPS/WSS
+
+## Configuration
+
+### Step 1: Get TryVox Credentials
+
+1. Log in to your TryVox dashboard
+2. Find your **Auth ID** and generate an **Auth Token** for API access
+3. Generate a **webhook secret** for your account (used to verify signed callbacks)
+4. Navigate to **Voice → Applications**, create an application for Dograh, and copy its **Application ID**
+5. Navigate to **Numbers** and copy the E.164 number(s) you plan to use
+6. Navigate to **Verified Caller IDs** and verify each number you plan to use as the outbound `from` number (TryVox calls or texts you an OTP). This is required even for numbers you already own on the account — outbound calls fail if the `from` number isn't verified
+
+### Step 2: Configure in Dograh AI
+
+1. Navigate to **/telephony-configurations** and click **Add configuration**
+2. Select **TryVox** as your provider
+3. Enter your credentials:
+   - Auth ID
+   - Auth Token
+   - Webhook Secret
+   - Voice Application ID — required for automatic inbound number setup
+   - API Base URL — keep the default (`https://api.tryvox.io`) unless you're using a private TryVox deployment
+4. Click **Save Configuration**
+5. Open the configuration you just created and add at least one **phone number** (with country code, in [E.164](https://en.wikipedia.org/wiki/E.164) format — `+` then country code then number, no spaces or dashes, e.g. `+1234567890`). Dograh validates that the number is owned by this TryVox account before saving. The default caller ID is used for outbound calls.
+
+### Step 3: Test Your Configuration
+
+1. Create a test workflow
+2. Click "Call" to verify connection
+3. Check call logs for successful connection
+
+## Inbound Calling Setup
+
+TryVox numbers don't carry a webhook URL directly — the URL lives on a TryVox **Voice Application**, and each number is linked to one application. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your TryVox Voice Application's `answer_url`** (provided the credentials and Application ID are correct).
+
+### Step 1: Assign an Inbound Workflow to the Phone Number in Dograh
+
+1. Go to **/telephony-configurations** and open your TryVox configuration
+2. In the **Phone numbers** section, edit the number that should receive inbound calls
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
+
+### Step 2: Verify the Answer URL on the TryVox Voice Application
+
+1. Open your TryVox dashboard and navigate to **Voice → Applications**
+2. Open the application whose ID you configured in Dograh
+3. Confirm:
+   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **Answer Method** is `POST`
+4. Confirm the phone number you want inbound on is attached to that application
+
+   <Note>
+     Dograh pushed the answer URL automatically when you saved the inbound
+     workflow in Step 1 and assigned the number to your configured
+     Application ID at the same time. If the field is empty, shows a
+     different URL, or Dograh surfaced a sync warning on save, the auto-push
+     failed — most often because the Auth ID/Token or Application ID in
+     Dograh is incorrect. Paste the URL into the field yourself, set the
+     method to `POST`, attach the number to the application in TryVox, and
+     save again. On self-hosted Dograh, replace `api.dograh.com` with your
+     backend domain.
+   </Note>
+
+### Step 3: Verify Setup
+
+- Ensure your Dograh AI instance is publicly accessible over both HTTPS and WSS
+- Verify any firewalls allow TryVox's webhook and media-WebSocket requests
+
+### Test Inbound Calling
+
+1. Call your configured TryVox phone number from another phone
+2. Verify your Dograh AI voice agent answers and responds
+3. Check call logs in both the Dograh AI dashboard and the TryVox dashboard
+
+## How Calls Work
+
+- **Outbound**: Dograh calls TryVox's `POST /v1/voice/accounts/{auth_id}/calls` API. TryVox sends a signed answer callback, Dograh returns VoxML with a `Stream` instruction, and TryVox opens Dograh's media WebSocket with a short-lived, single-use capability token for bidirectional PCM16 audio at 8 kHz.
+- **Inbound**: A call to a number attached to your Voice Application triggers a signed callback to `/api/v1/telephony/inbound/run`. Dograh resolves the organization from the Auth ID and the agent from the called number's assigned inbound workflow, then responds the same way as outbound.
+- **Signed callbacks**: every callback (answer, status) is HMAC-signed and checked against a replay window; a call whose signature doesn't match, or whose timestamp is stale, is rejected.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid phone number error">
+    Ensure phone numbers include country code in E.164 format: `+1234567890`
+  </Accordion>
+
+  <Accordion title="Authentication failed">
+    - Verify Auth ID and Auth Token are correct
+    - Check for extra spaces in credentials
+    - Ensure credentials haven't been regenerated in the TryVox dashboard
+  </Accordion>
+
+  <Accordion title="Outbound call fails even though the number is saved in Dograh">
+    - Dograh only validates that the `from` number is *owned* by your TryVox
+    account, not that it's a *verified caller ID* - Verify the number under
+    **Verified Caller IDs** in the TryVox dashboard (OTP by call or SMS) —
+    this is a separate step from owning or purchasing the number
+  </Accordion>
+
+  <Accordion title="Webhook signature validation failing">
+    - Confirm your webhook secret matches exactly between TryVox and Dograh
+    - Verify the callback URL is reachable and unmodified by a proxy
+    - Check that server clocks are in sync — signatures are rejected outside a short replay window
+  </Accordion>
+
+  <Accordion title="No audio on calls">
+    - Verify the media WebSocket connection is established
+    - Check firewall rules for WebSocket (WSS) traffic
+    - Ensure audio pipeline is configured correctly
+  </Accordion>
+
+  <Accordion title="Inbound calls go to voicemail or aren't answered">
+    - Verify the phone number is attached to the Voice Application whose ID
+    you configured in Dograh - Confirm the called number exists in your
+    Dograh telephony configuration and has an **Inbound workflow** assigned -
+    After assigning the inbound workflow, confirm Dograh successfully updated
+    the application's answer URL (no warning shown on save) - Verify Dograh
+    AI instance is running and responding
+  </Accordion>
+
+  <Accordion title="Voice agent doesn't respond to inbound calls">
+    - Confirm the phone number has an **Inbound workflow** assigned in
+    /telephony-configurations - Check webhook signature validation is working
+    (Auth Token and webhook secret in Dograh match the TryVox dashboard) -
+    Verify the media WebSocket connection establishes successfully - Review
+    call logs for error messages
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- Test your configuration with a single call before running campaigns
+- Monitor the TryVox dashboard for usage and billing
+- Keep your Auth Token and webhook secret secure and rotate them periodically
+- Use a dedicated TryVox Voice Application for Dograh so the shared answer URL doesn't conflict with other systems

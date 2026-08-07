@@ -221,9 +221,13 @@ services:
       # Langfuse — credentials can be set here or per-organization via the UI
       # at /settings. Tracing is automatically active when credentials are
       # available; uncomment to set defaults for all organizations.
+      # All four are required together — LANGFUSE_PROJECT_ID is what makes
+      # trace links resolve on Langfuse v4 (find it in your Langfuse URL:
+      # /project/<project-id>/traces).
       # LANGFUSE_SECRET_KEY: ""
       # LANGFUSE_PUBLIC_KEY: ""
       # LANGFUSE_HOST: ""
+      # LANGFUSE_PROJECT_ID: ""
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1).

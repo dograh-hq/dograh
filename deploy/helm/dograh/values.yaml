@@ -156,10 +156,13 @@ secrets:
   # secrets.existingSecret, put this under the DOGRAH_DEVOPS_SECRET key there.
   devopsSecret: ""
 
-  # Optional Langfuse tracing.
+  # Optional Langfuse tracing. All four are required together — langfuseProjectId
+  # is what makes trace links resolve on Langfuse v4 (find it in your Langfuse
+  # URL: /project/<project-id>/traces).
   langfuseSecretKey: ""
   langfusePublicKey: ""
   langfuseHost: ""
+  langfuseProjectId: ""
 
   # Signs the telephony media WebSocket URL the carrier dials back, so the ids
   # in that URL are no longer enough on their own to open the socket. Empty

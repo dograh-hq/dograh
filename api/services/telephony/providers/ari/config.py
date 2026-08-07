@@ -85,6 +85,10 @@ class ARIConfigurationRequest(BaseModel):
         default=None,
         description="Optional external PBX connected through this Asterisk instance",
     )
+    dial_string_template: Optional[str] = Field(
+        default=None,
+        description="Optional Asterisk dial string template (e.g. 'Local/{number}@from-internal') used when number has no tech prefix.",
+    )
     from_numbers: List[str] = Field(
         default_factory=list,
         description="List of SIP extensions/numbers for outbound calls (optional)",
@@ -100,4 +104,5 @@ class ARIConfigurationResponse(BaseModel):
     app_password: str  # Masked
     ws_client_name: str = ""
     external_pbx: Optional[VicidialExternalPBXConfiguration] = None
+    dial_string_template: Optional[str] = None
     from_numbers: List[str]

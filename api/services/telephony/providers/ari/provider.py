@@ -54,6 +54,7 @@ class ARIProvider(TelephonyProvider):
         self.app_password = config.get("app_password", "")
         self.from_numbers = config.get("from_numbers", [])
         self.default_from_number = config.get("default_from_number")
+        self.dial_string_template = config.get("dial_string_template")
         self.external_pbx_adapter = create_adapter(config.get("external_pbx"))
 
         if isinstance(self.from_numbers, str):
@@ -89,6 +90,8 @@ class ARIProvider(TelephonyProvider):
         # to_number can be a SIP URI or extension
         if to_number.startswith("SIP/") or to_number.startswith("PJSIP/"):
             sip_endpoint = to_number
+        elif self.dial_string_template:
+            sip_endpoint = self.dial_string_template.format(number=to_number)
         else:
             # Default to PJSIP technology
             sip_endpoint = f"PJSIP/{to_number}"
@@ -468,6 +471,8 @@ class ARIProvider(TelephonyProvider):
         # Build SIP endpoint
         if destination.startswith("SIP/") or destination.startswith("PJSIP/"):
             sip_endpoint = destination
+        elif self.dial_string_template:
+            sip_endpoint = self.dial_string_template.format(number=destination)
         else:
             sip_endpoint = f"PJSIP/{destination}"
 

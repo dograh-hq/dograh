@@ -892,8 +892,12 @@
    * Create WebRTC peer connection
    */
   function createWebRTCConnection() {
-    // Build ICE servers list
-    const iceServers = [{ urls: ['stun:stun.l.google.com:19302'] }];
+    // A `stun:` entry can only yield srflx, never relay — and srflx has been
+    // seen leaking through iceTransportPolicy: 'relay', so skip it entirely.
+    // Same skip as the main app's useWebSocketRTC hook.
+    const iceServers = state.config.forceTurnRelay
+      ? []
+      : [{ urls: ['stun:stun.l.google.com:19302'] }];
 
     // Add TURN server if credentials are available
     if (state.turnCredentials && state.turnCredentials.uris && state.turnCredentials.uris.length > 0) {
@@ -903,6 +907,16 @@
         credential: state.turnCredentials.password
       });
       console.log(`TURN server configured with ${state.turnCredentials.uris.length} URIs`);
+    }
+
+    // Reachable: turn_enabled and force_turn_relay are independent, so
+    // FORCE_TURN_RELAY=true with TURN_SECRET unset (or a failed credentials
+    // fetch) leaves no ICE servers at all — no candidates, and no clue why.
+    if (state.config.forceTurnRelay && iceServers.length === 0) {
+      console.error(
+        'Dograh Widget: FORCE_TURN_RELAY is on but no TURN credentials are ' +
+        'available — ICE has no candidates to gather and this call cannot connect.'
+      );
     }
 
     const config = {

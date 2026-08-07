@@ -28,6 +28,16 @@ LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL") or None
 PUBLIC_HOST = os.getenv("PUBLIC_HOST") or None
 
+# The server's own IPv4 address, as the operator supplied it to the setup
+# script. Usually identical to PUBLIC_HOST, but kept distinct because it must
+# stay a raw IP (coturn's external-ip needs one) while PUBLIC_HOST may be a
+# hostname such as an sslip.io name. resolve_ice_filter_policies() classifies
+# it to detect a private-LAN or CGNAT deployment (e.g. Tailscale, no public
+# IP) and pick ICE candidate filtering accordingly, so an empty value here is
+# read as "public deployment" — every consumer of this must be wired through
+# docker-compose, or that detection silently misfires.
+SERVER_IP = os.getenv("SERVER_IP", "")
+
 # Public URL the backend builds webhook/callback/embed links from. Derives from
 # PUBLIC_BASE_URL (public IP / domain), falling back to localhost for local dev.
 # When this is a non-public address (localhost or a private/reserved IP) the host

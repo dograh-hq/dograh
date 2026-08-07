@@ -254,6 +254,13 @@ class TestRealtimeOverride:
         assert result.realtime.provider == "google_realtime"  # inherited
         assert result.realtime.api_key == "goog-global-rt"  # inherited
 
+    def test_override_realtime_temperature(self, global_config_realtime):
+        result = resolve_effective_config(
+            global_config_realtime, {"realtime": {"temperature": 0.4}}
+        )
+        assert result.realtime.temperature == 0.4
+        assert result.realtime.provider == "google_realtime"  # inherited
+
     def test_switch_realtime_provider_to_grok(self, global_config_realtime):
         result = resolve_effective_config(
             global_config_realtime,

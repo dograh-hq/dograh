@@ -2907,6 +2907,12 @@ export type GoogleVertexRealtimeLlmConfiguration = {
      */
     language?: string;
     /**
+     * Temperature
+     *
+     * Sampling temperature for Gemini Live (0.0 to 2.0).
+     */
+    temperature?: number;
+    /**
      * Project Id
      *
      * Google Cloud project ID for Vertex AI.

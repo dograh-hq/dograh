@@ -29,7 +29,7 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY
+from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY, SERVER_IP
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment, WorkflowRunMode
@@ -140,7 +140,7 @@ def resolve_ice_filter_policies(
 ICE_OUTBOUND_POLICY, ICE_INBOUND_POLICY = resolve_ice_filter_policies(
     ENVIRONMENT,
     FORCE_TURN_RELAY,
-    os.getenv("SERVER_IP", ""),
+    SERVER_IP,
 )
 
 
@@ -234,13 +234,30 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     Returns:
         List of RTCIceServer configurations for WebRTC peer connection.
     """
-    servers: List[RTCIceServer] = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+    # A `stun:` entry can only yield srflx, never relay, so it cannot help a
+    # relay-only connection — it only gathers a public IP that
+    # filter_outbound_sdp() strips back out. Matches the client-side skip.
+    servers: List[RTCIceServer] = (
+        []
+        if FORCE_TURN_RELAY
+        else [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+    )
 
     # Check if TURN is configured. ENABLE_COTURN is the deployment's declared
     # answer to "is there a TURN server?" — the same flag /health advertises to
     # browsers — so the server side must respect it too, or it would try to
     # relay through a TURN server the deployment says it doesn't have.
     if not ENABLE_COTURN or not TURN_HOST:
+        if FORCE_TURN_RELAY:
+            # Fail loudly rather than silently degrading to STUN: relay-only was
+            # requested precisely because direct connectivity is known not to
+            # work, so an empty server list producing zero candidates is the
+            # honest outcome — but it needs to be diagnosable.
+            logger.error(
+                "FORCE_TURN_RELAY is on but no TURN server is configured "
+                f"(ENABLE_COTURN={ENABLE_COTURN}, TURN_HOST={TURN_HOST!r}). "
+                "Relay-only connections cannot succeed until TURN is configured."
+            )
         return servers
 
     # Use time-limited credentials if TURN_SECRET is configured (recommended)

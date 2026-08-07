@@ -202,14 +202,8 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         // Build ICE servers list
         const iceServers: RTCIceServer[] = [];
 
-        // Skip the public STUN server entirely when relay-only mode is
-        // requested (FORCE_TURN_RELAY=true). A plain `stun:` entry can only
-        // ever produce a server-reflexive candidate, never a relay one, so it
-        // can't help here — and RTCPeerConnection's `iceTransportPolicy:
-        // 'relay'` handling of srflx candidates gathered via a STUN-only
-        // entry has been observed to still leak the public IP as a usable
-        // candidate pair instead of being excluded, defeating the point of
-        // forcing relay in the first place.
+        // A `stun:` entry can only yield srflx, never relay — and srflx has been
+        // seen leaking through iceTransportPolicy: 'relay', so skip it entirely.
         if (useStun && !appConfig?.forceTurnRelay) {
             iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
         }
@@ -836,23 +830,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         audioInputs,
         selectedAudioInput,
         setSelectedAudioInput,
-        // createPeerConnection reads appConfig?.forceTurnRelay synchronously to
-        // decide whether to add the public STUN server / set iceTransportPolicy:
-        // 'relay'. Callers that auto-start (no explicit user click to wait on)
-        // need both of these to know it's safe to trust that value:
-        //   - appConfigLoading: false once the async /api/config/version fetch
-        //     has settled at all (it's still loading, and appConfig still null,
-        //     before that).
-        //   - appConfig.backendStatus === 'reachable': loading finishing is NOT
-        //     enough by itself — /api/config/version always resolves with HTTP
-        //     200 even when the actual backend healthcheck it performs
-        //     server-side failed or timed out, silently defaulting
-        //     forceTurnRelay to false in that response rather than reflecting
-        //     the deployment's real setting. Only a 'reachable' backendStatus
-        //     confirms forceTurnRelay came from the backend itself.
-        // Starting while either signal says "not confirmed yet" risks silently
-        // creating a connection without the relay-only restriction, with no way
-        // to recreate it afterward once appConfig does resolve/correct itself.
+        // Auto-starting callers must wait on both: /api/config/version resolves
+        // 200 even when its backend healthcheck failed, defaulting forceTurnRelay
+        // to false, so only a 'reachable' backendStatus confirms the real value.
         appConfig,
         appConfigLoading,
         refreshAppConfig,

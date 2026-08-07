@@ -267,6 +267,7 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
                     output_modalities=self._get_enabled_modalities(),
                     instructions=instructions,
                     tool_choice=tool_choice,
+                    temperature=self._settings.temperature,
                 )
             )
         )

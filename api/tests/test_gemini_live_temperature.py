@@ -84,3 +84,23 @@ def test_create_realtime_llm_service_gemini_vertex_temperature():
     service = create_realtime_llm_service(user_config, _audio_config())
     assert isinstance(service, DograhGeminiLiveVertexLLMService)
     assert service._settings.temperature == 1.2
+
+
+def test_create_realtime_llm_service_openai_realtime_temperature():
+    from api.services.configuration.registry import OpenAIRealtimeLLMConfiguration
+    from api.services.pipecat.realtime.openai_realtime import (
+        DograhOpenAIRealtimeLLMService,
+    )
+
+    realtime_config = OpenAIRealtimeLLMConfiguration(
+        api_key="test-openai-key",
+        model="gpt-realtime-2",
+        voice="alloy",
+        temperature=0.85,
+    )
+    user_config = DummyUserConfig(realtime_config)
+
+    service = create_realtime_llm_service(user_config, _audio_config())
+    assert isinstance(service, DograhOpenAIRealtimeLLMService)
+    assert service._settings.temperature == 0.85
+

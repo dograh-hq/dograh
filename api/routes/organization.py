@@ -79,12 +79,12 @@ from api.services.organization_context import (
     OrganizationContextResponse,
     get_organization_context,
 )
-from api.services.pipecat.tracing_config import normalize_langfuse_host
 from api.services.organization_preferences import (
     external_pbx_integrations_enabled,
     get_organization_preferences,
     upsert_organization_preferences,
 )
+from api.services.pipecat.tracing_config import normalize_langfuse_host
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.base import ProviderPhoneNumberLookupError

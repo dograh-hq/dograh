@@ -3466,6 +3466,10 @@ export type LangfuseCredentialsRequest = {
      * Secret Key
      */
     secret_key: string;
+    /**
+     * Project Id
+     */
+    project_id: string;
 };
 
 /**
@@ -3484,6 +3488,10 @@ export type LangfuseCredentialsResponse = {
      * Secret Key
      */
     secret_key?: string;
+    /**
+     * Project Id
+     */
+    project_id?: string;
     /**
      * Configured
      */
@@ -5265,7 +5273,7 @@ export type SarvamLlmConfiguration = {
     /**
      * Model
      *
-     * Sarvam chat model. Use sarvam-30b for low-latency voice agents; sarvam-105b for complex multi-step reasoning.
+     * Sarvam chat model.
      */
     model?: string;
     /**

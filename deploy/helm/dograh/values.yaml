@@ -156,9 +156,7 @@ secrets:
   # secrets.existingSecret, put this under the DOGRAH_DEVOPS_SECRET key there.
   devopsSecret: ""
 
-  # Optional Langfuse tracing. All four are required together — langfuseProjectId
-  # is what makes trace links resolve on Langfuse v4 (find it in your Langfuse
-  # URL: /project/<project-id>/traces).
+  # Optional Langfuse tracing.
   langfuseSecretKey: ""
   langfusePublicKey: ""
   langfuseHost: ""

@@ -1,0 +1,64 @@
+---
+title: "Exotel Integration"
+description: "Configure Exotel for voice communication in Dograh AI"
+---
+
+# Exotel Integration
+
+Exotel Connect Voice AI places and receives calls with bidirectional media streaming into Dograh agents.
+
+## Prerequisites
+
+- An [Exotel](https://my.exotel.com/) account with AgentStream / Connect Voice AI enabled
+- Account SID, API Key, and API Token
+- At least one ExoPhone
+- A Dograh instance reachable over HTTPS and WSS
+
+## Configuration
+
+1. Navigate to **/telephony-configurations** and click **Add configuration**
+2. Select **Exotel**
+3. Enter:
+   - **Account SID**
+   - **API Key** / **API Token** (HTTP Basic auth for the Exotel API)
+   - **API Base URL** — default `https://api.in.exotel.com` (India); use `https://api.exotel.com` for other regions
+4. Save, then add your ExoPhone under **Phone numbers** in [E.164](https://en.wikipedia.org/wiki/E.164) format (e.g. `+9180XXXXXXXX`)
+
+## Outbound
+
+Dograh dials with Exotel Connect Voice AI:
+
+`POST {api_base}/v1/Accounts/{AccountSid}/Calls/connect.json`
+
+Fields include `From` (callee), `CallerId` (ExoPhone), `StreamUrl` (Dograh WSS), `StreamType=bidirectional`, and an optional `StatusCallback`.
+
+Test from a workflow **Call** button. Confirm two-way audio and that hangup marks the run completed.
+
+## Inbound Calling Setup
+
+1. In Exotel App Bazaar, point the number’s answer / Voice URL at:
+
+   `https://<dograh-host>/api/v1/telephony/inbound/run`
+
+2. Protect that URL with **HTTP Basic** credentials matching the API Key and API Token stored in Dograh. Exotel does not document an HMAC signature header for this webhook; Dograh rejects unsigned inbound requests.
+
+3. Assign the ExoPhone to that flow in Exotel.
+
+4. In Dograh, open the Exotel configuration, edit the phone number, and set an **Inbound workflow**.
+
+Dograh responds with Connect + Stream XML so Exotel opens the media WebSocket to the agent.
+
+## Status callbacks
+
+Outbound (and inbound when a run id is present) register:
+
+`/api/v1/telephony/exotel/status-callback/{workflow_run_id}`
+
+Terminal events update the workflow run status.
+
+## Troubleshooting
+
+- **Connect fails** — verify Account SID, API key/token, base URL region, and AgentStream entitlement
+- **No inbound agent** — confirm the phone number has an inbound workflow and Account SID matches the webhook
+- **Auth failed on inbound** — set Basic Auth on the Exotel answer URL to the same API key/token
+- **One-way audio** — confirm public WSS reachability; Exotel streams 8 kHz μ-law

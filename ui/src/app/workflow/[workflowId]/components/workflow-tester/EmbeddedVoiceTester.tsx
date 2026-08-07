@@ -46,6 +46,9 @@ export function EmbeddedVoiceTester({
         stop,
         isStarting,
         feedbackMessages,
+        appConfig,
+        appConfigLoading,
+        refreshAppConfig,
     } = useWebSocketRTC({
         workflowId,
         workflowRunId,
@@ -54,14 +57,48 @@ export function EmbeddedVoiceTester({
         onNodeTransition,
     });
     const autoStartedRef = useRef(false);
+    const configRetriedRef = useRef(false);
 
     useEffect(() => {
-        if (autoStartedRef.current) {
+        // Wait for appConfig (FORCE_TURN_RELAY) to finish loading before
+        // auto-starting — this effect only ever fires start() once
+        // (autoStartedRef), and createPeerConnection reads
+        // appConfig?.forceTurnRelay synchronously, so a connection created
+        // before that resolves permanently misses the relay-only
+        // restriction for the whole call.
+        if (autoStartedRef.current || appConfigLoading) {
             return;
         }
+
+        // Loading having finished isn't enough by itself: /api/config/version
+        // always resolves with HTTP 200 even when the backend healthcheck it
+        // performs server-side failed or timed out, silently defaulting
+        // forceTurnRelay to false in that response instead of reflecting the
+        // deployment's real setting. Only a 'reachable' backendStatus
+        // confirms forceTurnRelay actually came from the backend. Give it one
+        // retry rather than either starting with an unconfirmed (possibly
+        // wrong) value or waiting forever if the backend stays down.
+        if (appConfig?.backendStatus !== "reachable") {
+            if (!configRetriedRef.current) {
+                configRetriedRef.current = true;
+                void refreshAppConfig();
+            }
+            return;
+        }
+
         autoStartedRef.current = true;
         void start();
-    }, [start]);
+    }, [start, appConfig?.backendStatus, appConfigLoading, refreshAppConfig]);
+
+    // True once the one bounded retry above has run and the backend is
+    // still unreachable — the auto-start effect deliberately gives up at
+    // that point rather than starting with an unconfirmed forceTurnRelay
+    // value, which would otherwise leave the tester stuck with no way to
+    // ever start. Surface a manual retry instead.
+    const configUnreachable =
+        !appConfigLoading &&
+        configRetriedRef.current &&
+        appConfig?.backendStatus !== "reachable";
 
     const endButtonLabel = connectionActive
         ? "End Call"
@@ -69,7 +106,21 @@ export function EmbeddedVoiceTester({
             ? "Start Another Test"
             : connectionStatus === "failed"
                 ? "Retry Call"
-                : "Starting Test...";
+                : configUnreachable
+                    ? "Retry Connection"
+                    : "Starting Test...";
+
+    const handleConfigRetry = () => {
+        // Deliberately NOT resetting configRetriedRef here. It's already
+        // true (that's the only way to reach configUnreachable), and the
+        // auto-start effect's own retry gate reads it — resetting it would
+        // make that effect think no retry has happened yet, so if this
+        // manual refresh also comes back unreachable, the effect would fire
+        // its own extra automatic refresh on top of this one (one click
+        // producing two fetches instead of one). Leaving it true keeps that
+        // budget spent; only this explicit call fetches.
+        void refreshAppConfig();
+    };
 
     const handleFooterAction = async () => {
         if (connectionActive) {
@@ -82,6 +133,10 @@ export function EmbeddedVoiceTester({
         }
         if (connectionStatus === "failed") {
             await start();
+            return;
+        }
+        if (configUnreachable) {
+            handleConfigRetry();
         }
     };
 
@@ -105,11 +160,16 @@ export function EmbeddedVoiceTester({
                         ) : null}
                         <Button
                             onClick={handleFooterAction}
-                            disabled={isStarting && connectionStatus !== "failed"}
+                            disabled={isStarting && connectionStatus !== "failed" && !configUnreachable}
                             variant={connectionActive ? "destructive" : "default"}
                             className="w-full"
                         >
-                            {isStarting && connectionStatus !== "failed" ? (
+                            {configUnreachable ? (
+                                <>
+                                    <RefreshCw className="h-4 w-4" />
+                                    {endButtonLabel}
+                                </>
+                            ) : isStarting && connectionStatus !== "failed" ? (
                                 <>
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Starting Test...
@@ -136,6 +196,11 @@ export function EmbeddedVoiceTester({
                                 </>
                             )}
                         </Button>
+                        {configUnreachable ? (
+                            <p className="text-center text-sm text-muted-foreground">
+                                Couldn&apos;t reach the backend to confirm call settings. Tap retry once it&apos;s back.
+                            </p>
+                        ) : null}
                     </div>
                 </div>
 

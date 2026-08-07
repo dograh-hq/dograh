@@ -14,6 +14,7 @@ setup_logging()
 import asyncio
 import json
 import signal
+import time
 import uuid
 from typing import Dict, Optional, Set
 from urllib.parse import urlparse
@@ -26,6 +27,14 @@ from loguru import logger
 from api.constants import REDIS_URL
 from api.db import db_client
 from api.enums import CallType, WorkflowRunMode
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    log_failure,
+    redact_failure_message,
+)
 from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
@@ -48,6 +57,39 @@ _EXT_CHANNEL_KEY_PREFIX = "ari:ext_channel:"
 _PENDING_BRIDGE_PREFIX = "ari:pending_bridge:"
 _CHANNEL_KEY_TTL = 3600  # 1 hour safety expiry
 _PENDING_BRIDGE_TTL = 300  # 5 min safety expiry for bridge-pending state
+
+# Auto-deactivation policy.
+#
+# A customer PBX that is permanently misconfigured (wrong ARI password, wrong
+# host, no ARI app) can never recover on its own, but the manager would retry it
+# every 300s forever and log an ERROR each time. These thresholds park such a
+# config in ``telephony_configurations.inactive`` instead. Parking is one-way:
+# the customer fixes their side and reactivates the configuration explicitly.
+#
+# Permanent and transient failures are separated deliberately: a rejected
+# credential should be parked quickly, while a flapping tunnel deserves the full
+# backoff ladder before we stop trying.
+_PERMANENT_FAILURE_THRESHOLD = 5  # consecutive non-retryable failures
+_TRANSIENT_FAILURE_WINDOW = 3600  # seconds of unbroken retryable failure
+_STABLE_CONNECTION_SECONDS = 30  # uptime that counts as proof the config works
+_FAILURE_LOG_INTERVAL = 900  # re-log an unchanged failure at most this often
+
+
+def _log_ari_failure(
+    failure: DograhFailure,
+    *,
+    organization_id: int,
+    telephony_configuration_id: int | None = None,
+    **context: object,
+) -> None:
+    """Emit a classified ARI failure with its organization context."""
+
+    log_failure(
+        failure,
+        organization_id=organization_id,
+        telephony_configuration_id=telephony_configuration_id,
+        **context,
+    )
 
 
 class ARIConnection:
@@ -78,6 +120,13 @@ class ARIConnection:
         self._reconnect_delay = 1  # Start with 1 second
         self._max_reconnect_delay = 300  # Max 300 seconds
         self._ping_interval = 30  # Send ping every 30 seconds
+
+        # Failure accounting driving backoff and auto-deactivation.
+        self._consecutive_failures = 0
+        self._failing_since: float | None = None
+        self._last_logged_code: str | None = None
+        self._last_logged_at = 0.0
+        self._last_connection_stable = False
 
         # Redis client for channel-to-run reverse mapping (lazy init)
         self._redis_client: Optional[aioredis.Redis] = None
@@ -196,7 +245,8 @@ class ARIConnection:
         self._running = True
         self._task = asyncio.create_task(self._connection_loop())
         logger.info(
-            f"[ARI org={self.organization_id}] Started connection to {self.ari_endpoint}"
+            f"[ARI org={self.organization_id}] Started connection to "
+            f"{redact_failure_message(self.ari_endpoint)}"
         )
 
     async def stop(self):
@@ -211,11 +261,19 @@ class ARIConnection:
             except asyncio.CancelledError:
                 pass
         logger.info(
-            f"[ARI org={self.organization_id}] Stopped connection to {self.ari_endpoint}"
+            f"[ARI org={self.organization_id}] Stopped connection to "
+            f"{redact_failure_message(self.ari_endpoint)}"
         )
 
     async def _connection_loop(self):
-        """Main connection loop with reconnection logic."""
+        """Reconnect with exponential backoff, parking a config that keeps failing.
+
+        All reconnection, backoff and failure accounting lives here so that both
+        a rejected handshake and a connection that drops mid-stream travel the
+        same path. Previously the mid-stream case reconnected with no delay at
+        all, so a PBX that accepted and immediately closed produced an
+        unthrottled log loop.
+        """
         while self._running:
             try:
                 await self._connect_and_listen()
@@ -224,39 +282,79 @@ class ARIConnection:
             except Exception as e:
                 if not self._running:
                     break
-                logger.warning(
-                    f"[ARI org={self.organization_id}] Connection error: {e}. "
-                    f"Reconnecting in {self._reconnect_delay}s..."
+                await self._record_failure(
+                    classify_exception(
+                        e,
+                        source=ErrorSource.TELEPHONY,
+                        provider="ari",
+                        error_owner="user",
+                    ),
+                    operation="connect ARI websocket",
                 )
-                await asyncio.sleep(self._reconnect_delay)
-                # Exponential backoff
-                self._reconnect_delay = min(
-                    self._reconnect_delay * 2, self._max_reconnect_delay
-                )
+            else:
+                # A normal close raises nothing, so without this a PBX that
+                # accepts and immediately hangs up would retry at the backoff
+                # ceiling forever and never be parked.
+                if self._running and not self._last_connection_stable:
+                    await self._record_failure(
+                        DograhFailure(
+                            source=ErrorSource.TELEPHONY,
+                            type=ErrorType.PROVIDER_ERROR,
+                            code="ari-closed-immediately",
+                            internal_message=(
+                                "ARI websocket closed before staying up long "
+                                "enough to be usable"
+                            ),
+                            external_message=(
+                                "The PBX closed the ARI connection immediately "
+                                "after accepting it."
+                            ),
+                            provider="ari",
+                            error_owner="user",
+                            retryable=True,
+                        ),
+                        operation="listen to ARI websocket",
+                    )
+
+            if not self._running:
+                break
+
+            await asyncio.sleep(self._reconnect_delay)
+            # Exponential backoff. Only a connection that stayed up for
+            # _STABLE_CONNECTION_SECONDS resets this — see _connect_and_listen.
+            self._reconnect_delay = min(
+                self._reconnect_delay * 2, self._max_reconnect_delay
+            )
 
     async def _connect_and_listen(self):
-        """Establish WebSocket connection and listen for events."""
+        """Open one WebSocket and pump events until it closes.
+
+        Deliberately owns exactly one connection: the reconnecting
+        ``async for ws in websockets.connect(...)`` form resets the library's
+        own backoff after every successful handshake, which is the wrong
+        behaviour for a PBX that accepts and immediately hangs up.
+        """
         ws_url = self.ws_url
         logger.info(
-            f"[ARI org={self.organization_id}] Connecting to {self.ari_endpoint}..."
+            f"[ARI org={self.organization_id}] Connecting to "
+            f"{redact_failure_message(self.ari_endpoint)}..."
         )
 
-        async for ws in websockets.connect(
+        async with websockets.connect(
             ws_url,
             ping_interval=self._ping_interval,
             ping_timeout=10,
             close_timeout=5,
-        ):
+        ) as ws:
+            self._ws = ws
+            connected_at = time.monotonic()
+
+            logger.info(
+                f"[ARI org={self.organization_id}] WebSocket connected to "
+                f"{redact_failure_message(self.ari_endpoint)}"
+            )
+
             try:
-                self._ws = ws
-
-                # Reset reconnect delay on successful connection
-                self._reconnect_delay = 1
-
-                logger.info(
-                    f"[ARI org={self.organization_id}] WebSocket connected to {self.ari_endpoint}"
-                )
-
                 async for message in ws:
                     if not self._running:
                         return
@@ -267,17 +365,92 @@ class ARIConnection:
                         logger.debug(
                             f"[ARI org={self.organization_id}] Received binary message, ignoring"
                         )
-
-            except websockets.ConnectionClosed as e:
-                if not self._running:
-                    return
-                logger.warning(
-                    f"[ARI org={self.organization_id}] WebSocket closed: "
-                    f"code={e.code}, reason={e.reason}. Reconnecting..."
-                )
-                continue
             finally:
                 self._ws = None
+                # Reaching the threshold is the only evidence the credentials
+                # and endpoint actually work; a handshake alone is not.
+                self._last_connection_stable = (
+                    time.monotonic() - connected_at >= _STABLE_CONNECTION_SECONDS
+                )
+                if self._last_connection_stable:
+                    await self._note_stable_connection()
+
+    async def _note_stable_connection(self):
+        """Clear the failure streak after a connection proves itself."""
+        self._reconnect_delay = 1
+        self._consecutive_failures = 0
+        self._failing_since = None
+        self._last_logged_code = None
+
+    def _should_log_failure(self, code: str, now: float) -> bool:
+        """Log a streak's first failure, any change of code, then rate-limit.
+
+        A permanently broken PBX otherwise emits one ERROR per reconnect
+        attempt for as long as it stays broken.
+        """
+        if (
+            code != self._last_logged_code
+            or now - self._last_logged_at >= _FAILURE_LOG_INTERVAL
+        ):
+            self._last_logged_code = code
+            self._last_logged_at = now
+            return True
+        return False
+
+    def _should_deactivate(self, failure: DograhFailure) -> bool:
+        if failure.retryable is False:
+            return self._consecutive_failures >= _PERMANENT_FAILURE_THRESHOLD
+        return (
+            self._failing_since is not None
+            and time.monotonic() - self._failing_since >= _TRANSIENT_FAILURE_WINDOW
+        )
+
+    async def _record_failure(self, failure: DograhFailure, **context) -> None:
+        """Account for one connection failure and park the config if it persists."""
+        now = time.monotonic()
+        self._consecutive_failures += 1
+        if self._failing_since is None:
+            self._failing_since = now
+
+        if self._should_log_failure(failure.code, now):
+            _log_ari_failure(
+                failure,
+                organization_id=self.organization_id,
+                telephony_configuration_id=self.telephony_configuration_id,
+                reconnect_delay_seconds=self._reconnect_delay,
+                consecutive_failures=self._consecutive_failures,
+                **context,
+            )
+
+        if self._should_deactivate(failure):
+            await self._deactivate(failure)
+
+    async def _deactivate(self, failure: DograhFailure) -> None:
+        """Park this config so the manager stops reconnecting it."""
+        reason = f"{failure.code}: {failure.external_message}"
+        try:
+            await db_client.set_telephony_configuration_inactive(
+                config_id=self.telephony_configuration_id,
+                organization_id=self.organization_id,
+                reason=reason,
+            )
+        except Exception as e:
+            # Keep retrying rather than spinning on a config we failed to park.
+            logger.error(
+                f"[ARI org={self.organization_id}] Failed to mark config "
+                f"{self.telephony_configuration_id} inactive: {e}"
+            )
+            return
+
+        # Stops _connection_loop; the next manager refresh drops this connection
+        # because the row is no longer returned as active.
+        self._running = False
+        logger.warning(
+            f"[ARI org={self.organization_id}] Deactivated config "
+            f"{self.telephony_configuration_id} after "
+            f"{self._consecutive_failures} consecutive failures ({failure.code}). "
+            f"It stays disabled until reactivated from the telephony settings."
+        )
 
     async def _handle_event(self, raw_data: str):
         """Handle an ARI WebSocket event."""
@@ -1167,6 +1340,10 @@ class ARIManager:
         self._connections: Dict[str, ARIConnection] = {}  # key -> connection
         self._running = False
         self._config_refresh_interval = 60  # Check for config changes every 60 seconds
+        # config_id -> (last logged code, monotonic timestamp). Config-validation
+        # failures are re-detected on every refresh, so without this a row with a
+        # missing field emits one ERROR per minute for as long as it exists.
+        self._validation_log_state: Dict[int, tuple[str, float]] = {}
 
     async def start(self):
         """Start the ARI manager."""
@@ -1235,7 +1412,7 @@ class ARIManager:
                 # New configuration - start connection
                 logger.info(
                     f"[ARI Manager] New ARI config {telephony_configuration_id} "
-                    f"for org {org_id}: {ari_endpoint}"
+                    f"for org {org_id}: {redact_failure_message(ari_endpoint)}"
                 )
                 self._connections[key] = conn
                 await conn.start()
@@ -1260,7 +1437,8 @@ class ARIManager:
                     self._connections[key] = conn
                     await conn.start()
 
-        # Stop connections for removed configurations
+        # Stop connections for removed configurations. A config parked by
+        # _deactivate lands here too, since it is no longer returned as active.
         removed_keys = set(self._connections.keys()) - active_keys
         for key in removed_keys:
             conn = self._connections.pop(key)
@@ -1268,6 +1446,7 @@ class ARIManager:
                 f"[ARI Manager] Removing connection for org {conn.organization_id}"
             )
             await conn.stop()
+            self._validation_log_state.pop(conn.telephony_configuration_id, None)
 
         if active_configs:
             logger.info(
@@ -1277,9 +1456,58 @@ class ARIManager:
         else:
             logger.debug("[ARI Manager] No ARI configurations found")
 
+    def _should_log_validation_failure(self, config_id: int, code: str) -> bool:
+        """Rate-limit a config-validation failure that re-fires on every refresh."""
+        now = time.monotonic()
+        last = self._validation_log_state.get(config_id)
+        if last is None or last[0] != code or now - last[1] >= _FAILURE_LOG_INTERVAL:
+            self._validation_log_state[config_id] = (code, now)
+            return True
+        return False
+
+    async def _deactivate_invalid_config(self, row, failure: DograhFailure) -> None:
+        """Park a config whose stored settings cannot work, and record why.
+
+        There is nothing to retry here, unlike a connection failure: the defect
+        is in the row itself, so re-reading it only ever reaches the same
+        verdict. Park on the first look rather than after a streak.
+        """
+        if self._should_log_validation_failure(row.id, failure.code):
+            _log_ari_failure(
+                failure,
+                organization_id=row.organization_id,
+                telephony_configuration_id=row.id,
+            )
+
+        try:
+            await db_client.set_telephony_configuration_inactive(
+                config_id=row.id,
+                organization_id=row.organization_id,
+                reason=f"{failure.code}: {failure.external_message}",
+            )
+        except Exception as e:
+            # Deliberately left active: the next refresh retries the write, which
+            # beats dropping the config on the floor with no record of why.
+            logger.error(
+                f"[ARI Manager] Failed to mark config {row.id} "
+                f"(org {row.organization_id}) inactive: {e}"
+            )
+            return
+
+        logger.warning(
+            f"[ARI Manager] Deactivated config {row.id} (org {row.organization_id}): "
+            f"{failure.internal_message}. It stays disabled until reactivated "
+            f"from the telephony settings."
+        )
+
     async def _load_ari_configs(self) -> list:
-        """Load all ARI telephony configurations from the multi-config tables."""
-        rows = await db_client.list_all_telephony_configurations_by_provider("ari")
+        """Load the ARI configurations the manager should be connected to now.
+
+        Rows parked by :meth:`ARIConnection._deactivate` or by
+        :meth:`_deactivate_invalid_config` are excluded until someone
+        reactivates them.
+        """
+        rows = await db_client.list_active_telephony_configurations_by_provider("ari")
 
         configs = []
         for row in rows:
@@ -1295,17 +1523,43 @@ class ARIManager:
                 external_pbx = None
 
             if not all([ari_endpoint, app_name, app_password]):
-                logger.warning(
-                    f"[ARI Manager] Incomplete ARI config {row.id} "
-                    f"for org {row.organization_id}, skipping"
-                )
+                if self._should_log_validation_failure(row.id, "ari-incomplete-config"):
+                    _log_ari_failure(
+                        DograhFailure(
+                            source=ErrorSource.TELEPHONY,
+                            type=ErrorType.CONFIG_ERROR,
+                            code="ari-incomplete-config",
+                            internal_message="ARI configuration is missing an endpoint, app name, or app password",
+                            external_message="Complete the required ARI connection settings.",
+                            provider="ari",
+                            error_owner="user",
+                            retryable=False,
+                        ),
+                        organization_id=row.organization_id,
+                        telephony_configuration_id=row.id,
+                    )
                 continue
 
+            # The websocket itself still connects without a ws_client_name, so
+            # this config looks healthy while externalMedia audio cannot be set
+            # up at all — calls are answered and the caller hears nothing. That
+            # silent half-working state is worse than being visibly off, so park
+            # it and tell the customer what to fill in.
             if not ws_client_name:
-                logger.warning(
-                    f"[ARI Manager] Missing ws_client_name for config {row.id} "
-                    f"(org {row.organization_id}), externalMedia WebSocket won't work"
+                await self._deactivate_invalid_config(
+                    row,
+                    DograhFailure(
+                        source=ErrorSource.TELEPHONY,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="ari-missing-ws-client-name",
+                        internal_message="ARI configuration is missing ws_client_name",
+                        external_message="Set the ARI WebSocket client name in telephony configuration.",
+                        provider="ari",
+                        error_owner="user",
+                        retryable=False,
+                    ),
                 )
+                continue
 
             configs.append(
                 {

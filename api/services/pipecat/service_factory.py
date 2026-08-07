@@ -1,3 +1,4 @@
+from functools import wraps
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse, urlunparse
 
@@ -6,6 +7,12 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.constants import MPS_API_URL
+from api.errors.failure import (
+    ErrorSource,
+    annotate_failure_metadata,
+    classify_exception,
+    log_failure,
+)
 from api.services.configuration.options import (
     DEEPGRAM_FLUX_MODELS,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
@@ -92,7 +99,59 @@ from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
 if TYPE_CHECKING:
+    from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
     from api.services.pipecat.audio_config import AudioConfig
+
+
+def _report_service_factory_failures(
+    source: ErrorSource,
+    *,
+    config_section: str | None = None,
+    provider_argument: int | None = None,
+):
+    """Classify constructor failures and tag successful services for ErrorFrames."""
+
+    def decorator(factory):
+        @wraps(factory)
+        def wrapped(*args, **kwargs):
+            provider = None
+            if config_section:
+                user_config = args[0] if args else kwargs.get("user_config")
+                config = getattr(user_config, config_section, None)
+                provider = getattr(config, "provider", None)
+            elif provider_argument is not None:
+                if len(args) > provider_argument:
+                    provider = args[provider_argument]
+                else:
+                    provider = kwargs.get("provider")
+
+            provider_value = getattr(provider, "value", provider)
+            error_owner = (
+                "operator" if str(provider_value).lower() == "dograh" else "user"
+            )
+            try:
+                service = factory(*args, **kwargs)
+            except Exception as exc:
+                log_failure(
+                    classify_exception(
+                        exc,
+                        source=source,
+                        provider=provider,
+                        error_owner=error_owner,
+                    )
+                )
+                raise
+
+            return annotate_failure_metadata(
+                service,
+                source=source,
+                provider=provider,
+                error_owner=error_owner,
+            )
+
+        return wrapped
+
+    return decorator
 
 
 DEEPGRAM_FLUX_LANGUAGE_HINTS = {
@@ -188,6 +247,7 @@ def _validate_runtime_service_url(url: str, field_name: str) -> None:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@_report_service_factory_failures(ErrorSource.STT, config_section="stt")
 def create_stt_service(
     user_config,
     audio_config: "AudioConfig",
@@ -490,6 +550,7 @@ def create_stt_service(
         )
 
 
+@_report_service_factory_failures(ErrorSource.TTS, config_section="tts")
 def create_tts_service(
     user_config, audio_config: "AudioConfig", correlation_id: str | None = None
 ):
@@ -871,6 +932,7 @@ def _migrate_deprecated_google_model(model: str) -> str:
     return model
 
 
+@_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
 def create_llm_service_from_provider(
     provider: str,
     model: str,
@@ -1012,6 +1074,7 @@ def create_llm_service_from_provider(
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
 
 
+@_report_service_factory_failures(ErrorSource.LLM, config_section="realtime")
 def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     """Create a realtime (speech-to-speech) LLM service that handles STT+LLM+TTS.
 
@@ -1261,4 +1324,34 @@ def create_llm_service(
         correlation_id=correlation_id,
         usage_context=usage_context,
         **kwargs,
+    )
+
+
+def create_llm_service_with_model_override(
+    user_config: "EffectiveAIModelConfiguration",
+    model_override: str | None,
+    correlation_id: str | None = None,
+    usage_context: str | None = None,
+):
+    """Create an LLM service with an optional model override.
+
+    The copied configuration is delegated to ``create_llm_service`` so provider-
+    specific settings continue to be extracted in one place.
+    """
+    if model_override is None:
+        return create_llm_service(
+            user_config,
+            correlation_id=correlation_id,
+            usage_context=usage_context,
+        )
+
+    if user_config.llm is None:
+        raise ValueError("Cannot override the model without an LLM configuration")
+
+    llm_config = user_config.llm.model_copy(update={"model": model_override})
+    overridden_config = user_config.model_copy(update={"llm": llm_config})
+    return create_llm_service(
+        overridden_config,
+        correlation_id=correlation_id,
+        usage_context=usage_context,
     )

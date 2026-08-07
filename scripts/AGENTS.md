@@ -21,6 +21,7 @@ Bash-only (deployment / CI / OSS-user setup — not intended for Windows contrib
 - `setup_remote.sh` — OSS remote Docker-compose setup
 - `format.sh` / `lint.sh` / `pre_commit.sh`
 - `generate_sdk.sh` / `release_sdks.sh` / `dump_docs_openapi.py`
+- `setup-worktree.sh` / `worktree-sync-env.sh` — VS Code git-worktree dev flow (`.vscode/tasks.json`)
 
 ## Deployment Memory — current OSS Docker state
 

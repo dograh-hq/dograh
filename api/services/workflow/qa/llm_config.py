@@ -1,91 +1,82 @@
-"""LLM configuration resolution and token usage accumulation."""
+"""QA LLM service creation and token usage accumulation."""
 
-import random
+from typing import Any
 
 from api.db.models import WorkflowRunModel
+from api.services.configuration.ai_model_configuration import (
+    get_effective_ai_model_configuration_for_workflow,
+)
+from api.services.managed_model_services import get_mps_correlation_id
+from api.services.pipecat.service_factory import (
+    create_llm_service_from_provider,
+    create_llm_service_with_model_override,
+)
 from api.services.workflow.dto import QANodeData
 
 QA_USAGE_CONTEXT = "qa_analysis"
 
 
-async def resolve_llm_config(
-    qa_data: QANodeData, workflow_run: WorkflowRunModel
-) -> tuple[str, str, str, dict]:
-    """Resolve the LLM provider, model, API key, and extra kwargs for QA analysis.
+async def create_qa_llm_service(
+    qa_data: QANodeData, workflow_run: WorkflowRunModel | None
+) -> tuple[Any, str] | None:
+    """Create the LLM service used for QA analysis.
 
     If the QA node has its own LLM configuration (qa_use_workflow_llm=False),
-    use those settings directly. Otherwise, fall back to the workflow/org LLM.
-
-    Returns:
-        (provider, model, api_key, service_kwargs) tuple — service_kwargs can be
-        passed directly to create_llm_service_from_provider as keyword arguments.
+    create the service from those explicit settings. Otherwise, resolve the
+    workflow/org configuration and delegate service creation to the central factory.
     """
+    correlation_id = get_mps_correlation_id(
+        getattr(workflow_run, "initial_context", None)
+    )
+
     if not qa_data.qa_use_workflow_llm:
         provider = qa_data.qa_provider or "openai"
+        model = qa_data.qa_model or "default"
+        api_key = qa_data.qa_api_key
+        if not api_key:
+            return None
+
         kwargs = {}
         if provider == "azure":
             kwargs["endpoint"] = qa_data.qa_endpoint or ""
-        return (
+        # Custom OpenAI-compatible endpoints are supported only when QA reuses
+        # the workflow LLM; the QA-specific endpoint field is Azure-only.
+        llm = create_llm_service_from_provider(
             provider,
-            qa_data.qa_model,
-            qa_data.qa_api_key,
-            kwargs,
+            model,
+            api_key,
+            correlation_id=correlation_id,
+            usage_context=QA_USAGE_CONTEXT,
+            **kwargs,
         )
+        return llm, model
 
-    # Fall back to the workflow/org configured LLM
-    provider, model, api_key, kwargs = await resolve_user_llm_config(workflow_run)
+    if workflow_run is None or workflow_run.workflow is None:
+        return None
 
-    if qa_data.qa_model and qa_data.qa_model != "default":
-        model = qa_data.qa_model
+    if workflow_run.definition:
+        workflow_configurations = workflow_run.definition.workflow_configurations or {}
+    else:
+        workflow_configurations = workflow_run.workflow.workflow_configurations or {}
 
-    return provider, model, api_key, kwargs
+    user_configuration = await get_effective_ai_model_configuration_for_workflow(
+        organization_id=workflow_run.workflow.organization_id,
+        workflow_configurations=workflow_configurations,
+    )
+    if user_configuration.llm is None:
+        return None
 
-
-async def resolve_user_llm_config(
-    workflow_run: WorkflowRunModel,
-) -> tuple[str, str, str, dict]:
-    """Resolve the workflow/org configured LLM.
-
-    Returns:
-        (provider, model, api_key, service_kwargs) tuple
-    """
-    llm_config: dict = {}
-    if workflow_run.workflow:
-        from api.services.configuration.ai_model_configuration import (
-            get_effective_ai_model_configuration_for_workflow,
-        )
-
-        workflow_configurations = {}
-        if workflow_run.definition:
-            workflow_configurations = (
-                workflow_run.definition.workflow_configurations or {}
-            )
-        elif workflow_run.workflow:
-            workflow_configurations = (
-                workflow_run.workflow.workflow_configurations or {}
-            )
-
-        user_configuration = await get_effective_ai_model_configuration_for_workflow(
-            organization_id=workflow_run.workflow.organization_id
-            if workflow_run.workflow
-            else None,
-            workflow_configurations=workflow_configurations,
-        )
-        llm_config = user_configuration.model_dump(exclude_none=True).get("llm", {})
-
-    provider = llm_config.get("provider", "openai")
-    api_key = llm_config.get("api_key", "")
-    if isinstance(api_key, list):
-        api_key = random.choice(api_key)
-    model = llm_config.get("model", "gpt-4.1")
-
-    kwargs = {}
-    if provider == "azure":
-        kwargs["endpoint"] = llm_config.get("endpoint", "")
-    elif provider == "openrouter" and llm_config.get("base_url"):
-        kwargs["base_url"] = llm_config["base_url"]
-
-    return provider, model, api_key, kwargs
+    model_override = (
+        qa_data.qa_model if qa_data.qa_model and qa_data.qa_model != "default" else None
+    )
+    model = model_override or user_configuration.llm.model
+    llm = create_llm_service_with_model_override(
+        user_configuration,
+        model_override,
+        correlation_id=correlation_id,
+        usage_context=QA_USAGE_CONTEXT,
+    )
+    return llm, model
 
 
 def accumulate_token_usage(total: dict, response) -> None:

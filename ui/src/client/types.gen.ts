@@ -297,6 +297,34 @@ export type AssemblyAisttConfiguration = {
 };
 
 /**
+ * Atlas Cloud
+ *
+ * Atlas Cloud OpenAI-compatible LLM API.
+ */
+export type AtlasCloudLlmService = {
+    /**
+     * Provider
+     */
+    provider?: 'atlascloud';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Atlas Cloud OpenAI-compatible chat model identifier.
+     */
+    model?: string;
+    /**
+     * Base Url
+     *
+     * Atlas Cloud OpenAI-compatible API endpoint.
+     */
+    base_url?: string;
+};
+
+/**
  * AuthResponse
  */
 export type AuthResponse = {
@@ -531,6 +559,8 @@ export type ByokPipelineAiModelConfiguration = {
     llm: ({
         provider: 'openai';
     } & OpenAillmService) | ({
+        provider: 'atlascloud';
+    } & AtlasCloudLlmService) | ({
         provider: 'google_vertex';
     } & GoogleVertexLlmConfiguration) | ({
         provider: 'groq';
@@ -661,6 +691,8 @@ export type ByokRealtimeAiModelConfiguration = {
     llm: ({
         provider: 'openai';
     } & OpenAillmService) | ({
+        provider: 'atlascloud';
+    } & AtlasCloudLlmService) | ({
         provider: 'google_vertex';
     } & GoogleVertexLlmConfiguration) | ({
         provider: 'groq';
@@ -803,66 +835,6 @@ export type CallDispositionCodes = {
 export type CallType = 'inbound' | 'outbound';
 
 /**
- * CallbackConfigRequest
- */
-export type CallbackConfigRequest = {
-    /**
-     * Enabled
-     */
-    enabled?: boolean;
-    /**
-     * Sociable Hours Start
-     */
-    sociable_hours_start?: string;
-    /**
-     * Sociable Hours End
-     */
-    sociable_hours_end?: string;
-    /**
-     * Sociable Hours Timezone
-     */
-    sociable_hours_timezone?: string;
-    /**
-     * Honor Campaign Window For Long Callbacks
-     */
-    honor_campaign_window_for_long_callbacks?: boolean;
-    /**
-     * Long Callback Threshold Minutes
-     */
-    long_callback_threshold_minutes?: number;
-};
-
-/**
- * CallbackConfigResponse
- */
-export type CallbackConfigResponse = {
-    /**
-     * Enabled
-     */
-    enabled?: boolean;
-    /**
-     * Sociable Hours Start
-     */
-    sociable_hours_start?: string;
-    /**
-     * Sociable Hours End
-     */
-    sociable_hours_end?: string;
-    /**
-     * Sociable Hours Timezone
-     */
-    sociable_hours_timezone?: string;
-    /**
-     * Honor Campaign Window For Long Callbacks
-     */
-    honor_campaign_window_for_long_callbacks?: boolean;
-    /**
-     * Long Callback Threshold Minutes
-     */
-    long_callback_threshold_minutes?: number;
-};
-
-/**
  * Camb.ai
  */
 export type CambTtsConfiguration = {
@@ -892,64 +864,6 @@ export type CambTtsConfiguration = {
      * BCP-47 language code.
      */
     language?: string;
-};
-
-/**
- * CampaignCallbackItem
- */
-export type CampaignCallbackItem = {
-    /**
-     * Queued Run Id
-     */
-    queued_run_id: number;
-    /**
-     * Status
-     */
-    status: string;
-    /**
-     * Scheduled For
-     */
-    scheduled_for: string | null;
-    /**
-     * Fires In Seconds
-     */
-    fires_in_seconds: number | null;
-    /**
-     * To Number
-     */
-    to_number: string | null;
-    /**
-     * From Number
-     */
-    from_number: string | null;
-    /**
-     * Conversation Summary
-     */
-    conversation_summary: string | null;
-    /**
-     * Callback Chain Depth
-     */
-    callback_chain_depth: number;
-    /**
-     * Original Run Id
-     */
-    original_run_id: number | null;
-    /**
-     * Outcome Run Id
-     */
-    outcome_run_id: number | null;
-    /**
-     * Outcome Status
-     */
-    outcome_status: string | null;
-    /**
-     * Outcome Disposition
-     */
-    outcome_disposition: string | null;
-    /**
-     * Created At
-     */
-    created_at: string | null;
 };
 
 /**
@@ -1112,7 +1026,6 @@ export type CampaignResponse = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigResponse | null;
     circuit_breaker?: CircuitBreakerConfigResponse | null;
-    callback_config?: CallbackConfigResponse | null;
     /**
      * Executed Count
      */
@@ -1580,7 +1493,6 @@ export type CreateCampaignRequest = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
     circuit_breaker?: CircuitBreakerConfigRequest | null;
-    callback_config?: CallbackConfigRequest | null;
 };
 
 /**
@@ -1701,7 +1613,7 @@ export type CreateToolRequest = {
      *
      * Tool category. Must match definition.type.
      */
-    category?: 'http_api' | 'end_call' | 'transfer_call' | 'calculator' | 'wait' | 'native' | 'integration' | 'mcp';
+    category?: 'http_api' | 'end_call' | 'transfer_call' | 'calculator' | 'native' | 'integration' | 'mcp';
     /**
      * Icon
      *
@@ -1728,8 +1640,6 @@ export type CreateToolRequest = {
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
-        type: 'wait';
-    } & WaitToolDefinition) | ({
         type: 'mcp';
     } & McpToolDefinition);
 };
@@ -1748,10 +1658,6 @@ export type CreateWorkflowRequest = {
     workflow_definition: {
         [key: string]: unknown;
     };
-    /**
-     * Post Call Schema
-     */
-    post_call_schema?: Array<unknown> | null;
 };
 
 /**
@@ -2089,6 +1995,7 @@ export type DefaultConfigurationsResponse = {
         [key: string]: string;
     };
     workflow_configurations: WorkflowConfigurationDefaults;
+    text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints;
 };
 
 /**
@@ -2527,6 +2434,14 @@ export type EmbedConfigResponse = {
      * Auto Start
      */
     auto_start: boolean;
+    /**
+     * Turn Enabled
+     */
+    turn_enabled: boolean;
+    /**
+     * Force Turn Relay
+     */
+    force_turn_relay: boolean;
 };
 
 /**
@@ -2661,6 +2576,16 @@ export type EndCallToolDefinition = {
      * End Call configuration.
      */
     config: EndCallConfig;
+};
+
+/**
+ * EndTextChatSessionRequest
+ */
+export type EndTextChatSessionRequest = {
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
 };
 
 /**
@@ -3449,6 +3374,11 @@ export type InitEmbedResponse = {
     config: {
         [key: string]: unknown;
     };
+    /**
+     * Widget Type
+     */
+    widget_type?: string;
+    chat_session?: PublicEmbedChatSessionResponse | null;
 };
 
 /**
@@ -4928,6 +4858,82 @@ export type ProviderSyncStatus = {
 };
 
 /**
+ * PublicEmbedChatEndRequest
+ */
+export type PublicEmbedChatEndRequest = {
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
+};
+
+/**
+ * PublicEmbedChatMessage
+ */
+export type PublicEmbedChatMessage = {
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+};
+
+/**
+ * PublicEmbedChatMessageRequest
+ */
+export type PublicEmbedChatMessageRequest = {
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
+};
+
+/**
+ * PublicEmbedChatSessionResponse
+ */
+export type PublicEmbedChatSessionResponse = {
+    /**
+     * Revision
+     */
+    revision: number;
+    /**
+     * State
+     */
+    state: string;
+    /**
+     * Is Completed
+     */
+    is_completed: boolean;
+    /**
+     * Turns
+     */
+    turns: Array<PublicEmbedChatTurn>;
+};
+
+/**
+ * PublicEmbedChatTurn
+ */
+export type PublicEmbedChatTurn = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Status
+     */
+    status: string;
+    user_message?: PublicEmbedChatMessage | null;
+    assistant_message?: PublicEmbedChatMessage | null;
+};
+
+/**
  * RecordingCreateRequestSchema
  *
  * Request schema for creating a recording record after upload.
@@ -5267,7 +5273,7 @@ export type SarvamLlmConfiguration = {
     /**
      * Model
      *
-     * Sarvam chat model. Use sarvam-30b for low-latency voice agents; sarvam-105b for complex multi-step reasoning.
+     * Sarvam chat model.
      */
     model?: string;
     /**
@@ -5826,6 +5832,18 @@ export type TelephonyConfigurationDetail = {
      */
     is_default_outbound: boolean;
     /**
+     * Inactive
+     */
+    inactive?: boolean;
+    /**
+     * Inactive Since
+     */
+    inactive_since?: string | null;
+    /**
+     * Inactive Reason
+     */
+    inactive_reason?: string | null;
+    /**
      * Credentials
      */
     credentials: {
@@ -5863,6 +5881,18 @@ export type TelephonyConfigurationListItem = {
      * Is Default Outbound
      */
     is_default_outbound: boolean;
+    /**
+     * Inactive
+     */
+    inactive?: boolean;
+    /**
+     * Inactive Since
+     */
+    inactive_since?: string | null;
+    /**
+     * Inactive Reason
+     */
+    inactive_reason?: string | null;
     /**
      * Phone Number Count
      */
@@ -6107,6 +6137,26 @@ export type TelnyxConfigurationResponse = {
      * From Numbers
      */
     from_numbers: Array<string>;
+};
+
+/**
+ * TextChatInactivityTimeoutConstraints
+ *
+ * Backend-owned timeout metadata consumed by generated API clients.
+ */
+export type TextChatInactivityTimeoutConstraints = {
+    /**
+     * Default Seconds
+     */
+    default_seconds?: number;
+    /**
+     * Minimum Seconds
+     */
+    minimum_seconds?: number;
+    /**
+     * Maximum Seconds
+     */
+    maximum_seconds?: number;
 };
 
 /**
@@ -6553,94 +6603,6 @@ export type UltravoxRealtimeLlmConfiguration = {
 };
 
 /**
- * UnifiedCallbackItem
- */
-export type UnifiedCallbackItem = {
-    /**
-     * Id
-     */
-    id: number;
-    /**
-     * Source
-     */
-    source: string;
-    /**
-     * Status
-     */
-    status: string;
-    /**
-     * Scheduled For
-     */
-    scheduled_for: string | null;
-    /**
-     * Fires In Seconds
-     */
-    fires_in_seconds: number | null;
-    /**
-     * Was Late Seconds
-     */
-    was_late_seconds: number | null;
-    /**
-     * To Number
-     */
-    to_number: string | null;
-    /**
-     * From Number
-     */
-    from_number: string | null;
-    /**
-     * Conversation Summary
-     */
-    conversation_summary: string | null;
-    /**
-     * Callback Chain Depth
-     */
-    callback_chain_depth: number;
-    /**
-     * Workflow Id
-     */
-    workflow_id: number | null;
-    /**
-     * Workflow Name
-     */
-    workflow_name: string | null;
-    /**
-     * Campaign Id
-     */
-    campaign_id: number | null;
-    /**
-     * Campaign Name
-     */
-    campaign_name: string | null;
-    /**
-     * Original Run Id
-     */
-    original_run_id: number | null;
-    /**
-     * Created At
-     */
-    created_at: string | null;
-};
-
-/**
- * UnifiedCallbackListResponse
- */
-export type UnifiedCallbackListResponse = {
-    /**
-     * Items
-     */
-    items: Array<UnifiedCallbackItem>;
-    /**
-     * Total
-     */
-    total: number;
-    /**
-     * Has More
-     */
-    has_more: boolean;
-};
-
-/**
  * UpdateCampaignRequest
  */
 export type UpdateCampaignRequest = {
@@ -6655,7 +6617,6 @@ export type UpdateCampaignRequest = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
     circuit_breaker?: CircuitBreakerConfigRequest | null;
-    callback_config?: CallbackConfigRequest | null;
 };
 
 /**
@@ -6725,8 +6686,6 @@ export type UpdateToolRequest = {
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
-        type: 'wait';
-    } & WaitToolDefinition) | ({
         type: 'mcp';
     } & McpToolDefinition) | null;
     /**
@@ -6750,28 +6709,12 @@ export type UpdateWorkflowRequest = {
         [key: string]: unknown;
     } | null;
     /**
-     * Post Call Schema
-     */
-    post_call_schema?: Array<unknown> | null;
-    /**
      * Template Context Variables
      */
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
     workflow_configurations?: WorkflowConfigurationDefaults | null;
-    /**
-     * Enable Dtmf
-     */
-    enable_dtmf?: boolean | null;
-    /**
-     * Enable Callbacks
-     */
-    enable_callbacks?: boolean | null;
-    /**
-     * Callback Resume Mode
-     */
-    callback_resume_mode?: string | null;
 };
 
 /**
@@ -7240,31 +7183,11 @@ export type VonageConfigurationResponse = {
 };
 
 /**
- * WaitToolDefinition
- *
- * Tool definition for Wait tools.
- */
-export type WaitToolDefinition = {
-    /**
-     * Schema Version
-     *
-     * Schema version.
-     */
-    schema_version?: number;
-    /**
-     * Type
-     *
-     * Tool type.
-     */
-    type: 'wait';
-};
-
-/**
  * WebhookCredentialType
  *
  * Webhook credential authentication types
  */
-export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header' | 'oauth2_client_credentials';
+export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
 
 /**
  * WorkflowConfigurationDefaults
@@ -7307,6 +7230,10 @@ export type WorkflowConfigurationDefaults = {
      * Context Compaction Enabled
      */
     context_compaction_enabled?: boolean;
+    /**
+     * Text Chat Inactivity Timeout Seconds
+     */
+    text_chat_inactivity_timeout_seconds?: number;
     /**
      * External Pbx Field Mappings
      */
@@ -7441,10 +7368,6 @@ export type WorkflowResponse = {
     } | null;
     call_disposition_codes?: CallDispositionCodes | null;
     /**
-     * Post Call Schema
-     */
-    post_call_schema?: Array<unknown> | null;
-    /**
      * Total Runs
      */
     total_runs?: number | null;
@@ -7454,18 +7377,6 @@ export type WorkflowResponse = {
     workflow_configurations?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Enable Dtmf
-     */
-    enable_dtmf?: boolean;
-    /**
-     * Enable Callbacks
-     */
-    enable_callbacks?: boolean;
-    /**
-     * Callback Resume Mode
-     */
-    callback_resume_mode?: string;
     /**
      * Version Number
      */
@@ -7530,10 +7441,6 @@ export type WorkflowRunResponseSchema = {
      * Name
      */
     name: string;
-    /**
-     * Workflow Name
-     */
-    workflow_name?: string | null;
     /**
      * Mode
      */
@@ -7621,12 +7528,6 @@ export type WorkflowRunResponseSchema = {
      * Annotations
      */
     annotations?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Extracted Data
-     */
-    extracted_data?: {
         [key: string]: unknown;
     } | null;
 };
@@ -7933,10 +7834,6 @@ export type WorkflowVersionResponse = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Post Call Schema
-     */
-    post_call_schema?: Array<unknown> | null;
 };
 
 /**
@@ -9396,72 +9293,6 @@ export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses = {
 
 export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponse = GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses[keyof GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses];
 
-export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: {
-        /**
-         * Page
-         */
-        page?: number;
-        /**
-         * Limit
-         */
-        limit?: number;
-        /**
-         * Filters
-         *
-         * JSON-encoded filter criteria
-         */
-        filters?: string | null;
-        /**
-         * Sort By
-         *
-         * Field to sort by (e.g., 'duration', 'created_at')
-         */
-        sort_by?: string | null;
-        /**
-         * Sort Order
-         *
-         * Sort order ('asc' or 'desc')
-         */
-        sort_order?: string | null;
-    };
-    url: '/api/v1/workflow/runs/all';
-};
-
-export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetError = GetAllWorkflowRunsApiV1WorkflowRunsAllGetErrors[keyof GetAllWorkflowRunsApiV1WorkflowRunsAllGetErrors];
-
-export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: WorkflowRunsResponse;
-};
-
-export type GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponse = GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponses[keyof GetAllWorkflowRunsApiV1WorkflowRunsAllGetResponses];
-
 export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetData = {
     body?: never;
     headers?: {
@@ -9759,6 +9590,54 @@ export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMes
 };
 
 export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponse = AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses[keyof AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses];
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostData = {
+    body: EndTextChatSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/{run_id}/end';
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostError = EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors[keyof EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors];
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse;
+};
+
+export type EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponse = EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses[keyof EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses];
 
 export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostData = {
     body: RewindTextChatSessionRequest;
@@ -10315,127 +10194,6 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses = {
 };
 
 export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponse = GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses[keyof GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses];
-
-export type ListCallbacksApiV1CallbacksGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: {
-        /**
-         * Status
-         *
-         * Filter by status (e.g. pending, completed, failed, cancelled)
-         */
-        status?: string | null;
-        /**
-         * Source
-         *
-         * Source of callback: all, standalone, campaign
-         */
-        source?: string;
-        /**
-         * Campaign Id
-         */
-        campaign_id?: number | null;
-        /**
-         * Workflow Id
-         */
-        workflow_id?: number | null;
-        /**
-         * Limit
-         */
-        limit?: number;
-        /**
-         * Offset
-         */
-        offset?: number;
-    };
-    url: '/api/v1/callbacks';
-};
-
-export type ListCallbacksApiV1CallbacksGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ListCallbacksApiV1CallbacksGetError = ListCallbacksApiV1CallbacksGetErrors[keyof ListCallbacksApiV1CallbacksGetErrors];
-
-export type ListCallbacksApiV1CallbacksGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: UnifiedCallbackListResponse;
-};
-
-export type ListCallbacksApiV1CallbacksGetResponse = ListCallbacksApiV1CallbacksGetResponses[keyof ListCallbacksApiV1CallbacksGetResponses];
-
-export type CancelCallbackApiV1CallbacksCallbackIdDeleteData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Callback Id
-         */
-        callback_id: number;
-    };
-    query?: {
-        /**
-         * Source
-         */
-        source?: string;
-    };
-    url: '/api/v1/callbacks/{callback_id}';
-};
-
-export type CancelCallbackApiV1CallbacksCallbackIdDeleteErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type CancelCallbackApiV1CallbacksCallbackIdDeleteError = CancelCallbackApiV1CallbacksCallbackIdDeleteErrors[keyof CancelCallbackApiV1CallbacksCallbackIdDeleteErrors];
-
-export type CancelCallbackApiV1CallbacksCallbackIdDeleteResponses = {
-    /**
-     * Response Cancel Callback Api V1 Callbacks  Callback Id  Delete
-     *
-     * Successful Response
-     */
-    200: {
-        [key: string]: unknown;
-    };
-};
-
-export type CancelCallbackApiV1CallbacksCallbackIdDeleteResponse = CancelCallbackApiV1CallbacksCallbackIdDeleteResponses[keyof CancelCallbackApiV1CallbacksCallbackIdDeleteResponses];
 
 export type CreateCampaignApiV1CampaignCreatePostData = {
     body: CreateCampaignRequest;
@@ -10996,65 +10754,6 @@ export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetResponses = {
      */
     200: unknown;
 };
-
-export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Campaign Id
-         */
-        campaign_id: number;
-    };
-    query?: {
-        /**
-         * Status
-         */
-        status?: string | null;
-        /**
-         * Limit
-         */
-        limit?: number;
-        /**
-         * Offset
-         */
-        offset?: number;
-    };
-    url: '/api/v1/campaign/{campaign_id}/callbacks';
-};
-
-export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetError = ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetErrors[keyof ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetErrors];
-
-export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponses = {
-    /**
-     * Response List Campaign Callbacks Api V1 Campaign  Campaign Id  Callbacks Get
-     *
-     * Successful Response
-     */
-    200: Array<CampaignCallbackItem>;
-};
-
-export type ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponse = ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponses[keyof ListCampaignCallbacksApiV1CampaignCampaignIdCallbacksGetResponses];
 
 export type ListCredentialsApiV1CredentialsGetData = {
     body?: never;
@@ -12310,6 +12009,50 @@ export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefau
 };
 
 export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponse = SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponses[keyof SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponses];
+
+export type ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/reactivate';
+};
+
+export type ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostError = ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostErrors[keyof ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostErrors];
+
+export type ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyConfigurationDetail;
+};
+
+export type ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostResponse = ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostResponses[keyof ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostResponses];
 
 export type ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetData = {
     body?: never;
@@ -13863,6 +13606,204 @@ export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOpt
      */
     200: unknown;
 };
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}';
+};
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetError = GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors[keyof GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors];
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicEmbedChatSessionResponse;
+};
+
+export type GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponse = GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses[keyof GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses];
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}';
+};
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsError = OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors[keyof OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors];
+
+export type OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/end';
+};
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsError = OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors[keyof OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors];
+
+export type OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostData = {
+    body: PublicEmbedChatEndRequest;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/end';
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostError = EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors[keyof EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors];
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicEmbedChatSessionResponse;
+};
+
+export type EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponse = EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses[keyof EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses];
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/messages';
+};
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsError = OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors[keyof OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors];
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostData = {
+    body: PublicEmbedChatMessageRequest;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/messages';
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostError = PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors[keyof PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors];
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicEmbedChatSessionResponse;
+};
+
+export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponse = PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses[keyof PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses];
 
 export type InitiateCallApiV1PublicAgentUuidPostData = {
     body: TriggerCallRequest;

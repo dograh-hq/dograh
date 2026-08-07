@@ -13,6 +13,8 @@ type WidgetWindow = Window & {
         init: () => Promise<void>;
         start: () => Promise<void>;
         startChat: () => Promise<void>;
+        endChat: () => Promise<unknown[] | null>;
+        getState: () => { chat: { status: string } };
     };
 };
 
@@ -37,6 +39,19 @@ function createFetchMock(autoStart: boolean) {
                         containerId: 'dograh-inline-container',
                     },
                     auto_start: autoStart,
+                }),
+            } as Response;
+        }
+
+        if (url.includes('/api/v1/public/embed/chat/') && url.endsWith('/end')) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    revision: 3,
+                    state: 'completed',
+                    is_completed: true,
+                    turns: [],
                 }),
             } as Response;
         }
@@ -125,6 +140,40 @@ describe('public embed widget chat lifecycle', () => {
         await widget.startChat();
         await flushMicrotasks();
         expect(countInitCalls(fetchMock)).toBe(1);
+    });
+
+    it('shows an end-chat action that completes the server session', async () => {
+        const fetchMock = createFetchMock(false);
+        const widget = await loadWidget(fetchMock);
+
+        await widget.startChat();
+        await flushMicrotasks();
+
+        const endButton = document.querySelector<HTMLButtonElement>('.dograh-chat-end');
+        expect(endButton).not.toBeNull();
+        expect(endButton?.disabled).toBe(false);
+
+        endButton?.click();
+        await flushMicrotasks();
+
+        expect(fetchMock.mock.calls.some(([url]) =>
+            String(url).endsWith('/api/v1/public/embed/chat/emb_session_TEST/end'),
+        )).toBe(false);
+
+        const confirmEndButton = document.querySelector<HTMLButtonElement>(
+            '.dograh-chat-end-confirm-submit',
+        );
+        expect(confirmEndButton).not.toBeNull();
+        confirmEndButton?.click();
+        await flushMicrotasks();
+
+        const endCalls = fetchMock.mock.calls.filter(([url]) =>
+            String(url).endsWith('/api/v1/public/embed/chat/emb_session_TEST/end'),
+        );
+        expect(endCalls).toHaveLength(1);
+        expect(widget.getState().chat.status).toBe('ended');
+        expect(document.querySelector('.dograh-chat-banner')?.textContent).toContain('Conversation ended.');
+        expect(document.querySelector<HTMLButtonElement>('.dograh-chat-send')?.disabled).toBe(true);
     });
 
     it('generic start waits for chat configuration before choosing a flow', async () => {

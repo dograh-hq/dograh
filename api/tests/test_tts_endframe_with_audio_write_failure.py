@@ -49,12 +49,12 @@ from pipecat.turns.user_mute import (
 )
 from pipecat.utils.enums import EndTaskReason
 
-from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.workflow_graph import WorkflowGraph
+from api.tests.pipecat_test_utils import run_engine_test_pipeline
 from pipecat.tests import MockLLMService, MockTTSService
 
 
@@ -103,6 +103,7 @@ async def create_test_pipeline_with_failing_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
             # Use faster failure detection for tests
             audio_out_max_consecutive_failures=2,
             audio_out_sleep_between_failures=0.25,
@@ -215,12 +216,7 @@ class TestTTSPauseWithAudioWriteFailure:
                 return_value={},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_and_end_call():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
+                async def end_call_after_response():
                     await engine.set_node(engine.workflow.start_node_id)
 
                     # Start LLM generation - this will trigger TTS
@@ -235,12 +231,19 @@ class TestTTSPauseWithAudioWriteFailure:
                     )
 
                 # Create tasks explicitly for better control
-                pipeline_task = asyncio.create_task(run_pipeline())
-                end_call_task = asyncio.create_task(initialize_and_end_call())
+                pipeline_task = asyncio.create_task(
+                    run_engine_test_pipeline(
+                        task,
+                        engine,
+                        transport,
+                        on_ready=end_call_after_response,
+                        timeout=None,
+                    )
+                )
 
                 # Wait with timeout
                 done, pending = await asyncio.wait(
-                    [pipeline_task, end_call_task],
+                    [pipeline_task],
                     timeout=3.0,
                     return_when=asyncio.ALL_COMPLETED,
                 )
@@ -329,12 +332,7 @@ class TestTTSPauseWithAudioWriteFailure:
                 return_value={},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_and_observe():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
+                async def end_call_after_response():
                     await engine.set_node(engine.workflow.start_node_id)
 
                     await engine.llm.queue_frame(LLMContextFrame(engine.context))
@@ -348,12 +346,19 @@ class TestTTSPauseWithAudioWriteFailure:
                     )
 
                 # Create tasks explicitly for better control
-                pipeline_task = asyncio.create_task(run_pipeline())
-                end_call_task = asyncio.create_task(initialize_and_observe())
+                pipeline_task = asyncio.create_task(
+                    run_engine_test_pipeline(
+                        task,
+                        engine,
+                        transport,
+                        on_ready=end_call_after_response,
+                        timeout=None,
+                    )
+                )
 
                 # Wait with timeout
                 done, pending = await asyncio.wait(
-                    [pipeline_task, end_call_task],
+                    [pipeline_task],
                     timeout=3.0,
                     return_when=asyncio.ALL_COMPLETED,
                 )

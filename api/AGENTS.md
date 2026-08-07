@@ -43,7 +43,9 @@ api/
 
 ## Routes vs Service Layer
 
-**Keep route handlers thin** — parse/validate the request, resolve auth and `organization_id`, delegate, shape the response. Domain logic (orchestration, business rules, external calls, computation) belongs in `services/`. Before adding logic to a handler, find its home: extend an existing `services/<domain>/` module that owns the concern (see *Where to Find Things*) before adding a focused new module; never a catch-all. Keep DB access in `db/` clients — routes call services, services call DB clients. Litmus test: if `tasks/`, `mcp_server/`, or another route could reuse it, it must live in `services/` to be importable.
+**Keep route handlers focused on HTTP concerns** — parse and validate the request, resolve auth and `organization_id`, and shape the response. Simple CRUD, list, and detail handlers may call `db/` client methods directly when the call is organization-scoped, or when a scoped parent lookup has already established ownership of a child identifier. All runtime query construction, ORM loading choices, direct session use, and transaction details belong in `db/`; routes, services, tasks, and MCP code must call DB clients instead of importing SQLAlchemy or opening sessions. Do not create pass-through services solely to preserve a route → service → DB call chain.
+
+Put reusable or multi-step orchestration, business rules, external calls, and substantial computation in `services/` (or `tasks/` for background work). Before adding such logic to a handler, extend an existing `services/<domain>/` module that owns the concern (see *Where to Find Things*) before adding a focused new module; never a catch-all. Litmus test: if `tasks/`, `mcp_server/`, or another route could reuse it, it must live in `services/` to be importable.
 
 ## Database Migrations
 

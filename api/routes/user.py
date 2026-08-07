@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from loguru import logger
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypedDict
 
@@ -10,8 +9,11 @@ from api.db import db_client
 from api.db.models import (
     UserModel,
 )
+from api.errors.failure import ErrorSource, classify_exception, log_failure
+from api.errors.mps import MPSUnavailableError
 from api.schemas.onboarding_state import OnboardingState, OnboardingStateUpdate
 from api.schemas.workflow_configurations import (
+    TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
     get_default_workflow_configurations,
 )
@@ -56,6 +58,7 @@ class DefaultConfigurationsResponse(BaseModel):
     realtime: dict[str, dict]
     default_providers: dict[str, str]
     workflow_configurations: WorkflowConfigurationDefaults
+    text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints
 
 
 @router.get("/configurations/defaults")
@@ -83,6 +86,9 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
         },
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
         "workflow_configurations": get_default_workflow_configurations(),
+        "text_chat_inactivity_timeout_constraints": (
+            TextChatInactivityTimeoutConstraints()
+        ),
     }
     return DefaultConfigurationsResponse(**configurations)
 
@@ -475,9 +481,23 @@ async def get_voices(
             voices=[VoiceInfo(**voice) for voice in result.get("voices", [])],
             facets=result.get("facets"),
         )
+    except MPSUnavailableError:
+        # The MPS boundary emitted the classified failure. The app-level handler
+        # converts this typed dependency failure to a customer-safe HTTP 503.
+        raise
     except Exception as e:
-        logger.error(f"Failed to fetch voices for {provider}: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.PLATFORM,
+                provider="dograh",
+                error_owner="operator",
+            ),
+            organization_id=user.selected_organization_id,
+            operation="validate_voice_catalog_response",
+            requested_provider=provider,
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch voices for {provider}",
-        )
+        ) from e

@@ -8,9 +8,19 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    classify_http_response,
+    log_failure,
+    redact_failure_message,
+)
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
-from api.utils.template_renderer import render_template
+from api.utils.template_renderer import render_template, render_url_template
+from api.utils.url_security import validate_user_configured_service_url
 
 # Map tool parameter types to JSON schema types
 TYPE_MAP = {
@@ -573,10 +583,12 @@ def _resolve_preset_parameters(
         return {}
 
     initial_context = dict(call_context_vars or {})
+    gathered_context = dict(gathered_context_vars or {})
     render_context: dict[str, Any] = {
         **initial_context,
+        **gathered_context,
         "initial_context": initial_context,
-        "gathered_context": dict(gathered_context_vars or {}),
+        "gathered_context": gathered_context,
     }
 
     resolved: dict[str, Any] = {}
@@ -653,11 +665,31 @@ async def execute_http_tool(
                 headers.update(credential_headers)
                 logger.debug(f"Applied credential '{credential.name}' to tool request")
             else:
-                logger.warning(
-                    f"Credential {credential_uuid} not found for tool '{tool.name}'"
+                log_failure(
+                    DograhFailure(
+                        source=ErrorSource.TOOL,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="custom-http-credential-not-found",
+                        internal_message=f"Credential not found for custom tool '{tool.name}'",
+                        external_message="The credential configured for this tool no longer exists.",
+                        provider="custom-http",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    organization_id=organization_id,
+                    tool_name=tool.name,
                 )
         except Exception as e:
-            logger.error(f"Failed to fetch credential for tool '{tool.name}': {e}")
+            log_failure(
+                classify_exception(
+                    e,
+                    source=ErrorSource.TOOL,
+                    provider="custom-http",
+                    error_owner="user",
+                ),
+                organization_id=organization_id,
+                tool_name=tool.name,
+            )
 
     request_headers: dict[str, str] = {}
     if include_request_headers:
@@ -665,22 +697,16 @@ async def execute_http_tool(
         for header_name, header_value in credential_headers.items():
             request_headers[header_name] = mask_key(str(header_value))
 
-    # Initialize BEFORE build_result is defined.
-    # The closure captures _body_preview by reference (cell object).
-    # By the time build_result is first called (line 316 preset error path),
-    # _body_preview must already be assigned.
+    _rendered_url: str | None = None
     _body_preview: dict[str, Any] | None = None
 
     def build_result(result: dict[str, Any]) -> dict[str, Any]:
         if include_request_headers:
-            # Both extras are test-mode-only: include_request_headers=True is set
-            # exclusively by the test endpoint (routes/tool.py:244). Live pipecat
-            # calls (pipecat_engine_custom_tools.py:666) never set this flag, so
-            # the LLM callback never receives request_headers or request_body_preview.
             return {
                 **result,
                 "request_headers": request_headers,
-                "request_body_preview": _body_preview,  # reads cell at call time
+                "rendered_url": _rendered_url,
+                "request_body_preview": _body_preview,
             }
         return result
 
@@ -694,13 +720,63 @@ async def execute_http_tool(
                 config, call_context_vars, gathered_context_vars
             )
         except ValueError as e:
-            logger.error(f"Custom tool '{tool.name}' preset parameter error: {e}")
+            log_failure(
+                DograhFailure(
+                    source=ErrorSource.TOOL,
+                    type=ErrorType.CONFIG_ERROR,
+                    code="custom-http-invalid-preset",
+                    internal_message=f"Custom tool '{tool.name}' preset parameter error: {e}",
+                    external_message="A configured tool parameter could not be resolved.",
+                    provider="custom-http",
+                    error_owner="user",
+                    retryable=False,
+                ),
+                organization_id=organization_id,
+                tool_name=tool.name,
+            )
             return build_result({"status": "error", "error": str(e)})
             # _body_preview = None at this point (assigned before build_result). ✓
     else:
         preset_arguments = dict(preset_params)
 
-    resolved_arguments = {**(arguments or {}), **preset_arguments}
+    llm_arguments = dict(arguments or {})
+    resolved_arguments = {**preset_arguments, **llm_arguments}
+
+    initial_context = dict(call_context_vars or {})
+    gathered_context = dict(gathered_context_vars or {})
+    # Unprefixed URL variables follow LLM > gathered > initial precedence.
+    # Preset aliases are context-derived fallbacks; explicit namespaces keep
+    # the original context maps available regardless of name collisions.
+    url_render_context: dict[str, Any] = {
+        **preset_arguments,
+        **initial_context,
+        **gathered_context,
+        **llm_arguments,
+        "initial_context": initial_context,
+        "gathered_context": gathered_context,
+    }
+
+    try:
+        url = render_url_template(
+            url=url,
+            context=url_render_context,
+        )
+        _rendered_url = url
+    except ValueError as e:
+        logger.error(f"Custom tool '{tool.name}' URL template render failed: {e}")
+        return build_result(
+            {"status": "error", "error": f"URL template rendering failed: {e!s}"}
+        )
+
+    try:
+        validate_user_configured_service_url(url, field_name="config.url")
+    except ValueError as e:
+        logger.error(f"Custom tool '{tool.name}' URL validation failed: {e}")
+        return build_result(
+            {"status": "error", "error": f"URL validation failed: {e!s}"}
+        )
+
+    request_arguments = resolved_arguments
 
     # Build request body or query params.
     body = None
@@ -733,17 +809,18 @@ async def execute_http_tool(
                 )
                 # _body_preview is still None here (set below, after this block). ✓
         else:
-            body = resolved_arguments  # flat mode — unchanged behaviour
+            body = request_arguments
 
-    elif method in ("GET", "DELETE") and resolved_arguments:
-        params = serialize_query_params(resolved_arguments)
+    elif method in ("GET", "DELETE") and request_arguments:
+        params = serialize_query_params(request_arguments)
 
     # Capture final body for the test-mode preview.
     # The closure reads _body_preview at call time, after this assignment.
     _body_preview = body
 
     logger.info(
-        f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): {method} {url}"
+        f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): "
+        f"{method} {redact_failure_message(url)}"
     )
     if preset_arguments:
         logger.debug(
@@ -776,10 +853,32 @@ async def execute_http_tool(
             logger.debug(
                 f"Custom tool '{tool.name}' completed with status {response.status_code}"
             )
+            if response.status_code >= 400:
+                log_failure(
+                    classify_http_response(
+                        response.status_code,
+                        f"Custom tool '{tool.name}' returned HTTP "
+                        f"{response.status_code}: {response.text[:200]}",
+                        source=ErrorSource.TOOL,
+                        provider="custom-http",
+                        error_owner="user",
+                    ),
+                    organization_id=organization_id,
+                    tool_name=tool.name,
+                )
             return build_result(result)
 
-    except httpx.TimeoutException:
-        logger.error(f"Custom tool '{tool.name}' timed out after {timeout_seconds}s")
+    except httpx.TimeoutException as e:
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",
@@ -787,7 +886,16 @@ async def execute_http_tool(
             }
         )
     except httpx.RequestError as e:
-        logger.error(f"Custom tool '{tool.name}' request failed: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",
@@ -795,7 +903,16 @@ async def execute_http_tool(
             }
         )
     except Exception as e:
-        logger.error(f"Custom tool '{tool.name}' execution failed: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",

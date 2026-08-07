@@ -123,6 +123,26 @@ def descendant_agents(root: Path, agents: list[Path]) -> list[Path]:
     ]
 
 
+def direct_child_agents(root: Path, agents: list[Path]) -> list[Path]:
+    """Return the nearest descendant AGENTS.md boundaries for ``root``.
+
+    A deeper AGENTS.md is owned by an intervening child scope, so listing it
+    again at the ancestor would make the printed ownership hierarchy look
+    flatter than it is.
+    """
+
+    descendants = descendant_agents(root, agents)
+    return [
+        agent
+        for agent in descendants
+        if not any(
+            possible_parent != agent
+            and possible_parent.parent in agent.parent.parents
+            for possible_parent in descendants
+        )
+    ]
+
+
 def immediate_child_dirs(root: Path) -> list[Path]:
     children = []
     for child in sorted(root.iterdir()):
@@ -171,7 +191,7 @@ def nested_hotspots(summary: DirSummary, agents: list[Path], threshold: int) -> 
 
 def print_scope(scope_dir: Path, agents: list[Path], cwd: Path, threshold: int) -> None:
     scope_agent = scope_dir / "AGENTS.md"
-    child_agents = descendant_agents(scope_dir, agents)
+    child_agents = direct_child_agents(scope_dir, agents)
 
     print(f"AGENTS: {format_path(scope_agent, cwd)}")
 

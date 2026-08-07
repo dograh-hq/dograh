@@ -6,11 +6,14 @@ triple alone is a *guessable bearer capability*: anyone who supplies a valid
 triple can open the socket and drive the run.
 
 When ``TELEPHONY_WS_TOKEN_SECRET`` is configured, the URL is minted with an HMAC
-``?token=`` that the handler verifies. An attacker can then no longer connect by
-guessing ids — only by holding the server secret. This is a stateless capability
-token (HMAC over the id triple); it deliberately does *not* attempt the one-shot
-redemption / state-race hardening the handler's ``TODO(security)`` sketches, which
-needs a run-creation schema change and is left to a follow-up.
+token — a trailing path segment for carriers, ``?token=`` for ARI (see
+:func:`build_media_ws_url`) — that the handler verifies. An attacker can then no
+longer connect by guessing ids — only by holding the server secret, or by
+reading a log line: the token appears in full in uvicorn's and nginx's access
+logs. This is a stateless capability token (HMAC over the id triple); it
+deliberately does *not* attempt the one-shot redemption / state-race hardening
+the handler's ``TODO(security)`` sketches, which needs a run-creation schema
+change and is left to a follow-up.
 
 Backward-compatible by construction: with no secret set, :func:`build_media_ws_url`
 returns exactly the legacy URL and :func:`verify_ws_token` is never consulted, so
@@ -20,7 +23,6 @@ adopting the builder in a provider is a no-op until an operator opts in.
 import hashlib
 import hmac
 import re
-from urllib.parse import urlencode
 
 from loguru import logger
 
@@ -83,13 +85,31 @@ def verify_ws_token(
 def build_media_ws_url(
     wss_base: str, workflow_id: Id, organization_id: Id, workflow_run_id: Id
 ) -> str:
-    """Canonical media-WS URL, with ``?token=`` appended when a secret is set.
+    """Canonical media-WS URL, with the token as a trailing path segment.
+
+    The token rides in the *path* rather than a query string because carriers do
+    not reliably forward one. Twilio documents the restriction outright — "The
+    ``url`` does not support query string parameters" — and drops everything
+    after ``?`` when it dials back, so a ``?token=`` URL arrived unauthenticated
+    and was rejected 4401 under enforcement. None of the other carriers promise
+    query strings survive either; each documents its own channel for custom
+    values instead (Plivo ``extraHeaders``, Twilio/Telnyx ``<Parameter>``,
+    Vonage ``headers``). The path is the one transport common to all of them,
+    and it keeps verification at connect time — the ``<Parameter>`` route would
+    only deliver the token in the ``start`` frame, after the socket is accepted.
+
+    Asterisk/ARI is the exception and still uses ``?token=``: it is our own
+    client, so nothing strips it, and its URL is assembled from
+    ``websocket_client.conf`` plus ``v()`` dial params rather than here — see
+    ``ari_manager._create_external_media``. Both transports meet again in
+    ``_handle_telephony_websocket``, which verifies whichever one arrives.
 
     With no secret configured this returns the exact legacy URL, so switching a
     provider over to this helper changes nothing until an operator opts in.
 
-    The returned URL carries a bearer capability — pass it through
-    :func:`redact_token` before logging it or the document it is embedded in.
+    The returned URL carries a bearer capability. :func:`redact_token` only
+    masks the ``?token=`` form, so the path form does reach the logs — see the
+    note there.
     """
     url = (
         f"{wss_base.rstrip('/')}{_WS_PATH}"
@@ -97,7 +117,8 @@ def build_media_ws_url(
     )
     token = mint_ws_token(workflow_id, organization_id, workflow_run_id)
     if token:
-        url = f"{url}?{urlencode({'token': token})}"
+        # An HMAC hexdigest by construction, so it needs no percent-encoding.
+        url = f"{url}/{token}"
     return url
 
 
@@ -109,9 +130,10 @@ _TOKEN_IN_TEXT = re.compile(r"(token=)[^\s\"'&<>]+")
 def redact_token(text: str) -> str:
     """Mask any ``token=…`` in *text* so it is safe to log.
 
-    The token is a bearer capability that neither expires nor is redeemed once,
-    so anything that reaches a log sink — the rendered TwiML/CXML/NCCO, a bare
-    URL — must be redacted first, or log access becomes socket access.
+    Only the query form. Since the carrier token moved into the URL path it is
+    no longer masked anywhere — deliberately: uvicorn and nginx both log the
+    request path in full, so masking our own lines bought little for the
+    machinery it took. Treat log access to this deployment as socket access.
     """
     return _TOKEN_IN_TEXT.sub(r"\1[REDACTED]", text)
 

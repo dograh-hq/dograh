@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Pencil,
   Plus,
+  RotateCcw,
   Star,
   Trash2,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import {
   deleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDelete,
   getTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGet,
   listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
+  reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost,
   setDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPost,
 } from "@/client/sdk.gen";
 import type {
@@ -127,6 +129,25 @@ export default function TelephonyConfigurationsPage() {
       fetchItems();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to set default");
+    }
+  };
+
+  const onReactivate = async (item: TelephonyConfigurationListItem) => {
+    try {
+      const token = await getAccessToken();
+      const res = await reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost(
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          path: { config_id: item.id },
+        },
+      );
+      if (res.error) throw new Error(detailFromError(res.error));
+      toast.success(`${item.name} reactivated — reconnecting within a minute`);
+      fetchItems();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to reactivate configuration",
+      );
     }
   };
 
@@ -254,11 +275,20 @@ export default function TelephonyConfigurationsPage() {
                             Default
                           </Badge>
                         )}
+                        {item.inactive && (
+                          <Badge variant="destructive">Inactive</Badge>
+                        )}
                       </div>
                       <span className="text-sm text-muted-foreground">
                         {item.phone_number_count} phone{" "}
                         {item.phone_number_count === 1 ? "number" : "numbers"}
                       </span>
+                      {item.inactive && (
+                        <span className="text-sm text-destructive">
+                          Disabled after repeated connection failures
+                          {item.inactive_reason ? `: ${item.inactive_reason}` : ""}
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -277,6 +307,17 @@ export default function TelephonyConfigurationsPage() {
                     </div>
                   </Link>
                   <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:flex-nowrap">
+                    {item.inactive && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onReactivate(item)}
+                        title="Reconnect this configuration now"
+                      >
+                        <RotateCcw className="h-4 w-4 mr-1" />
+                        Reactivate
+                      </Button>
+                    )}
                     {!item.is_default_outbound && (
                       <Button
                         variant="ghost"

@@ -15,13 +15,19 @@ type AddNodePanelProps = {
     nodes: FlowNode[];
 };
 
-// Section ordering and labels. Drives both the category → section title
-// mapping and the rendering order.
-const SECTION_ORDER: Array<{ category: NodeSpec['category']; title: string }> = [
-    { category: 'trigger', title: 'Triggers' },
-    { category: 'call_node', title: 'Agent Nodes' },
-    { category: 'global_node', title: 'Global Nodes' },
-    { category: 'integration', title: 'Integrations' },
+// Section matching and rendering order. Webhook and QA remain integration
+// specs in the API, but are displayed in their own sections in this panel.
+const SECTIONS: Array<{ title: string; matches: (spec: NodeSpec) => boolean }> = [
+    { title: 'Triggers', matches: (spec) => spec.category === 'trigger' },
+    { title: 'Agent Nodes', matches: (spec) => spec.category === 'call_node' },
+    { title: 'Global Nodes', matches: (spec) => spec.category === 'global_node' },
+    { title: 'Webhook', matches: (spec) => spec.name === 'webhook' },
+    { title: 'QA', matches: (spec) => spec.name === 'qa' },
+    {
+        title: 'Integrations',
+        matches: (spec) =>
+            spec.category === 'integration' && spec.name !== 'webhook' && spec.name !== 'qa',
+    },
 ];
 
 function resolveIcon(name: string): LucideIcon {
@@ -91,12 +97,11 @@ function NodeSection({
 export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: AddNodePanelProps) {
     const { specs } = useNodeSpecs();
 
-    // Group registered specs by category, preserving the SECTION_ORDER.
-    // Adding a new node type with a new spec.category just shows up here.
+    // Group registered specs into their display sections, preserving SECTIONS order.
     const sections = useMemo(() => {
-        return SECTION_ORDER.map(({ category, title }) => ({
+        return SECTIONS.map(({ title, matches }) => ({
             title,
-            specs: specs.filter((s) => s.category === category),
+            specs: specs.filter(matches),
         }));
     }, [specs]);
 

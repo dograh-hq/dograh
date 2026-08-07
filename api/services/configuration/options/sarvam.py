@@ -94,7 +94,8 @@ SARVAM_STT_LANGUAGES_V3 = SARVAM_STT_LANGUAGES_V25 + (
     "mai-IN",
     "doi-IN",
 )
-SARVAM_LLM_MODELS = (
-    "sarvam-30b",
-    "sarvam-105b",
-)
+# Keep in step with SarvamLLMService._SUPPORTED_MODELS in pipecat: offering a
+# model the service rejects turns every call using it into a hard failure at
+# pipeline start. sarvam-30b was listed here after Sarvam withdrew it and was
+# the default, which is what broke those runs.
+SARVAM_LLM_MODELS = ("sarvam-105b",)

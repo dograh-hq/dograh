@@ -1,8 +1,9 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from api.errors.mps import MPSUnavailableError
 from api.routes import organization as organization_routes
 
 
@@ -64,3 +65,25 @@ async def test_model_configuration_pricing_uses_selected_organization(monkeypatc
     assert response.platform_usage.price_per_minute == 0.01
     assert response.dograh_model is not None
     assert response.dograh_model.price_per_minute == 0.07
+
+
+@pytest.mark.asyncio
+async def test_model_configuration_pricing_does_not_duplicate_mps_failure(monkeypatch):
+    route_log_failure = Mock()
+    get_pricing = AsyncMock(
+        side_effect=MPSUnavailableError("get_billing_pricing", status_code=503)
+    )
+    monkeypatch.setattr(organization_routes, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(
+        organization_routes.mps_service_key_client,
+        "get_billing_pricing",
+        get_pricing,
+    )
+    monkeypatch.setattr(organization_routes, "log_failure", route_log_failure)
+
+    with pytest.raises(MPSUnavailableError):
+        await organization_routes.get_model_configuration_pricing(
+            SimpleNamespace(selected_organization_id=42),
+        )
+
+    route_log_failure.assert_not_called()

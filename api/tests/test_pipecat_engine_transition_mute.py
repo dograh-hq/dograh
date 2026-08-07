@@ -13,7 +13,6 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -30,12 +29,12 @@ from pipecat.turns.user_mute import (
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
-from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.workflow_graph import WorkflowGraph
+from api.tests.pipecat_test_utils import run_engine_test_pipeline
 from pipecat.tests import MockLLMService, MockTTSService
 
 
@@ -45,7 +44,8 @@ async def _build_engine_and_pipeline(
 ):
     """Set up engine + pipeline mirroring the non-realtime production wiring.
 
-    Returns (engine, task, function_call_mute_strategy, user_context_aggregator).
+    Returns (engine, transport, task, function_call_mute_strategy,
+    user_context_aggregator).
     """
     tts = MockTTSService(mock_audio_duration_ms=40, frame_delay=0)
 
@@ -55,6 +55,7 @@ async def _build_engine_and_pipeline(
             audio_out_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
         ),
     )
 
@@ -102,7 +103,13 @@ async def _build_engine_and_pipeline(
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
-    return engine, task, function_call_mute_strategy, user_context_aggregator
+    return (
+        engine,
+        transport,
+        task,
+        function_call_mute_strategy,
+        user_context_aggregator,
+    )
 
 
 class TestTransitionFunctionMutesUser:
@@ -130,6 +137,7 @@ class TestTransitionFunctionMutesUser:
 
         (
             engine,
+            transport,
             task,
             function_call_mute_strategy,
             user_context_aggregator,
@@ -177,20 +185,7 @@ class TestTransitionFunctionMutesUser:
                 new_callable=AsyncMock,
                 return_value={"user_intent": "end call"},
             ):
-
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_engine():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-                await asyncio.wait_for(
-                    asyncio.gather(run_pipeline(), initialize_engine()),
-                    timeout=10.0,
-                )
+                await run_engine_test_pipeline(task, engine, transport)
 
         assert len(captured_states) == 1, (
             f"Expected the transition function to be invoked exactly once, "
@@ -230,6 +225,7 @@ class TestTransitionFunctionMutesUser:
 
         (
             engine,
+            transport,
             task,
             function_call_mute_strategy,
             _user_context_aggregator,
@@ -246,20 +242,7 @@ class TestTransitionFunctionMutesUser:
                 new_callable=AsyncMock,
                 return_value={"user_intent": "end call"},
             ):
-
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
-                async def initialize_engine():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-                await asyncio.wait_for(
-                    asyncio.gather(run_pipeline(), initialize_engine()),
-                    timeout=10.0,
-                )
+                await run_engine_test_pipeline(task, engine, transport)
 
         assert function_call_mute_strategy._function_call_in_progress == set(), (
             "FunctionCallUserMuteStrategy should have cleared its in-progress "

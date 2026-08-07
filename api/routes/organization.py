@@ -4,7 +4,6 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
 
 from api.constants import (
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
@@ -13,8 +12,14 @@ from api.constants import (
 )
 from api.db import db_client
 from api.db.models import UserModel
-from api.db.telephony_configuration_client import TelephonyConfigurationInUseError
+from api.db.telephony_configuration_client import (
+    TelephonyConfigurationConflictError,
+    TelephonyConfigurationInUseError,
+)
+from api.db.telephony_phone_number_client import TelephonyPhoneNumberConflictError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
+from api.errors.failure import ErrorSource, classify_exception, log_failure
+from api.errors.mps import MPSUnavailableError
 from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
     DOGRAH_DEFAULT_VOICE,
@@ -387,14 +392,23 @@ async def get_model_configuration_pricing(
             user.selected_organization_id,
         )
         return ModelConfigurationPricingResponse.model_validate(pricing)
+    except MPSUnavailableError:
+        # The MPS boundary emitted the classified failure. The app-level handler
+        # converts this typed dependency failure to a customer-safe HTTP 503.
+        raise
     except Exception as exc:
-        logger.error(
-            "Failed to get MPS model-configuration pricing for organization {}: {}",
-            user.selected_organization_id,
-            exc,
+        log_failure(
+            classify_exception(
+                exc,
+                source=ErrorSource.PLATFORM,
+                provider="dograh",
+                error_owner="operator",
+            ),
+            organization_id=user.selected_organization_id,
+            operation="validate_billing_pricing_response",
         )
         raise HTTPException(
-            status_code=502,
+            status_code=500,
             detail="Failed to retrieve model configuration pricing",
         ) from exc
 
@@ -683,6 +697,9 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 name=row.name,
                 provider=row.provider,
                 is_default_outbound=row.is_default_outbound,
+                inactive=row.inactive,
+                inactive_since=row.inactive_since,
+                inactive_reason=row.inactive_reason,
                 phone_number_count=len([n for n in numbers if n.is_active]),
                 created_at=row.created_at,
                 updated_at=row.updated_at,
@@ -711,7 +728,7 @@ async def create_telephony_configuration(
             credentials=credentials,
             is_default_outbound=request.is_default_outbound,
         )
-    except IntegrityError as e:
+    except TelephonyConfigurationConflictError as e:
         if "uq_telephony_configurations_org_name" in str(e):
             raise HTTPException(
                 status_code=409,
@@ -748,7 +765,7 @@ async def get_telephony_configuration_by_id(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     row = await db_client.get_telephony_configuration_for_org(
-        config_id, user.selected_organization_id
+        config_id, user.selected_organization_id, active_only=False
     )
     if not row:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -767,7 +784,7 @@ async def update_telephony_configuration(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     existing = await db_client.get_telephony_configuration_for_org(
-        config_id, user.selected_organization_id
+        config_id, user.selected_organization_id, active_only=False
     )
     if not existing:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -811,6 +828,36 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
     return _detail_response(row)
 
 
+@router.post(
+    "/telephony-configs/{config_id}/reactivate",
+    response_model=TelephonyConfigurationDetail,
+)
+async def reactivate_telephony_configuration(
+    config_id: int, user: UserModel = Depends(get_user)
+):
+    """Clear the inactive flag so connection workers pick the config up again.
+
+    A config is deactivated automatically when it keeps failing to connect, and
+    workers never re-enable it on their own. This endpoint is the only way back,
+    so the customer fixes their PBX and then explicitly retries.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    updated = await db_client.set_telephony_configuration_active(
+        config_id, user.selected_organization_id
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+
+    row = await db_client.get_telephony_configuration_for_org(
+        config_id, user.selected_organization_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+    return _detail_response(row)
+
+
 @router.delete("/telephony-configs/{config_id}")
 async def delete_telephony_configuration(
     config_id: int, user: UserModel = Depends(get_user)
@@ -837,6 +884,9 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
         name=row.name,
         provider=row.provider,
         is_default_outbound=row.is_default_outbound,
+        inactive=row.inactive,
+        inactive_since=row.inactive_since,
+        inactive_reason=row.inactive_reason,
         credentials=masked,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -850,7 +900,7 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
 
 async def _ensure_config_belongs_to_org(config_id: int, organization_id: int):
     cfg = await db_client.get_telephony_configuration_for_org(
-        config_id, organization_id
+        config_id, organization_id, active_only=False
     )
     if not cfg:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -954,7 +1004,7 @@ async def create_phone_number(
             is_default_caller_id=request.is_default_caller_id,
             extra_metadata=request.extra_metadata,
         )
-    except IntegrityError:
+    except TelephonyPhoneNumberConflictError:
         raise HTTPException(
             status_code=409,
             detail="A phone number with this address already exists in the org.",
@@ -1114,7 +1164,7 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
         raise HTTPException(status_code=400, detail="No organization selected")
 
     cfg = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id
+        user.selected_organization_id, active_only=False
     )
     if not cfg:
         return TelephonyConfigurationResponse()
@@ -1147,7 +1197,7 @@ async def save_telephony_configuration(
     payload.pop("provider", None)
 
     default = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id
+        user.selected_organization_id, active_only=False
     )
 
     if default and default.provider == request.provider:
@@ -1184,7 +1234,7 @@ async def save_telephony_configuration(
                 telephony_configuration_id=row.id,
                 address=addr,
             )
-        except IntegrityError:
+        except TelephonyPhoneNumberConflictError:
             logger.warning(
                 f"Skipping duplicate phone number {addr!r} for config {row.id}"
             )

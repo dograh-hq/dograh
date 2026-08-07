@@ -339,7 +339,7 @@ async def _get_telephony_configuration_name(
     if config_id is None:
         return None
     cfg = await db_client.get_telephony_configuration_for_org(
-        config_id, organization_id
+        config_id, organization_id, active_only=False
     )
     return cfg.name if cfg else None
 

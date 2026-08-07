@@ -115,6 +115,7 @@
               "integrations/telephony/telnyx",
               "integrations/telephony/cloudonix",
               "integrations/telephony/vobiz",
+              "integrations/telephony/tryvox",
               "integrations/telephony/asterisk-ari",
               "integrations/telephony/vicidial",
               "integrations/telephony/webhooks",

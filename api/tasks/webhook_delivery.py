@@ -14,8 +14,11 @@ ARQ jobs. The DB row is the source of truth; this task is idempotent and only
 acts on a delivery that is still ``pending``.
 """
 
+import json
+import re
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from loguru import logger
@@ -36,6 +39,91 @@ from api.utils.credential_auth import build_auth_header
 
 # HTTP statuses that are worth retrying even though the server answered.
 _RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+_REDACTED = "[REDACTED]"
+_MAX_REQUEST_LOG_CHARS = 8_000
+_SENSITIVE_FIELD_RE = re.compile(
+    r"(?:^|[_-])(?:"
+    r"authorization|cookie|credential|password|passwd|secret|signature|token|"
+    r"api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|"
+    r"email|phone|mobile|address|date[_-]?of[_-]?birth|dob|ssn|"
+    r"card(?:[_-]?(?:number|no))?|cvv|cvc"
+    r")(?:$|[_-])",
+    re.IGNORECASE,
+)
+
+
+def _redact_webhook_value(value: Any) -> Any:
+    """Return a log-safe copy while retaining payload shape for debugging."""
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                _REDACTED
+                if _SENSITIVE_FIELD_RE.search(str(key))
+                else _redact_webhook_value(nested)
+            )
+            for key, nested in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_webhook_value(item) for item in value]
+    return value
+
+
+def _safe_webhook_url(url: str) -> str:
+    """Remove credentials, query values, and fragments from a URL before logging."""
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname or ""
+        if parsed.port is not None:
+            hostname = f"{hostname}:{parsed.port}"
+        safe_query = "&".join(
+            f"{part.split('=', 1)[0]}={_REDACTED}"
+            for part in parsed.query.split("&")
+            if part
+        )
+        return urlunsplit((parsed.scheme, hostname, parsed.path, safe_query, ""))
+    except (TypeError, ValueError):
+        return _REDACTED
+
+def _log_webhook_request(
+    delivery: WebhookDeliveryModel,
+    *,
+    method: str,
+    attempt: int,
+    headers: dict[str, str],
+) -> None:
+    """Log the exact frozen request shape without logging credentials or PII."""
+    safe_headers = {
+        key: (
+            value
+            if key.lower()
+            in {
+                "content-type",
+                "x-dograh-delivery-id",
+                "x-dograh-workflow-run-id",
+                "x-dograh-delivery-attempt",
+            }
+            else _REDACTED
+        )
+        for key, value in headers.items()
+    }
+    request_data = {
+        "method": method,
+        "url": _safe_webhook_url(delivery.endpoint_url),
+        "headers": safe_headers,
+        "payload": (
+            _redact_webhook_value(delivery.payload)
+            if method in ("POST", "PUT", "PATCH")
+            else None
+        ),
+    }
+    rendered = json.dumps(request_data, default=str, ensure_ascii=False)
+    if len(rendered) > _MAX_REQUEST_LOG_CHARS:
+        rendered = rendered[:_MAX_REQUEST_LOG_CHARS] + "...[TRUNCATED]"
+    logger.info(
+        f"Webhook '{delivery.webhook_name}' delivery {delivery.id} request "
+        f"(attempt {attempt}): {rendered}"
+    )
 
 
 def _delivery_job_id(delivery_id: int, attempt_count: int) -> str:
@@ -179,6 +267,12 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
 
     try:
         headers = await _build_headers(delivery, attempt)
+        _log_webhook_request(
+            delivery,
+            method=method,
+            attempt=attempt,
+            headers=headers,
+        )
 
         async with httpx.AsyncClient() as client:
             if method in ("POST", "PUT", "PATCH"):

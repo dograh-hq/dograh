@@ -1341,7 +1341,7 @@ export type CloudonixConfigurationRequest = {
     /**
      * Domain Id
      *
-     * Cloudonix Domain ID
+     * Cloudonix domain name
      */
     domain_id: string;
     /**
@@ -1350,6 +1350,10 @@ export type CloudonixConfigurationRequest = {
      * Cloudonix Voice Application name. The application's url is updated when inbound workflows are attached to numbers on this domain. If omitted, an application is auto-created on save and its name is stored on the configuration.
      */
     application_name?: string | null;
+    /**
+     * Optional outbound SIP trunk that Dograh creates and keeps in sync on this Cloudonix domain
+     */
+    outbound_trunk?: CloudonixOutboundTrunkConfiguration | null;
     /**
      * From Numbers
      *
@@ -1377,13 +1381,122 @@ export type CloudonixConfigurationResponse = {
      */
     domain_id: string;
     /**
+     * Domain Uuid
+     *
+     * Cloudonix domain UUID fetched automatically from domainGet
+     */
+    domain_uuid?: string | null;
+    /**
      * Application Name
      */
     application_name?: string | null;
+    outbound_trunk?: CloudonixOutboundTrunkConfiguration | null;
+    /**
+     * Outbound Trunk Uuid
+     *
+     * UUID of the Dograh-managed Cloudonix outbound voice trunk
+     */
+    outbound_trunk_uuid?: string | null;
     /**
      * From Numbers
      */
     from_numbers: Array<string>;
+};
+
+/**
+ * CloudonixOutboundTrunkAuthentication
+ *
+ * Optional SIP digest credentials for the remote termination peer.
+ */
+export type CloudonixOutboundTrunkAuthentication = {
+    /**
+     * Username
+     */
+    username?: string | null;
+    /**
+     * Password
+     */
+    password?: string | null;
+    /**
+     * Overwrite From
+     *
+     * Use the authentication username as the SIP From caller ID. Cloudonix sends this as profile.authentication.overwrite-from.
+     */
+    overwrite_from?: boolean;
+};
+
+/**
+ * CloudonixOutboundTrunkConfiguration
+ *
+ * Dograh-managed Cloudonix outbound SIP trunk.
+ */
+export type CloudonixOutboundTrunkConfiguration = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Name
+     *
+     * Unique human-readable name for the Cloudonix voice trunk
+     */
+    name?: string | null;
+    /**
+     * Ip
+     *
+     * Remote carrier/PBX IP address or FQDN
+     */
+    ip?: string | null;
+    /**
+     * Port
+     */
+    port?: number;
+    /**
+     * Transport
+     */
+    transport?: 'udp' | 'tcp' | 'tls';
+    /**
+     * Prefix
+     *
+     * Technical prefix Cloudonix prepends to the dialed destination
+     */
+    prefix?: string;
+    profile?: CloudonixOutboundTrunkProfile | null;
+};
+
+/**
+ * CloudonixOutboundTrunkProfile
+ *
+ * Cloudonix-recognized outbound voice-trunk profile fields.
+ */
+export type CloudonixOutboundTrunkProfile = {
+    /**
+     * Hostname
+     *
+     * Pin calls to one Cloudonix Border Gateway hostname or IP
+     */
+    hostname?: string | null;
+    /**
+     * Domain
+     *
+     * Override the domain in the SIP To header
+     */
+    domain?: string | null;
+    /**
+     * Ruri Domain
+     *
+     * Override the SIP Request-URI domain
+     */
+    ruri_domain?: string | null;
+    /**
+     * Connection Timeout
+     */
+    connection_timeout?: number | null;
+    /**
+     * Provisional Timeout
+     */
+    provisional_timeout?: number | null;
+    authentication?: CloudonixOutboundTrunkAuthentication | null;
 };
 
 /**
@@ -5259,6 +5372,66 @@ export type S3SignedUrlResponse = {
 };
 
 /**
+ * SIPConnectivityDetails
+ *
+ * Provider-supplied SIP connection details displayed to customers.
+ */
+export type SipConnectivityDetails = {
+    /**
+     * Provider Display Name
+     */
+    provider_display_name: string;
+    /**
+     * Regions
+     */
+    regions: Array<SipRegionDetails>;
+};
+
+/**
+ * SIPRegionDetails
+ *
+ * Inbound and outbound SIP details for one provider region.
+ */
+export type SipRegionDetails = {
+    /**
+     * Region
+     */
+    region: string;
+    /**
+     * Inbound Transports
+     */
+    inbound_transports: Array<SipTransportDetails>;
+    /**
+     * Outbound Origin Ip
+     */
+    outbound_origin_ip: string;
+};
+
+/**
+ * SIPTransportDetails
+ *
+ * Connection details for one supported inbound SIP transport.
+ */
+export type SipTransportDetails = {
+    /**
+     * Transport
+     */
+    transport: string;
+    /**
+     * Hostname
+     */
+    hostname: string;
+    /**
+     * Port
+     */
+    port: number;
+    /**
+     * Uri
+     */
+    uri: string;
+};
+
+/**
  * Sarvam
  */
 export type SarvamLlmConfiguration = {
@@ -5849,6 +6022,7 @@ export type TelephonyConfigurationDetail = {
     credentials: {
         [key: string]: unknown;
     };
+    sip_connectivity?: SipConnectivityDetails | null;
     /**
      * Created At
      */

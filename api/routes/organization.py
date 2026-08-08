@@ -88,7 +88,10 @@ from api.services.pipecat.tracing_config import normalize_langfuse_host
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.base import ProviderPhoneNumberLookupError
-from api.services.telephony.factory import get_telephony_provider_by_id
+from api.services.telephony.factory import (
+    get_sip_connectivity_details,
+    get_telephony_provider_by_id,
+)
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
 from api.utils.common import get_backend_endpoints
@@ -591,10 +594,23 @@ def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
     return payload
 
 
-async def _run_preprocess_hook(provider: str, credentials: dict) -> dict:
-    """Invoke the provider's optional credentials preprocessor before save."""
+async def _run_preprocess_hook(
+    provider: str,
+    credentials: dict,
+    existing_credentials: dict | None = None,
+) -> dict:
+    """Preserve server-managed fields, then preprocess credentials for save."""
     spec = telephony_registry.get_optional(provider)
-    if spec and spec.preprocess_credentials_on_save:
+    if not spec:
+        return credentials
+
+    credentials = dict(credentials)
+    for field in spec.server_managed_credential_fields:
+        credentials.pop(field, None)
+        if existing_credentials is not None and field in existing_credentials:
+            credentials[field] = existing_credentials[field]
+
+    if spec.preprocess_credentials_on_save:
         return await spec.preprocess_credentials_on_save(credentials)
     return credentials
 
@@ -607,24 +623,39 @@ def _phone_number_to_response(
     return response
 
 
-async def _ensure_provider_owns_phone_number(
+async def _ensure_provider_phone_number(
     config_id: int,
     organization_id: int,
     address: str,
     country_hint: str | None = None,
 ) -> None:
-    """Reject an address unless the provider can confirm account ownership.
+    """Provision an address when supported, otherwise confirm ownership.
 
-    Provider implementations use read-only inventory lookups. PBX-managed
-    providers that cannot prove carrier ownership explicitly opt out through
-    their ``validate_phone_number`` implementation.
+    Provider provisioning is opt-in and idempotent. Other providers continue
+    through their read-only inventory lookup; PBX-managed providers explicitly
+    opt out through ``validate_phone_number``.
     """
     try:
         canonical_address = normalize_telephony_address(
             address, country_hint=country_hint
         ).canonical
         provider = await get_telephony_provider_by_id(config_id, organization_id)
+        provision_phone_number = getattr(provider, "provision_phone_number", None)
+        if callable(provision_phone_number):
+            provisioned = await provision_phone_number(canonical_address)
+            if provisioned is not None:
+                if not provisioned.ok:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            provisioned.message
+                            or "Provider rejected phone-number provisioning"
+                        ),
+                    )
+                return
         result = await provider.validate_phone_number(canonical_address)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except ProviderPhoneNumberLookupError as e:
@@ -801,7 +832,11 @@ async def update_telephony_configuration(
         preserve_masked_fields(
             existing.provider, credentials, existing.credentials or {}
         )
-        credentials = await _run_preprocess_hook(existing.provider, credentials)
+        credentials = await _run_preprocess_hook(
+            existing.provider,
+            credentials,
+            existing.credentials or {},
+        )
 
     row = await db_client.update_telephony_configuration(
         config_id=config_id,
@@ -889,6 +924,9 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
         inactive_since=row.inactive_since,
         inactive_reason=row.inactive_reason,
         credentials=masked,
+        sip_connectivity=get_sip_connectivity_details(
+            row.provider, row.credentials or {}
+        ),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -950,13 +988,6 @@ async def create_phone_number(
             request.inbound_workflow_id, user.selected_organization_id
         )
 
-    await _ensure_provider_owns_phone_number(
-        config_id,
-        user.selected_organization_id,
-        request.address,
-        request.country_code,
-    )
-
     # Inbound dispatch (find_inbound_route_by_account) keys on (provider,
     # credentials[account_id_field], address_normalized) without the org, so
     # that tuple has to be globally unique. Reject up front if another config —
@@ -992,6 +1023,13 @@ async def create_phone_number(
                     f"account in more than one place."
                 ),
             )
+
+    await _ensure_provider_phone_number(
+        config_id,
+        user.selected_organization_id,
+        request.address,
+        request.country_code,
+    )
 
     try:
         row = await db_client.create_phone_number(
@@ -1203,6 +1241,17 @@ async def save_telephony_configuration(
 
     if default and default.provider == request.provider:
         preserve_masked_fields(request.provider, payload, default.credentials or {})
+
+    existing_credentials = None
+    if default and default.provider == request.provider:
+        existing_credentials = default.credentials or {}
+    payload = await _run_preprocess_hook(
+        request.provider,
+        payload,
+        existing_credentials,
+    )
+
+    if default and default.provider == request.provider:
         row = await db_client.update_telephony_configuration(
             config_id=default.id,
             organization_id=user.selected_organization_id,
@@ -1223,7 +1272,7 @@ async def save_telephony_configuration(
     incoming_set = set(new_addresses)
     for addr in new_addresses:
         if addr not in existing_by_address:
-            await _ensure_provider_owns_phone_number(
+            await _ensure_provider_phone_number(
                 row.id, user.selected_organization_id, addr
             )
     for addr in new_addresses:

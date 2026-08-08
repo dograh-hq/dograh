@@ -4,6 +4,7 @@ Cloudonix implementation of the TelephonyProvider interface.
 
 import asyncio
 import json
+import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -19,6 +20,9 @@ from api.services.telephony.base import (
     NormalizedInboundData,
     ProviderPhoneNumberLookupError,
     ProviderSyncResult,
+    SIPConnectivityDetails,
+    SIPRegionDetails,
+    SIPTransportDetails,
     TelephonyProvider,
 )
 from api.services.workflow.initial_context import merge_external_initial_context
@@ -52,14 +56,30 @@ class CloudonixProvider(TelephonyProvider):
         Args:
             config: Dictionary containing:
                 - bearer_token: Cloudonix API Bearer Token
-                - domain_id: Cloudonix Domain ID
+                - domain_id: Configured Cloudonix domain name
+                - domain_uuid: UUID returned by Cloudonix's domainGet API
                 - application_name: Cloudonix Voice Application name whose
                     url is updated by ``configure_inbound``
+                - outbound_trunk: Dograh-managed outbound voice-trunk settings;
+                    its name is used to route outbound calls deterministically
                 - from_numbers: List of phone numbers to use (optional, fetched from API if not provided)
         """
         self.bearer_token = config.get("bearer_token")
         self.domain_id = self._normalize_domain(config.get("domain_id"))
+        self.domain_uuid = config.get("domain_uuid")
         self.application_name = config.get("application_name")
+        outbound_trunk = config.get("outbound_trunk")
+        outbound_trunk_name = (
+            outbound_trunk.get("name") if isinstance(outbound_trunk, dict) else None
+        )
+        self.outbound_trunk_name = (
+            outbound_trunk_name.strip()
+            if isinstance(outbound_trunk, dict)
+            and outbound_trunk.get("enabled") is True
+            and isinstance(outbound_trunk_name, str)
+            and outbound_trunk_name.strip()
+            else None
+        )
         self.from_numbers = config.get("from_numbers", [])
         self.default_from_number = config.get("default_from_number")
 
@@ -93,6 +113,97 @@ class CloudonixProvider(TelephonyProvider):
             "Authorization": f"Bearer {self.bearer_token}",
             "Content-Type": "application/json",
         }
+
+    def get_sip_connectivity_details(self) -> SIPConnectivityDetails | None:
+        """Return Cloudonix's regional SIP connection details."""
+        if not isinstance(self.domain_uuid, str):
+            return None
+
+        domain_uuid = self.domain_uuid.strip()
+        if not domain_uuid:
+            return None
+
+        india_hostname = f"{domain_uuid}.in.dimi.tel"
+        uae_hostname = f"{domain_uuid}.uae.dimi.tel"
+        global_hostname = f"{domain_uuid}.sip.cloudonix.net"
+
+        return SIPConnectivityDetails(
+            provider_display_name="Cloudonix",
+            regions=[
+                SIPRegionDetails(
+                    region="India",
+                    inbound_transports=[
+                        SIPTransportDetails(
+                            transport="UDP",
+                            hostname=india_hostname,
+                            port=9060,
+                            uri=f"{india_hostname}:9060",
+                        ),
+                        SIPTransportDetails(
+                            transport="TCP",
+                            hostname=india_hostname,
+                            port=9060,
+                            uri=f"{india_hostname}:9060;transport=tcp;",
+                        ),
+                        SIPTransportDetails(
+                            transport="TLS",
+                            hostname=india_hostname,
+                            port=9443,
+                            uri=f"{india_hostname}:9443;transport=tls;",
+                        ),
+                    ],
+                    outbound_origin_ip="128.199.27.19",
+                ),
+                SIPRegionDetails(
+                    region="UAE",
+                    inbound_transports=[
+                        SIPTransportDetails(
+                            transport="UDP",
+                            hostname=uae_hostname,
+                            port=9081,
+                            uri=f"{uae_hostname}:9081",
+                        ),
+                        SIPTransportDetails(
+                            transport="TCP",
+                            hostname=uae_hostname,
+                            port=9081,
+                            uri=f"{uae_hostname}:9081;transport=tcp;",
+                        ),
+                        SIPTransportDetails(
+                            transport="TLS",
+                            hostname=uae_hostname,
+                            port=9443,
+                            uri=f"{uae_hostname}:9443;transport=tls;",
+                        ),
+                    ],
+                    outbound_origin_ip="20.233.60.70",
+                ),
+                SIPRegionDetails(
+                    region="Global",
+                    inbound_transports=[
+                        SIPTransportDetails(
+                            transport="UDP",
+                            hostname=global_hostname,
+                            port=5060,
+                            uri=f"{global_hostname}:5060",
+                        ),
+                        SIPTransportDetails(
+                            transport="TCP",
+                            hostname=global_hostname,
+                            port=5060,
+                            uri=f"{global_hostname};transport=tcp;",
+                        ),
+                        SIPTransportDetails(
+                            transport="TLS",
+                            hostname=global_hostname,
+                            port=443,
+                            uri=f"{global_hostname}:443;transport=tls;",
+                        ),
+                    ],
+                    outbound_origin_ip="18.219.128.166",
+                ),
+            ],
+        )
 
     async def initiate_call(
         self,
@@ -146,7 +257,6 @@ class CloudonixProvider(TelephonyProvider):
 </Response>""",
             "caller-id": from_number,  # Required field
         }
-
         # TODO: Cloudonix status callbacks are spammy, so commenting it out. Can send it to
         # some persistent logging system instead of transcational database.
         # Add status callback if workflow_run_id provided
@@ -156,6 +266,14 @@ class CloudonixProvider(TelephonyProvider):
 
         # Merge any additional kwargs
         data.update(kwargs)
+        if self.outbound_trunk_name:
+            # Cloudonix otherwise tries every active trunk in creation order.
+            # Pin calls to the trunk managed by this Dograh configuration.
+            data["trunk"] = self.outbound_trunk_name
+        else:
+            # The stored enable flag is authoritative; callers cannot inject a
+            # trunk selector through provider kwargs while it is disabled.
+            data.pop("trunk", None)
 
         # Make the API request
         headers = self._get_auth_headers()
@@ -960,6 +1078,159 @@ class CloudonixProvider(TelephonyProvider):
         )
         return ProviderSyncResult(ok=True)
 
+    @staticmethod
+    def _dnid_matches_address(data: Any, expected: str) -> bool:
+        if not isinstance(data, dict):
+            return False
+
+        source = data.get("source")
+        if source is not None:
+            try:
+                source = normalize_telephony_address(str(source)).canonical
+            except ValueError:
+                source = str(source).strip()
+            if source == expected:
+                return True
+
+        dnid = data.get("dnid")
+        if not isinstance(dnid, str):
+            return False
+        escaped_address = re.escape(expected)
+        return dnid.strip() in {
+            expected,
+            f"^{escaped_address}$",
+            f"^({escaped_address})$",
+        }
+
+    async def provision_phone_number(self, address: str) -> ProviderSyncResult | None:
+        """Ensure ``address`` exists as a DNID on the configured application."""
+        if not (self.bearer_token and self.domain_id):
+            return ProviderSyncResult(
+                ok=False,
+                message="Cloudonix bearer token and domain are required to create a DNID",
+            )
+        if not self.application_name:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Cloudonix application_name is required to associate the "
+                    "new DNID with a Voice Application"
+                ),
+            )
+
+        expected = normalize_telephony_address(address).canonical
+        encoded_domain = quote(self.domain_id, safe="")
+        encoded_application = quote(self.application_name, safe="")
+        domain_endpoint = f"{self.base_url}/domains/{encoded_domain}"
+        dnids_endpoint = f"{domain_endpoint}/dnids"
+        application_endpoint = f"{domain_endpoint}/applications/{encoded_application}"
+        headers = self._get_auth_headers()
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(dnids_endpoint, headers=headers) as response:
+                    if response.status == 200:
+                        dnids = await response.json()
+                        if not isinstance(dnids, list):
+                            return ProviderSyncResult(
+                                ok=False,
+                                message=(
+                                    "Cloudonix dnidList response was not an array"
+                                ),
+                            )
+                        if any(
+                            self._dnid_matches_address(dnid, expected) for dnid in dnids
+                        ):
+                            return ProviderSyncResult(ok=True)
+                    elif response.status != 404:
+                        body = await response.text()
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=(
+                                f"Cloudonix DNID list failed with HTTP "
+                                f"{response.status}: {body}"
+                            ),
+                        )
+
+                async with session.get(
+                    application_endpoint, headers=headers
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=(
+                                "Cloudonix Voice Application lookup failed with "
+                                f"HTTP {response.status}: {body}"
+                            ),
+                        )
+                    application = await response.json()
+
+                application_uuid = (
+                    application.get("uuid") if isinstance(application, dict) else None
+                )
+                if (
+                    not isinstance(application_uuid, str)
+                    or not application_uuid.strip()
+                ):
+                    return ProviderSyncResult(
+                        ok=False,
+                        message=(
+                            "Cloudonix applicationGet response did not include "
+                            "an application UUID"
+                        ),
+                    )
+                encoded_application_uuid = quote(application_uuid.strip(), safe="")
+                application_dnids_endpoint = (
+                    f"{domain_endpoint}/applications/{encoded_application_uuid}/dnids"
+                )
+
+                payload = {
+                    "source": expected,
+                    "prefix": False,
+                    "expression": False,
+                    "asteriskCompatible": False,
+                }
+                redacted_headers = {
+                    key: "Bearer [REDACTED]"
+                    if key.lower() == "authorization"
+                    else value
+                    for key, value in headers.items()
+                }
+                logger.info(
+                    f"[Cloudonix] dnidCreate request:\n"
+                    f"  Method: POST\n"
+                    f"  Endpoint: {application_dnids_endpoint}\n"
+                    f"  Headers: {json.dumps(redacted_headers, sort_keys=True)}\n"
+                    f"  Payload: {json.dumps(payload, sort_keys=True)}"
+                )
+                async with session.post(
+                    application_dnids_endpoint, json=payload, headers=headers
+                ) as response:
+                    if response.status not in (200, 201, 204):
+                        body = await response.text()
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=(
+                                f"Cloudonix dnidCreate failed with HTTP "
+                                f"{response.status}: {body}"
+                            ),
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception provisioning Cloudonix DNID {expected} on domain "
+                f"{self.domain_id}: {e}"
+            )
+            return ProviderSyncResult(
+                ok=False, message=f"Cloudonix DNID provisioning failed: {e}"
+            )
+
+        logger.info(
+            f"Cloudonix DNID {expected} created on domain {self.domain_id} "
+            f"for Voice Application {self.application_name}"
+        )
+        return ProviderSyncResult(ok=True)
+
     async def validate_phone_number(self, address: str) -> ProviderSyncResult:
         """Verify that the address exists as a DNID in this Cloudonix domain."""
         if not (self.bearer_token and self.domain_id):
@@ -1002,13 +1273,7 @@ class CloudonixProvider(TelephonyProvider):
                 f"Cloudonix DNID lookup failed: {e}"
             ) from e
 
-        source = data.get("source")
-        if source is not None:
-            try:
-                source = normalize_telephony_address(str(source)).canonical
-            except ValueError:
-                source = str(source).strip()
-        if source == expected:
+        if self._dnid_matches_address(data, expected):
             return ProviderSyncResult(ok=True)
         return ProviderSyncResult(
             ok=False,
@@ -1172,8 +1437,11 @@ class CloudonixProvider(TelephonyProvider):
             "callback": callback_url,
             "timeout": timeout,
         }
-
         data.update(kwargs)
+        if self.outbound_trunk_name:
+            data["trunk"] = self.outbound_trunk_name
+        else:
+            data.pop("trunk", None)
         headers = self._get_auth_headers()
         masked_destination = f"***{destination[-4:]}" if len(destination) > 4 else "***"
         logger.info(

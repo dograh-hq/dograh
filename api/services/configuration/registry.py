@@ -1047,7 +1047,7 @@ class OpenAITTSService(BaseTTSConfiguration):
     model: str = Field(
         default="gpt-4o-mini-tts",
         description="OpenAI TTS model.",
-        json_schema_extra={"examples": OPENAI_TTS_MODELS},
+        json_schema_extra={"examples": OPENAI_TTS_MODELS, "allow_custom_input": True},
     )
     voice: str = Field(
         default="alloy",

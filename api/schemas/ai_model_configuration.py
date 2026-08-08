@@ -18,6 +18,9 @@ from api.services.configuration.registry import (
     TTSConfig,
 )
 
+# Service segments that can be individually overridden
+ServiceSegment = Literal["llm", "tts", "stt", "embeddings", "realtime"]
+
 DOGRAH_SPEED_MIN = 0.5
 DOGRAH_SPEED_MAX = 2.0
 DOGRAH_SPEED_STEP = 0.1
@@ -57,6 +60,26 @@ class DograhManagedAIModelConfiguration(BaseModel):
 
 
 class BYOKPipelineAIModelConfiguration(BaseModel):
+    llm: LLMConfig | None = None
+    tts: TTSConfig | None = None
+    stt: STTConfig | None = None
+    embeddings: EmbeddingsConfig | None = None
+
+    @model_validator(mode="after")
+    def reject_dograh_providers(self):
+        _reject_dograh_provider("llm", self.llm)
+        _reject_dograh_provider("tts", self.tts)
+        _reject_dograh_provider("stt", self.stt)
+        _reject_dograh_provider("embeddings", self.embeddings)
+        return self
+
+    def has_any_service(self) -> bool:
+        """Check if at least one service is configured."""
+        return self.llm is not None or self.tts is not None or self.stt is not None or self.embeddings is not None
+
+
+class BYOKPipelineAIModelConfigurationRequired(BaseModel):
+    """Full BYOK pipeline config with all required fields (for org-level config)."""
     llm: LLMConfig
     tts: TTSConfig
     stt: STTConfig
@@ -72,6 +95,23 @@ class BYOKPipelineAIModelConfiguration(BaseModel):
 
 
 class BYOKRealtimeAIModelConfiguration(BaseModel):
+    realtime: RealtimeConfig | None = None
+    llm: LLMConfig | None = None
+    embeddings: EmbeddingsConfig | None = None
+
+    @model_validator(mode="after")
+    def reject_dograh_providers(self):
+        _reject_dograh_provider("llm", self.llm)
+        _reject_dograh_provider("embeddings", self.embeddings)
+        return self
+
+    def has_any_service(self) -> bool:
+        """Check if at least one service is configured."""
+        return self.realtime is not None or self.llm is not None or self.embeddings is not None
+
+
+class BYOKRealtimeAIModelConfigurationRequired(BaseModel):
+    """Full BYOK realtime config with all required fields (for org-level config)."""
     realtime: RealtimeConfig
     llm: LLMConfig
     embeddings: EmbeddingsConfig | None = None
@@ -96,12 +136,22 @@ class BYOKAIModelConfiguration(BaseModel):
             raise ValueError("byok.realtime is required when byok.mode is realtime")
         return self
 
+    def has_any_service(self) -> bool:
+        """Check if at least one service is configured."""
+        if self.mode == "pipeline" and self.pipeline:
+            return self.pipeline.has_any_service()
+        if self.mode == "realtime" and self.realtime:
+            return self.realtime.has_any_service()
+        return False
+
 
 class OrganizationAIModelConfigurationV2(BaseModel):
     version: Literal[2] = 2
     mode: Literal["dograh", "byok"]
     dograh: DograhManagedAIModelConfiguration | None = None
     byok: BYOKAIModelConfiguration | None = None
+    # When set, only these services are overridden; rest inherit from org config
+    overridden_services: list[ServiceSegment] | None = None
 
     @model_validator(mode="after")
     def validate_selected_mode(self):
@@ -110,6 +160,45 @@ class OrganizationAIModelConfigurationV2(BaseModel):
         if self.mode == "byok" and self.byok is None:
             raise ValueError("byok configuration is required when mode is byok")
         return self
+
+    @model_validator(mode="after")
+    def validate_overridden_services(self):
+        if self.overridden_services:
+            # Validate that overridden_services only contains services present in byok config
+            if self.mode == "byok" and self.byok:
+                if self.byok.mode == "pipeline" and self.byok.pipeline:
+                    available = set()
+                    if self.byok.pipeline.llm:
+                        available.add("llm")
+                    if self.byok.pipeline.tts:
+                        available.add("tts")
+                    if self.byok.pipeline.stt:
+                        available.add("stt")
+                    if self.byok.pipeline.embeddings:
+                        available.add("embeddings")
+                    invalid = set(self.overridden_services) - available
+                    if invalid:
+                        raise ValueError(
+                            f"overridden_services {invalid} not present in byok pipeline config"
+                        )
+                elif self.byok.mode == "realtime" and self.byok.realtime:
+                    available = set()
+                    if self.byok.realtime.realtime:
+                        available.add("realtime")
+                    if self.byok.realtime.llm:
+                        available.add("llm")
+                    if self.byok.realtime.embeddings:
+                        available.add("embeddings")
+                    invalid = set(self.overridden_services) - available
+                    if invalid:
+                        raise ValueError(
+                            f"overridden_services {invalid} not present in byok realtime config"
+                        )
+        return self
+
+    def is_partial_override(self) -> bool:
+        """Check if this is a partial override (only some services)."""
+        return bool(self.overridden_services)
 
 
 class OrganizationAIModelConfigurationResponse(BaseModel):
@@ -120,7 +209,45 @@ class OrganizationAIModelConfigurationResponse(BaseModel):
 
 def compile_ai_model_configuration_v2(
     configuration: OrganizationAIModelConfigurationV2,
+    org_config: OrganizationAIModelConfigurationV2 | None = None,
 ) -> EffectiveAIModelConfiguration:
+    """Compile a v2 configuration into an effective configuration.
+    
+    If configuration has overridden_services and org_config is provided,
+    only the specified services are taken from configuration; the rest
+    are inherited from org_config.
+    """
+    # If no partial override or no org_config to merge with, use full compilation
+    if not configuration.is_partial_override() or org_config is None:
+        return _compile_full(configuration)
+
+    # First, compile the org config to get the base effective config
+    org_effective = _compile_full(org_config)
+    
+    # Build the override effective config (only the overridden services)
+    override_effective = _compile_full(configuration)
+    
+    # Now merge: start with org_effective, then overlay only the overridden services
+    merged_dict = org_effective.model_dump()
+    
+    if configuration.overridden_services:
+        for svc in configuration.overridden_services:
+            if svc == "llm" and override_effective.llm:
+                merged_dict["llm"] = override_effective.llm
+            elif svc == "tts" and override_effective.tts:
+                merged_dict["tts"] = override_effective.tts
+            elif svc == "stt" and override_effective.stt:
+                merged_dict["stt"] = override_effective.stt
+            elif svc == "embeddings" and override_effective.embeddings:
+                merged_dict["embeddings"] = override_effective.embeddings
+            elif svc == "realtime" and override_effective.realtime:
+                merged_dict["realtime"] = override_effective.realtime
+    
+    return EffectiveAIModelConfiguration.model_validate(merged_dict)
+
+
+def _compile_full(configuration: OrganizationAIModelConfigurationV2) -> EffectiveAIModelConfiguration:
+    """Full compilation without partial override merging."""
     if configuration.mode == "dograh":
         if configuration.dograh is None:
             raise ValueError("dograh configuration is required")
@@ -132,6 +259,8 @@ def compile_ai_model_configuration_v2(
         if configuration.byok.pipeline is None:
             raise ValueError("byok.pipeline is required")
         pipeline = configuration.byok.pipeline
+        if not pipeline.has_any_service():
+            raise ValueError("byok.pipeline must have at least one service configured")
         return EffectiveAIModelConfiguration(
             llm=pipeline.llm,
             tts=pipeline.tts,
@@ -143,6 +272,8 @@ def compile_ai_model_configuration_v2(
     if configuration.byok.realtime is None:
         raise ValueError("byok.realtime is required")
     realtime = configuration.byok.realtime
+    if not realtime.has_any_service():
+        raise ValueError("byok.realtime must have at least one service configured")
     return EffectiveAIModelConfiguration(
         llm=realtime.llm,
         realtime=realtime.realtime,

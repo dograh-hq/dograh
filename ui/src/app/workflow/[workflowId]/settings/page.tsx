@@ -26,6 +26,7 @@ import {
 } from "@/components/AIModelConfigurationV2Editor";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { LLMConfigSelector } from "@/components/LLMConfigSelector";
+import { ServiceConfigurationForm } from "@/components/ServiceConfigurationForm";
 import SpinLoader from "@/components/SpinLoader";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -1329,18 +1330,65 @@ function WorkflowModelOverridesSection({
 }) {
     const savedV2Override = workflowConfigurations.model_configuration_v2_override;
     const hasSavedModelOverride = Boolean(savedV2Override || workflowConfigurations.model_overrides);
-    const [overrideEnabled, setOverrideEnabled] = useState(Boolean(savedV2Override));
     const [isRemovingOverride, setIsRemovingOverride] = useState(false);
-
-    useEffect(() => {
-        setOverrideEnabled(Boolean(workflowConfigurations.model_configuration_v2_override));
-    }, [workflowConfigurations.model_configuration_v2_override]);
 
     const hasOrgConfiguration = organizationModelConfiguration?.source === "organization_v2";
 
-    const saveV2Override = async (configuration: OrganizationAiModelConfigurationV2) => {
+    // Convert saved v2 override to legacy ModelOverrides format for ServiceConfigurationForm
+    const currentOverridesForForm = useMemo(() => {
+        if (!savedV2Override || !savedV2Override.overridden_services) {
+            return undefined;
+        }
+        const byok = savedV2Override.byok;
+        if (!byok || byok.mode !== "pipeline" || !byok.pipeline) {
+            return undefined;
+        }
+        const overrides: Record<string, unknown> = {};
+        for (const svc of savedV2Override.overridden_services) {
+            if (svc === "llm" && byok.pipeline.llm) {
+                overrides.llm = byok.pipeline.llm;
+            } else if (svc === "tts" && byok.pipeline.tts) {
+                overrides.tts = byok.pipeline.tts;
+            } else if (svc === "stt" && byok.pipeline.stt) {
+                overrides.stt = byok.pipeline.stt;
+            } else if (svc === "embeddings" && byok.pipeline.embeddings) {
+                overrides.embeddings = byok.pipeline.embeddings;
+            }
+        }
+        return Object.keys(overrides).length > 0 ? overrides : undefined;
+    }, [savedV2Override]);
+
+    const saveOverride = async (config: Record<string, unknown>) => {
+        // Build the v2 override from the service configs
+        const overriddenServices: string[] = [];
+        const pipelineConfig: Record<string, unknown> = {};
+        
+        for (const service of ["llm", "tts", "stt", "embeddings"]) {
+            if (config[service]) {
+                overriddenServices.push(service);
+                pipelineConfig[service] = config[service];
+            }
+        }
+        
+        if (overriddenServices.length === 0) {
+            // No overrides, remove any existing override
+            await onSave(withoutModelConfigurationOverrides(workflowConfigurations), workflowName);
+            toast.success(`Organization model configuration saved. ${PUBLISH_WORKFLOW_REMINDER}`);
+            return;
+        }
+        
+        const v2Override: OrganizationAiModelConfigurationV2 = {
+            version: 2,
+            mode: "byok",
+            byok: {
+                mode: "pipeline",
+                pipeline: pipelineConfig as any,
+            },
+            overridden_services: overriddenServices as any[],
+        };
+        
         const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
-        nextConfigurations.model_configuration_v2_override = configuration;
+        nextConfigurations.model_configuration_v2_override = v2Override;
         await onSave(nextConfigurations, workflowName);
         toast.success(`Model override saved. ${PUBLISH_WORKFLOW_REMINDER}`);
     };
@@ -1349,7 +1397,6 @@ function WorkflowModelOverridesSection({
         setIsRemovingOverride(true);
         try {
             await onSave(withoutModelConfigurationOverrides(workflowConfigurations), workflowName);
-            setOverrideEnabled(false);
             toast.success(`Organization model configuration saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } finally {
             setIsRemovingOverride(false);
@@ -1364,7 +1411,7 @@ function WorkflowModelOverridesSection({
                     Model Overrides
                 </CardTitle>
                 <CardDescription>
-                    Override the full organization model configuration for this workflow.{" "}
+                    Override specific services for this workflow. Services not overridden will use the organization configuration.{" "}
                     <a href={SETTINGS_DOCUMENTATION_URLS.modelOverrides} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">Learn more <ExternalLink className="h-3 w-3" /></a>
                 </CardDescription>
             </CardHeader>
@@ -1394,59 +1441,28 @@ function WorkflowModelOverridesSection({
                 )}
 
                 {!modelConfigurationLoading && !modelConfigurationError && hasOrgConfiguration && modelConfigurationDefaults && organizationModelConfiguration && (
-                    <>
-                        <div className="flex items-center justify-between rounded-md border p-4">
-                            <div className="space-y-0.5">
-                                <Label htmlFor="workflow-model-v2-override" className="text-sm font-medium">
-                                    Override for this workflow
-                                </Label>
-                                <p className="text-xs text-muted-foreground">
-                                    {overrideEnabled
-                                        ? "This workflow uses its own complete model configuration."
-                                        : "This workflow uses the organization model configuration."}
-                                </p>
-                            </div>
-                            <Switch
-                                id="workflow-model-v2-override"
-                                checked={overrideEnabled}
-                                onCheckedChange={setOverrideEnabled}
-                            />
-                        </div>
+                    <div className="space-y-4">
+                        <ServiceConfigurationForm
+                            mode="override"
+                            currentOverrides={currentOverridesForForm as any}
+                            configurationDefaults={modelConfigurationDefaults?.byok?.pipeline}
+                            onSave={saveOverride}
+                            submitLabel="Save Model Overrides"
+                        />
 
-                        {overrideEnabled ? (
-                            <AIModelConfigurationV2Editor
-                                defaults={modelConfigurationDefaults}
-                                configuration={
-                                    (savedV2Override as OrganizationAiModelConfigurationV2 | undefined)
-                                    || (organizationModelConfiguration.configuration as OrganizationAiModelConfigurationV2 | null)
-                                }
-                                effectiveConfiguration={
-                                    savedV2Override
-                                        ? null
-                                        : organizationModelConfiguration.effective_configuration
-                                }
-                                pricing={modelConfigurationPricing}
-                                submitLabel="Save Model Override"
-                                onSave={saveV2Override}
-                            />
-                        ) : (
-                            <div className="rounded-md border bg-muted/20 p-4">
-                                <p className="text-sm text-muted-foreground">
-                                    Using organization model configuration.
-                                </p>
-                                {hasSavedModelOverride && (
-                                    <Button
-                                        type="button"
-                                        className="mt-3"
-                                        onClick={removeV2Override}
-                                        disabled={isRemovingOverride}
-                                    >
-                                        {isRemovingOverride ? "Saving..." : "Save Organization Configuration"}
-                                    </Button>
-                                )}
+                        {hasSavedModelOverride && (
+                            <div className="flex justify-end">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={removeV2Override}
+                                    disabled={isRemovingOverride}
+                                >
+                                    {isRemovingOverride ? "Saving..." : "Reset to Organization Config"}
+                                </Button>
                             </div>
                         )}
-                    </>
+                    </div>
                 )}
             </CardContent>
         </Card>

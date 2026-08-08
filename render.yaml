@@ -1,0 +1,90 @@
+services:
+  # API Backend
+  - type: web
+    name: dograh-api
+    runtime: image
+    image:
+      url: docker://dograhai/dograh-api:latest
+      # Or use your own registry:
+      # url: docker://your-registry/dograh-api:latest
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dograh-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromRedis:
+          name: dograh-redis
+          property: connectionString
+      - key: OSS_JWT_SECRET
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        sync: false  # Set to your render_EXTERNAL_URL or custom domain
+      - key: MINIO_ENDPOINT
+        value: dograh-minio:9000
+      - key: MINIO_ACCESS_KEY
+        value: minioadmin
+      - key: MINIO_SECRET_KEY
+        value: minioadmin
+      - key: MINIO_BUCKET
+        value: voice-audio
+      - key: MINIO_SECURE
+        value: "false"
+      - key: ENABLE_AWS_S3
+        value: "false"
+      - key: FASTAPI_WORKERS
+        value: "1"
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: LOG_LEVEL
+        value: INFO
+    healthCheckPath: /api/v1/health
+    port: 8000
+    autoDeploy: true
+
+  # UI Frontend
+  - type: web
+    name: dograh-ui
+    runtime: image
+    image:
+      url: docker://dograhai/dograh-ui:latest
+    envVars:
+      - key: HOSTNAME
+        value: "0.0.0.0"
+      - key: BACKEND_URL
+        value: http://dograh-api:8000
+      - key: NODE_ENV
+        value: production
+    port: 3010
+    autoDeploy: true
+
+  # MinIO Object Storage
+  - type: web
+    name: dograh-minio
+    runtime: image
+    image:
+      url: docker://minio/minio:latest
+    envVars:
+      - key: MINIO_ROOT_USER
+        value: minioadmin
+      - key: MINIO_ROOT_PASSWORD
+        value: minioadmin
+    startCommand: server /data --console-address ":9001"
+    port: 9000
+    disk:
+      name: minio-data
+      sizeGB: 10
+
+databases:
+  # PostgreSQL
+  - name: dograh-postgres
+    databaseName: dograh
+    plan: starter  # $7/month, 1GB storage
+    ipAllowList: []  # Only internal access
+
+  # Redis
+  - name: dograh-redis
+    plan: starter  # $7/month, 25MB
+    ipAllowList: []  # Only internal access

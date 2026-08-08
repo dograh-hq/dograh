@@ -582,7 +582,7 @@ def create_tts_service(
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
             sample_rate=OPENAI_SAMPLE_RATE,
-            settings=OpenAITTSSettings(model=user_config.tts.model),
+            settings=OpenAITTSSettings(model=user_config.tts.model, voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,

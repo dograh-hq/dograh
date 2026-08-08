@@ -1179,7 +1179,19 @@ async def update_workflow(
                         resolved_config.organization_configuration,
                     )
                 check_for_masked_keys_in_ai_model_configuration_v2(v2_override)
-                effective = compile_ai_model_configuration_v2(v2_override)
+                
+                # For partial overrides, we need the org config for compilation
+                org_config_for_compile = None
+                if v2_override.is_partial_override():
+                    resolved_config = await get_resolved_ai_model_configuration(
+                        organization_id=user.selected_organization_id,
+                    )
+                    org_config_for_compile = resolved_config.organization_configuration
+                
+                effective = compile_ai_model_configuration_v2(
+                    v2_override,
+                    org_config=org_config_for_compile,
+                )
                 await UserConfigurationValidator().validate(
                     effective,
                     organization_id=user.selected_organization_id,

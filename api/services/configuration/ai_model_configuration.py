@@ -92,9 +92,31 @@ async def get_effective_ai_model_configuration_for_workflow(
         WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
     )
     if v2_override:
-        return compile_ai_model_configuration_v2(
-            OrganizationAIModelConfigurationV2.model_validate(v2_override)
+        override_config = OrganizationAIModelConfigurationV2.model_validate(v2_override)
+        
+        # If this is a partial override, we need to merge with org config
+        if override_config.is_partial_override():
+            resolved_org = await get_resolved_ai_model_configuration(
+                organization_id=organization_id,
+            )
+            if resolved_org.organization_configuration:
+                effective = compile_ai_model_configuration_v2(
+                    override_config,
+                    org_config=resolved_org.organization_configuration,
+                )
+                logger.info(
+                    f"Partial v2 override applied for org {organization_id}: "
+                    f"overridden_services={override_config.overridden_services}, "
+                    f"effective_tts={effective.tts.provider if effective.tts else None}"
+                )
+                return effective
+        
+        effective = compile_ai_model_configuration_v2(override_config)
+        logger.info(
+            f"Full v2 override applied for org {organization_id}: "
+            f"effective_tts={effective.tts.provider if effective.tts else None}"
         )
+        return effective
 
     resolved_config = await get_resolved_ai_model_configuration(
         organization_id=organization_id,
@@ -259,7 +281,13 @@ def merge_ai_model_configuration_v2_secrets(
             )
 
     if incoming_dict.get("mode") == "byok" and existing_dict.get("mode") == "byok":
-        _merge_byok_secret_fields(incoming_dict.get("byok"), existing_dict.get("byok"))
+        # For partial overrides, only merge secrets for services that are being overridden
+        overridden_services = incoming_dict.get("overridden_services")
+        _merge_byok_secret_fields(
+            incoming_dict.get("byok"),
+            existing_dict.get("byok"),
+            overridden_services=overridden_services,
+        )
 
     return OrganizationAIModelConfigurationV2.model_validate(incoming_dict)
 
@@ -268,7 +296,12 @@ def check_for_masked_keys_in_ai_model_configuration_v2(
     configuration: OrganizationAIModelConfigurationV2,
 ) -> None:
     data = configuration.model_dump(mode="json", exclude_none=True)
-    _raise_if_masked_secret(data)
+    # For partial overrides, only check services that are being overridden
+    overridden_services = data.get("overridden_services")
+    if overridden_services:
+        _raise_if_masked_secret_partial(data, overridden_services)
+    else:
+        _raise_if_masked_secret(data)
 
 
 def mask_ai_model_configuration_v2(
@@ -277,7 +310,12 @@ def mask_ai_model_configuration_v2(
     if configuration is None:
         return None
     data = configuration.model_dump(mode="json", exclude_none=True)
-    _mask_secret_fields(data)
+    # For partial overrides, only mask services that are being overridden
+    overridden_services = data.get("overridden_services")
+    if overridden_services:
+        _mask_secret_fields_partial(data, overridden_services)
+    else:
+        _mask_secret_fields(data)
     return data
 
 
@@ -338,7 +376,11 @@ def apply_managed_embeddings_base_url(
     return base_url
 
 
-def _merge_byok_secret_fields(incoming_byok: dict | None, existing_byok: dict | None):
+def _merge_byok_secret_fields(
+    incoming_byok: dict | None,
+    existing_byok: dict | None,
+    overridden_services: list[str] | None = None,
+):
     if not isinstance(incoming_byok, dict) or not isinstance(existing_byok, dict):
         return
     incoming_mode = incoming_byok.get("mode")
@@ -357,6 +399,9 @@ def _merge_byok_secret_fields(incoming_byok: dict | None, existing_byok: dict | 
     ):
         return
     for section_name in section_names:
+        # If overridden_services is specified, only merge secrets for those services
+        if overridden_services is not None and section_name not in overridden_services:
+            continue
         incoming_section = incoming_container.get(section_name)
         existing_section = existing_container.get(section_name)
         if isinstance(incoming_section, dict) and isinstance(existing_section, dict):
@@ -398,6 +443,26 @@ def _raise_if_masked_secret(value):
             _raise_if_masked_secret(item)
 
 
+def _raise_if_masked_secret_partial(value, overridden_services: list[str]):
+    """Only check masked secrets for services in overridden_services."""
+    if not isinstance(value, dict):
+        return
+    
+    byok = value.get("byok")
+    if not isinstance(byok, dict):
+        return
+    
+    mode = byok.get("mode")
+    container = byok.get(mode)
+    if not isinstance(container, dict):
+        return
+    
+    for service in overridden_services:
+        service_config = container.get(service)
+        if isinstance(service_config, dict):
+            _raise_if_masked_secret(service_config)
+
+
 def _mask_secret_fields(value):
     if isinstance(value, dict):
         for key, nested in list(value.items()):
@@ -408,6 +473,26 @@ def _mask_secret_fields(value):
     elif isinstance(value, list):
         for item in value:
             _mask_secret_fields(item)
+
+
+def _mask_secret_fields_partial(value, overridden_services: list[str]):
+    """Only mask secrets for services in overridden_services."""
+    if not isinstance(value, dict):
+        return
+    
+    byok = value.get("byok")
+    if not isinstance(byok, dict):
+        return
+    
+    mode = byok.get("mode")
+    container = byok.get(mode)
+    if not isinstance(container, dict):
+        return
+    
+    for service in overridden_services:
+        service_config = container.get(service)
+        if isinstance(service_config, dict):
+            _mask_secret_fields(service_config)
 
 
 def _mask_secret_value(value):

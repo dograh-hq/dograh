@@ -714,6 +714,11 @@ async def _run_pipeline_impl(
     # initial_context so they're available for post-call analytics
     # (model_overrides may have shifted them away from the org-level
     # user_config).
+    logger.info(
+        f"Workflow run {workflow_run_id} resolved config: "
+        f"llm={user_config.llm.provider}, tts={user_config.tts.provider}, "
+        f"stt={user_config.stt.provider}"
+    )
     if is_realtime:
         # llm_* refers to the side-channel text LLM (variable extraction,
         # voicemail detection); realtime_* is the speech-to-speech service.

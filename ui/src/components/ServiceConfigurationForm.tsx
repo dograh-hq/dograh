@@ -474,22 +474,20 @@ export function ServiceConfigurationForm({
 
         try {
             if (mode === 'override') {
-                // Build model_overrides for enabled services only
-                const modelOverrides: Record<string, unknown> = {};
+                // Build service configs for enabled services only
+                const serviceConfigs: Record<string, unknown> = {};
                 const services = isRealtime ? ["realtime", "llm"] : ["llm", "tts", "stt"];
                 for (const svc of services) {
                     if (enabledOverrides[svc]) {
-                        modelOverrides[svc] = buildServiceConfig(svc as ServiceSegment, data);
+                        serviceConfigs[svc] = buildServiceConfig(svc as ServiceSegment, data);
                     }
                 }
-                // Include is_realtime if it differs from global
-                const globalIsRealtime = !!(userConfig as Record<string, unknown> | null)?.is_realtime;
-                if (isRealtime !== globalIsRealtime) {
-                    modelOverrides.is_realtime = isRealtime;
+                // Include embeddings if enabled
+                if (enabledOverrides["embeddings"]) {
+                    serviceConfigs["embeddings"] = buildServiceConfig("embeddings", data);
                 }
-                await onSave({
-                    model_overrides: Object.keys(modelOverrides).length > 0 ? modelOverrides : undefined,
-                });
+                
+                await onSave(serviceConfigs);
             } else {
                 // Global mode: save all services
                 const saveConfig: Record<string, unknown> = {

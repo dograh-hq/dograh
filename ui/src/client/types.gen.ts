@@ -556,7 +556,7 @@ export type ByokPipelineAiModelConfiguration = {
     /**
      * Llm
      */
-    llm: ({
+    llm?: ({
         provider: 'openai';
     } & OpenAillmService) | ({
         provider: 'atlascloud';
@@ -582,11 +582,11 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
-    } & SarvamLlmConfiguration);
+    } & SarvamLlmConfiguration) | null;
     /**
      * Tts
      */
-    tts: ({
+    tts?: ({
         provider: 'deepgram';
     } & DeepgramTtsConfiguration) | ({
         provider: 'google';
@@ -618,11 +618,11 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'xai';
     } & XaittsConfiguration) | ({
         provider: 'lmnt';
-    } & LmntTtsConfiguration);
+    } & LmntTtsConfiguration) | null;
     /**
      * Stt
      */
-    stt: ({
+    stt?: ({
         provider: 'deepgram';
     } & DeepgramSttConfiguration) | ({
         provider: 'cartesia';
@@ -650,7 +650,7 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'smallest';
     } & SmallestAisttConfiguration) | ({
         provider: 'elevenlabs';
-    } & ElevenlabsSttConfiguration);
+    } & ElevenlabsSttConfiguration) | null;
     /**
      * Embeddings
      */
@@ -672,7 +672,7 @@ export type ByokRealtimeAiModelConfiguration = {
     /**
      * Realtime
      */
-    realtime: ({
+    realtime?: ({
         provider: 'openai_realtime';
     } & OpenAiRealtimeLlmConfiguration) | ({
         provider: 'grok_realtime';
@@ -684,11 +684,11 @@ export type ByokRealtimeAiModelConfiguration = {
         provider: 'google_vertex_realtime';
     } & GoogleVertexRealtimeLlmConfiguration) | ({
         provider: 'azure_realtime';
-    } & AzureRealtimeLlmConfiguration);
+    } & AzureRealtimeLlmConfiguration) | null;
     /**
      * Llm
      */
-    llm: ({
+    llm?: ({
         provider: 'openai';
     } & OpenAillmService) | ({
         provider: 'atlascloud';
@@ -714,7 +714,7 @@ export type ByokRealtimeAiModelConfiguration = {
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
-    } & SarvamLlmConfiguration);
+    } & SarvamLlmConfiguration) | null;
     /**
      * Embeddings
      */
@@ -4324,6 +4324,10 @@ export type OrganizationAiModelConfigurationV2 = {
     mode: 'dograh' | 'byok';
     dograh?: DograhManagedAiModelConfiguration | null;
     byok?: ByokaiModelConfiguration | null;
+    /**
+     * Overridden Services
+     */
+    overridden_services?: Array<'llm' | 'tts' | 'stt' | 'embeddings' | 'realtime'> | null;
 };
 
 /**

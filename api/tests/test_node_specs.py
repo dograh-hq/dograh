@@ -283,6 +283,7 @@ def test_all_registered_node_models_inherit_base_node_data():
                 "qa_min_call_duration",
                 "qa_voicemail_calls",
                 "qa_sample_rate",
+                "qa_grade_whole_call",
                 "qa_use_workflow_llm",
                 "qa_provider",
                 "qa_model",

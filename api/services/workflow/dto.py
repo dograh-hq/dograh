@@ -787,6 +787,7 @@ class WebhookNodeData(BaseNodeData):
         "qa_min_call_duration",
         "qa_voicemail_calls",
         "qa_sample_rate",
+        "qa_grade_whole_call",
         "qa_use_workflow_llm",
         "qa_provider",
         "qa_model",
@@ -829,6 +830,14 @@ class WebhookNodeData(BaseNodeData):
             ),
             "min_value": 1,
             "max_value": 100,
+        },
+        "qa_grade_whole_call": {
+            "display_name": "Grade Whole Call",
+            "description": (
+                "When true, the QA pass grades the entire transcript as one "
+                "segment (a single verdict) instead of node-by-node. Use when "
+                "scored content spans multiple nodes."
+            ),
         },
         "qa_use_workflow_llm": {
             "display_name": "Use Workflow's LLM",
@@ -885,6 +894,9 @@ class QANodeData(BaseNodeData):
     qa_min_call_duration: int = spec_field(default=15, ui_type=PropertyType.number)
     qa_voicemail_calls: bool = spec_field(default=False, ui_type=PropertyType.boolean)
     qa_sample_rate: int = spec_field(default=100, ui_type=PropertyType.number)
+    qa_grade_whole_call: bool = spec_field(
+        default=False, ui_type=PropertyType.boolean
+    )
 
 
 # Union of every per-type data class — useful as a type annotation on

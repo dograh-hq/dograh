@@ -99,6 +99,17 @@ async def run_per_node_qa_analysis(
         logger.warning(f"No realtime_feedback_events for run {workflow_run_id}")
         return {"error": "no_transcript", "node_results": {}}
 
+    # Whole-call grading: when enabled, grade the entire transcript as a single
+    # segment (one verdict) instead of node-by-node. Use when a workflow's scored
+    # content spans multiple nodes (e.g. gated questions in a later closing node),
+    # so per-node grading can't produce one authoritative result.
+    if getattr(qa_data, "qa_grade_whole_call", False):
+        logger.info(
+            f"Whole-call QA grading enabled for run {workflow_run_id}; "
+            "grading transcript as a single segment"
+        )
+        return await _run_whole_call_qa_analysis(qa_data, workflow_run, workflow_run_id)
+
     # Try to split by node
     node_splits = split_events_by_node(rtf_events)
     if not node_splits:

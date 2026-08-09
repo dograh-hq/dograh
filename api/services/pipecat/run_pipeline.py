@@ -1,4 +1,5 @@
 import asyncio
+from time import monotonic
 from typing import Awaitable, Callable, Optional
 
 from fastapi import HTTPException
@@ -256,6 +257,15 @@ def _create_realtime_user_turn_config(provider: str):
     return local_vad_turn_config(enable_interruptions=True)
 
 
+# `on_pipeline_started` fires once StartFrame reaches the end of the
+# pipeline, which can race ahead of async connection setup individual
+# processors (STT/LLM/TTS) kick off in the background without blocking
+# StartFrame propagation. A failure in that window still means startup
+# never really completed, so we keep treating it as a startup failure
+# for this short grace period after the worker is marked started.
+_WORKER_STARTUP_GRACE_SECONDS = 2.0
+
+
 async def run_pipeline_telephony(
     websocket,
     *,
@@ -395,10 +405,12 @@ async def _run_pipeline_telephony_impl(
         return
 
     worker_started = False
+    worker_started_at: float | None = None
 
     def mark_worker_started() -> None:
-        nonlocal worker_started
+        nonlocal worker_started, worker_started_at
         worker_started = True
+        worker_started_at = monotonic()
 
     try:
         await _run_pipeline_impl(
@@ -414,7 +426,13 @@ async def _run_pipeline_telephony_impl(
             on_worker_started=mark_worker_started,
         )
     except BaseException as exc:
-        if not worker_started and on_startup_failure is not None:
+        within_startup_grace = (
+            worker_started_at is not None
+            and monotonic() - worker_started_at < _WORKER_STARTUP_GRACE_SECONDS
+        )
+        if (
+            not worker_started or within_startup_grace
+        ) and on_startup_failure is not None:
             try:
                 await asyncio.shield(on_startup_failure())
             except Exception:

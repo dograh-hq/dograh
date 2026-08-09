@@ -113,9 +113,10 @@ TryVox numbers don't carry a webhook URL directly — the URL lives on a TryVox 
 
   <Accordion title="Outbound call fails even though the number is saved in Dograh">
     - Dograh only validates that the `from` number is *owned* by your TryVox
-    account, not that it's a *verified caller ID* - Verify the number under
-    **Verified Caller IDs** in the TryVox dashboard (OTP by call or SMS) —
-    this is a separate step from owning or purchasing the number
+      account, not that it's a *verified caller ID*
+    - Verify the number under **Verified Caller IDs** in the TryVox dashboard
+      (OTP by call or SMS) — this is a separate step from owning or
+      purchasing the number
   </Accordion>
 
   <Accordion title="Webhook signature validation failing">
@@ -132,19 +133,21 @@ TryVox numbers don't carry a webhook URL directly — the URL lives on a TryVox 
 
   <Accordion title="Inbound calls go to voicemail or aren't answered">
     - Verify the phone number is attached to the Voice Application whose ID
-    you configured in Dograh - Confirm the called number exists in your
-    Dograh telephony configuration and has an **Inbound workflow** assigned -
-    After assigning the inbound workflow, confirm Dograh successfully updated
-    the application's answer URL (no warning shown on save) - Verify Dograh
-    AI instance is running and responding
+      you configured in Dograh
+    - Confirm the called number exists in your Dograh telephony configuration
+      and has an **Inbound workflow** assigned
+    - After assigning the inbound workflow, confirm Dograh successfully
+      updated the application's answer URL (no warning shown on save)
+    - Verify Dograh AI instance is running and responding
   </Accordion>
 
   <Accordion title="Voice agent doesn't respond to inbound calls">
     - Confirm the phone number has an **Inbound workflow** assigned in
-    /telephony-configurations - Check webhook signature validation is working
-    (Auth Token and webhook secret in Dograh match the TryVox dashboard) -
-    Verify the media WebSocket connection establishes successfully - Review
-    call logs for error messages
+      /telephony-configurations
+    - Check webhook signature validation is working (Auth Token and webhook
+      secret in Dograh match the TryVox dashboard)
+    - Verify the media WebSocket connection establishes successfully
+    - Review call logs for error messages
   </Accordion>
 </AccordionGroup>
 

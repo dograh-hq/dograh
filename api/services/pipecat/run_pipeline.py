@@ -1,5 +1,4 @@
 import asyncio
-from time import monotonic
 from typing import Awaitable, Callable, Optional
 
 from fastapi import HTTPException
@@ -84,6 +83,8 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
+from pipecat.frames.frames import InputAudioRawFrame
+from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -257,15 +258,6 @@ def _create_realtime_user_turn_config(provider: str):
     return local_vad_turn_config(enable_interruptions=True)
 
 
-# `on_pipeline_started` fires once StartFrame reaches the end of the
-# pipeline, which can race ahead of async connection setup individual
-# processors (STT/LLM/TTS) kick off in the background without blocking
-# StartFrame propagation. A failure in that window still means startup
-# never really completed, so we keep treating it as a startup failure
-# for this short grace period after the worker is marked started.
-_WORKER_STARTUP_GRACE_SECONDS = 2.0
-
-
 async def run_pipeline_telephony(
     websocket,
     *,
@@ -404,13 +396,11 @@ async def _run_pipeline_telephony_impl(
         await websocket.close(code=4401, reason="Stream capability unavailable")
         return
 
-    worker_started = False
-    worker_started_at: float | None = None
+    media_started = False
 
-    def mark_worker_started() -> None:
-        nonlocal worker_started, worker_started_at
-        worker_started = True
-        worker_started_at = monotonic()
+    def mark_media_started() -> None:
+        nonlocal media_started
+        media_started = True
 
     try:
         await _run_pipeline_impl(
@@ -423,16 +413,10 @@ async def _run_pipeline_telephony_impl(
             workflow_run=workflow_run,
             resolved_user_config=user_config,
             organization_id=organization_id,
-            on_worker_started=mark_worker_started,
+            on_media_started=mark_media_started,
         )
     except BaseException as exc:
-        within_startup_grace = (
-            worker_started_at is not None
-            and monotonic() - worker_started_at < _WORKER_STARTUP_GRACE_SECONDS
-        )
-        if (
-            not worker_started or within_startup_grace
-        ) and on_startup_failure is not None:
+        if not media_started and on_startup_failure is not None:
             try:
                 await asyncio.shield(on_startup_failure())
             except Exception:
@@ -595,6 +579,33 @@ async def _run_pipeline(
             unregister_worker_active_call(workflow_run_id)
 
 
+class _FirstInboundAudioObserver(BaseObserver):
+    """Fires once the transport hands the pipeline real inbound audio.
+
+    ``on_pipeline_started`` (StartFrame reaching the end of the pipeline)
+    only proves the pipeline is wired up -- it can race ahead of async
+    connection setup individual processors (STT/LLM/TTS) still perform in
+    the background, so it isn't proof the call is actually live. The
+    transport receiving real audio from the caller is: telephony providers
+    stream continuous PCM regardless of speech content, so this fires
+    within milliseconds of the media socket coming up on a healthy call,
+    and never fires at all if the call dies before that happens.
+    """
+
+    def __init__(self, transport_input, on_first_frame: Callable[[], None]):
+        super().__init__()
+        self._transport_input = transport_input
+        self._on_first_frame = on_first_frame
+        self._fired = False
+
+    async def on_push_frame(self, data: FramePushed):
+        if self._fired or data.source is not self._transport_input:
+            return
+        if isinstance(data.frame, InputAudioRawFrame):
+            self._fired = True
+            self._on_first_frame()
+
+
 async def _run_pipeline_impl(
     transport,
     workflow_id: int,
@@ -606,7 +617,7 @@ async def _run_pipeline_impl(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
-    on_worker_started: Callable[[], None] | None = None,
+    on_media_started: Callable[[], None] | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -1112,6 +1123,10 @@ async def _run_pipeline_impl(
 
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+    if on_media_started is not None:
+        task.add_observer(
+            _FirstInboundAudioObserver(transport.input(), on_media_started)
+        )
     transcript_log_coordinator = TranscriptLogCoordinator(in_memory_logs_buffer)
     if task.turn_tracking_observer is None:
         raise RuntimeError("Transcript logging requires turn tracking to be enabled")
@@ -1204,8 +1219,6 @@ async def _run_pipeline_impl(
         worker_task = asyncio.create_task(run_pipeline_worker(task))
         try:
             await wait_for_pipeline_worker_started(task, run_task=worker_task)
-            if on_worker_started is not None:
-                on_worker_started()
             await worker_task
         except BaseException:
             if not worker_task.done():

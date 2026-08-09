@@ -15,6 +15,7 @@ from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
     _serialize_text_chat_checkpoint_messages,
 )
+from api.tasks.function_names import FunctionNames
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
@@ -147,6 +148,75 @@ async def test_text_chat_session_creation_requires_selected_organization():
 
     assert response.status_code == 400
     assert response.json() == {"detail": "No organization selected"}
+
+
+@pytest.mark.asyncio
+async def test_user_can_end_text_chat_session(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "You are a helpful assistant.",
+                    "is_start": True,
+                },
+            }
+        ],
+        "edges": [],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="user-end",
+    )
+    workflow_run = await db_session.create_workflow_run(
+        name="User-ended text chat",
+        workflow_id=workflow.id,
+        mode="textchat",
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    text_session = await db_session.ensure_workflow_run_text_session(
+        workflow_run.id,
+        session_data={
+            "version": 1,
+            "status": "idle",
+            "cursor_turn_id": None,
+            "turns": [],
+            "discarded_future": [],
+            "simulator": {"enabled": False, "config": {}},
+        },
+        checkpoint={},
+    )
+    enqueue = AsyncMock()
+
+    async with test_client_factory(user) as client:
+        with patch("api.tasks.arq.enqueue_job", enqueue):
+            response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+                f"{workflow_run.id}/end",
+                json={"expected_revision": text_session.revision},
+            )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["is_completed"] is True
+    assert payload["state"] == "completed"
+    assert payload["session_data"]["status"] == "completed"
+    assert payload["gathered_context"]["call_disposition"] == "user_hangup"
+    enqueue.assert_awaited_once_with(
+        FunctionNames.PROCESS_WORKFLOW_COMPLETION,
+        workflow_run.id,
+        _job_id=f"workflow-completion-{workflow_run.id}",
+    )
 
 
 @pytest.mark.asyncio
@@ -1225,6 +1295,13 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
             f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}"
         )
         assert get_response.status_code == 404
+
+        end_response = await other_client.post(
+            f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+            f"{created['workflow_run_id']}/end",
+            json={"expected_revision": created["revision"]},
+        )
+        assert end_response.status_code == 404
 
 
 @pytest.mark.asyncio

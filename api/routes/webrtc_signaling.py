@@ -29,7 +29,7 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY
+from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY, SERVER_IP
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment, WorkflowRunMode
@@ -61,7 +61,25 @@ class NonRelayFilterPolicy(Enum):
 
     NONE = "none"  # filter nothing — pass all candidates
     PRIVATE = "private"  # filter non-relay candidates with private/CGNAT IPs
+    PUBLIC = "public"  # filter non-relay candidates that are NOT private/CGNAT
     ALL = "all"  # filter all non-relay candidates (relay-only mode)
+
+
+def is_cgnat_ip(ip_str: str) -> bool:
+    """Return True for CGNAT addresses (100.64.0.0/10) specifically — the
+    range Tailscale and similar overlay networks use. Distinct from the
+    broader is_local_or_cgnat_ip(): a CGNAT-addressed server (e.g. Tailscale-
+    only, no public IP) commonly has no route to the public internet at all,
+    whereas a plain RFC1918 LAN server usually still has normal NAT'd
+    internet access — the two need different inbound-candidate handling.
+    """
+
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+
+    return ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10")
 
 
 def is_local_or_cgnat_ip(ip_str: str) -> bool:
@@ -72,8 +90,7 @@ def is_local_or_cgnat_ip(ip_str: str) -> bool:
     except ValueError:
         return False
 
-    is_cgnat = ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10")
-    return ip.is_private or ip.is_loopback or ip.is_link_local or is_cgnat
+    return ip.is_private or ip.is_loopback or ip.is_link_local or is_cgnat_ip(ip_str)
 
 
 def resolve_ice_filter_policies(
@@ -91,11 +108,25 @@ def resolve_ice_filter_policies(
         # Relay-only diagnostics stay explicit. On private LAN deployments we
         # must still accept inbound private candidates for relay<->host pairs.
         outbound_policy = NonRelayFilterPolicy.ALL
-        inbound_policy = (
-            NonRelayFilterPolicy.NONE
-            if private_lan_deployment
-            else NonRelayFilterPolicy.PRIVATE
-        )
+        if private_lan_deployment:
+            # A CGNAT-addressed server (e.g. Tailscale-only, no public IP)
+            # commonly has no route to the public internet at all, so a
+            # genuinely public inbound candidate can never be reachable once
+            # we've committed to relay-only — e.g. a client-side STUN entry
+            # leaking a server-reflexive public-IP candidate despite
+            # iceTransportPolicy: 'relay'. Drop those instead of wasting the
+            # ICE timeout on a doomed direct-to-internet check.
+            #
+            # A plain RFC1918 LAN server usually still has normal NAT'd
+            # internet access, so a public candidate there might genuinely
+            # succeed — keep accepting everything inbound as before.
+            inbound_policy = (
+                NonRelayFilterPolicy.PUBLIC
+                if is_cgnat_ip(server_ip)
+                else NonRelayFilterPolicy.NONE
+            )
+        else:
+            inbound_policy = NonRelayFilterPolicy.PRIVATE
         return outbound_policy, inbound_policy
 
     if environment == Environment.LOCAL.value or private_lan_deployment:
@@ -109,7 +140,7 @@ def resolve_ice_filter_policies(
 ICE_OUTBOUND_POLICY, ICE_INBOUND_POLICY = resolve_ice_filter_policies(
     ENVIRONMENT,
     FORCE_TURN_RELAY,
-    os.getenv("SERVER_IP", ""),
+    SERVER_IP,
 )
 
 
@@ -151,6 +182,9 @@ def _keep_candidate(candidate_str: str, policy: NonRelayFilterPolicy) -> bool:
         return True
     if policy == NonRelayFilterPolicy.ALL:
         return False
+    if policy == NonRelayFilterPolicy.PUBLIC:
+        # PUBLIC: drop non-relay candidates that are NOT private/CGNAT
+        return is_private_ip_candidate(candidate_str)
     # PRIVATE: drop non-relay candidates with private/CGNAT IPs
     return not is_private_ip_candidate(candidate_str)
 
@@ -200,13 +234,30 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     Returns:
         List of RTCIceServer configurations for WebRTC peer connection.
     """
-    servers: List[RTCIceServer] = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+    # A `stun:` entry can only yield srflx, never relay, so it cannot help a
+    # relay-only connection — it only gathers a public IP that
+    # filter_outbound_sdp() strips back out. Matches the client-side skip.
+    servers: List[RTCIceServer] = (
+        []
+        if FORCE_TURN_RELAY
+        else [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+    )
 
     # Check if TURN is configured. ENABLE_COTURN is the deployment's declared
     # answer to "is there a TURN server?" — the same flag /health advertises to
     # browsers — so the server side must respect it too, or it would try to
     # relay through a TURN server the deployment says it doesn't have.
     if not ENABLE_COTURN or not TURN_HOST:
+        if FORCE_TURN_RELAY:
+            # Fail loudly rather than silently degrading to STUN: relay-only was
+            # requested precisely because direct connectivity is known not to
+            # work, so an empty server list producing zero candidates is the
+            # honest outcome — but it needs to be diagnosable.
+            logger.error(
+                "FORCE_TURN_RELAY is on but no TURN server is configured "
+                f"(ENABLE_COTURN={ENABLE_COTURN}, TURN_HOST={TURN_HOST!r}). "
+                "Relay-only connections cannot succeed until TURN is configured."
+            )
         return servers
 
     # Use time-limited credentials if TURN_SECRET is configured (recommended)

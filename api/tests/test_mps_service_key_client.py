@@ -1,5 +1,9 @@
+import httpx
 import pytest
 
+from api.errors.failure import ErrorType
+from api.errors.mps import MPSUnavailableError
+from api.services import mps_service_key_client as mps_client_module
 from api.services.mps_service_key_client import MPSServiceKeyClient
 
 
@@ -46,6 +50,174 @@ def test_validate_service_key_uses_bearer_self_usage(monkeypatch):
             },
         )
     ]
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_validate_service_key_returns_false_only_for_auth_rejection(
+    monkeypatch,
+    status_code,
+):
+    emitted = []
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def get(self, url, headers):
+            return _Response(status_code)
+
+    monkeypatch.setattr(mps_client_module.httpx, "Client", FakeClient)
+    monkeypatch.setattr(
+        mps_client_module,
+        "log_failure",
+        lambda failure, **context: emitted.append((failure, context)),
+    )
+
+    assert MPSServiceKeyClient().validate_service_key("mps_sk_invalid") is False
+    assert emitted == []
+
+
+def test_validate_service_key_classifies_mps_http_failure(monkeypatch):
+    emitted = []
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def get(self, url, headers):
+            return _Response(503, text="upstream unavailable")
+
+    monkeypatch.setattr(mps_client_module.httpx, "Client", FakeClient)
+    monkeypatch.setattr(
+        mps_client_module,
+        "log_failure",
+        lambda failure, **context: emitted.append((failure, context)),
+    )
+
+    with pytest.raises(MPSUnavailableError) as exc_info:
+        MPSServiceKeyClient().validate_service_key(
+            "mps_sk_secret",
+            organization_id=42,
+            created_by="provider-123",
+        )
+
+    assert exc_info.value.status_code == 503
+    assert len(emitted) == 1
+    failure, context = emitted[0]
+    assert failure.type == ErrorType.SYSTEM_ERROR
+    assert failure.code == "dograh-503"
+    assert failure.provider == "dograh"
+    assert failure.error_owner.value == "operator"
+    assert "mps_sk_secret" not in failure.internal_message
+    assert context == {
+        "organization_id": 42,
+        "operation": "validate_service_key",
+    }
+
+
+def test_validate_service_key_classifies_mps_connection_failure(monkeypatch):
+    emitted = []
+    request_error = httpx.ConnectError(
+        "All connection attempts failed",
+        request=httpx.Request("GET", "https://services.dograh.com"),
+    )
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def get(self, url, headers):
+            raise request_error
+
+    monkeypatch.setattr(mps_client_module.httpx, "Client", FakeClient)
+    monkeypatch.setattr(
+        mps_client_module,
+        "log_failure",
+        lambda failure, **context: emitted.append((failure, context)),
+    )
+
+    with pytest.raises(MPSUnavailableError) as exc_info:
+        MPSServiceKeyClient().validate_service_key(
+            "mps_sk_secret",
+            organization_id=42,
+        )
+
+    assert exc_info.value.__cause__ is request_error
+    assert len(emitted) == 1
+    failure, context = emitted[0]
+    assert failure.type == ErrorType.SYSTEM_ERROR
+    assert failure.code == "dograh-connection"
+    assert failure.retryable is True
+    assert context == {
+        "organization_id": 42,
+        "operation": "validate_service_key",
+    }
+
+
+@pytest.mark.asyncio
+async def test_pricing_and_voice_failures_each_emit_one_classified_record(monkeypatch):
+    emitted = []
+    responses = [_Response(502), _Response(503)]
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers, params=None):
+            return responses.pop(0)
+
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(mps_client_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(
+        mps_client_module,
+        "log_failure",
+        lambda failure, **context: emitted.append((failure, context)),
+    )
+    client = MPSServiceKeyClient()
+
+    with pytest.raises(MPSUnavailableError):
+        await client.get_billing_pricing(42)
+    with pytest.raises(MPSUnavailableError):
+        await client.get_voices(provider="cartesia", organization_id=42)
+
+    assert len(emitted) == 2
+    pricing_failure, pricing_context = emitted[0]
+    voice_failure, voice_context = emitted[1]
+    assert pricing_failure.code == "dograh-502"
+    assert pricing_context == {
+        "organization_id": 42,
+        "operation": "get_billing_pricing",
+    }
+    assert voice_failure.code == "dograh-503"
+    assert voice_context == {
+        "organization_id": 42,
+        "operation": "get_voices",
+        "requested_provider": "cartesia",
+    }
 
 
 @pytest.mark.asyncio

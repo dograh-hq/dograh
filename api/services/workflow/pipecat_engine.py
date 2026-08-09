@@ -18,6 +18,11 @@ from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
 from api.enums import ToolCategory
+from api.errors.failure import (
+    classify_exception,
+    failure_metadata_for_processor,
+    log_failure,
+)
 from api.services.pipecat.audio_playback import play_audio
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
@@ -460,8 +465,17 @@ class PipecatEngine:
                     f"Variable extraction completed for node: {node.name}. Extracted: {extracted_data}"
                 )
             except Exception as e:
-                logger.error(
-                    f"Error during variable extraction for node {node.name}: {str(e)}"
+                metadata = failure_metadata_for_processor(self.variable_extraction_llm)
+                log_failure(
+                    classify_exception(
+                        e,
+                        source=metadata.source,
+                        provider=metadata.provider,
+                        error_owner=metadata.error_owner,
+                    ),
+                    organization_id=self._organization_id,
+                    workflow_run_id=self._workflow_run_id,
+                    node_name=node.name,
                 )
 
         if run_in_background:

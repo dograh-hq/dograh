@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from pipecat.frames.frames import (
+    ErrorFrame,
     TranscriptionFrame,
     TTSTextFrame,
 )
@@ -119,6 +120,56 @@ async def test_observer_waits_for_tts_text_from_output_transport():
             "payload": {"text": "Hello"},
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_observer_classifies_each_distinct_error_frame(monkeypatch):
+    messages = []
+    failures = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    def capture_failure(failure, **context):
+        failures.append((failure, context))
+
+    monkeypatch.setattr(
+        "api.services.pipecat.realtime_feedback_observer.log_failure",
+        capture_failure,
+    )
+    processor = type("DeepgramSTTService", (), {})()
+    observer = RealtimeFeedbackObserver(ws_sender=ws_sender)
+
+    first = ErrorFrame(
+        "Authentication failed",
+        processor=processor,
+        exception=type("ProviderError", (Exception,), {"status_code": 401})(
+            "Authentication failed"
+        ),
+    )
+    repeat = ErrorFrame(
+        "Authentication failed again",
+        fatal=True,
+        processor=processor,
+        exception=type("ProviderError", (Exception,), {"status_code": 401})(
+            "Authentication failed again"
+        ),
+    )
+
+    await observer.on_push_frame(_frame_pushed(first, FrameDirection.UPSTREAM))
+    await observer.on_push_frame(_frame_pushed(repeat, FrameDirection.UPSTREAM))
+    await observer.on_push_frame(_frame_pushed(first, FrameDirection.DOWNSTREAM))
+
+    # Distinct attempts are retained; re-observing the identical frame is not.
+    assert len(messages) == 2
+    assert len(failures) == 2
+    assert failures[0][0].source.value == "stt"
+    assert failures[0][0].type.value == "config_error"
+    assert failures[0][0].error_owner.value == "user"
+    assert failures[0][0].provider == "deepgram"
+    assert failures[0][0].code == "deepgram-401"
+    assert failures[0][1] == {"fatal": False}
+    assert failures[1][1] == {"fatal": True}
 
 
 @pytest.mark.asyncio

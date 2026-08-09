@@ -231,6 +231,15 @@ class TelephonyConfigurationModel(Base):
     is_default_outbound = Column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # Set by a connection worker when a config keeps failing (today only the ARI
+    # manager does this). Deactivation is one-way: the worker never re-enables a
+    # row, so recovery is always an explicit user action. ``inactive_since`` and
+    # ``inactive_reason`` record what happened, for display on the config screen.
+    inactive = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    inactive_since = Column(DateTime(timezone=True), nullable=True)
+    inactive_reason = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(
         DateTime(timezone=True),

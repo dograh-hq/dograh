@@ -224,6 +224,7 @@ services:
       # LANGFUSE_SECRET_KEY: ""
       # LANGFUSE_PUBLIC_KEY: ""
       # LANGFUSE_HOST: ""
+      # LANGFUSE_PROJECT_ID: ""
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1).
@@ -231,6 +232,7 @@ services:
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
       FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
+      SERVER_IP: "${SERVER_IP:-}"
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret}"
 

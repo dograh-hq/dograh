@@ -20,6 +20,13 @@ from api.utils.worker import get_worker_id, is_worker_process
 # Track if logging has been initialized
 _logging_initialized = False
 
+_FALLBACK_ERROR_CLASSIFICATION = {
+    "error_owner": "operator",
+    "error_type": "system_error",
+    "error_source": "platform",
+    "error_code": "unclassified-error",
+}
+
 
 class InterceptHandler(logging.Handler):
     """
@@ -41,9 +48,27 @@ class InterceptHandler(logging.Handler):
         ).log(level, record.getMessage())
 
 
-def inject_run_id(record):
-    """Inject run_id from context variable into log record"""
-    record["extra"]["run_id"] = run_id_var.get()
+def enrich_log_record(record):
+    """Inject run context and conservatively classify every ERROR record."""
+
+    extra = record["extra"]
+    extra["run_id"] = run_id_var.get()
+
+    if record["level"].no < logging.ERROR:
+        return
+
+    required_fields = _FALLBACK_ERROR_CLASSIFICATION.keys()
+    has_explicit_classification = all(extra.get(field) for field in required_fields)
+    if has_explicit_classification:
+        extra["classified"] = True
+        extra.setdefault("classification_mode", "explicit")
+        return
+
+    # An incomplete classification is not safe enough for customer routing. Assign
+    # the whole record to the operator so no partial user attribution leaks through.
+    extra.update(_FALLBACK_ERROR_CLASSIFICATION)
+    extra["classified"] = True
+    extra["classification_mode"] = "fallback"
 
 
 def setup_logging():
@@ -67,12 +92,13 @@ def setup_logging():
         # Handler might already be removed
         pass
 
-    # Set default extra values on the shared core so ALL logger references
-    # (including ones imported before this runs) have run_id available.
-    loguru.logger.configure(extra={"run_id": None})
-
-    # Patch loguru to inject run_id
-    patched = loguru.logger.patch(inject_run_id)
+    # Configure the shared core so ALL logger references (including ones imported
+    # before this runs) get the same run and ownership metadata.
+    loguru.logger.configure(
+        extra={"run_id": None},
+        patcher=enrich_log_record,
+    )
+    patched = loguru.logger
 
     log_format = "{time:YYYY-MM-DD HH:mm:ss.SSS} | <level>{level}</level> | [run_id={extra[run_id]}] | {file.name}:{line} | {message}"
 

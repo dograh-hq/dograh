@@ -43,12 +43,12 @@ from pipecat.turns.user_mute import (
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
-from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.workflow_graph import WorkflowGraph
+from api.tests.pipecat_test_utils import run_engine_test_pipeline
 from pipecat.tests import MockLLMService, MockTTSService
 
 
@@ -146,6 +146,7 @@ async def create_engine_for_mute_test(
             audio_out_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
         ),
     )
 
@@ -236,7 +237,7 @@ class TestUserMutingDuringBotSpeech:
         (
             engine,
             _tts,
-            _transport,
+            transport,
             task,
             _user_aggregator,
             observer,
@@ -254,12 +255,7 @@ class TestUserMutingDuringBotSpeech:
                 return_value={},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
                 async def run_test():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
                     await engine.set_node(engine.workflow.start_node_id)
 
                     # Trigger first LLM completion
@@ -280,10 +276,11 @@ class TestUserMutingDuringBotSpeech:
 
                     await task.cancel()
 
-                await asyncio.gather(
-                    run_pipeline(),
-                    run_test(),
-                    return_exceptions=True,
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=run_test,
                 )
 
         # VERIFY: Muted at first BotStartedSpeaking
@@ -321,7 +318,7 @@ class TestUserMutingDuringBotSpeech:
         (
             engine,
             _tts,
-            _transport,
+            transport,
             task,
             _user_aggregator,
             observer,
@@ -339,12 +336,7 @@ class TestUserMutingDuringBotSpeech:
                 return_value={},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
                 async def run_test():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
                     await engine.set_node(engine.workflow.start_node_id)
 
                     # Trigger first LLM completion
@@ -370,10 +362,11 @@ class TestUserMutingDuringBotSpeech:
 
                     await task.cancel()
 
-                await asyncio.gather(
-                    run_pipeline(),
-                    run_test(),
-                    return_exceptions=True,
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=run_test,
                 )
 
         # VERIFY: First bot started - should be muted (MuteUntilFirstBotComplete)
@@ -411,7 +404,7 @@ class TestUserMutingDuringBotSpeech:
         (
             engine,
             _tts,
-            _transport,
+            transport,
             task,
             _user_aggregator,
             observer,
@@ -429,12 +422,7 @@ class TestUserMutingDuringBotSpeech:
                 return_value={},
             ):
 
-                async def run_pipeline():
-                    await run_pipeline_worker(task)
-
                 async def run_test():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
                     await engine.set_node(engine.workflow.start_node_id)
 
                     # Trigger first LLM completion
@@ -460,10 +448,11 @@ class TestUserMutingDuringBotSpeech:
 
                     await task.cancel()
 
-                await asyncio.gather(
-                    run_pipeline(),
-                    run_test(),
-                    return_exceptions=True,
+                await run_engine_test_pipeline(
+                    task,
+                    engine,
+                    transport,
+                    on_ready=run_test,
                 )
 
         # VERIFY: First bot started - should be muted (MuteUntilFirstBotComplete)

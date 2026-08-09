@@ -1,9 +1,13 @@
 "use client";
 
+import { Info } from "lucide-react";
+
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {
     CredentialSelector,
+    extractUrlHostnameParameters,
+    extractUrlPathParameters,
     type HttpMethod,
     HttpMethodSelector,
     KeyValueEditor,
@@ -75,6 +79,9 @@ export function HttpApiToolConfig({
     onCustomMessageRecordingIdChange,
     recordings = [],
 }: HttpApiToolConfigProps) {
+    const urlHostnameParameters = extractUrlHostnameParameters(url);
+    const urlPathParameters = extractUrlPathParameters(url);
+
     return (
         <Card>
             <CardHeader>
@@ -147,6 +154,22 @@ export function HttpApiToolConfig({
                                 placeholder="https://api.example.com/appointments"
                                 showValidation
                             />
+                            {urlHostnameParameters.length > 0 && (
+                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-600 flex gap-2 items-start mt-2">
+                                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                                    <span>
+                                        Hostname parameters detected: {urlHostnameParameters.join(", ")}. Values resolve from tool call arguments or workflow context at runtime.
+                                    </span>
+                                </div>
+                            )}
+                            {urlPathParameters.length > 0 && (
+                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-600 flex gap-2 items-start mt-2">
+                                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                                    <span>
+                                        Path parameters detected: {urlPathParameters.join(", ")}. Values resolve from tool call arguments or workflow context at runtime.
+                                    </span>
+                                </div>
+                            )}
                         </div>
 
                         <div className="grid gap-2 pt-4 border-t">

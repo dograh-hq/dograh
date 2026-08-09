@@ -584,17 +584,7 @@ async def _run_pipeline(
 
 
 class _FirstInboundAudioObserver(BaseObserver):
-    """Fires once the transport hands the pipeline real inbound audio.
-
-    ``on_pipeline_started`` (StartFrame reaching the end of the pipeline)
-    only proves the pipeline is wired up -- it can race ahead of async
-    connection setup individual processors (STT/LLM/TTS) still perform in
-    the background, so it isn't proof the call is actually live. The
-    transport receiving real audio from the caller is: telephony providers
-    stream continuous PCM regardless of speech content, so this fires
-    within milliseconds of the media socket coming up on a healthy call,
-    and never fires at all if the call dies before that happens.
-    """
+    """Fires once the transport hands the pipeline real inbound audio."""
 
     def __init__(self, transport_input, on_first_frame: Callable[[], None]):
         super().__init__()
@@ -608,6 +598,51 @@ class _FirstInboundAudioObserver(BaseObserver):
         if isinstance(data.frame, InputAudioRawFrame):
             self._fired = True
             self._on_first_frame()
+
+
+class _MediaStartedGate:
+    """Fires ``on_media_started`` once the pipeline is both wired up and live.
+
+    Neither signal alone proves the call is genuinely running:
+
+    - ``on_pipeline_started`` (StartFrame reaching every processor) only
+      proves construction succeeded. A websocket-backed AI service (STT/TTS)
+      that fails to connect doesn't raise from its StartFrame handling --
+      it pushes a non-fatal ErrorFrame instead (see
+      ``WebsocketService``/``push_error``) -- so this fires even when a
+      required service never came up.
+    - The transport receiving real inbound audio only proves TryVox's media
+      socket is live; that's independent of and can race ahead of our own
+      pipeline's StartFrame propagation, so on its own it can't rule out a
+      startup exception that hasn't surfaced yet.
+
+    Requiring both before treating the call as started closes that race:
+    whichever signal arrives second is what actually flips the gate, so a
+    startup failure racing either signal still keeps rollback eligible.
+    """
+
+    def __init__(self, task, transport_input, on_media_started: Callable[[], None]):
+        self._on_media_started = on_media_started
+        self._pipeline_started = False
+        self._audio_seen = False
+        self._fired = False
+
+        task.add_observer(_FirstInboundAudioObserver(transport_input, self._on_audio))
+
+        @task.event_handler("on_pipeline_started")
+        async def _on_pipeline_started(*_args):
+            self._pipeline_started = True
+            self._maybe_fire()
+
+    def _on_audio(self) -> None:
+        self._audio_seen = True
+        self._maybe_fire()
+
+    def _maybe_fire(self) -> None:
+        if self._fired or not (self._pipeline_started and self._audio_seen):
+            return
+        self._fired = True
+        self._on_media_started()
 
 
 async def _run_pipeline_impl(
@@ -1128,9 +1163,7 @@ async def _run_pipeline_impl(
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
     if on_media_started is not None:
-        task.add_observer(
-            _FirstInboundAudioObserver(transport.input(), on_media_started)
-        )
+        _MediaStartedGate(task, transport.input(), on_media_started)
     transcript_log_coordinator = TranscriptLogCoordinator(in_memory_logs_buffer)
     if task.turn_tracking_observer is None:
         raise RuntimeError("Transcript logging requires turn tracking to be enabled")

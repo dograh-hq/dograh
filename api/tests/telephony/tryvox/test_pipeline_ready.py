@@ -8,6 +8,7 @@ from pipecat.processors.frame_processor import FrameDirection
 
 from api.services.pipecat.run_pipeline import (
     _FirstInboundAudioObserver,
+    _MediaStartedGate,
     _run_pipeline_telephony_impl,
 )
 
@@ -20,6 +21,34 @@ def _frame_pushed(frame, *, source):
         direction=FrameDirection.DOWNSTREAM,
         timestamp=0,
     )
+
+
+class _FakeTask:
+    """Minimal double exposing the PipelineWorker surface _MediaStartedGate uses."""
+
+    def __init__(self):
+        self.observers = []
+        self._handlers: dict[str, list] = {}
+
+    def add_observer(self, observer):
+        self.observers.append(observer)
+
+    def event_handler(self, event_name):
+        def decorator(handler):
+            self._handlers.setdefault(event_name, []).append(handler)
+            return handler
+
+        return decorator
+
+    async def fire_pipeline_started(self):
+        for handler in self._handlers.get("on_pipeline_started", []):
+            await handler()
+
+    async def fire_audio(self, transport_input):
+        for observer in self.observers:
+            await observer.on_push_frame(
+                _frame_pushed(_input_audio_frame(), source=transport_input)
+            )
 
 
 def _input_audio_frame():
@@ -215,5 +244,66 @@ async def test_first_inbound_audio_observer_ignores_non_audio_frames():
     observer = _FirstInboundAudioObserver(transport_input, lambda: fired.append(True))
 
     await observer.on_push_frame(_frame_pushed(StartFrame(), source=transport_input))
+
+    assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_media_started_gate_requires_both_signals():
+    task = _FakeTask()
+    transport_input = SimpleNamespace()
+    fired = []
+
+    _MediaStartedGate(task, transport_input, lambda: fired.append(True))
+
+    await task.fire_audio(transport_input)
+    assert fired == [], "audio alone must not be enough"
+
+    await task.fire_pipeline_started()
+    assert fired == [True]
+
+
+@pytest.mark.asyncio
+async def test_media_started_gate_fires_when_pipeline_starts_first():
+    task = _FakeTask()
+    transport_input = SimpleNamespace()
+    fired = []
+
+    _MediaStartedGate(task, transport_input, lambda: fired.append(True))
+
+    await task.fire_pipeline_started()
+    assert fired == [], "pipeline start alone must not be enough"
+
+    await task.fire_audio(transport_input)
+    assert fired == [True]
+
+
+@pytest.mark.asyncio
+async def test_media_started_gate_fires_only_once():
+    task = _FakeTask()
+    transport_input = SimpleNamespace()
+    fired = []
+
+    _MediaStartedGate(task, transport_input, lambda: fired.append(True))
+
+    await task.fire_pipeline_started()
+    await task.fire_audio(transport_input)
+    await task.fire_audio(transport_input)
+    await task.fire_pipeline_started()
+
+    assert fired == [True]
+
+
+@pytest.mark.asyncio
+async def test_media_started_gate_ignores_audio_from_other_sources():
+    task = _FakeTask()
+    transport_input = SimpleNamespace()
+    other_processor = SimpleNamespace()
+    fired = []
+
+    _MediaStartedGate(task, transport_input, lambda: fired.append(True))
+
+    await task.fire_pipeline_started()
+    await task.fire_audio(other_processor)
 
     assert fired == []

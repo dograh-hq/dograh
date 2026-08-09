@@ -14,6 +14,10 @@ from api.services.pipecat.service_factory import (
 from api.services.workflow.dto import QANodeData
 
 QA_USAGE_CONTEXT = "qa_analysis"
+# Explicit output ceiling for QA grader inference. Google/Anthropic default to
+# 4096 output tokens (shared with dynamic thinking on Gemini), truncating long
+# grading JSON. A generous ceiling + bounded thinking lets a full grade complete.
+QA_MAX_OUTPUT_TOKENS = 16384
 
 
 async def create_qa_llm_service(
@@ -47,6 +51,7 @@ async def create_qa_llm_service(
             api_key,
             correlation_id=correlation_id,
             usage_context=QA_USAGE_CONTEXT,
+            max_tokens=QA_MAX_OUTPUT_TOKENS,
             **kwargs,
         )
         return llm, model
@@ -75,6 +80,7 @@ async def create_qa_llm_service(
         model_override,
         correlation_id=correlation_id,
         usage_context=QA_USAGE_CONTEXT,
+        max_tokens=QA_MAX_OUTPUT_TOKENS,
     )
     return llm, model
 

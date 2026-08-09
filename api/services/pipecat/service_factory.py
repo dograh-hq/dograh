@@ -948,6 +948,7 @@ def create_llm_service_from_provider(
     location: str | None = None,
     credentials: str | None = None,
     temperature: float | None = None,
+    max_tokens: int | None = None,
     bill_to: str | None = None,
     usage_context: str | None = None,
 ):
@@ -1000,9 +1001,18 @@ def create_llm_service_from_provider(
         )
     elif provider == ServiceProviders.GOOGLE.value:
         model = _migrate_deprecated_google_model(model)
+        google_settings_kwargs: dict = {"model": model, "temperature": 0.1}
+        if max_tokens is not None:
+            # Give the grader a large explicit output ceiling and cap "thinking"
+            # so the reasoning budget can't crowd out the answer. Gemini's default
+            # (4096, shared with dynamic thinking) truncated long QA-grader JSON.
+            google_settings_kwargs["max_tokens"] = max_tokens
+            google_settings_kwargs["thinking"] = GoogleLLMService.ThinkingConfig(
+                thinking_budget=4096
+            )
         return DograhGoogleLLMService(
             api_key=api_key,
-            settings=GoogleLLMSettings(model=model, temperature=0.1),
+            settings=GoogleLLMSettings(**google_settings_kwargs),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
         return DograhGoogleVertexLLMService(
@@ -1282,6 +1292,7 @@ def create_llm_service(
     user_config,
     correlation_id: str | None = None,
     usage_context: str | None = None,
+    max_tokens: int | None = None,
 ):
     """Create and return appropriate LLM service based on user configuration."""
     provider = user_config.llm.provider
@@ -1323,6 +1334,7 @@ def create_llm_service(
         api_key,
         correlation_id=correlation_id,
         usage_context=usage_context,
+        max_tokens=max_tokens,
         **kwargs,
     )
 
@@ -1332,6 +1344,7 @@ def create_llm_service_with_model_override(
     model_override: str | None,
     correlation_id: str | None = None,
     usage_context: str | None = None,
+    max_tokens: int | None = None,
 ):
     """Create an LLM service with an optional model override.
 
@@ -1343,6 +1356,7 @@ def create_llm_service_with_model_override(
             user_config,
             correlation_id=correlation_id,
             usage_context=usage_context,
+            max_tokens=max_tokens,
         )
 
     if user_config.llm is None:
@@ -1354,4 +1368,5 @@ def create_llm_service_with_model_override(
         overridden_config,
         correlation_id=correlation_id,
         usage_context=usage_context,
+        max_tokens=max_tokens,
     )

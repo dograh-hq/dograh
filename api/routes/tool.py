@@ -253,13 +253,10 @@ async def test_tool(
     # matching live execution. URL variables remain in the body/query.
     resolved_arguments = {**request.preset_params, **request.llm_params}
 
-    # Mirror execute_http_tool's own branch: POST/PUT/PATCH send the
-    # resolved arguments as a JSON body; GET/DELETE send them as query
-    # params. Never both.
     request_body = None
     request_params = None
     if configured_method in ("POST", "PUT", "PATCH"):
-        request_body = resolved_arguments  # keep {} so preview matches wire request
+        request_body = result.get("request_body_preview", resolved_arguments)
     elif resolved_arguments:
         request_params = serialize_query_params(resolved_arguments)
 

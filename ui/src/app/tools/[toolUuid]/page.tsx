@@ -114,6 +114,10 @@ export default function ToolDetailPage() {
     const [parameters, setParameters] = useState<ToolParameter[]>([]);
     const [presetParameters, setPresetParameters] = useState<PresetToolParameter[]>([]);
     const [timeoutMs, setTimeoutMs] = useState(5000);
+    const [bodyTemplateEnabled, setBodyTemplateEnabled] = useState(false);
+    const [bodyTemplate, setBodyTemplate] = useState<Record<string, unknown> | null>(null);
+    const [isBodyTemplateValid, setIsBodyTemplateValid] = useState(true);
+    const bodyTemplateSupported = ["POST", "PUT", "PATCH"].includes(httpMethod);
 
     // End Call form state
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
@@ -302,6 +306,7 @@ export default function ToolDetailPage() {
                 const loadedCustomMessage = config.customMessage || "";
                 const loadedCustomMessageType = config.customMessageType || "text";
                 const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
+                const loadedBodyTemplate = config.body_template ?? null;
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
@@ -309,6 +314,9 @@ export default function ToolDetailPage() {
                 setCustomMessage(loadedCustomMessage);
                 setCustomMessageType(loadedCustomMessageType);
                 setCustomMessageRecordingId(loadedCustomMessageRecordingId);
+                setBodyTemplateEnabled(loadedBodyTemplate !== null);
+                setBodyTemplate(loadedBodyTemplate);
+                setIsBodyTemplateValid(true);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -356,6 +364,8 @@ export default function ToolDetailPage() {
                         headers: loadedHeaders,
                         parameters: loadedParameters,
                         presetParameters: loadedPresetParameters,
+                        bodyTemplateEnabled: loadedBodyTemplate !== null,
+                        bodyTemplate: loadedBodyTemplate,
                         timeoutMs: loadedTimeoutMs,
                         customMessage: loadedCustomMessage,
                         customMessageType: loadedCustomMessageType,
@@ -491,6 +501,14 @@ export default function ToolDetailPage() {
             );
             if (invalidPresetParams.length > 0) {
                 setError("All preset parameters must have a name and a value");
+                return;
+            }
+            if (
+                bodyTemplateSupported &&
+                bodyTemplateEnabled &&
+                (!isBodyTemplateValid || bodyTemplate === null)
+            ) {
+                setError("Body template must be a valid JSON object");
                 return;
             }
         }
@@ -644,6 +662,9 @@ export default function ToolDetailPage() {
                                         required: p.required,
                                     }))
                                     : undefined,
+                            body_template: bodyTemplateSupported && bodyTemplateEnabled
+                                ? bodyTemplate || undefined
+                                : undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -681,6 +702,8 @@ export default function ToolDetailPage() {
                             headers,
                             parameters,
                             presetParameters,
+                            bodyTemplateEnabled,
+                            bodyTemplate,
                             timeoutMs,
                             customMessage,
                             customMessageType,
@@ -728,10 +751,12 @@ export default function ToolDetailPage() {
             }
         });
 
+        const requestBody = bodyTemplateEnabled && bodyTemplate ? bodyTemplate : exampleBody;
         const hasBody =
-            httpMethod !== "GET" &&
-            httpMethod !== "DELETE" &&
-            (parameters.length > 0 || presetParameters.length > 0);
+            bodyTemplateSupported &&
+            (bodyTemplateEnabled
+                ? bodyTemplate !== null
+                : parameters.length > 0 || presetParameters.length > 0);
 
         return `// ${tool.name}
 // ${tool.description || "HTTP API Tool"}
@@ -739,7 +764,7 @@ export default function ToolDetailPage() {
 const response = await fetch("${url}", {
     method: "${httpMethod}",
     headers: ${JSON.stringify(headersObj, null, 4)},${hasBody ? `
-    body: JSON.stringify(${JSON.stringify(exampleBody, null, 4)}),` : ""}
+    body: JSON.stringify(${JSON.stringify(requestBody, null, 4)}),` : ""}
 });
 
 const data = await response.json();`;
@@ -802,6 +827,8 @@ const data = await response.json();`;
                 headers,
                 parameters,
                 presetParameters,
+                bodyTemplateEnabled,
+                bodyTemplate,
                 timeoutMs,
                 customMessage,
                 customMessageType,
@@ -1024,6 +1051,11 @@ const data = await response.json();`;
                             onParametersChange={setParameters}
                             presetParameters={presetParameters}
                             onPresetParametersChange={setPresetParameters}
+                            bodyTemplateEnabled={bodyTemplateEnabled}
+                            onBodyTemplateEnabledChange={setBodyTemplateEnabled}
+                            bodyTemplate={bodyTemplate}
+                            onBodyTemplateChange={setBodyTemplate}
+                            onBodyTemplateValidityChange={setIsBodyTemplateValid}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

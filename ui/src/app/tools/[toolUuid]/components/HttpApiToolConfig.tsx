@@ -18,9 +18,11 @@ import {
     type ToolParameter,
     UrlInput,
 } from "@/components/http";
+import { BodyTemplateEditor } from "@/components/http/body-template-editor";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -41,6 +43,11 @@ export interface HttpApiToolConfigProps {
     onParametersChange: (parameters: ToolParameter[]) => void;
     presetParameters: PresetToolParameter[];
     onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
+    bodyTemplateEnabled: boolean;
+    onBodyTemplateEnabledChange: (enabled: boolean) => void;
+    bodyTemplate: Record<string, unknown> | null;
+    onBodyTemplateChange: (template: Record<string, unknown> | null) => void;
+    onBodyTemplateValidityChange: (valid: boolean) => void;
     timeoutMs: number;
     onTimeoutMsChange: (timeout: number) => void;
     customMessage: string;
@@ -69,6 +76,11 @@ export function HttpApiToolConfig({
     onParametersChange,
     presetParameters,
     onPresetParametersChange,
+    bodyTemplateEnabled,
+    onBodyTemplateEnabledChange,
+    bodyTemplate,
+    onBodyTemplateChange,
+    onBodyTemplateValidityChange,
     timeoutMs,
     onTimeoutMsChange,
     customMessage,
@@ -228,6 +240,33 @@ export function HttpApiToolConfig({
                                 onChange={onPresetParametersChange}
                             />
                         </div>
+
+                        {["POST", "PUT", "PATCH"].includes(httpMethod) && (
+                            <div className="grid gap-4 pt-4 border-t">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="grid gap-1">
+                                        <Label htmlFor="body-template-enabled">
+                                            Tool Body Template
+                                        </Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Enable a custom JSON request body.
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        id="body-template-enabled"
+                                        checked={bodyTemplateEnabled}
+                                        onCheckedChange={onBodyTemplateEnabledChange}
+                                    />
+                                </div>
+                                {bodyTemplateEnabled && (
+                                    <BodyTemplateEditor
+                                        value={bodyTemplate}
+                                        onChange={onBodyTemplateChange}
+                                        onValidityChange={onBodyTemplateValidityChange}
+                                    />
+                                )}
+                            </div>
+                        )}
 
                         <div className="grid gap-2 pt-4 border-t">
                             <Label>Custom Headers</Label>

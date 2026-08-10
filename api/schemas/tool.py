@@ -140,6 +140,10 @@ class HttpApiConfig(BaseModel):
     customMessageRecordingId: str | None = Field(
         default=None, description="Recording ID for an audio custom message."
     )
+    body_template: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional JSON body template for POST, PUT, and PATCH requests.",
+    )
 
     @field_validator("method", mode="before")
     @classmethod

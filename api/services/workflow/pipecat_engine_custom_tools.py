@@ -696,6 +696,7 @@ class CustomToolManager:
                     workflow_run, organization_id
                 )
 
+                self._engine.arm_speech_playback()
                 if resolved_transfer.message:
                     await self._engine.task.queue_frame(
                         TTSSpeakFrame(
@@ -704,8 +705,9 @@ class CustomToolManager:
                             persist_to_logs=True,
                         )
                     )
+                    message_queued = True
                 else:
-                    await self._play_config_message(config)
+                    message_queued = await self._play_config_message(config)
 
                 if external_pbx_call:
                     workflow_configurations = (
@@ -717,6 +719,11 @@ class CustomToolManager:
                         self._engine._gathered_context,
                         workflow_configurations.get("external_pbx_field_mappings", []),
                     )
+                    # The external PBX pulls the customer off our leg as soon as
+                    # the transfer API returns, so the pre-transfer message has
+                    # to finish playing before we make that call.
+                    if message_queued:
+                        await self._engine.wait_for_speech_playback()
                     external_result = await provider.transfer_external_pbx_call(
                         identity=external_pbx_call,
                         destination=destination,

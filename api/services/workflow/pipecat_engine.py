@@ -130,6 +130,12 @@ class PipecatEngine:
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
         self._bot_is_speaking: bool = False
 
+        # Playback tracking for speech a caller needs to await (see
+        # arm_speech_playback / wait_for_speech_playback). Armed state is
+        # "nothing started yet", so both events start cleared.
+        self._speech_playback_started: asyncio.Event = asyncio.Event()
+        self._speech_playback_finished: asyncio.Event = asyncio.Event()
+
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
 
@@ -849,6 +855,61 @@ class PipecatEngine:
         )
         await self.task.queue_frame(frame_to_push)
 
+    def arm_speech_playback(self) -> None:
+        """Start tracking the next piece of speech queued to the transport.
+
+        Call this immediately *before* queueing a TTSSpeakFrame (or raw
+        recording audio) whose playback a later step must wait for. Any speech
+        already in flight is ignored: the tracker only completes once a fresh
+        BotStartedSpeakingFrame has been followed by a BotStoppedSpeakingFrame.
+        """
+        self._speech_playback_started.clear()
+        self._speech_playback_finished.clear()
+
+    async def wait_for_speech_playback(
+        self, *, start_timeout: float = 5.0, playback_timeout: float = 30.0
+    ) -> bool:
+        """Wait for speech armed via ``arm_speech_playback`` to finish playing.
+
+        Speech queued to the pipeline only reaches the caller once the output
+        transport has written it out in real time, so anything that tears the
+        audio path down (a PBX transfer, a hangup) must wait for this first.
+
+        Args:
+            start_timeout: Seconds to wait for playback to begin. TTS can fail
+                or return nothing, so a message that never starts must not
+                block the caller indefinitely.
+            playback_timeout: Seconds to wait for playback to complete once it
+                has begun.
+
+        Returns:
+            True if the speech played to completion, False if either wait timed
+            out (the caller should carry on regardless).
+        """
+        try:
+            await asyncio.wait_for(
+                self._speech_playback_started.wait(), timeout=start_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Queued speech never started playing within {start_timeout}s; "
+                "continuing without it"
+            )
+            return False
+
+        try:
+            await asyncio.wait_for(
+                self._speech_playback_finished.wait(), timeout=playback_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Queued speech did not finish playing within {playback_timeout}s; "
+                "continuing"
+            )
+            return False
+
+        return True
+
     async def should_mute_user(self, frame: "Frame") -> bool:
         """
         Callback for CallbackUserMuteStrategy to determine if the user should be muted.
@@ -865,9 +926,12 @@ class PipecatEngine:
             self._bot_is_speaking = True
             if self._queued_speech_mute_state == "waiting":
                 self._queued_speech_mute_state = "playing"
+            self._speech_playback_started.set()
+            self._speech_playback_finished.clear()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
             self._queued_speech_mute_state = "idle"
+            self._speech_playback_finished.set()
 
         # Always mute if pipeline is shutting down
         if self._mute_pipeline:

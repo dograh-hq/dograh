@@ -172,15 +172,25 @@ class VicidialAdapter(ExternalPBXAdapter):
             "pass": self._non_agent_password,
             "function": "update_lead",
             "lead_id": lead_id,
+            # non_agent_api.php gates its result line on this parameter: without
+            # it the update still runs but the response body is empty, which
+            # reads here as a rejection. The agent API echoes unconditionally,
+            # which is why only this call needs it.
+            "format": "text",
         }
         try:
             async with aiohttp.ClientSession(timeout=self._timeout) as session:
                 async with session.get(self._non_agent_url, params=params) as response:
                     response_text = (await response.text()).strip()
                     ok = response.status == 200 and response_text.startswith("SUCCESS")
+            # On rejection the body carries VICIdial's own reason; logging only
+            # status and ok leaves no way to tell a permission error from a bad
+            # field name without replaying the call by hand.
+            detail = "" if ok else f" response={response_text[:200]!r}"
             logger.info(
                 "[VICIdial] update_lead completed "
-                f"status={response.status} ok={ok} field_count={len(safe_fields)}"
+                f"status={response.status} ok={ok} "
+                f"field_count={len(safe_fields)}{detail}"
             )
             return ExternalPBXResult(
                 ok,

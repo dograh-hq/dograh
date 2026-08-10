@@ -3349,6 +3349,68 @@ export type ImpersonateResponse = {
 };
 
 /**
+ * ImportToolError
+ *
+ * Per-item error from a bulk tool import.
+ */
+export type ImportToolError = {
+    /**
+     * Index
+     *
+     * Zero-based index of the failed tool in the request list.
+     */
+    index: number;
+    /**
+     * Name
+     *
+     * Name of the tool that failed to import.
+     */
+    name: string;
+    /**
+     * Error
+     *
+     * Human-readable reason for the failure.
+     */
+    error: string;
+};
+
+/**
+ * ImportToolsRequest
+ *
+ * Request schema for bulk-importing tools from exported JSON.
+ */
+export type ImportToolsRequest = {
+    /**
+     * Tools
+     *
+     * List of tool objects to import. Accepts both typed format (schema_version / type / config) and legacy exported format.
+     */
+    tools: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+/**
+ * ImportToolsResponse
+ *
+ * Result of a bulk tool import (partial success supported).
+ */
+export type ImportToolsResponse = {
+    /**
+     * Imported
+     *
+     * Tools that were successfully created.
+     */
+    imported?: Array<ToolResponse>;
+    /**
+     * Errors
+     *
+     * Per-item errors for tools that could not be created.
+     */
+    errors?: Array<ImportToolError>;
+};
+
+/**
  * InitEmbedRequest
  *
  * Request model for initializing an embed session
@@ -11079,6 +11141,45 @@ export type CreateToolApiV1ToolsPostResponses = {
 };
 
 export type CreateToolApiV1ToolsPostResponse = CreateToolApiV1ToolsPostResponses[keyof CreateToolApiV1ToolsPostResponses];
+
+export type ImportToolsApiV1ToolsImportPostData = {
+    body: ImportToolsRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/tools/import';
+};
+
+export type ImportToolsApiV1ToolsImportPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ImportToolsApiV1ToolsImportPostError = ImportToolsApiV1ToolsImportPostErrors[keyof ImportToolsApiV1ToolsImportPostErrors];
+
+export type ImportToolsApiV1ToolsImportPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ImportToolsResponse;
+};
+
+export type ImportToolsApiV1ToolsImportPostResponse = ImportToolsApiV1ToolsImportPostResponses[keyof ImportToolsApiV1ToolsImportPostResponses];
 
 export type DeleteToolApiV1ToolsToolUuidDeleteData = {
     body?: never;

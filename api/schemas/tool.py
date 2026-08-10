@@ -599,3 +599,43 @@ class ToolTestResponse(BaseModel):
     request_body: dict[str, Any] | None = None
     request_params: dict[str, Any] | None = None
     duration_ms: int
+
+
+# ---------------------------------------------------------------------------
+# Bulk import
+# ---------------------------------------------------------------------------
+
+
+class ImportToolsRequest(BaseModel):
+    """Request schema for bulk-importing tools from exported JSON."""
+
+    tools: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description=(
+            "List of tool objects to import. Accepts both typed format "
+            "(schema_version / type / config) and legacy exported format."
+        ),
+    )
+
+
+class ImportToolError(BaseModel):
+    """Per-item error from a bulk tool import."""
+
+    index: int = Field(description="Zero-based index of the failed tool in the request list.")
+    name: str = Field(description="Name of the tool that failed to import.")
+    error: str = Field(description="Human-readable reason for the failure.")
+
+
+class ImportToolsResponse(BaseModel):
+    """Result of a bulk tool import (partial success supported)."""
+
+    imported: list[ToolResponse] = Field(
+        default_factory=list,
+        description="Tools that were successfully created.",
+    )
+    errors: list[ImportToolError] = Field(
+        default_factory=list,
+        description="Per-item errors for tools that could not be created.",
+    )

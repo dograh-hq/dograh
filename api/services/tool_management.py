@@ -17,6 +17,9 @@ from api.enums import PostHogEvent, ToolCategory
 from api.schemas.tool import (
     CreatedByResponse,
     CreateToolRequest,
+    ImportToolError,
+    ImportToolsRequest,
+    ImportToolsResponse,
     McpRefreshResponse,
     ToolResponse,
 )
@@ -77,7 +80,6 @@ def _credential_uuids_from_definition(definition: dict[str, Any]) -> list[str]:
     top_level = _credential_uuid_from_definition(definition)
     if top_level:
         credential_uuids.append(top_level)
-
     config = definition.get("config")
     if isinstance(config, dict):
         resolver = config.get("resolver")
@@ -303,3 +305,133 @@ async def refresh_mcp_tool_for_user(
     return McpRefreshResponse(
         tool_uuid=tool_uuid, discovered_tools=discovered, error=None
     )
+
+
+def normalize_import_tool_data(item: dict[str, Any]) -> CreateToolRequest:
+    """Normalize a raw or legacy exported tool dict into CreateToolRequest."""
+    raw_def = item.get("definition")
+    if not isinstance(raw_def, dict):
+        raw_def = dict(item)
+
+    name = item.get("name") or raw_def.get("name") or "Unnamed Tool"
+    description = item.get("description") or raw_def.get("description")
+    category = item.get("category") or raw_def.get("type") or "http_api"
+    icon = item.get("icon") or "globe"
+    icon_color = item.get("icon_color") or "#3B82F6"
+
+    # If category is invalid, fallback to http_api
+    valid_categories = [c.value for c in ToolCategory]
+    if category not in valid_categories:
+        category = "http_api"
+
+    # Check if already typed definition format
+    if "schema_version" in raw_def or "type" in raw_def or "config" in raw_def:
+        typed_def = dict(raw_def)
+        if "type" not in typed_def:
+            typed_def["type"] = category
+        if "schema_version" not in typed_def:
+            typed_def["schema_version"] = 1
+        definition = typed_def
+    else:
+        # Legacy/flat format (e.g. url, method, headers, parameters)
+        tool_type = (
+            category
+            if category in ("http_api", "end_call", "transfer_call", "calculator", "mcp")
+            else "http_api"
+        )
+
+        url = raw_def.get("url", "")
+        method = raw_def.get("method", "POST")
+        headers = raw_def.get("headers")
+
+        # Convert parameters
+        parameters = None
+        raw_params = raw_def.get("parameters")
+        if (
+            isinstance(raw_params, dict)
+            and "properties" in raw_params
+            and isinstance(raw_params["properties"], dict)
+        ):
+            properties = raw_params["properties"]
+            required_set = (
+                set(raw_params.get("required", []))
+                if isinstance(raw_params.get("required"), list)
+                else set()
+            )
+            param_list = []
+            for p_name, p_info in properties.items():
+                p_type = "string"
+                p_desc = ""
+                if isinstance(p_info, dict):
+                    p_type = p_info.get("type", "string")
+                    p_desc = p_info.get("description", "")
+                param_list.append(
+                    {
+                        "name": p_name,
+                        "type": p_type,
+                        "description": p_desc,
+                        "required": p_name in required_set,
+                    }
+                )
+            parameters = param_list
+        elif isinstance(raw_params, list):
+            parameters = raw_params
+
+        config = {
+            "method": method,
+            "url": url,
+            "headers": headers,
+            "parameters": parameters,
+            "credential_uuid": raw_def.get("credential_uuid"),
+            "timeout_ms": raw_def.get("timeout_ms", 5000),
+            "customMessage": raw_def.get("customMessage"),
+            "customMessageType": raw_def.get("customMessageType"),
+            "customMessageRecordingId": raw_def.get("customMessageRecordingId"),
+        }
+
+        definition = {
+            "schema_version": 1,
+            "type": tool_type,
+            "config": config,
+        }
+
+    return CreateToolRequest.model_validate(
+        {
+            "name": name,
+            "description": description,
+            "category": category,
+            "icon": icon,
+            "icon_color": icon_color,
+            "definition": definition,
+        }
+    )
+
+
+async def import_tools_for_user(
+    request: ImportToolsRequest,
+    user: UserModel,
+) -> ImportToolsResponse:
+    """Import multiple tools for the user's organization with per-item error handling."""
+    if not user.selected_organization_id:
+        raise ToolManagementError(
+            "organization_required",
+            "No organization selected for the user",
+            status_code=400,
+        )
+
+    imported: list[ToolResponse] = []
+    errors: list[ImportToolError] = []
+
+    for index, raw_item in enumerate(request.tools):
+        item_name = raw_item.get("name") or f"Item {index + 1}"
+        try:
+            create_req = normalize_import_tool_data(raw_item)
+            tool_resp = await create_tool_for_user(create_req, user, source="import_api")
+            imported.append(tool_resp)
+        except ToolManagementError as e:
+            errors.append(ImportToolError(index=index, name=item_name, error=e.message))
+        except Exception as e:  # noqa: BLE001
+            errors.append(ImportToolError(index=index, name=item_name, error=str(e)))
+
+    return ImportToolsResponse(imported=imported, errors=errors)
+

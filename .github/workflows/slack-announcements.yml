@@ -7,8 +7,6 @@ on:
 jobs:
   notify-slack:
     runs-on: ubuntu-latest
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Check if announcement
         id: check

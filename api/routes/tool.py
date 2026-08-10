@@ -253,14 +253,11 @@ async def test_tool(
     # matching live execution. URL variables remain in the body/query.
     resolved_arguments = {**request.preset_params, **request.llm_params}
 
-    # Mirror execute_http_tool's own branch: POST/PUT/PATCH send the
-    # resolved arguments as a JSON body; GET/DELETE send them as query
-    # params. Never both.
-    # Read the actual rendered body from execute_http_tool via build_result.
-    # None for GET/DELETE; flat dict for flat-mode POST; rendered nested dict for template mode.
-    request_body = result.get("request_body_preview")
+    request_body = None
     request_params = None
-    if configured_method in ("GET", "DELETE") and resolved_arguments:
+    if configured_method in ("POST", "PUT", "PATCH"):
+        request_body = result.get("request_body_preview", resolved_arguments)
+    elif resolved_arguments:
         request_params = serialize_query_params(resolved_arguments)
 
     return ToolTestResponse(

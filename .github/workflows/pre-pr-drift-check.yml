@@ -77,9 +77,7 @@ jobs:
           ENABLE_AWS_S3: "false"
           MINIO_PUBLIC_ENDPOINT: http://localhost:9000
           DEPLOYMENT_MODE: oss
-        run: |
-          cd /tmp
-          python -u ${{ github.workspace }}/scripts/dump_docs_openapi.py
+        run: python -u -m scripts.dump_docs_openapi
 
       - name: Check for OpenAPI drift
         run: |
@@ -91,7 +89,7 @@ jobs:
           echo "OpenAPI spec is in sync."
 
   notify-slack-failure:
-    needs: [drift-check]
+    needs: drift-check
     if: ${{ always() && needs.drift-check.result == 'failure' }}
     runs-on: ubuntu-latest
     env:

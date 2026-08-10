@@ -506,12 +506,7 @@ async def test_tool_test_sets_request_body_for_post_method(monkeypatch):
         tool_route,
         "execute_http_tool",
         AsyncMock(
-            return_value={
-                "status": "success",
-                "status_code": 200,
-                "data": {"id": 1},
-                "request_body_preview": {"name": "Ada"},
-            }
+            return_value={"status": "success", "status_code": 200, "data": {"id": 1}}
         ),
     )
 
@@ -583,12 +578,7 @@ async def test_tool_test_request_body_includes_resolved_preset_parameters(
         tool_route,
         "execute_http_tool",
         AsyncMock(
-            return_value={
-                "status": "success",
-                "status_code": 200,
-                "data": {"ok": True},
-                "request_body_preview": {"name": "Ada", "source": "llm"},
-            }
+            return_value={"status": "success", "status_code": 200, "data": {"ok": True}}
         ),
     )
 
@@ -615,14 +605,7 @@ async def test_tool_test_no_arguments_post_shows_empty_body(monkeypatch):
     monkeypatch.setattr(
         tool_route,
         "execute_http_tool",
-        AsyncMock(
-            return_value={
-                "status": "success",
-                "status_code": 200,
-                "data": None,
-                "request_body_preview": {},
-            }
-        ),
+        AsyncMock(return_value={"status": "success", "status_code": 200, "data": None}),
     )
 
     resp = await call_test_tool_route(

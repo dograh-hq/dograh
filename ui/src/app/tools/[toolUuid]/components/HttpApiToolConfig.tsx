@@ -22,7 +22,6 @@ import { BodyTemplateEditor } from "@/components/http/body-template-editor";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -42,12 +41,10 @@ export interface HttpApiToolConfigProps {
     parameters: ToolParameter[];
     onParametersChange: (parameters: ToolParameter[]) => void;
     presetParameters: PresetToolParameter[];
+    onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
     bodyTemplate: Record<string, unknown> | null;
     onBodyTemplateChange: (template: Record<string, unknown> | null) => void;
-    useBodyTemplate: boolean;
-    onUseBodyTemplateChange: (use: boolean) => void;
-    onBodyTemplateValidityChange: (isValid: boolean) => void;
-    onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
+    onBodyTemplateValidityChange: (valid: boolean) => void;
     timeoutMs: number;
     onTimeoutMsChange: (timeout: number) => void;
     customMessage: string;
@@ -78,8 +75,6 @@ export function HttpApiToolConfig({
     onPresetParametersChange,
     bodyTemplate,
     onBodyTemplateChange,
-    useBodyTemplate,
-    onUseBodyTemplateChange,
     onBodyTemplateValidityChange,
     timeoutMs,
     onTimeoutMsChange,
@@ -229,6 +224,14 @@ export function HttpApiToolConfig({
                             />
                         </div>
 
+                        {["POST", "PUT", "PATCH"].includes(httpMethod) && (
+                            <BodyTemplateEditor
+                                value={bodyTemplate}
+                                onChange={onBodyTemplateChange}
+                                onValidityChange={onBodyTemplateValidityChange}
+                            />
+                        )}
+
                         <div className="grid gap-2 pt-4 border-t">
                             <Label>Preset Parameters</Label>
                             <Label className="text-xs text-muted-foreground">
@@ -240,44 +243,6 @@ export function HttpApiToolConfig({
                                 onChange={onPresetParametersChange}
                             />
                         </div>
-
-                        {["POST", "PUT", "PATCH"].includes(httpMethod) && (
-                            <div className="space-y-3 pt-4 border-t">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <Label className="text-sm font-medium">Request Body</Label>
-                                        <p className="text-xs text-muted-foreground mt-0.5">
-                                            {useBodyTemplate
-                                                ? "Using a JSON body template. Placeholders filled by the agent."
-                                                : "Parameters sent as a flat JSON object."}
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Label className="text-xs">Use body template</Label>
-                                        <Switch
-                                            aria-label="Use body template"
-                                            checked={useBodyTemplate}
-                                            onCheckedChange={(checked) => {
-                                                onUseBodyTemplateChange(checked);
-                                                if (!checked) onBodyTemplateValidityChange(true);
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                                <div className={useBodyTemplate ? "" : "hidden"}>
-                                    <BodyTemplateEditor
-                                        value={bodyTemplate}
-                                        onChange={onBodyTemplateChange}
-                                        enabled={["POST", "PUT", "PATCH"].includes(httpMethod) && useBodyTemplate}
-                                        onValidityChange={onBodyTemplateValidityChange}
-                                        availableParams={Array.from(new Set([
-                                            ...parameters.map((p) => p.name),
-                                            ...presetParameters.map((p) => p.name),
-                                        ].filter(Boolean)))}
-                                    />
-                                </div>
-                            </div>
-                        )}
 
                         <div className="grid gap-2 pt-4 border-t">
                             <Label>Custom Headers</Label>

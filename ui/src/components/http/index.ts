@@ -1,4 +1,3 @@
-export { BodyTemplateEditor } from "./body-template-editor";
 export { CreateCredentialDialog } from "./create-credential-dialog";
 export { CredentialSelector } from "./credential-selector";
 export { type HttpMethod, HttpMethodSelector } from "./http-method-selector";

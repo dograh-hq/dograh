@@ -3135,7 +3135,7 @@ export type HttpApiConfig = {
     /**
      * Body Template
      *
-     * Optional nested JSON body template for POST/PUT/PATCH requests. Use {{placeholder}} for LLM/preset parameters, {{initial_context.*}} for call context, {{gathered_context.*}} for conversation context. When set, replaces the default flat-dict body. Static values in the template are sent as-is.
+     * Optional JSON body template for POST, PUT, and PATCH requests.
      */
     body_template?: {
         [key: string]: unknown;

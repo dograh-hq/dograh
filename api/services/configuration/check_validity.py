@@ -1,10 +1,9 @@
-from typing import Optional
+from typing import Optional, TypedDict
 
 import httpx
 import openai
 from deepgram import DeepgramClient
 from groq import Groq
-from typing_extensions import TypedDict
 
 # try:
 #     from pyneuphonic import Neuphonic

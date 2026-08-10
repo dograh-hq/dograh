@@ -115,6 +115,7 @@ export default function ToolDetailPage() {
     const [presetParameters, setPresetParameters] = useState<PresetToolParameter[]>([]);
     const [timeoutMs, setTimeoutMs] = useState(5000);
     const [bodyTemplate, setBodyTemplate] = useState<Record<string, unknown> | null>(null);
+    const [isBodyTemplateValid, setIsBodyTemplateValid] = useState(true);
 
     // End Call form state
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
@@ -151,8 +152,6 @@ export default function ToolDetailPage() {
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
     const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
-    const [useBodyTemplate, setUseBodyTemplate] = useState(false);
-    const [isBodyTemplateValid, setIsBodyTemplateValid] = useState(true);
 
     // MCP form state
     const [mcpUrl, setMcpUrl] = useState("");
@@ -306,9 +305,6 @@ export default function ToolDetailPage() {
                 const loadedCustomMessageType = config.customMessageType || "text";
                 const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
                 const loadedBodyTemplate = config.body_template || null;
-                setBodyTemplate(loadedBodyTemplate);
-                setUseBodyTemplate(loadedBodyTemplate !== null && loadedBodyTemplate !== undefined);
-                setIsBodyTemplateValid(true);
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
@@ -316,6 +312,8 @@ export default function ToolDetailPage() {
                 setCustomMessage(loadedCustomMessage);
                 setCustomMessageType(loadedCustomMessageType);
                 setCustomMessageRecordingId(loadedCustomMessageRecordingId);
+                setBodyTemplate(loadedBodyTemplate);
+                setIsBodyTemplateValid(true);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -364,7 +362,6 @@ export default function ToolDetailPage() {
                         parameters: loadedParameters,
                         presetParameters: loadedPresetParameters,
                         bodyTemplate: loadedBodyTemplate,
-                        useBodyTemplate: loadedBodyTemplate !== null && loadedBodyTemplate !== undefined,
                         timeoutMs: loadedTimeoutMs,
                         customMessage: loadedCustomMessage,
                         customMessageType: loadedCustomMessageType,
@@ -396,12 +393,6 @@ export default function ToolDetailPage() {
 
     const handleSave = async () => {
         if (!tool) return;
-
-        const hasBodyTemplate = ['POST', 'PUT', 'PATCH'].includes(httpMethod) && useBodyTemplate;
-        if (tool.category === "http_api" && hasBodyTemplate && !isBodyTemplateValid) {
-            setError("Please fix errors in the JSON body template before saving");
-            return;
-        }
 
         const normalizedTransferDestination = transferDestination.trim();
 
@@ -508,9 +499,8 @@ export default function ToolDetailPage() {
                 setError("All preset parameters must have a name and a value");
                 return;
             }
-
-            if (['POST', 'PUT', 'PATCH'].includes(httpMethod) && useBodyTemplate && !bodyTemplate) {
-                setError("JSON body template cannot be empty when enabled");
+            if (["POST", "PUT", "PATCH"].includes(httpMethod) && !isBodyTemplateValid) {
+                setError("Body template must be a valid JSON object");
                 return;
             }
         }
@@ -664,7 +654,9 @@ export default function ToolDetailPage() {
                                         required: p.required,
                                     }))
                                     : undefined,
-                            body_template: ['POST', 'PUT', 'PATCH'].includes(httpMethod) && useBodyTemplate ? (bodyTemplate || undefined) : undefined,
+                            body_template: ["POST", "PUT", "PATCH"].includes(httpMethod)
+                                ? bodyTemplate || undefined
+                                : undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -703,7 +695,6 @@ export default function ToolDetailPage() {
                             parameters,
                             presetParameters,
                             bodyTemplate,
-                            useBodyTemplate,
                             timeoutMs,
                             customMessage,
                             customMessageType,
@@ -751,24 +742,19 @@ export default function ToolDetailPage() {
             }
         });
 
+        const requestBody = bodyTemplate || exampleBody;
         const hasBody =
             httpMethod !== "GET" &&
             httpMethod !== "DELETE" &&
-            !useBodyTemplate &&
-            (parameters.length > 0 || presetParameters.length > 0);
-
-        const bodyOutput = exampleBody;
-        const bodyComment = useBodyTemplate
-            ? "\n// Note: This tool uses a server-side body template.\n// The payload is constructed at runtime and is omitted from this client preview."
-            : "";
+            (bodyTemplate !== null || parameters.length > 0 || presetParameters.length > 0);
 
         return `// ${tool.name}
-// ${tool.description || "HTTP API Tool"}${bodyComment}
+// ${tool.description || "HTTP API Tool"}
 
 const response = await fetch("${url}", {
     method: "${httpMethod}",
     headers: ${JSON.stringify(headersObj, null, 4)},${hasBody ? `
-    body: JSON.stringify(${JSON.stringify(bodyOutput, null, 4)}),` : ""}
+    body: JSON.stringify(${JSON.stringify(requestBody, null, 4)}),` : ""}
 });
 
 const data = await response.json();`;
@@ -832,7 +818,6 @@ const data = await response.json();`;
                 parameters,
                 presetParameters,
                 bodyTemplate,
-                useBodyTemplate,
                 timeoutMs,
                 customMessage,
                 customMessageType,
@@ -1044,12 +1029,7 @@ const data = await response.json();`;
                             description={description}
                             onDescriptionChange={setDescription}
                             httpMethod={httpMethod}
-                            onHttpMethodChange={(method) => {
-                                setHttpMethod(method);
-                                // GET/DELETE do not support a body — the editor is hidden
-                                // but useBodyTemplate and bodyTemplate are preserved in state
-                                // so switching back to POST/PUT/PATCH restores them.
-                            }}
+                            onHttpMethodChange={setHttpMethod}
                             url={url}
                             onUrlChange={setUrl}
                             credentialUuid={credentialUuid}
@@ -1062,8 +1042,6 @@ const data = await response.json();`;
                             onPresetParametersChange={setPresetParameters}
                             bodyTemplate={bodyTemplate}
                             onBodyTemplateChange={setBodyTemplate}
-                            useBodyTemplate={useBodyTemplate}
-                            onUseBodyTemplateChange={setUseBodyTemplate}
                             onBodyTemplateValidityChange={setIsBodyTemplateValid}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}

@@ -100,11 +100,9 @@ export function ParameterEditor({
                             <Input
                                 placeholder="e.g., customer_name"
                                 value={param.name}
-                                onChange={(e) => {
-                                    // Trim whitespace but allow dashes to pass through to backend validation
-                                    const sanitized = e.target.value.trim();
-                                    updateParameter(index, "name", sanitized);
-                                }}
+                                onChange={(e) =>
+                                    updateParameter(index, "name", e.target.value)
+                                }
                                 disabled={disabled}
                             />
                         </div>
@@ -247,11 +245,9 @@ export function PresetParameterEditor({
                             <Input
                                 placeholder="e.g., phone_number"
                                 value={param.name}
-                                onChange={(e) => {
-                                    // Trim whitespace but allow dashes to pass through to backend validation
-                                    const sanitized = e.target.value.trim();
-                                    updateParameter(index, "name", sanitized);
-                                }}
+                                onChange={(e) =>
+                                    updateParameter(index, "name", e.target.value)
+                                }
                                 disabled={disabled}
                             />
                         </div>

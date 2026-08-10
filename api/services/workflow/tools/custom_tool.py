@@ -19,7 +19,11 @@ from api.errors.failure import (
 )
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
-from api.utils.template_renderer import render_template, render_url_template
+from api.utils.template_renderer import (
+    get_nested_value,
+    render_template,
+    render_url_template,
+)
 from api.utils.url_security import validate_user_configured_service_url
 
 # Map tool parameter types to JSON schema types
@@ -31,23 +35,7 @@ TYPE_MAP = {
     "array": "array",
 }
 
-
-def validate_parameter_name(name: str) -> str:
-    """Strip whitespace and ensure name is a valid template identifier."""
-    if not name:
-        return ""
-    clean_name = name.strip()
-    if not re.match(r"^[a-zA-Z0-9_\-]+$", clean_name):
-        raise ValueError(
-            f"Invalid parameter name '{name}'. Parameter names must contain only "
-            "alphanumeric characters, underscores, and dashes."
-        )
-    return clean_name
-
-
-# Matches a template leaf that is ENTIRELY one placeholder and nothing else.
-# "{{adults}}" → matches;  "Ref-{{id}}" → does NOT match.
-_WHOLE_PLACEHOLDER_RE = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
+_FULL_PLACEHOLDER = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
 
 
 def custom_tool_function_name(name: str) -> str:
@@ -101,11 +89,7 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
     required = []
 
     for param in parameters:
-        try:
-            param_name = validate_parameter_name(param.get("name", ""))
-        except ValueError:
-            continue
-
+        param_name = param.get("name", "")
         param_type = param.get("type", "string")
         param_desc = param.get("description", "")
         param_required = param.get("required", True)
@@ -179,17 +163,12 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
         return str(value)
 
     if param_type == "number":
-        if isinstance(value, bool):
-            return 1 if value else 0
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             return value
 
         rendered = str(value).strip()
         if rendered == "":
             return None
-
-        if rendered.lower() in ("true", "false"):
-            return 1 if rendered.lower() == "true" else 0
 
         if re.fullmatch(r"[-+]?\d+", rendered):
             return int(rendered)
@@ -234,343 +213,6 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
     return value
 
 
-def _coerce_typed_leaves(
-    original_node: Any,
-    rendered_node: Any,
-    arguments: dict[str, Any],
-    param_type_map: dict[str, str],
-    call_context_vars: dict[str, Any] | None = None,
-    gathered_context_vars: dict[str, Any] | None = None,
-) -> Any:
-    """Walk the original template and rendered output in parallel.
-
-    If an original leaf is entirely a ``{{param_name}}`` placeholder, coerce the
-    rendered string value back to the declared parameter type using the raw value
-    from ``arguments``.
-
-    Partial-placeholder strings (``"Ref-{{id}}"``) stay as strings.
-    Non-string originals (int, bool, None) are returned from the rendered output
-    unchanged — ``render_template`` already preserved their type (lines 89–91).
-    """
-    if isinstance(original_node, dict):
-        if not isinstance(rendered_node, dict):
-            return rendered_node
-        if len(original_node) != len(rendered_node):
-            # Key collision: two template keys rendered to the same string.
-            # This would silently drop a field — raise so the call fails clearly.
-            raise ValueError(
-                "Body template contains keys that render to the same value. "
-                "Use static keys or ensure placeholder keys resolve to unique strings."
-            )
-
-        return {
-            rendered_key: _coerce_typed_leaves(
-                orig_v,
-                rendered_v,
-                arguments,
-                param_type_map,
-                call_context_vars,
-                gathered_context_vars,
-            )
-            for (_, orig_v), (rendered_key, rendered_v) in zip(
-                original_node.items(), rendered_node.items()
-            )
-        }
-
-    if isinstance(original_node, list):
-        if not isinstance(rendered_node, list):
-            return rendered_node
-        # render_template preserves list length (line 87); zip is safe.
-        return [
-            _coerce_typed_leaves(
-                orig_item,
-                rend_item,
-                arguments,
-                param_type_map,
-                call_context_vars,
-                gathered_context_vars,
-            )
-            for orig_item, rend_item in zip(original_node, rendered_node)
-        ]
-
-    if isinstance(original_node, str):
-        m = _WHOLE_PLACEHOLDER_RE.match(original_node)
-        if m:
-            param_name = m.group(1)
-
-            if param_name.startswith("initial_context."):
-                key_path = param_name[len("initial_context.") :]
-                from api.utils.template_renderer import get_nested_value
-
-                val = get_nested_value(call_context_vars or {}, key_path)
-                # Only prefer raw context when non-empty; empty lets the fallback
-                # filter in rendered_node (e.g. "{{phone | unknown}}") win.
-                return val if val not in (None, "") else rendered_node
-
-            if param_name.startswith("gathered_context."):
-                key_path = param_name[len("gathered_context.") :]
-                from api.utils.template_renderer import get_nested_value
-
-                val = get_nested_value(gathered_context_vars or {}, key_path)
-                return val if val not in (None, "") else rendered_node
-
-            # Support dotted argument paths such as {{customer.age}} where
-            # "customer" is an object parameter. Resolve via nested lookup first.
-            if "." in param_name:
-                from api.utils.template_renderer import get_nested_value
-
-                raw_arg = get_nested_value(arguments, param_name)
-                if raw_arg not in (None, ""):
-                    return raw_arg
-
-            # Flat LLM parameter — coerce to declared type if needed.
-            declared_type = param_type_map.get(param_name, "string")
-            if declared_type != "string":
-                raw_arg = arguments.get(param_name)
-                # If the raw argument is missing or empty, prefer the already-rendered
-                # value (which incorporates any fallback filter, e.g. {{qty | 5}}).
-                # Only attempt coercion when a non-empty raw argument exists.
-                val_to_coerce = (
-                    raw_arg
-                    if (raw_arg is not None and raw_arg != "")
-                    else rendered_node
-                )
-                try:
-                    return _coerce_parameter_value(val_to_coerce, declared_type)
-                except ValueError:
-                    pass  # Leave as rendered string rather than crashing the call
-
-    # Non-string originals and partial placeholders — already correct from render_template.
-    return rendered_node
-
-
-def render_body_template(
-    template: dict[str, Any],
-    arguments: dict[str, Any],
-    parameters: list[dict[str, Any]],
-    call_context_vars: dict[str, Any] | None = None,
-    gathered_context_vars: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Render a nested JSON body template using resolved arguments and call context.
-
-    Args:
-        template:              The body_template dict from the tool config.
-        arguments:             Merged flat dict of LLM + preset resolved arguments.
-                               Preset values already win (merged upstream).
-        parameters:            Raw parameter dicts from config (each has "name", "type",
-                               "required" keys — raw JSON dicts, NOT Pydantic instances).
-        call_context_vars:     Call-start context for {{initial_context.*}} access.
-        gathered_context_vars: Conversation context for {{gathered_context.*}} access.
-
-    Returns:
-        Fully rendered nested dict ready to be sent as the HTTP request body.
-
-    Raises:
-        ValueError: If a required parameter has no value.
-    """
-    # Build param name → declared type for post-render coercion.
-    param_type_map: dict[str, str] = {}
-    for p in parameters or []:
-        try:
-            clean_name = validate_parameter_name(p.get("name", ""))
-            if clean_name:
-                param_type_map[clean_name] = p.get("type", "string")
-        except ValueError as e:
-            raise ValueError(str(e))
-
-    # Pre-render required parameter check (fast fail before any HTTP call).
-    # 0, False, {}, [] are valid non-missing values — only None and "" trigger this.
-    #
-    # We intentionally avoid reusing workflow_graph.extract_template_variables here
-    # because that function excludes system-injected vars (provider, campaign_id,
-    # source_uuid). HTTP tool parameters may legitimately share those names and must
-    # still be validated.
-    import re as _re
-
-    # Captures the top-level variable name before any dot path or fallback filter.
-    # Matches {{name}}, {{name.path}}, {{name | fallback}}, {{name.path | fallback}}.
-    _TMPL_VAR_RE = _re.compile(
-        r"\{\{\s*([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|[^}]*)?\s*\}\}"
-    )
-
-    template_str = json.dumps(template) if template else "{}"
-    # Collect all referenced top-level names (no fallback filter — those are optional by design).
-    # Skip system dot-path variables like initial_context.x and gathered_context.x.
-    _SYSTEM_PREFIXES = {
-        "initial_context",
-        "gathered_context",
-        "current_time",
-        "current_weekday",
-    }
-
-    # Guard against undeclared placeholders or malformed delimiters before rendering.
-    # Otherwise, undeclared placeholders render as "" and malformed syntax is sent literally.
-    _pos = 0
-    while True:
-        _idx = template_str.find("{{", _pos)
-        if _idx == -1:
-            break
-        _end_idx = template_str.find("}}", _idx + 2)
-        if _end_idx == -1:
-            raise ValueError("Malformed body template: unmatched '{{' found.")
-        _next_idx = template_str.find("{{", _idx + 2)
-        if _next_idx != -1 and _next_idx < _end_idx:
-            raise ValueError("Malformed body template: nested '{{' found.")
-
-        _placeholder_content = template_str[_idx + 2 : _end_idx].strip()
-        _match = _re.match(
-            r"^([^.|\s}]+)(?:\.[^|\s}]+)*(?:\s*\|\s*[^:}]+(?::[^}]+)?)?$",
-            _placeholder_content,
-        )
-        if not _match:
-            raise ValueError(
-                f"Malformed body template: invalid placeholder syntax '{{{{{_placeholder_content}}}}}'."
-            )
-
-        _top_level = _match.group(1)
-
-        if (
-            _top_level not in param_type_map
-            and (
-                _top_level in ("current_time", "current_weekday")
-                or _top_level.startswith(("current_time_", "current_weekday_"))
-            )
-        ) and _placeholder_content.startswith(f"{_top_level}."):
-            raise ValueError(
-                f"Malformed body template: built-in '{_top_level}' does not support dot notation."
-            )
-
-        if _top_level not in _SYSTEM_PREFIXES and _top_level not in param_type_map:
-            is_valid_tz = False
-            for prefix in ("current_time_", "current_weekday_"):
-                if _top_level.startswith(prefix):
-                    tz_suffix = _top_level[len(prefix) :]
-                    if tz_suffix:
-                        try:
-                            import zoneinfo
-
-                            zoneinfo.ZoneInfo(tz_suffix)
-                            is_valid_tz = True
-                        except Exception:
-                            pass
-                    break
-
-            if not is_valid_tz:
-                raise ValueError(
-                    f"Undeclared placeholder: '{{{{{_top_level}}}}}' is not a configured parameter."
-                )
-
-        _pos = _end_idx + 2
-
-    required_in_template: set[str] = {
-        m.group(1)
-        for m in _TMPL_VAR_RE.finditer(template_str)
-        if "|"
-        not in template_str[
-            m.start() : m.end()
-        ]  # skip fallback vars (they're optional)
-        and (m.group(1) not in _SYSTEM_PREFIXES or m.group(1) in param_type_map)
-    }
-    _TMPL_PATH_RE = _re.compile(r"\{\{\s*([^|\s}]+\.[^|\s}]+)\s*\}\}")
-    required_dotted_paths: set[str] = {
-        m.group(1)
-        for m in _TMPL_PATH_RE.finditer(template_str)
-        if "|" not in template_str[m.start() : m.end()]
-        and (
-            m.group(1).split(".", 1)[0] not in _SYSTEM_PREFIXES
-            or m.group(1).split(".", 1)[0] in param_type_map
-        )
-    }
-
-    def _get_dotted_val(d: dict[str, Any], path: str) -> Any:
-        curr: Any = d
-        for part in path.split("."):
-            if isinstance(curr, dict) and part in curr:
-                curr = curr[part]
-            else:
-                return None
-        return curr
-
-    for param in parameters or []:
-        try:
-            name = validate_parameter_name(param.get("name", ""))
-        except ValueError:
-            continue
-        if not name:
-            continue
-        param_type = param.get("type", "string")
-        if param.get("required", True):
-            if name in required_in_template:
-                val = arguments.get(name)
-                if val is None or val == "":
-                    raise ValueError(
-                        f"Required parameter '{name}' has no value. "
-                        "The agent must collect this before calling the tool."
-                    )
-            # Enforce strict dotted-path existence for all parameters, including objects,
-            # so incomplete payloads never leave the service.
-            for dotted_path in required_dotted_paths:
-                if dotted_path.startswith(f"{name}."):
-                    sub_val = _get_dotted_val(arguments, dotted_path)
-                    if sub_val is None or sub_val == "":
-                        raise ValueError(
-                            f"Required parameter path '{dotted_path}' has no value. "
-                            "The agent must collect this before calling the tool."
-                        )
-
-    # Build render context.
-    #
-    # KEY ORDERING: nested framework keys are placed FIRST so that **arguments
-    # (spread LAST) wins for any flat key collision. This guarantees LLM/preset
-    # values are never silently overwritten by call context keys.
-    #
-    # "initial_context" and "gathered_context" are RESERVED names; if an LLM
-    # parameter uses either name, **arguments will overwrite the nested dict and
-    # {{initial_context.*}} / {{gathered_context.*}} path lookups will return "".
-    # The UI warns and blocks saving when reserved names are detected.
-    #
-    # We do NOT spread **call_context_vars flat (unlike _resolve_preset_parameters).
-    # In preset templates, that flat spread is safe because no LLM args are present.
-    # Here, LLM args ARE present; a flat spread could silently clobber LLM values.
-
-    safe_arguments = dict(arguments)
-    # Guard against tools that bypass schema validation (e.g. pre-existing stored
-    # config, MCP-authored tools) and carry a parameter literally named
-    # "initial_context" or "gathered_context". If such a value reached render_context
-    # it would silently clobber the namespace dict and corrupt all {{initial_context.*}}
-    # lookups. Raise explicitly so the failure is surfaced cleanly.
-    _RESERVED_NAMESPACES = {"initial_context", "gathered_context"}
-    for reserved in _RESERVED_NAMESPACES:
-        if reserved in safe_arguments and reserved in param_type_map:
-            raise ValueError(
-                f"Tool parameter '{reserved}' conflicts with a reserved Dograh namespace. "
-                "Rename the parameter in the tool configuration."
-            )
-
-    render_context: dict[str, Any] = {
-        **safe_arguments,  # LLM + preset values FIRST
-        "initial_context": dict(call_context_vars or {}),
-        "gathered_context": dict(gathered_context_vars or {}),
-    }
-
-    # Render all {{placeholders}}.
-    rendered = render_template(template, render_context)
-    if not isinstance(rendered, dict):
-        # Defensive: body_template is schema-validated to be a dict, and
-        # render_template(dict, ...) always returns a dict (lines 76–83).
-        raise ValueError("Rendered body template is not a JSON object.")
-
-    # Restore correct types for whole-placeholder number/boolean/object/array leaves.
-    return _coerce_typed_leaves(
-        template,
-        rendered,
-        arguments,
-        param_type_map,
-        call_context_vars=call_context_vars,
-        gathered_context_vars=gathered_context_vars,
-    )
-
-
 def _resolve_preset_parameters(
     config: dict[str, Any],
     call_context_vars: dict[str, Any] | None,
@@ -593,11 +235,7 @@ def _resolve_preset_parameters(
 
     resolved: dict[str, Any] = {}
     for param in preset_parameters:
-        try:
-            param_name = validate_parameter_name(param.get("name", ""))
-        except ValueError as e:
-            raise ValueError(str(e))
-
+        param_name = (param.get("name") or "").strip()
         if not param_name:
             continue
 
@@ -614,6 +252,26 @@ def _resolve_preset_parameters(
         )
 
     return resolved
+
+
+def render_body_template(template: Any, context: dict[str, Any]) -> Any:
+    """Render a JSON template while preserving whole-placeholder value types."""
+    if isinstance(template, dict):
+        return {
+            render_template(str(key), context): render_body_template(value, context)
+            for key, value in template.items()
+        }
+    if isinstance(template, list):
+        return [render_body_template(value, context) for value in template]
+    if not isinstance(template, str):
+        return template
+
+    match = _FULL_PLACEHOLDER.fullmatch(template)
+    if match:
+        value = get_nested_value(context, match.group(1))
+        if value is not None and not isinstance(value, str):
+            return value
+    return render_template(template, context)
 
 
 async def execute_http_tool(
@@ -698,7 +356,7 @@ async def execute_http_tool(
             request_headers[header_name] = mask_key(str(header_value))
 
     _rendered_url: str | None = None
-    _body_preview: dict[str, Any] | None = None
+    _request_body_preview: Any = None
 
     def build_result(result: dict[str, Any]) -> dict[str, Any]:
         if include_request_headers:
@@ -706,7 +364,7 @@ async def execute_http_tool(
                 **result,
                 "request_headers": request_headers,
                 "rendered_url": _rendered_url,
-                "request_body_preview": _body_preview,
+                "request_body_preview": _request_body_preview,
             }
         return result
 
@@ -735,7 +393,6 @@ async def execute_http_tool(
                 tool_name=tool.name,
             )
             return build_result({"status": "error", "error": str(e)})
-            # _body_preview = None at this point (assigned before build_result). ✓
     else:
         preset_arguments = dict(preset_params)
 
@@ -776,47 +433,25 @@ async def execute_http_tool(
             {"status": "error", "error": f"URL validation failed: {e!s}"}
         )
 
-    request_arguments = resolved_arguments
-
-    # Build request body or query params.
+    # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
     params = None
-    body_template = config.get("body_template")
-
     if method in ("POST", "PUT", "PATCH"):
-        if body_template is not None:
-            parameters = [
-                *(config.get("parameters") or []),
-                *(config.get("preset_parameters") or []),
-            ]
-            try:
-                body = render_body_template(
-                    template=body_template,
-                    arguments=resolved_arguments,
-                    parameters=parameters,
-                    call_context_vars=call_context_vars,
-                    gathered_context_vars=gathered_context_vars,
-                )
-            except Exception as e:
-                logger.error(
-                    f"Custom tool '{tool.name}' body template render failed: {e}"
-                )
-                return build_result(
-                    {
-                        "status": "error",
-                        "error": f"Body template rendering failed: {e!s}",
-                    }
-                )
-                # _body_preview is still None here (set below, after this block). ✓
+        body_template = config.get("body_template")
+        if body_template is None:
+            body = resolved_arguments
         else:
-            body = request_arguments
-
-    elif method in ("GET", "DELETE") and request_arguments:
-        params = serialize_query_params(request_arguments)
-
-    # Capture final body for the test-mode preview.
-    # The closure reads _body_preview at call time, after this assignment.
-    _body_preview = body
+            body = render_body_template(
+                body_template,
+                {
+                    **resolved_arguments,
+                    "initial_context": initial_context,
+                    "gathered_context": gathered_context,
+                },
+            )
+        _request_body_preview = body
+    elif method in ("GET", "DELETE") and resolved_arguments:
+        params = serialize_query_params(resolved_arguments)
 
     logger.info(
         f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): "
@@ -826,8 +461,6 @@ async def execute_http_tool(
         logger.debug(
             f"Resolved preset parameters for '{tool.name}': {list(preset_arguments.keys())}"
         )
-    logger.debug(f"Request body: {body}, params: {params}")
-
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             response = await client.request(

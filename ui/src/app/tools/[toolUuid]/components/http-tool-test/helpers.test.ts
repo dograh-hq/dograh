@@ -88,7 +88,6 @@ describe("buildHttpToolTestSnapshot", () => {
         parameters: [],
         presetParameters: [],
         bodyTemplate: null,
-        useBodyTemplate: false,
         timeoutMs: 5000,
         customMessage: "",
         customMessageType: "text",
@@ -119,10 +118,7 @@ describe("buildHttpToolTestSnapshot", () => {
             buildHttpToolTestSnapshot({ ...base, customMessage: "Done" })
         );
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
-            buildHttpToolTestSnapshot({ ...base, useBodyTemplate: true })
-        );
-        expect(buildHttpToolTestSnapshot(base)).not.toBe(
-            buildHttpToolTestSnapshot({ ...base, bodyTemplate: { "foo": "bar" } })
+            buildHttpToolTestSnapshot({ ...base, bodyTemplate: { id: "{{id}}" } })
         );
     });
 });

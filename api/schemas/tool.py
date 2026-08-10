@@ -8,8 +8,6 @@ when the same schema is surfaced through MCP or SDK authoring flows.
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -35,46 +33,6 @@ ToolCategoryValue = Literal[
 
 def _llm_hint(text: str) -> dict[str, str]:
     return {"llm_hint": text}
-
-
-def _validate_param_name_not_reserved(v: str) -> str:
-    if re.search(r"\s", v):
-        raise ValueError(
-            f"Parameter name '{v}' contains whitespace which is not allowed. "
-            "Use a flat snake_case name without spaces (e.g. 'email_address')."
-        )
-
-    if not re.fullmatch(r"[A-Za-z0-9_\-]+", v):
-        raise ValueError(
-            f"Parameter name '{v}' must contain only alphanumeric characters, underscores, and dashes. "
-            "Use a flat snake_case name (e.g. 'email_address')."
-        )
-
-    # Reject dotted names — dots are path separators in the template renderer;
-    # silently normalising customer.id → customer_id would leave {{customer.id}}
-    # placeholders unresolvable.
-    if "." in v:
-        raise ValueError(
-            f"Parameter name '{v}' contains '.' which is not allowed. "
-            "Dots are used as path separators in template placeholders. "
-            "Use a flat snake_case name instead (e.g. 'customer_id')."
-        )
-
-    if v in {"initial_context", "gathered_context"}:
-        raise ValueError(
-            f"Parameter name '{v}' is reserved for call context. "
-            f"Use a different name (e.g. '{v}_custom')."
-        )
-
-    _BUILTIN_PREFIXES = ("current_time", "current_weekday")
-    for prefix in _BUILTIN_PREFIXES:
-        if v == prefix or v.startswith(prefix + "_"):
-            raise ValueError(
-                f"Parameter name '{v}' conflicts with built-in template variable '{prefix}'. "
-                f"Use a different name (e.g. 'custom_{v}')."
-            )
-
-    return v
 
 
 class ToolParameter(BaseModel):
@@ -103,11 +61,6 @@ class ToolParameter(BaseModel):
         description="Whether this parameter is required when the tool is called.",
     )
 
-    @field_validator("name")
-    @classmethod
-    def validate_name_not_reserved(cls, v: str) -> str:
-        return _validate_param_name_not_reserved(v)
-
 
 class PresetToolParameter(BaseModel):
     """A parameter injected by Dograh at runtime."""
@@ -130,11 +83,6 @@ class PresetToolParameter(BaseModel):
         default=True,
         description="Whether the parameter must resolve to a non-empty value.",
     )
-
-    @field_validator("name")
-    @classmethod
-    def validate_name_not_reserved(cls, v: str) -> str:
-        return _validate_param_name_not_reserved(v)
 
 
 class HttpApiConfig(BaseModel):
@@ -194,14 +142,7 @@ class HttpApiConfig(BaseModel):
     )
     body_template: dict[str, Any] | None = Field(
         default=None,
-        description=(
-            "Optional nested JSON body template for POST/PUT/PATCH requests. "
-            "Use {{placeholder}} for LLM/preset parameters, "
-            "{{initial_context.*}} for call context, "
-            "{{gathered_context.*}} for conversation context. "
-            "When set, replaces the default flat-dict body. "
-            "Static values in the template are sent as-is."
-        ),
+        description="Optional JSON body template for POST, PUT, and PATCH requests.",
     )
 
     @field_validator("method", mode="before")
@@ -213,70 +154,6 @@ class HttpApiConfig(BaseModel):
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise ValueError("method must be one of GET, POST, PUT, PATCH, DELETE")
         return method
-
-    @field_validator("body_template", mode="before")
-    @classmethod
-    def validate_body_template_shape_and_size(cls, v: Any) -> Any:
-        """Reject oversized or wrongly-typed body_template values."""
-        if v is None:
-            return v
-        # Defensively parse JSON strings (e.g. from MCP authoring surface).
-        if isinstance(v, str):
-            try:
-                v = json.loads(v)
-            except (json.JSONDecodeError, RecursionError) as exc:
-                raise ValueError(
-                    f"body_template must be valid JSON and no more than 20 levels deep: {exc}"
-                ) from exc
-        if not isinstance(v, dict):
-            raise ValueError(
-                "body_template must be a JSON object (dict), not an array or primitive."
-            )
-
-        def _check_depth(node: Any, level: int = 1) -> None:
-            # Only containers (dict/list) consume a nesting level; scalars do not.
-            if isinstance(node, dict):
-                if level > 20:
-                    raise ValueError(
-                        "body_template nesting depth exceeds maximum allowed (20)."
-                    )
-                for val in node.values():
-                    _check_depth(val, level + 1)
-            elif isinstance(node, list):
-                if level > 20:
-                    raise ValueError(
-                        "body_template nesting depth exceeds maximum allowed (20)."
-                    )
-                for item in node:
-                    _check_depth(item, level + 1)
-
-        _check_depth(v)
-
-        try:
-            size = len(
-                json.dumps(
-                    v, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-                ).encode("utf-8")
-            )
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"body_template is not JSON-serialisable: {exc}") from exc
-        if size > 65_536:
-            raise ValueError(
-                f"body_template is too large ({size} bytes). Maximum is 65,536 bytes (64 KB)."
-            )
-        return v
-
-    @model_validator(mode="after")
-    def validate_body_template_method(self) -> HttpApiConfig:
-        """body_template is only valid for methods that carry a request body."""
-        # self.method is already uppercased by validate_method (field_validator, mode="before").
-        # Pydantic v2 guarantees field validators run before model_validator(mode="after").
-        # model_validator(mode="after") only runs if ALL field validators succeed.
-        if self.body_template is not None and self.method in ("GET", "DELETE"):
-            raise ValueError(
-                "body_template is not supported for GET or DELETE. Use POST, PUT, or PATCH."
-            )
-        return self
 
 
 class EndCallConfig(BaseModel):

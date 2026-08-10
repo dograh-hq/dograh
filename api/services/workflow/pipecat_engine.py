@@ -41,6 +41,7 @@ from loguru import logger
 
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
+from api.services.workflow.initial_context import GREETING_OVERRIDE_CONTEXT_KEY
 from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_context_composer import (
     compose_functions_for_node,
@@ -666,12 +667,31 @@ class PipecatEngine:
         Returns:
             A tuple of (greeting_type, value) where:
             - ("text", rendered_text) for text greetings spoken via TTS
-            - ("audio", recording_id) for pre-recorded audio greetings
+            - ("audio", recording primary key) for configured audio greetings
+            - ("audio_recording_id", recording ID) for call-level audio overrides
             Or None if no greeting is configured.
         """
         node = self.workflow.nodes.get(node_id)
         if not node:
             return None
+
+        # A programmatic override applies only to the workflow entry greeting;
+        # greetings on later nodes continue to use their saved configuration.
+        if node.is_start:
+            override = self._call_context_vars.get(GREETING_OVERRIDE_CONTEXT_KEY)
+            if isinstance(override, dict):
+                override_type = override.get("type")
+                if override_type == "text":
+                    text = override.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return ("text", self._format_prompt(text))
+                elif override_type == "audio":
+                    recording_id = override.get("recording_id")
+                    if isinstance(recording_id, str) and recording_id.strip():
+                        return ("audio_recording_id", recording_id.strip())
+                logger.warning(
+                    "Ignoring invalid greeting_override; using Start-node greeting"
+                )
 
         greeting_type = node.greeting_type or "text"
 
@@ -709,15 +729,18 @@ class PipecatEngine:
             if greeting_info:
                 greeting_type, greeting_value = greeting_info
                 if (
-                    greeting_type == "audio"
+                    greeting_type in {"audio", "audio_recording_id"}
                     and greeting_value
                     and self._fetch_recording_audio
                     and self._transport_output is not None
                 ):
                     logger.debug(f"Playing audio greeting recording: {greeting_value}")
-                    result = await self._fetch_recording_audio(
-                        recording_pk=int(greeting_value)
+                    fetch_kwargs = (
+                        {"recording_id": greeting_value}
+                        if greeting_type == "audio_recording_id"
+                        else {"recording_pk": int(greeting_value)}
                     )
+                    result = await self._fetch_recording_audio(**fetch_kwargs)
                     if result:
                         await play_audio(
                             result.audio,

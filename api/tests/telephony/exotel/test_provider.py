@@ -78,6 +78,21 @@ def test_parse_inbound_webhook():
     assert parsed.direction == "inbound"
 
 
+def test_parse_inbound_webhook_sets_india_hint_for_national_to():
+    parsed = ExotelProvider.parse_inbound_webhook(
+        {
+            "CallSid": "call-inbound-2",
+            "AccountSid": "exotelaccount",
+            "From": "07007586339",
+            "To": "07314852338",
+            "Direction": "incoming",
+        }
+    )
+    assert parsed.to_number == "07314852338"
+    assert parsed.to_country == "IN"
+    assert parsed.direction == "inbound"
+
+
 def test_validate_account_id():
     assert ExotelProvider.validate_account_id(
         {"account_sid": "exotelaccount"}, "exotelaccount"
@@ -162,16 +177,68 @@ async def test_initiate_call_posts_connect_with_stream_url():
         )
 
     assert result.call_id == "call-sid-1"
-    assert result.caller_number == "+9180XXXXXXX1"
+    # India E.164 is dialed to Exotel as 0-prefixed national.
+    assert result.caller_number == "080XXXXXXX1"
 
     _, kwargs = session.post.call_args
     form = kwargs["data"]
-    assert form["From"] == "+919999999999"
-    assert form["CallerId"] == "+9180XXXXXXX1"
+    assert form["From"] == "09999999999"
+    assert form["CallerId"] == "080XXXXXXX1"
     assert form["StreamType"] == "bidirectional"
     assert form["StreamUrl"] == "wss://api.example.test/api/v1/telephony/ws/7/9/42"
     assert form["StatusCallback"].endswith("/exotel/status-callback/42")
     assert form["StatusCallbackEvents[]"] == "terminal"
+
+
+def test_exotel_dial_number_india_national():
+    assert ExotelProvider._exotel_dial_number("+917314852338") == "07314852338"
+    assert ExotelProvider._exotel_dial_number("07314852338") == "07314852338"
+
+
+def test_number_match_keys_align_e164_and_national():
+    e164 = ExotelProvider._number_match_keys("+917314852338", "IN")
+    national = ExotelProvider._number_match_keys("07314852338", "IN")
+    assert e164 & national
+
+
+def test_iter_incoming_phone_entries_unwraps_nested():
+    payload = {
+        "IncomingPhoneNumbers": [
+            {"IncomingPhoneNumber": {"PhoneNumber": "07314852338"}},
+            {"PhoneNumber": "08045680765"},
+        ]
+    }
+    entries = ExotelProvider._iter_incoming_phone_entries(payload)
+    assert [e["PhoneNumber"] for e in entries] == ["07314852338", "08045680765"]
+
+
+@pytest.mark.asyncio
+async def test_validate_phone_number_matches_nested_national_format():
+    provider = _provider()
+    response = MagicMock()
+    response.status = 200
+    response.json = AsyncMock(
+        return_value={
+            "IncomingPhoneNumbers": [
+                {"IncomingPhoneNumber": {"PhoneNumber": "07314852338"}}
+            ]
+        }
+    )
+    response.__aenter__ = AsyncMock(return_value=response)
+    response.__aexit__ = AsyncMock(return_value=None)
+
+    session = MagicMock()
+    session.get = MagicMock(return_value=response)
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch(
+        "api.services.telephony.providers.exotel.provider.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await provider.validate_phone_number("+917314852338")
+
+    assert result.ok is True
 
 
 @pytest.mark.asyncio

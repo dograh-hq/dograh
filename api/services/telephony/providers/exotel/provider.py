@@ -56,6 +56,63 @@ class ExotelProvider(TelephonyProvider):
             f"{self.api_base_url}/v1/Accounts/{self.account_sid}/Calls/{call_id}.json"
         )
 
+    @staticmethod
+    def _exotel_dial_number(number: str) -> str:
+        """Map E.164 to Exotel's usual 0-prefixed national form for India.
+
+        Working Connect examples use CallerId/From like ``07314852338``, not
+        ``+917314852338``. Other regions keep the input as-is.
+        """
+        n = (number or "").strip()
+        if n.startswith("+91") and len(n) >= 12:
+            return "0" + n[3:]
+        if n.startswith("91") and len(n) == 12 and n.isdigit():
+            return "0" + n[2:]
+        return n
+
+    @staticmethod
+    def _number_match_keys(raw: str, country_hint: Optional[str] = None) -> set[str]:
+        """Build comparable key set across E.164 and Exotel national formats."""
+        keys: set[str] = set()
+        text = (raw or "").strip()
+        if not text:
+            return keys
+        keys.add(text)
+        keys.add(text.lstrip("+"))
+        try:
+            norm = normalize_telephony_address(text, country_hint)
+            keys.add(norm.canonical)
+            keys.add(norm.canonical.lstrip("+"))
+            digits = norm.canonical.lstrip("+")
+            if digits.startswith("91") and len(digits) >= 12:
+                national = digits[2:].lstrip("0")
+                keys.add(national)
+                keys.add("0" + national)
+        except Exception:
+            pass
+        return {k for k in keys if k}
+
+    @staticmethod
+    def _iter_incoming_phone_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Unwrap Exotel's nested IncomingPhoneNumber list payload."""
+        numbers = (
+            data.get("IncomingPhoneNumbers")
+            or data.get("PhoneNumbers")
+            or []
+        )
+        if isinstance(numbers, dict):
+            numbers = [numbers]
+        out: List[Dict[str, Any]] = []
+        for entry in numbers:
+            if isinstance(entry, dict) and "IncomingPhoneNumber" in entry:
+                nested = entry.get("IncomingPhoneNumber")
+                if isinstance(nested, dict):
+                    out.append(nested)
+                continue
+            if isinstance(entry, dict):
+                out.append(entry)
+        return out
+
     async def initiate_call(
         self,
         to_number: str,
@@ -82,6 +139,9 @@ class ExotelProvider(TelephonyProvider):
                     "Add at least one ExoPhone as CallerId."
                 )
             from_number = random.choice(self.from_numbers)
+
+        to_number = self._exotel_dial_number(to_number)
+        from_number = self._exotel_dial_number(from_number)
 
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         stream_url = (
@@ -166,7 +226,10 @@ class ExotelProvider(TelephonyProvider):
 
     async def validate_phone_number(self, address: str) -> ProviderSyncResult:
         """Verify ownership via Exotel IncomingPhoneNumbers (Twilio-compatible)."""
-        normalized = normalize_telephony_address(address)
+        # Exotel India numbers are often stored as 0-prefixed national
+        # (e.g. 07314852338). Hint IN so bare local forms normalize correctly.
+        country_hint = "IN" if address.strip().startswith("0") else None
+        normalized = normalize_telephony_address(address, country_hint)
         if normalized.address_type != "pstn":
             return ProviderSyncResult(ok=True)
         if not self.validate_config():
@@ -175,16 +238,24 @@ class ExotelProvider(TelephonyProvider):
                 "validate phone-number ownership"
             )
 
-        # Prefer E.164; also try without '+' for Exotel regional quirks.
-        candidates = [normalized.canonical, normalized.canonical.lstrip("+")]
+        wanted = self._number_match_keys(address, country_hint)
+        wanted |= self._number_match_keys(normalized.canonical, "IN")
+        # Query candidates Exotel may accept as PhoneNumber filters.
+        candidates = sorted(wanted)
         endpoint = (
             f"{self.api_base_url}/v1/Accounts/{self.account_sid}/"
             f"IncomingPhoneNumbers.json"
         )
         try:
             async with aiohttp.ClientSession() as session:
-                for phone in candidates:
-                    params = {"PhoneNumber": phone}
+                # First try filtered lookups, then fall back to full list
+                # (Exotel filter often ignores E.164).
+                query_plans: List[Optional[Dict[str, str]]] = [
+                    {"PhoneNumber": phone} for phone in candidates
+                ]
+                query_plans.append(None)
+
+                for params in query_plans:
                     async with session.get(
                         endpoint, params=params, auth=self._auth()
                     ) as response:
@@ -196,14 +267,7 @@ class ExotelProvider(TelephonyProvider):
                                 f"Exotel API {response.status}: {body}"
                             )
                         data = await response.json()
-                        numbers = (
-                            data.get("IncomingPhoneNumbers")
-                            or data.get("PhoneNumbers")
-                            or []
-                        )
-                        if isinstance(numbers, dict):
-                            numbers = [numbers]
-                        for entry in numbers:
+                        for entry in self._iter_incoming_phone_entries(data):
                             raw = str(
                                 entry.get("PhoneNumber")
                                 or entry.get("FriendlyName")
@@ -211,10 +275,8 @@ class ExotelProvider(TelephonyProvider):
                             )
                             if not raw:
                                 continue
-                            if (
-                                normalize_telephony_address(raw).canonical
-                                == normalized.canonical
-                            ):
+                            owned = self._number_match_keys(raw, "IN")
+                            if wanted & owned:
                                 return ProviderSyncResult(ok=True)
                 return ProviderSyncResult(
                     ok=False,
@@ -307,15 +369,29 @@ class ExotelProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Missing start metadata")
                 return
 
-            try:
-                stream_sid = start["streamSid"]
-                call_sid = start["callSid"]
-            except KeyError:
-                logger.error("Missing streamSid or callSid in Exotel start message")
+            # Exotel Voicebot docs use snake_case; some Twilio-shaped paths use
+            # camelCase. Accept both, including top-level stream_sid.
+            stream_sid = (
+                start.get("streamSid")
+                or start.get("stream_sid")
+                or start_msg.get("streamSid")
+                or start_msg.get("stream_sid")
+            )
+            call_sid = (
+                start.get("callSid")
+                or start.get("call_sid")
+                or start_msg.get("callSid")
+                or start_msg.get("call_sid")
+            )
+            if not stream_sid or not call_sid:
+                logger.error(
+                    "Missing streamSid/callSid in Exotel start message: "
+                    f"{start_msg}"
+                )
                 await websocket.close(code=4400, reason="Missing stream identifiers")
                 return
 
-            logger.debug(
+            logger.info(
                 f"Exotel WebSocket connected for workflow_run {workflow_run_id} "
                 f"stream_sid={stream_sid} call_sid={call_sid}"
             )
@@ -326,10 +402,10 @@ class ExotelProvider(TelephonyProvider):
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
                 organization_id=organization_id,
-                call_id=call_sid,
+                call_id=str(call_sid),
                 transport_kwargs={
-                    "stream_sid": stream_sid,
-                    "call_sid": call_sid,
+                    "stream_sid": str(stream_sid),
+                    "call_sid": str(call_sid),
                 },
             )
         except Exception as e:
@@ -358,6 +434,19 @@ class ExotelProvider(TelephonyProvider):
         if account_sid.endswith(".cloudonix.net"):
             return False
         return True
+
+    @staticmethod
+    def _india_country_hint(number: str) -> Optional[str]:
+        """Exotel India often sends 0-prefixed national numbers (e.g. 0731…).
+
+        Without an IN hint, normalize_telephony_address turns those into a
+        junk E.164 like +0731… and inbound route lookup misses the stored
+        +91… phone row.
+        """
+        digits = "".join(ch for ch in (number or "").strip() if ch.isdigit())
+        if digits.startswith("0") and 10 <= len(digits) <= 11:
+            return "IN"
+        return None
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
@@ -403,6 +492,7 @@ class ExotelProvider(TelephonyProvider):
             direction=direction,
             call_status=str(call_status),
             account_id=str(account_id) if account_id else None,
+            to_country=ExotelProvider._india_country_hint(str(to_number)),
             raw_data=webhook_data,
         )
 
@@ -468,6 +558,21 @@ class ExotelProvider(TelephonyProvider):
         <Stream url="{websocket_url}"{status_attr}></Stream>
     </Connect>
     <Pause length="40"/>
+</Response>"""
+        return Response(content=xml, media_type="application/xml")
+
+    @staticmethod
+    def generate_validation_error_response(error_type) -> Response:
+        """TwiML/ExoML hangup used when inbound route/auth validation fails."""
+        from api.errors.telephony_errors import TELEPHONY_ERROR_MESSAGES, TelephonyError
+
+        message = TELEPHONY_ERROR_MESSAGES.get(
+            error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED]
+        )
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>{message}</Say>
+    <Hangup/>
 </Response>"""
         return Response(content=xml, media_type="application/xml")
 

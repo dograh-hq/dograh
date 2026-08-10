@@ -98,6 +98,7 @@ def _safe_webhook_url(url: str) -> str:
     except (TypeError, ValueError):
         return _REDACTED
 
+
 def _log_webhook_request(
     delivery: WebhookDeliveryModel,
     *,

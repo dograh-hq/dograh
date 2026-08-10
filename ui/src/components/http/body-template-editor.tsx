@@ -48,13 +48,16 @@ export function BodyTemplateEditor({
         <div className="grid gap-2">
             <Label>JSON Body Template</Label>
             <Label className="text-xs text-muted-foreground">
-                Use placeholders such as {"{{customer_id}}"}.
+                Use LLM parameters defined above with {"{{defined_llm_parameter}}"}, or
+                initial context with {"{{initial_context.call_id}}"}.
             </Label>
             <Textarea
                 className="min-h-48 font-mono text-xs"
                 value={text}
                 onChange={(event) => handleChange(event.target.value)}
-                placeholder={'{\n  "customer": {\n    "id": "{{customer_id}}"\n  }\n}'}
+                placeholder={
+                    '{\n  "customer_id": "{{defined_llm_parameter}}",\n  "call_id": "{{initial_context.call_id}}"\n}'
+                }
                 spellCheck={false}
             />
             {error && <p className="text-xs text-destructive">Enter a valid JSON object.</p>}

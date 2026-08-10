@@ -126,16 +126,21 @@ the agent during a call.
 
 1. Open or create a **Transfer Call** tool.
 2. Select **Context Mapping** as the destination source.
-3. Enter a context path, such as `qualified` or
+3. In **Rule 1**, enter a context path, such as `qualified` or
    `extracted_variables.qualified`.
 4. Add one route for each expected value and its destination in-group ID.
-5. Optionally configure a fallback in-group. Enter `source` to return the
+5. Optionally select **Add routing rule** to check another context path when the
+   rule above it does not match, and use the arrows to order the rules.
+6. Optionally configure a fallback in-group. Enter `source` to return the
    caller to the original in-group captured from the SIP headers.
-6. Save the tool and attach it to the workflow.
+7. Save the tool and attach it to the workflow.
 
-The match is case-insensitive. Dograh performs final variable extraction before
-resolving the mapping. If no route or fallback matches, the transfer fails and
-the agent can recover instead of silently hanging up the caller.
+Rules are evaluated top to bottom. The first rule whose context value matches
+one of its routes wins, so put the most specific routing first; the fallback
+applies only after every rule misses. The match is case-insensitive. Dograh
+performs final variable extraction before resolving the mapping. If no rule or
+fallback matches, the transfer fails and the agent can recover instead of
+silently hanging up the caller.
 
 ## Configure lead field mappings
 

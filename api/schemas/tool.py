@@ -249,8 +249,8 @@ class ContextDestinationRoute(BaseModel):
         return stripped
 
 
-class ContextDestinationMappingConfig(BaseModel):
-    """Resolve an external-PBX destination from gathered context."""
+class ContextDestinationRule(BaseModel):
+    """One gathered-context lookup with its value-to-destination routes."""
 
     context_path: str = Field(
         min_length=1,
@@ -260,11 +260,6 @@ class ContextDestinationMappingConfig(BaseModel):
         ),
     )
     routes: list[ContextDestinationRoute] = Field(min_length=1, max_length=100)
-    fallback_destination: str | None = Field(
-        default=None,
-        max_length=255,
-        description="Optional provider-native fallback destination.",
-    )
 
     @field_validator("context_path")
     @classmethod
@@ -274,19 +269,57 @@ class ContextDestinationMappingConfig(BaseModel):
             raise ValueError("context path cannot be blank")
         return stripped
 
-    @field_validator("fallback_destination")
-    @classmethod
-    def normalize_fallback(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        return value.strip() or None
-
     @model_validator(mode="after")
     def validate_unique_values(self):
         values = [route.context_value.casefold() for route in self.routes]
         if len(values) != len(set(values)):
             raise ValueError("context mapping values must be unique")
         return self
+
+
+class ContextDestinationMappingConfig(BaseModel):
+    """Resolve an external-PBX destination from gathered context.
+
+    Rules are evaluated in order. The first rule whose gathered-context value
+    matches one of its routes wins; ``fallback_destination`` applies only when
+    no rule matched.
+    """
+
+    rules: list[ContextDestinationRule] = Field(
+        min_length=1,
+        max_length=20,
+        description="Ordered routing rules evaluated top to bottom; first match wins.",
+    )
+    fallback_destination: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Optional provider-native destination used when no rule matched.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def fold_single_rule(cls, data: Any) -> Any:
+        """Accept the legacy single-rule shape (context_path plus routes)."""
+        if not isinstance(data, dict) or data.get("rules") is not None:
+            return data
+        if "context_path" not in data and "routes" not in data:
+            return data
+        folded = {
+            key: value
+            for key, value in data.items()
+            if key not in ("context_path", "routes")
+        }
+        folded["rules"] = [
+            {"context_path": data.get("context_path"), "routes": data.get("routes")}
+        ]
+        return folded
+
+    @field_validator("fallback_destination")
+    @classmethod
+    def normalize_fallback(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 class TransferCallConfig(BaseModel):
@@ -334,7 +367,9 @@ class TransferCallConfig(BaseModel):
     )
     context_mapping: ContextDestinationMappingConfig | None = Field(
         default=None,
-        description="Optional gathered-context to external-PBX destination mapping.",
+        description=(
+            "Optional ordered gathered-context to external-PBX destination rules."
+        ),
     )
 
     @model_validator(mode="after")

@@ -153,6 +153,39 @@ def _context_value(
     return current
 
 
+def _mapping_rules(mapping: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the ordered routing rules, folding the legacy single-rule shape."""
+    rules = mapping.get("rules")
+    if isinstance(rules, list):
+        return [rule for rule in rules if isinstance(rule, dict)]
+    if mapping.get("context_path") or mapping.get("routes"):
+        return [
+            {
+                "context_path": mapping.get("context_path"),
+                "routes": mapping.get("routes"),
+            }
+        ]
+    return []
+
+
+def _match_rule_destination(
+    rule: dict[str, Any],
+    context_path: str,
+    call_context_vars: Optional[Dict[str, Any]],
+    gathered_context_vars: Optional[Dict[str, Any]],
+) -> str:
+    raw_value = _context_value(context_path, call_context_vars, gathered_context_vars)
+    match_value = "" if raw_value is None else str(raw_value).strip().casefold()
+    if not match_value:
+        return ""
+    for route in rule.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        if str(route.get("context_value", "")).strip().casefold() == match_value:
+            return str(route.get("destination", "")).strip()
+    return ""
+
+
 def _resolve_context_mapping_transfer(
     config: dict[str, Any],
     call_context_vars: Optional[Dict[str, Any]],
@@ -163,28 +196,49 @@ def _resolve_context_mapping_transfer(
         raise TransferResolutionError(
             "invalid_context_mapping", "Transfer context mapping is missing"
         )
-    path = str(mapping.get("context_path", "")).strip()
-    raw_value = _context_value(path, call_context_vars, gathered_context_vars)
-    match_value = "" if raw_value is None else str(raw_value).strip().casefold()
-    destination = ""
-    for route in mapping.get("routes") or []:
-        if not isinstance(route, dict):
-            continue
-        if str(route.get("context_value", "")).strip().casefold() == match_value:
-            destination = str(route.get("destination", "")).strip()
-            break
-    if not destination:
-        destination = str(mapping.get("fallback_destination") or "").strip()
-    if not destination:
+    rules = _mapping_rules(mapping)
+    if not rules:
         raise TransferResolutionError(
-            "no_context_mapping_match",
-            f"No destination mapping matched gathered context path '{path}'",
+            "invalid_context_mapping", "Transfer context mapping has no routing rules"
         )
-    return ResolvedTransferConfig(
-        destination=destination,
-        timeout_seconds=_base_timeout(config),
-        source="context_mapping",
-        metadata={"context_path": path, "matched": bool(match_value)},
+
+    evaluated_paths: list[str] = []
+    for index, rule in enumerate(rules):
+        path = str(rule.get("context_path") or "").strip()
+        if not path:
+            continue
+        evaluated_paths.append(path)
+        destination = _match_rule_destination(
+            rule, path, call_context_vars, gathered_context_vars
+        )
+        if destination:
+            return ResolvedTransferConfig(
+                destination=destination,
+                timeout_seconds=_base_timeout(config),
+                source="context_mapping",
+                metadata={
+                    "context_path": path,
+                    "rule_index": index,
+                    "matched": True,
+                },
+            )
+
+    fallback = str(mapping.get("fallback_destination") or "").strip()
+    if fallback:
+        return ResolvedTransferConfig(
+            destination=fallback,
+            timeout_seconds=_base_timeout(config),
+            source="context_mapping",
+            metadata={
+                "context_paths": evaluated_paths,
+                "matched": False,
+                "fallback": True,
+            },
+        )
+    raise TransferResolutionError(
+        "no_context_mapping_match",
+        "No destination mapping matched gathered context paths "
+        f"'{', '.join(evaluated_paths)}'",
     )
 
 
@@ -356,6 +410,8 @@ async def resolve_transfer_config(
         logger.info(
             "Transfer destination resolved from context mapping "
             f"context_path={resolved.metadata.get('context_path')} "
+            f"rule_index={resolved.metadata.get('rule_index')} "
+            f"fallback={bool(resolved.metadata.get('fallback'))} "
             f"source={resolved.source} destination={resolved.destination}"
         )
         return resolved

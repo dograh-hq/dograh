@@ -15,6 +15,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent, ToolCategory
 from api.schemas.tool import (
+    ContextDestinationMappingConfig,
     CreatedByResponse,
     CreateToolRequest,
     McpRefreshResponse,
@@ -120,6 +121,25 @@ async def validate_tool_credential_references(
             )
 
 
+def _normalized_pbx_config(config: Any) -> Any:
+    """Normalize a context mapping so shape-only differences compare equal.
+
+    A legacy single-rule mapping and the ordered-rules form it folds into
+    describe the same routing, so an unchanged tool must not look edited.
+    """
+    if not isinstance(config, dict) or not isinstance(
+        config.get("context_mapping"), dict
+    ):
+        return config
+    try:
+        mapping = ContextDestinationMappingConfig.model_validate(
+            config["context_mapping"]
+        )
+    except ValueError:
+        return config
+    return {**config, "context_mapping": mapping.model_dump()}
+
+
 async def validate_external_pbx_tool_definition(
     definition: dict[str, Any],
     *,
@@ -142,7 +162,9 @@ async def validate_external_pbx_tool_definition(
         return
     if await external_pbx_integrations_enabled(organization_id):
         return
-    if isinstance(existing_config, dict) and existing_config == config:
+    if isinstance(existing_config, dict) and _normalized_pbx_config(
+        existing_config
+    ) == _normalized_pbx_config(config):
         # Preserve a hidden existing mapping while the feature is disabled.
         return
     raise ToolManagementError(

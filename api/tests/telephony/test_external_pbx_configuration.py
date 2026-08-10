@@ -78,3 +78,70 @@ async def test_disabled_feature_preserves_existing_tool_mapping(monkeypatch):
         )
 
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_disabled_feature_accepts_legacy_mapping_rewritten_as_rules(monkeypatch):
+    """Saving an untouched legacy mapping in the ordered-rules shape is a no-op."""
+    monkeypatch.setattr(
+        tool_management,
+        "external_pbx_integrations_enabled",
+        AsyncMock(return_value=False),
+    )
+    existing = {
+        "type": "transfer_call",
+        "config": {
+            "destination_source": "context_mapping",
+            "context_mapping": {
+                "context_path": "qualified",
+                "routes": [{"context_value": "yes", "destination": "sales"}],
+            },
+        },
+    }
+    resaved = {
+        "type": "transfer_call",
+        "config": {
+            "destination_source": "context_mapping",
+            "context_mapping": {
+                "rules": [
+                    {
+                        "context_path": "qualified",
+                        "routes": [{"context_value": "yes", "destination": "sales"}],
+                    }
+                ],
+            },
+        },
+    }
+
+    await tool_management.validate_external_pbx_tool_definition(
+        resaved,
+        organization_id=7,
+        existing_definition=existing,
+    )
+
+    edited = {
+        "type": "transfer_call",
+        "config": {
+            "destination_source": "context_mapping",
+            "context_mapping": {
+                "rules": [
+                    {
+                        "context_path": "qualified",
+                        "routes": [{"context_value": "yes", "destination": "sales"}],
+                    },
+                    {
+                        "context_path": "state",
+                        "routes": [{"context_value": "tx", "destination": "texas"}],
+                    },
+                ],
+            },
+        },
+    }
+    with pytest.raises(tool_management.ToolManagementError) as exc_info:
+        await tool_management.validate_external_pbx_tool_definition(
+            edited,
+            organization_id=7,
+            existing_definition=existing,
+        )
+
+    assert exc_info.value.status_code == 403

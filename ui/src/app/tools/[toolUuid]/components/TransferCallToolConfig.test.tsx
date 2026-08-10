@@ -2,19 +2,31 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ContextDestinationRouteRow } from "../../config";
+import type { ContextDestinationRuleRow } from "../../config";
 import { TransferCallToolConfig } from "./TransferCallToolConfig";
 
 const noop = vi.fn();
 
-function ContextMappingHarness() {
-    const [routes, setRoutes] = useState<ContextDestinationRouteRow[]>([
-        {
-            id: "existing-route",
-            context_value: "support",
-            destination: "PJSIP/support",
-        },
-    ]);
+function inputValue(label: string): string {
+    return (screen.getByLabelText(label) as HTMLInputElement).value;
+}
+
+function ContextMappingHarness({ rules: initialRules }: { rules?: ContextDestinationRuleRow[] }) {
+    const [rules, setRules] = useState<ContextDestinationRuleRow[]>(
+        initialRules ?? [
+            {
+                id: "existing-rule",
+                context_path: "department",
+                routes: [
+                    {
+                        id: "existing-route",
+                        context_value: "support",
+                        destination: "PJSIP/support",
+                    },
+                ],
+            },
+        ],
+    );
 
     return (
         <TransferCallToolConfig
@@ -49,10 +61,8 @@ function ContextMappingHarness() {
             presetParameters={[]}
             onPresetParametersChange={noop}
             externalPbxRoutingEnabled
-            contextMappingPath="department"
-            onContextMappingPathChange={noop}
-            contextDestinationRoutes={routes}
-            onContextDestinationRoutesChange={setRoutes}
+            contextDestinationRules={rules}
+            onContextDestinationRulesChange={setRules}
             fallbackDestination=""
             onFallbackDestinationChange={noop}
         />
@@ -63,15 +73,51 @@ describe("TransferCallToolConfig context mappings", () => {
     it("preserves the focused row when an earlier mapping is removed", () => {
         render(<ContextMappingHarness />);
 
-        fireEvent.click(screen.getByRole("button", { name: "Add mapping" }));
+        fireEvent.click(screen.getByRole("button", { name: "Add mapping to rule 1" }));
 
-        const addedDestination = screen.getByLabelText("PBX destination 2");
+        const addedDestination = screen.getByLabelText("Rule 1 PBX destination 2");
         addedDestination.focus();
         expect(document.activeElement).toBe(addedDestination);
 
-        fireEvent.click(screen.getByRole("button", { name: "Remove mapping 1" }));
+        fireEvent.click(screen.getByRole("button", { name: "Remove rule 1 mapping 1" }));
 
-        expect(screen.getByLabelText("PBX destination 1")).toBe(addedDestination);
+        expect(screen.getByLabelText("Rule 1 PBX destination 1")).toBe(addedDestination);
         expect(document.activeElement).toBe(addedDestination);
+    });
+
+    it("adds an ordered rule with one empty mapping row", () => {
+        render(<ContextMappingHarness />);
+
+        fireEvent.click(screen.getByRole("button", { name: /Add routing rule/ }));
+
+        expect(inputValue("Gathered context field 2")).toBe("");
+        expect(inputValue("Rule 2 context value 1")).toBe("");
+    });
+
+    it("reorders rules with the move controls", () => {
+        render(
+            <ContextMappingHarness
+                rules={[
+                    {
+                        id: "first",
+                        context_path: "qualified",
+                        routes: [{ id: "r1", context_value: "yes", destination: "sales" }],
+                    },
+                    {
+                        id: "second",
+                        context_path: "state",
+                        routes: [{ id: "r2", context_value: "tx", destination: "texas" }],
+                    },
+                ]}
+            />,
+        );
+
+        expect(inputValue("Gathered context field 1")).toBe("qualified");
+        expect(screen.getByLabelText("Move rule 1 up")).toHaveProperty("disabled", true);
+
+        fireEvent.click(screen.getByLabelText("Move rule 2 up"));
+
+        expect(inputValue("Gathered context field 1")).toBe("state");
+        expect(inputValue("Gathered context field 2")).toBe("qualified");
     });
 });

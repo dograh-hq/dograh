@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import redis.asyncio as aioredis
@@ -154,6 +154,79 @@ async def test_vicidial_adapter_returns_none_without_callerid():
     assert identity is None
 
 
+class _StubResponse:
+    def __init__(self, status: int, body: str = ""):
+        self.status = status
+        self._body = body
+
+    async def text(self) -> str:
+        return self._body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _StubSession:
+    def __init__(self, response: _StubResponse):
+        self._response = response
+        self.requests: list[tuple[str, dict]] = []
+
+    def get(self, url: str, **kwargs):
+        self.requests.append((url, kwargs))
+        return self._response
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_requests_a_text_response():
+    """non_agent_api.php returns an empty body unless format=text is sent.
+
+    The update still applies, so the only symptom is a call that reports
+    "VICIdial rejected the lead update" while the lead changes anyway.
+    """
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields({"lead_id": "42"}, {"comments": "hello"})
+
+    assert result.ok
+    url, kwargs = session.requests[0]
+    assert url == "https://vici.example.com/vicidial/non_agent_api.php"
+    assert kwargs["params"]["format"] == "text"
+    assert kwargs["params"]["function"] == "update_lead"
+    assert kwargs["params"]["lead_id"] == "42"
+    assert kwargs["params"]["comments"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_treats_an_empty_body_as_a_rejection():
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(_StubResponse(200, ""))
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields({"lead_id": "42"}, {"comments": "hello"})
+
+    assert not result.ok
+    assert result.message == "VICIdial rejected the lead update"
+
+
 def _ari_connection(monkeypatch, variables: dict[str, str]):
     """An ARIConnection whose ARI variable reads are recorded, not sent."""
     from api.services.telephony import ari_manager
@@ -283,6 +356,130 @@ async def test_context_mapping_resolves_ingroup_destination(monkeypatch):
 
     assert resolved.destination == "sales"
     assert resolved.source == "context_mapping"
+
+
+@pytest.mark.asyncio
+async def test_context_mapping_falls_through_to_later_rule(monkeypatch):
+    monkeypatch.setattr(
+        transfer_resolver,
+        "external_pbx_integrations_enabled",
+        AsyncMock(return_value=True),
+    )
+
+    resolved = await transfer_resolver.resolve_transfer_config(
+        tool=SimpleNamespace(tool_uuid="tool-1"),
+        config={
+            "destination_source": "context_mapping",
+            "context_mapping": {
+                "rules": [
+                    {
+                        "context_path": "qualified",
+                        "routes": [{"context_value": "yes", "destination": "sales"}],
+                    },
+                    {
+                        "context_path": "state",
+                        "routes": [
+                            {"context_value": "ca", "destination": "california"},
+                            {"context_value": "tx", "destination": "texas"},
+                        ],
+                    },
+                ],
+                "fallback_destination": "source",
+            },
+        },
+        arguments={},
+        call_context_vars={},
+        gathered_context_vars={
+            "extracted_variables": {"qualified": "no", "state": " TX "}
+        },
+        organization_id=7,
+        workflow_run_id=11,
+    )
+
+    assert resolved.destination == "texas"
+    assert resolved.metadata["rule_index"] == 1
+    assert resolved.metadata["context_path"] == "state"
+
+
+@pytest.mark.asyncio
+async def test_context_mapping_uses_fallback_after_all_rules_miss(monkeypatch):
+    monkeypatch.setattr(
+        transfer_resolver,
+        "external_pbx_integrations_enabled",
+        AsyncMock(return_value=True),
+    )
+
+    resolved = await transfer_resolver.resolve_transfer_config(
+        tool=SimpleNamespace(tool_uuid="tool-1"),
+        config={
+            "destination_source": "context_mapping",
+            "context_mapping": {
+                "rules": [
+                    {
+                        "context_path": "qualified",
+                        "routes": [{"context_value": "yes", "destination": "sales"}],
+                    },
+                    {
+                        "context_path": "state",
+                        "routes": [
+                            {"context_value": "ca", "destination": "california"}
+                        ],
+                    },
+                ],
+                "fallback_destination": "source",
+            },
+        },
+        arguments={},
+        call_context_vars={},
+        gathered_context_vars={"extracted_variables": {"qualified": "no"}},
+        organization_id=7,
+        workflow_run_id=11,
+    )
+
+    assert resolved.destination == "source"
+    assert resolved.metadata["fallback"] is True
+    assert resolved.metadata["context_paths"] == ["qualified", "state"]
+
+
+@pytest.mark.asyncio
+async def test_context_mapping_raises_when_no_rule_matches(monkeypatch):
+    monkeypatch.setattr(
+        transfer_resolver,
+        "external_pbx_integrations_enabled",
+        AsyncMock(return_value=True),
+    )
+
+    with pytest.raises(
+        transfer_resolver.TransferResolutionError,
+        match="No destination mapping matched",
+    ):
+        await transfer_resolver.resolve_transfer_config(
+            tool=SimpleNamespace(tool_uuid="tool-1"),
+            config={
+                "destination_source": "context_mapping",
+                "context_mapping": {
+                    "rules": [
+                        {
+                            "context_path": "qualified",
+                            "routes": [
+                                {"context_value": "yes", "destination": "sales"}
+                            ],
+                        },
+                        {
+                            "context_path": "state",
+                            "routes": [
+                                {"context_value": "ca", "destination": "california"}
+                            ],
+                        },
+                    ]
+                },
+            },
+            arguments={},
+            call_context_vars={},
+            gathered_context_vars={"extracted_variables": {"state": "ny"}},
+            organization_id=7,
+            workflow_run_id=11,
+        )
 
 
 @pytest.mark.asyncio

@@ -143,6 +143,13 @@ class HttpApiConfig(BaseModel):
     body_template: dict[str, Any] | None = Field(
         default=None,
         description="Optional JSON body template for POST, PUT, and PATCH requests.",
+        json_schema_extra=_llm_hint(
+            "Use {{parameter_name}} placeholders to position LLM and preset "
+            "parameters anywhere in the body, including nested objects and arrays; "
+            "also {{initial_context.*}}. A value that is exactly one placeholder "
+            "keeps the value's original JSON type. Omit this field to send all "
+            "parameters as a flat top-level JSON object. Ignored for GET and DELETE."
+        ),
     )
 
     @field_validator("method", mode="before")

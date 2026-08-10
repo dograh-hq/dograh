@@ -31,6 +31,8 @@ def _config_loader(value: dict[str, Any]) -> dict[str, Any]:
         "domain_id": value.get("domain_id"),
         "domain_uuid": value.get("domain_uuid"),
         "application_name": value.get("application_name"),
+        "application_id": value.get("application_id"),
+        "application_uuid": value.get("application_uuid"),
         "outbound_trunk": value.get("outbound_trunk"),
         "outbound_trunk_uuid": value.get("outbound_trunk_uuid"),
         "from_numbers": value.get("from_numbers", []),
@@ -110,11 +112,13 @@ async def _fetch_domain_uuid(credentials: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _ensure_application_name(credentials: dict[str, Any]) -> dict[str, Any]:
-    """Auto-create a Cloudonix Voice Application if one wasn't supplied.
+    """Create/recover a Voice Application and make it the domain default.
 
     The application is created with our inbound dispatcher URL pre-set — the
     same URL ``configure_inbound`` would PATCH later — so inbound calls work
-    immediately for any DNID bound to this application.
+    immediately for any DNID bound to this application. MPS-managed configs
+    use a deterministic name so a retry after a partial failure discovers the
+    existing application instead of creating another one.
     """
     if credentials.get("application_name"):
         return credentials
@@ -127,9 +131,17 @@ async def _ensure_application_name(credentials: dict[str, Any]) -> dict[str, Any
     backend_endpoint, _ = await get_backend_endpoints()
     inbound_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
 
-    name = f"dograh-{uuid.uuid4().hex[:12]}"
+    provisioning_id = credentials.get("provisioning_id")
+    if isinstance(provisioning_id, str) and provisioning_id.strip():
+        stable_id = "".join(ch for ch in provisioning_id.lower() if ch.isalnum())
+        name = f"dograh-{stable_id[:24]}"
+    else:
+        name = f"dograh-{uuid.uuid4().hex[:12]}"
+
+    encoded_domain_id = quote(str(domain_id), safe="")
     endpoint = (
-        f"{CLOUDONIX_API_BASE_URL}/customers/self/domains/{domain_id}/applications"
+        f"{CLOUDONIX_API_BASE_URL}/customers/self/domains/"
+        f"{encoded_domain_id}/applications"
     )
     body = {"name": name, "type": "cxml", "url": inbound_url, "method": "POST"}
     headers = {
@@ -138,24 +150,86 @@ async def _ensure_application_name(credentials: dict[str, Any]) -> dict[str, Any
     }
 
     try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(endpoint, json=body, headers=headers) as response,
-        ):
-            response_text = await response.text()
-            if response.status not in (200, 201):
-                logger.error(
-                    f"[Cloudonix] applicationCreate failed: "
-                    f"HTTP {response.status} body={response_text}"
-                )
+        async with aiohttp.ClientSession() as session:
+            data: dict[str, Any] | None = None
+
+            # Only managed applications have a deterministic name worth
+            # recovering. Manual blank-name saves retain the existing create
+            # behavior and receive a fresh random name.
+            if provisioning_id:
+                async with session.get(endpoint, headers=headers) as response:
+                    await response.text()
+                    if response.status == 200:
+                        listed = await response.json()
+                        applications = (
+                            listed
+                            if isinstance(listed, list)
+                            else listed.get("applications", [])
+                            if isinstance(listed, dict)
+                            else []
+                        )
+                        data = next(
+                            (
+                                app
+                                for app in applications
+                                if isinstance(app, dict) and app.get("name") == name
+                            ),
+                            None,
+                        )
+                    elif response.status != 404:
+                        raise HTTPException(
+                            status_code=response.status,
+                            detail=(
+                                "Failed to list Cloudonix Voice Applications: "
+                                f"HTTP {response.status}"
+                            ),
+                        )
+
+            if data is None:
+                async with session.post(
+                    endpoint, json=body, headers=headers
+                ) as response:
+                    await response.text()
+                    if response.status not in (200, 201):
+                        logger.error(
+                            "[Cloudonix] applicationCreate failed: HTTP {}",
+                            response.status,
+                        )
+                        raise HTTPException(
+                            status_code=response.status,
+                            detail=(
+                                "Failed to auto-create Cloudonix Voice "
+                                f"Application: HTTP {response.status}"
+                            ),
+                        )
+                    data = await response.json()
+
+            application_id = data.get("id") if isinstance(data, dict) else None
+            if not isinstance(application_id, int):
                 raise HTTPException(
-                    status_code=response.status,
+                    status_code=502,
                     detail=(
-                        f"Failed to auto-create Cloudonix Voice Application: "
-                        f"HTTP {response.status} {response_text}"
+                        "Cloudonix application response did not include a numeric ID"
                     ),
                 )
-            data = await response.json()
+
+            domain_endpoint = (
+                f"{CLOUDONIX_API_BASE_URL}/customers/self/domains/{encoded_domain_id}"
+            )
+            async with session.put(
+                domain_endpoint,
+                json={"defaultApplication": application_id},
+                headers=headers,
+            ) as response:
+                await response.text()
+                if response.status not in (200, 204):
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=(
+                            "Failed to set the Cloudonix default application: "
+                            f"HTTP {response.status}"
+                        ),
+                    )
     except aiohttp.ClientError as e:
         logger.error(f"[Cloudonix] applicationCreate transport error: {e}")
         raise HTTPException(
@@ -165,10 +239,17 @@ async def _ensure_application_name(credentials: dict[str, Any]) -> dict[str, Any
 
     created_name = data.get("name") or name
     logger.info(
-        f"[Cloudonix] auto-created Voice Application '{created_name}' on domain "
-        f"{domain_id}"
+        f"[Cloudonix] ensured Voice Application '{created_name}' on domain {domain_id}"
     )
-    return {**credentials, "application_name": created_name}
+    updated = {
+        **credentials,
+        "application_name": created_name,
+        "application_id": application_id,
+    }
+    application_uuid = data.get("uuid")
+    if isinstance(application_uuid, str) and application_uuid:
+        updated["application_uuid"] = application_uuid
+    return updated
 
 
 _OUTBOUND_TRUNK_DIRECTION = "public-outbound"
@@ -794,7 +875,14 @@ SPEC = ProviderSpec(
     ui_metadata=_UI_METADATA,
     config_response_cls=CloudonixConfigurationResponse,
     account_id_credential_field="domain_id",
-    server_managed_credential_fields=("domain_uuid", "outbound_trunk_uuid"),
+    server_managed_credential_fields=(
+        "domain_uuid",
+        "application_id",
+        "application_uuid",
+        "managed_by",
+        "provisioning_id",
+        "outbound_trunk_uuid",
+    ),
     preprocess_credentials_on_save=_preprocess_credentials_on_save,
 )
 

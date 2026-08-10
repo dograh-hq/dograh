@@ -221,6 +221,102 @@ async def test_preprocess_reuses_existing_domain_uuid_without_fetching():
 
 
 @pytest.mark.asyncio
+async def test_managed_preprocess_creates_app_and_sets_domain_default():
+    app_uuid = "33333333-3333-4333-8333-333333333333"
+    session = _TrunkSession(
+        get_responses=[_FakeResponse(200, [])],
+        post_response=_FakeResponse(
+            201,
+            {
+                "id": 5278,
+                "name": "dograh-111111111111411181111111",
+                "uuid": app_uuid,
+            },
+        ),
+        put_response=_FakeResponse(200, {"defaultApplication": 5278}),
+    )
+    credentials = {
+        "bearer_token": "domain-bearer",
+        "domain_id": "oss-dograh-123.cloudonix.net",
+        "domain_uuid": DOMAIN_UUID,
+        "managed_by": "dograh-mps",
+        "provisioning_id": "11111111-1111-4111-8111-111111111111",
+    }
+
+    with (
+        patch(
+            "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.cloudonix.get_backend_endpoints",
+            AsyncMock(
+                return_value=("https://api.example.com", "wss://api.example.com")
+            ),
+        ),
+    ):
+        result = await _preprocess_credentials_on_save(credentials)
+
+    collection = (
+        f"{CLOUDONIX_API_BASE_URL}/customers/self/domains/"
+        "oss-dograh-123.cloudonix.net/applications"
+    )
+    assert session.get_calls[0][0] == collection
+    assert session.post_calls[0][0] == collection
+    assert session.post_calls[0][1]["json"] == {
+        "name": "dograh-111111111111411181111111",
+        "type": "cxml",
+        "url": "https://api.example.com/api/v1/telephony/inbound/run",
+        "method": "POST",
+    }
+    assert session.put_calls[0][0] == (
+        f"{CLOUDONIX_API_BASE_URL}/customers/self/domains/oss-dograh-123.cloudonix.net"
+    )
+    assert session.put_calls[0][1]["json"] == {"defaultApplication": 5278}
+    assert result["application_id"] == 5278
+    assert result["application_uuid"] == app_uuid
+
+
+@pytest.mark.asyncio
+async def test_managed_preprocess_recovers_existing_app_without_duplicate_create():
+    app = {
+        "id": 5278,
+        "name": "dograh-111111111111411181111111",
+        "uuid": "33333333-3333-4333-8333-333333333333",
+    }
+    session = _TrunkSession(
+        get_responses=[_FakeResponse(200, [app])],
+        put_response=_FakeResponse(200, {"defaultApplication": 5278}),
+    )
+    credentials = {
+        "bearer_token": "domain-bearer",
+        "domain_id": "oss-dograh-123.cloudonix.net",
+        "domain_uuid": DOMAIN_UUID,
+        "managed_by": "dograh-mps",
+        "provisioning_id": "11111111-1111-4111-8111-111111111111",
+    }
+
+    with (
+        patch(
+            "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.cloudonix.get_backend_endpoints",
+            AsyncMock(
+                return_value=("https://api.example.com", "wss://api.example.com")
+            ),
+        ),
+    ):
+        result = await _preprocess_credentials_on_save(credentials)
+
+    assert session.post_calls == []
+    assert session.put_calls[0][1]["json"] == {"defaultApplication": 5278}
+    assert result["application_name"] == app["name"]
+    assert result["application_uuid"] == app["uuid"]
+
+
+@pytest.mark.asyncio
 async def test_update_preserves_server_managed_domain_uuid():
     incoming_credentials = {
         "bearer_token": "secret-token",
@@ -390,6 +486,42 @@ def test_outbound_trunk_configuration_requires_peer_and_complete_authentication(
         )
 
 
+def test_cloudonix_domain_normalization_qualifies_short_names():
+    custom = CloudonixConfigurationRequest.model_validate(
+        {
+            "bearer_token": "secret-token",
+            "domain_id": "Tenant.Example.Com.",
+        }
+    )
+    legacy = CloudonixConfigurationRequest.model_validate(
+        {"bearer_token": "secret-token", "domain_id": "friendly-name"}
+    )
+
+    assert custom.domain_id == "tenant.example.com"
+    assert legacy.domain_id == "friendly-name.cloudonix.net"
+    assert (
+        CloudonixProvider._normalize_domain("Tenant.Example.Com.")
+        == "tenant.example.com"
+    )
+
+
+def test_cloudonix_webhook_accepts_a_managed_cloudonix_domain():
+    webhook = {
+        "SessionData": {"token": "session-token"},
+        "Domain": "oss-dograh-11111111.cloudonix.net",
+        "From": "+15551230001",
+        "To": "+15551230002",
+    }
+
+    assert CloudonixProvider.can_handle_webhook(webhook, {})
+    normalized = CloudonixProvider.parse_inbound_webhook(webhook)
+    assert normalized.account_id == "oss-dograh-11111111.cloudonix.net"
+    assert CloudonixProvider.validate_account_id(
+        {"domain_id": "oss-dograh-11111111.cloudonix.net"},
+        normalized.account_id,
+    )
+
+
 def test_cloudonix_metadata_exposes_conditional_outbound_trunk_fields():
     fields = {field.name: field for field in SPEC.ui_metadata.fields}
 
@@ -405,6 +537,10 @@ def test_cloudonix_metadata_exposes_conditional_outbound_trunk_fields():
     assert fields["outbound_trunk.profile.authentication.password"].sensitive
     assert SPEC.server_managed_credential_fields == (
         "domain_uuid",
+        "application_id",
+        "application_uuid",
+        "managed_by",
+        "provisioning_id",
         "outbound_trunk_uuid",
     )
 

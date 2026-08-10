@@ -29,6 +29,8 @@ from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
+from .config import normalize_cloudonix_domain
+
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
@@ -91,21 +93,8 @@ class CloudonixProvider(TelephonyProvider):
 
     @staticmethod
     def _normalize_domain(domain: Optional[str]) -> Optional[str]:
-        """Ensure a Cloudonix domain is fully qualified.
-
-        Cloudonix domains are always of the form ``<name>.cloudonix.net``.
-        Users sometimes configure or pass just ``<name>``; normalize so
-        equality checks against stored credentials and API URLs work
-        regardless of input form.
-        """
-        if not domain:
-            return domain
-        domain = domain.strip()
-        if not domain:
-            return domain
-        if domain.endswith(".cloudonix.net"):
-            return domain
-        return f"{domain}.cloudonix.net"
+        """Normalize short names without rewriting custom Cloudonix FQDNs."""
+        return normalize_cloudonix_domain(domain)
 
     def _get_auth_headers(self) -> Dict[str, str]:
         """Generate authorization headers for Cloudonix API."""

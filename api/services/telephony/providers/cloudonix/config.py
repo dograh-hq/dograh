@@ -5,6 +5,18 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def normalize_cloudonix_domain(value: str | None) -> str | None:
+    """Normalize legacy short names while preserving custom FQDN domains."""
+    if value is None:
+        return None
+    value = value.strip().rstrip(".").lower()
+    if not value:
+        return value
+    if "." in value:
+        return value
+    return f"{value}.cloudonix.net"
+
+
 class CloudonixOutboundTrunkAuthentication(BaseModel):
     """Optional SIP digest credentials for the remote termination peer."""
 
@@ -117,12 +129,7 @@ class CloudonixConfigurationRequest(BaseModel):
     @field_validator("domain_id")
     @classmethod
     def _normalize_domain_id(cls, v: str) -> str:
-        v = (v or "").strip()
-        if not v:
-            return v
-        if v.endswith(".cloudonix.net"):
-            return v
-        return f"{v}.cloudonix.net"
+        return normalize_cloudonix_domain(v) or ""
 
     application_name: str | None = Field(
         default=None,

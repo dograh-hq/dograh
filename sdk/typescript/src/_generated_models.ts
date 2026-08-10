@@ -1270,6 +1270,11 @@ export interface components {
              * @default false
              */
             context_compaction_enabled: boolean;
+            /**
+             * Text Chat Inactivity Timeout Seconds
+             * @default 1800
+             */
+            text_chat_inactivity_timeout_seconds: number;
             /** External Pbx Field Mappings */
             external_pbx_field_mappings?: components["schemas"]["ExternalPBXFieldMapping"][];
         } & {

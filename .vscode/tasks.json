@@ -2,7 +2,11 @@
     // Tasks that auto-run when a worktree folder is opened (runOptions.runOn:
     // folderOpen). First time, VS Code asks to "Allow Automatic Tasks in Folder"
     // (or set task.allowAutomaticTasks: "on" in User settings to skip the prompt).
-    //   - "Assign worktree port"        : fast; sets UVICORN_PORT + UI BACKEND_URLs
+    //   - "Sync worktree env"           : fast; repoints absolute paths copied from
+    //                                     the main checkout (PYTHONPATH, ...), and
+    //                                     sets UVICORN_PORT / UI_PORT plus the
+    //                                     BACKEND_URLs, CORS and UI_APP_URL derived
+    //                                     from them
     //   - "Set up worktree environment" : heavy first time (submodule + venv +
     //                                     deps), instant skip after — run-once via
     //                                     venv/.worktree-setup-complete. Follow it:
@@ -10,9 +14,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Assign worktree port",
+            "label": "Sync worktree env",
             "type": "shell",
-            "command": "${workspaceFolder}/scripts/worktree-assign-port.sh",
+            "command": "${workspaceFolder}/scripts/worktree-sync-env.sh",
             "presentation": {
                 "reveal": "silent",
                 "panel": "shared",

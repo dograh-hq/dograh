@@ -12,6 +12,7 @@ from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.errors.mps import MPSUnavailableError
 from api.schemas.onboarding_state import OnboardingState, OnboardingStateUpdate
 from api.schemas.workflow_configurations import (
+    TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
     get_default_workflow_configurations,
 )
@@ -56,6 +57,7 @@ class DefaultConfigurationsResponse(BaseModel):
     realtime: dict[str, dict]
     default_providers: dict[str, str]
     workflow_configurations: WorkflowConfigurationDefaults
+    text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints
 
 
 @router.get("/configurations/defaults")
@@ -83,6 +85,9 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
         },
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
         "workflow_configurations": get_default_workflow_configurations(),
+        "text_chat_inactivity_timeout_constraints": (
+            TextChatInactivityTimeoutConstraints()
+        ),
     }
     return DefaultConfigurationsResponse(**configurations)
 

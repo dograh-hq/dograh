@@ -51,7 +51,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [isStarting, setIsStarting] = useState(false);
     const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
     const initialContext = initialContextVariables || {};
-    const { config: appConfig } = useAppConfig();
+    const { config: appConfig, loading: appConfigLoading, refresh: refreshAppConfig } = useAppConfig();
 
     const {
         audioInputs,
@@ -202,7 +202,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         // Build ICE servers list
         const iceServers: RTCIceServer[] = [];
 
-        if (useStun) {
+        // A `stun:` entry can only yield srflx, never relay — and srflx has been
+        // seen leaking through iceTransportPolicy: 'relay', so skip it entirely.
+        if (useStun && !appConfig?.forceTurnRelay) {
             iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
         }
 
@@ -828,6 +830,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         audioInputs,
         selectedAudioInput,
         setSelectedAudioInput,
+        // Auto-starting callers must wait on both: /api/config/version resolves
+        // 200 even when its backend healthcheck failed, defaulting forceTurnRelay
+        // to false, so only a 'reachable' backendStatus confirms the real value.
+        appConfig,
+        appConfigLoading,
+        refreshAppConfig,
         connectionActive,
         permissionError,
         isCompleted,

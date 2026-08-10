@@ -6,6 +6,8 @@ import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {
     CredentialSelector,
+    extractUrlHostnameParameters,
+    extractUrlPathParameters,
     type HttpMethod,
     HttpMethodSelector,
     KeyValueEditor,
@@ -77,18 +79,8 @@ export function HttpApiToolConfig({
     onCustomMessageRecordingIdChange,
     recordings = [],
 }: HttpApiToolConfigProps) {
-    const systemPrefixes = ["initial_context", "gathered_context", "current_time", "current_weekday"];
-
-    // Extract path params from URL
-    const urlMatches = url.match(/\{\{\s*([^|}\s]+)\s*(?:\|[^}]+)?\}\}/g) || [];
-    const urlParams = urlMatches.map(m => m.replace(/[{}]/g, '').split('|')[0].trim());
-    const customUrlParams = Array.from(new Set(urlParams.filter(p =>
-        !systemPrefixes.some(prefix =>
-            p.startsWith(`${prefix}.`) ||
-            ((prefix === "current_time" || prefix === "current_weekday") &&
-                (p === prefix || p.startsWith(`${prefix}_`)))
-        )
-    )));
+    const urlHostnameParameters = extractUrlHostnameParameters(url);
+    const urlPathParameters = extractUrlPathParameters(url);
 
     return (
         <Card>
@@ -162,11 +154,19 @@ export function HttpApiToolConfig({
                                 placeholder="https://api.example.com/appointments"
                                 showValidation
                             />
-                            {customUrlParams.length > 0 && (
+                            {urlHostnameParameters.length > 0 && (
                                 <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-600 flex gap-2 items-start mt-2">
                                     <Info className="h-4 w-4 mt-0.5 shrink-0" />
                                     <span>
-                                        Path parameters detected: {customUrlParams.join(", ")}. Values resolve from LLM tool call arguments first, then initial context.
+                                        Hostname parameters detected: {urlHostnameParameters.join(", ")}. Values resolve from tool call arguments or workflow context at runtime.
+                                    </span>
+                                </div>
+                            )}
+                            {urlPathParameters.length > 0 && (
+                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-600 flex gap-2 items-start mt-2">
+                                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                                    <span>
+                                        Path parameters detected: {urlPathParameters.join(", ")}. Values resolve from tool call arguments or workflow context at runtime.
                                     </span>
                                 </div>
                             )}

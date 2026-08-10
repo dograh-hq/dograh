@@ -7,16 +7,10 @@ from typing import Literal
 
 from loguru import logger
 from pydantic import ValidationError
-from sqlalchemy import select, update
-from sqlalchemy.orm import selectinload
 
 from api.constants import MPS_API_URL
 from api.db import db_client
-from api.db.models import (
-    OrganizationConfigurationModel,
-    WorkflowDefinitionModel,
-    WorkflowModel,
-)
+from api.db.models import OrganizationConfigurationModel
 from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
@@ -172,7 +166,9 @@ async def migrate_workflow_model_configurations_to_v2(
     organization_id: int,
     fallback_user_config: EffectiveAIModelConfiguration,
 ) -> WorkflowAIModelConfigurationMigrationResult:
-    workflows = await _list_workflows_for_model_configuration_migration(organization_id)
+    workflows = await db_client.list_workflows_for_model_configuration_migration(
+        organization_id
+    )
     workflow_updates: list[tuple[int, dict]] = []
     definition_updates: list[tuple[int, dict]] = []
     migrated_workflow_ids: set[int] = set()
@@ -202,20 +198,11 @@ async def migrate_workflow_model_configurations_to_v2(
                 migrated_workflow_ids.add(workflow.id)
 
     if workflow_updates or definition_updates:
-        async with db_client.async_session() as session:
-            for workflow_id, workflow_configs in workflow_updates:
-                await session.execute(
-                    update(WorkflowModel)
-                    .where(WorkflowModel.id == workflow_id)
-                    .values(workflow_configurations=workflow_configs)
-                )
-            for definition_id, definition_configs in definition_updates:
-                await session.execute(
-                    update(WorkflowDefinitionModel)
-                    .where(WorkflowDefinitionModel.id == definition_id)
-                    .values(workflow_configurations=definition_configs)
-                )
-            await session.commit()
+        await db_client.bulk_update_workflow_model_configurations(
+            organization_id=organization_id,
+            workflow_updates=workflow_updates,
+            definition_updates=definition_updates,
+        )
 
     return WorkflowAIModelConfigurationMigrationResult(
         workflow_count=len(migrated_workflow_ids),
@@ -374,18 +361,6 @@ def _merge_byok_secret_fields(incoming_byok: dict | None, existing_byok: dict | 
         existing_section = existing_container.get(section_name)
         if isinstance(incoming_section, dict) and isinstance(existing_section, dict):
             _merge_service_secret_fields(incoming_section, existing_section)
-
-
-async def _list_workflows_for_model_configuration_migration(
-    organization_id: int,
-) -> list[WorkflowModel]:
-    async with db_client.async_session() as session:
-        result = await session.execute(
-            select(WorkflowModel)
-            .options(selectinload(WorkflowModel.definitions))
-            .where(WorkflowModel.organization_id == organization_id)
-        )
-        return list(result.scalars().unique().all())
 
 
 def _merge_service_secret_fields(incoming: dict, existing: dict):

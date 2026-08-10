@@ -144,6 +144,7 @@ _GREETING_TURN = {
 def _text_session(
     *,
     turns=None,
+    status="idle",
     revision=3,
     state="running",
     is_completed=False,
@@ -153,7 +154,7 @@ def _text_session(
 ):
     return SimpleNamespace(
         revision=revision,
-        session_data={"turns": list(turns or [])},
+        session_data={"status": status, "turns": list(turns or [])},
         workflow_run=SimpleNamespace(
             id=run_id,
             workflow_id=workflow_id,
@@ -478,6 +479,95 @@ def test_projection_builder_strips_sensitive_fields():
 
 
 # ---------------------------------------------------------------------------
+# POST /end
+# ---------------------------------------------------------------------------
+
+
+def test_end_chat_session_happy_path(monkeypatch):
+    captured = []
+
+    async def _end(**kwargs):
+        captured.append(kwargs)
+        return _text_session(
+            turns=[_GREETING_TURN],
+            revision=4,
+            state="completed",
+            is_completed=True,
+        )
+
+    monkeypatch.setattr(
+        "api.routes.public_embed_chat.end_embed_text_chat_session",
+        _end,
+    )
+
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-chat/end",
+        headers={"Origin": ORIGIN},
+        json={"expected_revision": 3},
+    )
+
+    assert resp.status_code == 200
+    _assert_embed_cors(resp, ORIGIN)
+    assert captured == [
+        {
+            "session_token": "session-chat",
+            "origin": ORIGIN,
+            "expected_revision": 3,
+        }
+    ]
+    assert resp.json()["state"] == "completed"
+    assert resp.json()["is_completed"] is True
+
+
+def test_end_chat_session_revision_conflict_409(monkeypatch):
+    async def _end(**_kwargs):
+        raise TextChatSessionRevisionConflictError(
+            expected_revision=3, actual_revision=4
+        )
+
+    monkeypatch.setattr(
+        "api.routes.public_embed_chat.end_embed_text_chat_session",
+        _end,
+    )
+
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-chat/end",
+        headers={"Origin": ORIGIN},
+        json={"expected_revision": 3},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {
+        "message": "Text chat session revision conflict",
+        "expected_revision": 3,
+        "actual_revision": 4,
+    }
+
+
+def test_end_chat_session_rejects_inactive_embed_token():
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-inactive/end",
+        headers={"Origin": ORIGIN},
+        json={},
+    )
+
+    assert resp.status_code == 403
+
+
+def test_options_chat_end_succeeds():
+    resp = client.options(
+        "/api/v1/public/embed/chat/session-chat/end",
+        headers={
+            "Origin": ORIGIN,
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert resp.status_code == 200
+    _assert_embed_cors(resp, ORIGIN)
+
+
+# ---------------------------------------------------------------------------
 # POST /messages
 # ---------------------------------------------------------------------------
 
@@ -625,6 +715,21 @@ def test_post_message_execution_error_generic_500(monkeypatch):
 
 def test_post_message_completed_run_400(monkeypatch):
     _patch_chat_text_session(monkeypatch, _text_session(is_completed=True))
+
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-chat/messages",
+        headers={"Origin": ORIGIN},
+        json={"text": "hello"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "chat_completed"
+
+
+def test_post_message_completed_session_status_400(monkeypatch):
+    _patch_chat_text_session(
+        monkeypatch,
+        _text_session(status="completed", is_completed=False),
+    )
 
     resp = client.post(
         "/api/v1/public/embed/chat/session-chat/messages",

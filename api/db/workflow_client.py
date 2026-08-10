@@ -350,6 +350,61 @@ class WorkflowClient(BaseDBClient):
             result = await session.execute(query)
             return result.scalars().all()
 
+    async def list_workflows_for_model_configuration_migration(
+        self, organization_id: int
+    ) -> list[WorkflowModel]:
+        """Load an organization's workflows and every version for migration."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowModel)
+                .options(selectinload(WorkflowModel.definitions))
+                .where(WorkflowModel.organization_id == organization_id)
+            )
+            return list(result.scalars().unique().all())
+
+    async def bulk_update_workflow_model_configurations(
+        self,
+        *,
+        organization_id: int,
+        workflow_updates: list[tuple[int, dict]],
+        definition_updates: list[tuple[int, dict]],
+    ) -> None:
+        """Atomically update workflow and version configurations for one org."""
+        if not workflow_updates and not definition_updates:
+            return
+
+        async with self.async_session() as session:
+            try:
+                for workflow_id, workflow_configurations in workflow_updates:
+                    await session.execute(
+                        update(WorkflowModel)
+                        .where(
+                            WorkflowModel.id == workflow_id,
+                            WorkflowModel.organization_id == organization_id,
+                        )
+                        .values(workflow_configurations=workflow_configurations)
+                    )
+
+                organization_workflow_ids = select(WorkflowModel.id).where(
+                    WorkflowModel.organization_id == organization_id
+                )
+                for definition_id, workflow_configurations in definition_updates:
+                    await session.execute(
+                        update(WorkflowDefinitionModel)
+                        .where(
+                            WorkflowDefinitionModel.id == definition_id,
+                            WorkflowDefinitionModel.workflow_id.in_(
+                                organization_workflow_ids
+                            ),
+                        )
+                        .values(workflow_configurations=workflow_configurations)
+                    )
+
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
     async def get_all_workflows_for_listing(
         self, organization_id: int = None, status: str = None
     ) -> list[WorkflowModel]:

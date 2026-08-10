@@ -115,17 +115,11 @@ function StackAuthContextProvider({
   );
 }
 
-const translationOverrides = {
-  "Email": "Business Email",
-  "Sign in with {provider}": "Sign in with {provider} Business",
-  "Sign up with {provider}": "Sign up with {provider} Business",
-};
-
 export function StackProviderWrapper({ children, projectId, publishableClientKey }: StackProviderWrapperProps) {
   const stackClientApp = getStackClientApp(projectId, publishableClientKey);
 
   return (
-    <StackProvider app={stackClientApp} translationOverrides={translationOverrides}>
+    <StackProvider app={stackClientApp}>
       <StackTheme>
         <StackAuthContextProvider app={stackClientApp}>
           {children}

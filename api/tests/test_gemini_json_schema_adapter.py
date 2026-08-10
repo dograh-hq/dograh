@@ -3,10 +3,12 @@ from unittest.mock import patch
 from google.genai.types import GenerateContentConfig, LiveConnectConfig
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.services.gemini_live_adapter import GeminiLiveLLMAdapter
 
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
+    DograhGeminiLiveJSONSchemaAdapter,
 )
 from api.services.pipecat.realtime.gemini_live import DograhGeminiLiveLLMService
 from api.services.pipecat.realtime.gemini_live_vertex import (
@@ -127,10 +129,19 @@ def test_google_vertex_llm_service_factory_uses_dograh_service_class():
 
 
 def test_gemini_live_service_classes_use_dograh_gemini_adapter_class():
-    assert DograhGeminiLiveLLMService.adapter_class is DograhGeminiJSONSchemaAdapter
+    assert DograhGeminiLiveLLMService.adapter_class is DograhGeminiLiveJSONSchemaAdapter
     # Vertex Live inherits adapter_class from DograhGeminiLiveLLMService via MRO.
     assert (
-        DograhGeminiLiveVertexLLMService.adapter_class is DograhGeminiJSONSchemaAdapter
+        DograhGeminiLiveVertexLLMService.adapter_class
+        is DograhGeminiLiveJSONSchemaAdapter
+    )
+    # The Live adapter must keep upstream's tool-call-to-text conversion for
+    # seeded contexts (GeminiLiveLLMAdapter) alongside the JSON Schema fix.
+    assert issubclass(DograhGeminiLiveJSONSchemaAdapter, GeminiLiveLLMAdapter)
+    assert issubclass(DograhGeminiLiveJSONSchemaAdapter, DograhGeminiJSONSchemaAdapter)
+    assert (
+        DograhGeminiLiveJSONSchemaAdapter.to_provider_tools_format
+        is DograhGeminiJSONSchemaAdapter.to_provider_tools_format
     )
 
 

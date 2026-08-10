@@ -251,8 +251,8 @@ def render_url_template(
     """Render URL placeholders with shared template semantics and URL safety.
 
     Values are resolved by the same logic used by :func:`render_template`, then
-    percent-encoded before substitution. The configured scheme and authority
-    must remain unchanged.
+    percent-encoded before substitution. Template variables may be used in the
+    hostname and path, but the configured URL scheme must remain unchanged.
     """
 
     if url.count("{{") != url.count("}}"):
@@ -297,12 +297,17 @@ def render_url_template(
 
     original_parsed = urlparse(url)
     rendered_parsed = urlparse(rendered_url)
-    if (
-        original_parsed.scheme != rendered_parsed.scheme
-        or original_parsed.netloc != rendered_parsed.netloc
-    ):
+    if original_parsed.scheme != rendered_parsed.scheme:
         raise ValueError(
-            "URL placeholders cannot alter the scheme or host of the configured endpoint."
+            "URL placeholders cannot alter the scheme of the configured endpoint."
         )
+
+    try:
+        rendered_hostname = rendered_parsed.hostname
+    except ValueError as exc:
+        raise ValueError("URL template rendered an invalid hostname.") from exc
+
+    if rendered_parsed.scheme not in {"http", "https"} or not rendered_hostname:
+        raise ValueError("URL template must render to a valid HTTP or HTTPS URL.")
 
     return rendered_url

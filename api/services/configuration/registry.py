@@ -714,12 +714,6 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
-    temperature: float | None = Field(
-        default=None,
-        ge=0.0,
-        le=2.0,
-        description="Sampling temperature for the realtime model (0.0 to 2.0).",
-    )
 
 
 GROK_REALTIME_MODELS = ["grok-voice-think-fast-1.0"]

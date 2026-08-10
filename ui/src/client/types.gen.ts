@@ -2740,6 +2740,12 @@ export type GoogleRealtimeLlmConfiguration = {
      * ISO 639-1 language code.
      */
     language?: string;
+    /**
+     * Temperature
+     *
+     * Sampling temperature for Gemini Live (0.0 to 2.0).
+     */
+    temperature?: number | null;
 };
 
 /**
@@ -2911,7 +2917,7 @@ export type GoogleVertexRealtimeLlmConfiguration = {
      *
      * Sampling temperature for Gemini Live (0.0 to 2.0).
      */
-    temperature?: number;
+    temperature?: number | null;
     /**
      * Project Id
      *
@@ -3138,6 +3144,14 @@ export type HttpApiConfig = {
      * Recording ID for an audio custom message.
      */
     customMessageRecordingId?: string | null;
+    /**
+     * Body Template
+     *
+     * Optional JSON body template for POST, PUT, and PATCH requests.
+     */
+    body_template?: {
+        [key: string]: unknown;
+    } | null;
 };
 
 /**

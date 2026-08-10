@@ -1,11 +1,13 @@
 from types import SimpleNamespace
 
 import pytest
+from google.auth.credentials import AnonymousCredentials
 from pydantic import ValidationError
 
 from api.services.configuration.registry import (
     GoogleRealtimeLLMConfiguration,
     GoogleVertexRealtimeLLMConfiguration,
+    OpenAIRealtimeLLMConfiguration,
 )
 from api.services.pipecat.realtime.gemini_live import DograhGeminiLiveLLMService
 from api.services.pipecat.realtime.gemini_live_vertex import (
@@ -57,6 +59,11 @@ def test_google_realtime_config_temperature_validation():
         )
 
 
+def test_openai_realtime_config_does_not_expose_temperature():
+    # The OpenAI Realtime GA interface does not accept temperature.
+    assert "temperature" not in OpenAIRealtimeLLMConfiguration.model_fields
+
+
 def test_create_realtime_llm_service_gemini_live_temperature():
     realtime_config = GoogleRealtimeLLMConfiguration(
         api_key="test-api-key",
@@ -71,7 +78,15 @@ def test_create_realtime_llm_service_gemini_live_temperature():
     assert service._settings.temperature == 0.35
 
 
-def test_create_realtime_llm_service_gemini_vertex_temperature():
+def test_create_realtime_llm_service_gemini_vertex_temperature(monkeypatch):
+    # Keep this factory test hermetic: the Vertex service normally refreshes
+    # Application Default Credentials during construction.
+    monkeypatch.setattr(
+        DograhGeminiLiveVertexLLMService,
+        "_get_credentials",
+        staticmethod(lambda _credentials, _credentials_path: AnonymousCredentials()),
+    )
+
     realtime_config = GoogleVertexRealtimeLLMConfiguration(
         project_id="test-proj",
         location="us-central1",
@@ -84,23 +99,3 @@ def test_create_realtime_llm_service_gemini_vertex_temperature():
     service = create_realtime_llm_service(user_config, _audio_config())
     assert isinstance(service, DograhGeminiLiveVertexLLMService)
     assert service._settings.temperature == 1.2
-
-
-def test_create_realtime_llm_service_openai_realtime_temperature():
-    from api.services.configuration.registry import OpenAIRealtimeLLMConfiguration
-    from api.services.pipecat.realtime.openai_realtime import (
-        DograhOpenAIRealtimeLLMService,
-    )
-
-    realtime_config = OpenAIRealtimeLLMConfiguration(
-        api_key="test-openai-key",
-        model="gpt-realtime-2",
-        voice="alloy",
-        temperature=0.85,
-    )
-    user_config = DummyUserConfig(realtime_config)
-
-    service = create_realtime_llm_service(user_config, _audio_config())
-    assert isinstance(service, DograhOpenAIRealtimeLLMService)
-    assert service._settings.temperature == 0.85
-

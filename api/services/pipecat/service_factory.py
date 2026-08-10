@@ -1087,7 +1087,6 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     api_key = realtime_config.api_key
     voice = getattr(realtime_config, "voice", None)
     language = getattr(realtime_config, "language", None)
-    temperature = getattr(realtime_config, "temperature", None)
 
     logger.info(
         f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}, language={language}"
@@ -1112,10 +1111,6 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         if language:
             transcription_kwargs["language"] = language
 
-        openai_settings_kwargs = {}
-        if temperature is not None:
-            openai_settings_kwargs["temperature"] = temperature
-
         return DograhOpenAIRealtimeLLMService(
             api_key=api_key,
             settings=DograhOpenAIRealtimeLLMService.Settings(
@@ -1132,7 +1127,6 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                         ),
                     ),
                 ),
-                **openai_settings_kwargs,
             ),
         )
     elif provider == ServiceProviders.GROK_REALTIME.value:

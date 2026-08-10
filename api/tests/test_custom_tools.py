@@ -436,7 +436,7 @@ class TestExecuteHttpTool:
 
     @pytest.mark.asyncio
     async def test_post_request_sends_nested_json_body(self):
-        """Test that POST requests preserve nested arguments in the JSON body."""
+        """Test that POST requests render nested JSON body templates."""
         tool = MockToolModel(
             tool_uuid="test-uuid-nested",
             name="Create Booking",
@@ -449,16 +449,24 @@ class TestExecuteHttpTool:
                     "method": "POST",
                     "url": "https://api.example.com/bookings",
                     "timeout_ms": 5000,
+                    "body_template": {
+                        "booking": {
+                            "start": "{{start}}",
+                            "attendee": "{{attendee}}",
+                            "count": "{{count}}",
+                            "active": "{{active}}",
+                            "caller": "{{initial_context.phone}}",
+                        }
+                    },
                 },
             },
         )
 
         arguments = {
-            "booking": {
-                "start": "2026-05-28T10:00:00Z",
-                "attendee": {"name": "Jane", "email": "jane@example.com"},
-                "metadata": {"source": "voice"},
-            }
+            "start": "2026-05-28T10:00:00Z",
+            "attendee": {"name": "Jane", "email": "jane@example.com"},
+            "count": 2,
+            "active": False,
         }
 
         with patch(
@@ -471,10 +479,23 @@ class TestExecuteHttpTool:
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            result = await execute_http_tool(tool, arguments)
+            result = await execute_http_tool(
+                tool, arguments, call_context_vars={"phone": "+15551234567"}
+            )
 
             call_kwargs = mock_client.request.call_args.kwargs
-            assert call_kwargs["json"] == arguments
+            assert call_kwargs["json"] == {
+                "booking": {
+                    "start": "2026-05-28T10:00:00Z",
+                    "attendee": {
+                        "name": "Jane",
+                        "email": "jane@example.com",
+                    },
+                    "count": 2,
+                    "active": False,
+                    "caller": "+15551234567",
+                }
+            }
             assert isinstance(call_kwargs["json"]["booking"], dict)
             assert isinstance(call_kwargs["json"]["booking"]["attendee"], dict)
             assert result["status"] == "success"

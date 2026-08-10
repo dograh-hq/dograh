@@ -19,7 +19,11 @@ from api.errors.failure import (
 )
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
-from api.utils.template_renderer import render_template, render_url_template
+from api.utils.template_renderer import (
+    get_nested_value,
+    render_template,
+    render_url_template,
+)
 from api.utils.url_security import validate_user_configured_service_url
 
 # Map tool parameter types to JSON schema types
@@ -30,6 +34,8 @@ TYPE_MAP = {
     "object": "object",
     "array": "array",
 }
+
+_FULL_PLACEHOLDER = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
 
 
 def custom_tool_function_name(name: str) -> str:
@@ -248,6 +254,26 @@ def _resolve_preset_parameters(
     return resolved
 
 
+def render_body_template(template: Any, context: dict[str, Any]) -> Any:
+    """Render a JSON template while preserving whole-placeholder value types."""
+    if isinstance(template, dict):
+        return {
+            render_template(str(key), context): render_body_template(value, context)
+            for key, value in template.items()
+        }
+    if isinstance(template, list):
+        return [render_body_template(value, context) for value in template]
+    if not isinstance(template, str):
+        return template
+
+    match = _FULL_PLACEHOLDER.fullmatch(template)
+    if match:
+        value = get_nested_value(context, match.group(1))
+        if value is not None and not isinstance(value, str):
+            return value
+    return render_template(template, context)
+
+
 async def execute_http_tool(
     tool: Any,
     arguments: dict[str, Any],
@@ -330,6 +356,7 @@ async def execute_http_tool(
             request_headers[header_name] = mask_key(str(header_value))
 
     _rendered_url: str | None = None
+    _request_body_preview: Any = None
 
     def build_result(result: dict[str, Any]) -> dict[str, Any]:
         if include_request_headers:
@@ -337,6 +364,7 @@ async def execute_http_tool(
                 **result,
                 "request_headers": request_headers,
                 "rendered_url": _rendered_url,
+                "request_body_preview": _request_body_preview,
             }
         return result
 
@@ -405,15 +433,25 @@ async def execute_http_tool(
             {"status": "error", "error": f"URL validation failed: {e!s}"}
         )
 
-    request_arguments = resolved_arguments
-
     # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
     params = None
     if method in ("POST", "PUT", "PATCH"):
-        body = request_arguments
-    elif method in ("GET", "DELETE") and request_arguments:
-        params = serialize_query_params(request_arguments)
+        body_template = config.get("body_template")
+        if body_template is None:
+            body = resolved_arguments
+        else:
+            body = render_body_template(
+                body_template,
+                {
+                    **resolved_arguments,
+                    "initial_context": initial_context,
+                    "gathered_context": gathered_context,
+                },
+            )
+        _request_body_preview = body
+    elif method in ("GET", "DELETE") and resolved_arguments:
+        params = serialize_query_params(resolved_arguments)
 
     logger.info(
         f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): "
@@ -423,8 +461,6 @@ async def execute_http_tool(
         logger.debug(
             f"Resolved preset parameters for '{tool.name}': {list(preset_arguments.keys())}"
         )
-    logger.debug(f"Request body: {body}, params: {params}")
-
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             response = await client.request(

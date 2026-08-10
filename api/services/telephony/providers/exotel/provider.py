@@ -5,15 +5,19 @@ https://docs.exotel.com/exotel-agentstream/connect-voice-ai-api
 """
 
 import base64
+import hashlib
+import hmac
 import json
-import random
+import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
 from fastapi import HTTPException, Response
 from loguru import logger
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -21,6 +25,7 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.exotel.config import ALLOWED_API_BASE_URLS
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -28,6 +33,9 @@ if TYPE_CHECKING:
     from fastapi import WebSocket
 
 DEFAULT_API_BASE_URL = "https://api.in.exotel.com"
+_STATUS_CALLBACK_PATH_RE = re.compile(
+    r"/api/v1/telephony/exotel/status-callback/(\d+)"
+)
 
 
 class ExotelProvider(TelephonyProvider):
@@ -38,15 +46,45 @@ class ExotelProvider(TelephonyProvider):
         self.account_sid = config.get("account_sid")
         self.api_key = config.get("api_key")
         self.api_token = config.get("api_token")
-        self.api_base_url = (config.get("api_base_url") or DEFAULT_API_BASE_URL).rstrip(
-            "/"
+        self.api_base_url = self._normalize_api_base_url(
+            config.get("api_base_url") or DEFAULT_API_BASE_URL
         )
         self.from_numbers = config.get("from_numbers", [])
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
+        self.default_from_number = config.get("default_from_number")
+
+    @staticmethod
+    def _normalize_api_base_url(value: str) -> str:
+        normalized = (value or DEFAULT_API_BASE_URL).rstrip("/")
+        parsed = urlsplit(normalized)
+        origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        if origin not in ALLOWED_API_BASE_URLS:
+            raise ValueError(
+                "Exotel api_base_url must be https://api.in.exotel.com or "
+                "https://api.exotel.com"
+            )
+        return origin
 
     def _auth(self) -> aiohttp.BasicAuth:
         return aiohttp.BasicAuth(self.api_key, self.api_token)
+
+    def _status_callback_token(self, workflow_run_id: int) -> str:
+        """HMAC token proving the StatusCallback URL was minted by this config."""
+        msg = f"exotel-status:{self.account_sid}:{workflow_run_id}".encode()
+        secret = (self.api_token or "").encode()
+        return hmac.new(secret, msg, hashlib.sha256).hexdigest()
+
+    def build_status_callback_url(
+        self, backend_endpoint: str, workflow_run_id: int
+    ) -> str:
+        """Status callback URL with a capability token Exotel can POST without auth headers."""
+        base = backend_endpoint.rstrip("/")
+        token = self._status_callback_token(workflow_run_id)
+        return (
+            f"{base}/api/v1/telephony/exotel/status-callback/{workflow_run_id}"
+            f"?exotel_auth={token}"
+        )
 
     def _calls_connect_url(self) -> str:
         return f"{self.api_base_url}/v1/Accounts/{self.account_sid}/Calls/connect.json"
@@ -132,21 +170,19 @@ class ExotelProvider(TelephonyProvider):
         workflow_id = kwargs["workflow_id"]
         organization_id = kwargs["organization_id"]
 
-        if from_number is None:
-            if not self.from_numbers:
-                raise ValueError(
-                    "No phone numbers configured for Exotel. "
-                    "Add at least one ExoPhone as CallerId."
-                )
-            from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number(from_number)
+        if not from_number:
+            raise ValueError(
+                "No phone numbers configured for Exotel. "
+                "Add at least one ExoPhone as CallerId."
+            )
 
         to_number = self._exotel_dial_number(to_number)
         from_number = self._exotel_dial_number(from_number)
 
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-        stream_url = (
-            f"{wss_backend_endpoint}/api/v1/telephony/ws/"
-            f"{workflow_id}/{organization_id}/{workflow_run_id}"
+        stream_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
         )
 
         form: Dict[str, Any] = {
@@ -156,9 +192,8 @@ class ExotelProvider(TelephonyProvider):
             "StreamType": "bidirectional",
         }
         if workflow_run_id:
-            form["StatusCallback"] = (
-                f"{backend_endpoint}/api/v1/telephony/exotel/"
-                f"status-callback/{workflow_run_id}"
+            form["StatusCallback"] = self.build_status_callback_url(
+                backend_endpoint, workflow_run_id
             )
             form["StatusCallbackEvents[]"] = "terminal"
 
@@ -510,31 +545,52 @@ class ExotelProvider(TelephonyProvider):
         headers: Dict[str, str],
         body: str = "",
     ) -> bool:
-        """Fail closed: Exotel does not document an HMAC inbound signature.
+        """Fail closed: Exotel has no documented HMAC for inbound/status.
 
-        Streaming docs support Basic Auth (api_key:api_token). Require
-        Authorization Basic matching stored credentials.
+        Accept either:
+        - HTTP Basic Auth (api_key:api_token) for VoiceUrl / inbound, or
+        - ``exotel_auth`` query token minted into StatusCallback URLs (Exotel
+          status POSTs do not reliably send Authorization headers).
         """
+        if not self.api_key or not self.api_token:
+            logger.warning("Exotel credentials missing for webhook auth check")
+            return False
+
         normalized = {k.lower(): v for k, v in headers.items()}
         auth = normalized.get("authorization", "")
-        if not auth.lower().startswith("basic "):
-            logger.warning(
-                "Exotel inbound webhook missing Authorization Basic; rejecting"
-            )
-            return False
-        if not self.api_key or not self.api_token:
-            logger.warning("Exotel credentials missing for inbound Basic Auth check")
-            return False
-        try:
-            decoded = base64.b64decode(auth.split(" ", 1)[1].strip()).decode("utf-8")
-            user, _, password = decoded.partition(":")
-        except Exception as e:
-            logger.warning(f"Exotel inbound Basic Auth decode failed: {e}")
-            return False
-        ok = user == self.api_key and password == self.api_token
-        if not ok:
-            logger.warning("Exotel inbound Basic Auth mismatch")
-        return ok
+        if auth.lower().startswith("basic "):
+            try:
+                decoded = base64.b64decode(auth.split(" ", 1)[1].strip()).decode(
+                    "utf-8"
+                )
+                user, _, password = decoded.partition(":")
+            except Exception as e:
+                logger.warning(f"Exotel inbound Basic Auth decode failed: {e}")
+                return False
+            ok = user == self.api_key and password == self.api_token
+            if not ok:
+                logger.warning("Exotel inbound Basic Auth mismatch")
+            return ok
+
+        # StatusCallback path: capability token in query string.
+        parts = urlsplit(url)
+        token = (parse_qs(parts.query).get("exotel_auth") or [None])[0]
+        match = _STATUS_CALLBACK_PATH_RE.search(parts.path or "")
+        if token and match:
+            try:
+                run_id = int(match.group(1))
+            except ValueError:
+                return False
+            expected = self._status_callback_token(run_id)
+            ok = hmac.compare_digest(expected, token)
+            if not ok:
+                logger.warning("Exotel status callback token mismatch")
+            return ok
+
+        logger.warning(
+            "Exotel webhook missing Authorization Basic and status token; rejecting"
+        )
+        return False
 
     async def start_inbound_stream(
         self,
@@ -546,9 +602,8 @@ class ExotelProvider(TelephonyProvider):
     ):
         status_attr = ""
         if workflow_run_id:
-            status_url = (
-                f"{backend_endpoint}/api/v1/telephony/exotel/"
-                f"status-callback/{workflow_run_id}"
+            status_url = self.build_status_callback_url(
+                backend_endpoint, workflow_run_id
             )
             status_attr = f' statusCallback="{status_url}"'
 

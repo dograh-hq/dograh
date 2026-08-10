@@ -15,13 +15,14 @@ from .transport import create_transport
 
 
 def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
+    # Do not load from_numbers from credentials — factory attaches active
+    # phone numbers from telephony_phone_numbers after this runs.
     return {
         "provider": "exotel",
         "account_sid": value.get("account_sid"),
         "api_key": value.get("api_key"),
         "api_token": value.get("api_token"),
         "api_base_url": value.get("api_base_url") or "https://api.in.exotel.com",
-        "from_numbers": value.get("from_numbers", []),
     }
 
 
@@ -33,6 +34,7 @@ _UI_METADATA = ProviderUIMetadata(
             name="account_sid",
             label="Account SID",
             type="text",
+            sensitive=True,
             description="Exotel Account SID used in API paths and inbound matching",
         ),
         ProviderUIField(

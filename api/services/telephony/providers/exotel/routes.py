@@ -4,9 +4,10 @@ Mounted under ``/api/v1/telephony`` by ``api.routes.telephony`` via the
 provider registry.
 """
 
+import hmac
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
@@ -55,7 +56,32 @@ async def handle_exotel_status_callback(workflow_run_id: int, request: Request):
     provider = await get_telephony_provider_for_run(
         workflow_run, workflow.organization_id
     )
+
+    is_valid = await provider.verify_inbound_signature(
+        str(request.url),
+        callback_data,
+        dict(request.headers),
+    )
+    if not is_valid:
+        logger.warning(
+            f"[run {workflow_run_id}] Invalid Exotel status callback auth"
+        )
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
     parsed = provider.parse_status_callback(callback_data)
+    expected_call_id = None
+    gathered = workflow_run.gathered_context or {}
+    if isinstance(gathered, dict):
+        expected_call_id = gathered.get("call_id")
+    if expected_call_id:
+        presented = parsed.get("call_id") or ""
+        if not hmac.compare_digest(str(expected_call_id), str(presented)):
+            logger.warning(
+                f"[run {workflow_run_id}] Exotel status CallSid mismatch "
+                f"expected={expected_call_id!r} got={presented!r}"
+            )
+            raise HTTPException(status_code=403, detail="CallSid mismatch")
+
     await _process_status_update(
         workflow_run_id,
         StatusCallbackRequest(

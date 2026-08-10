@@ -52,13 +52,16 @@ Dograh responds with Connect + Stream XML so Exotel opens the media WebSocket to
 
 Outbound (and inbound when a run id is present) register:
 
-`/api/v1/telephony/exotel/status-callback/{workflow_run_id}`
+`/api/v1/telephony/exotel/status-callback/{workflow_run_id}?exotel_auth=…`
+
+The `exotel_auth` token is minted from your API token so Exotel’s POST does not need an Authorization header. The handler also rejects CallSid values that do not match the run’s stored call id.
 
 Terminal events update the workflow run status.
 
 ## Troubleshooting
 
-- **Connect fails** — verify Account SID, API key/token, base URL region, and AgentStream entitlement
+- **Connect fails** — verify Account SID, API key/token, base URL region (`api.in.exotel.com` or `api.exotel.com` only), and AgentStream entitlement
 - **No inbound agent** — confirm the phone number has an inbound workflow and Account SID matches the webhook
 - **Auth failed on inbound** — set Basic Auth on the Exotel answer URL to the same API key/token
 - **One-way audio** — confirm public WSS reachability; Exotel streams 8 kHz μ-law
+- **Status callback 401** — ensure Dograh minted the StatusCallback URL (includes `exotel_auth`); do not strip the query string in Exotel

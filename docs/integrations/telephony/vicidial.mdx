@@ -76,6 +76,49 @@ Hangup and transfer require the call-control identifier and remote-agent user.
 Lead updates additionally require the lead ID. The source in-group header is
 only required when a transfer mapping uses the `source` fallback.
 
+### Pass lead data in additional headers
+
+Configure VICIdial or the dialplan to attach lead fields as headers, for example
+`X-VICIDIAL-first_name`, `X-VICIDIAL-city`, or `X-VICIDIAL-vendor_lead_code`.
+Headers with empty values are ignored.
+
+Each lead field is then read individually during call setup, so Dograh captures
+only the fields you list:
+
+1. Open the workflow's **General Settings**.
+2. Under **External PBX Field Updates**, find **Lead Fields To Capture**.
+3. Add one entry per field, named **without** the `X-VICIDIAL-` prefix — enter
+   `first_name` to capture `X-VICIDIAL-first_name`.
+
+<Note>
+  Every field you add costs one extra request to Asterisk while the call is being
+  set up, which delays the agent's first response. List only the fields your
+  prompts actually use.
+</Note>
+
+#### Discover which fields your PBX sends
+
+To see what a call actually carries, set `LOG_EXTERNAL_PBX_AVAILABLE_HEADERS=true`
+and place a test call. Each inbound call then logs the available field names:
+
+```text
+[ARI org=7] Available vicidial lead fields on channel 1712...: ['callerid',
+'city', 'first_name', 'lead_id', 'user'] — add the ones you need under the
+workflow's Lead Fields To Capture setting
+```
+
+Listing the names costs a single request no matter how many headers are present,
+because it reads names only — never values. Turn the flag off once you have
+configured the fields you need.
+
+Captured fields are available to workflow prompts through template variables
+named after the header suffix:
+
+```text
+Hello {{external_pbx_call.lead.first_name | there}}, I see you're calling
+from {{external_pbx_call.lead.city}}.
+```
+
 ## Configure in-group transfers
 
 In-group mappings select a VICIdial destination from information gathered by

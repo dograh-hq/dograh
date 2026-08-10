@@ -297,6 +297,24 @@ class WorkflowClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def get_definition_configurations(self, definition_id: int | None) -> dict:
+        """Load the configuration document for one workflow definition.
+
+        Callers that need configuration *before* a run row exists must read the
+        definition the run will bind to. ``WorkflowModel.workflow_configurations``
+        is a legacy column kept in sync with the draft, so reading it here would
+        let unpublished edits change live call behaviour.
+        """
+        if definition_id is None:
+            return {}
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowDefinitionModel.workflow_configurations).where(
+                    WorkflowDefinitionModel.id == definition_id
+                )
+            )
+            return result.scalar_one_or_none() or {}
+
     async def get_workflow_versions(
         self,
         workflow_id: int,

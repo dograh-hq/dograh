@@ -32,8 +32,19 @@ def _vicidial_config() -> dict:
     }
 
 
+def _header_access(headers: dict[str, str]):
+    """Return a reader plus the list of header names it was asked for."""
+    requested: list[str] = []
+
+    async def read_header(name: str) -> str:
+        requested.append(name)
+        return headers.get(name, "")
+
+    return read_header, requested
+
+
 @pytest.mark.asyncio
-async def test_vicidial_adapter_captures_call_identity_from_headers():
+async def test_vicidial_adapter_captures_identity_and_configured_lead_fields():
     adapter = create_adapter(_vicidial_config())
     headers = {
         "X-VICIDIAL-callerid": "M123",
@@ -41,12 +52,15 @@ async def test_vicidial_adapter_captures_call_identity_from_headers():
         "X-VICIDIAL-lead_id": "42",
         "X-VICIDIAL-campaign_id": "campaign",
         "X-VICIDIAL-ingroup_id": "source-group",
+        "X-VICIDIAL-first_name": "Ada",
+        "X-VICIDIAL-comments": "  prefers mornings  ",
+        "X-VICIDIAL-address2": "",
     }
+    read_header, requested = _header_access(headers)
 
-    async def read_header(name: str) -> str:
-        return headers.get(name, "")
-
-    identity = await adapter.capture_call_identity(read_header)
+    identity = await adapter.capture_call_identity(
+        read_header, ["first_name", "comments", "address2"]
+    )
 
     assert identity == {
         "type": "vicidial",
@@ -55,7 +69,150 @@ async def test_vicidial_adapter_captures_call_identity_from_headers():
         "lead_id": "42",
         "campaign_id": "campaign",
         "ingroup_id": "source-group",
+        "lead": {
+            "callerid": "M123",
+            "user": "remote-agent",
+            "lead_id": "42",
+            "campaign_id": "campaign",
+            "ingroup_id": "source-group",
+            "first_name": "Ada",
+            "comments": "prefers mornings",
+        },
     }
+    # Exactly one read per configured field, and no enumeration request.
+    assert requested == [
+        "X-VICIDIAL-callerid",
+        "X-VICIDIAL-user",
+        "X-VICIDIAL-lead_id",
+        "X-VICIDIAL-campaign_id",
+        "X-VICIDIAL-ingroup_id",
+        "X-VICIDIAL-first_name",
+        "X-VICIDIAL-comments",
+        "X-VICIDIAL-address2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vicidial_adapter_reads_only_identity_fields_when_unconfigured():
+    adapter = create_adapter(_vicidial_config())
+    headers = {
+        "X-VICIDIAL-callerid": "M123",
+        "X-VICIDIAL-user": "remote-agent",
+        "X-VICIDIAL-lead_id": "42",
+        "X-VICIDIAL-first_name": "Ada",
+    }
+    read_header, requested = _header_access(headers)
+
+    identity = await adapter.capture_call_identity(read_header)
+
+    assert identity == {
+        "type": "vicidial",
+        "callerid": "M123",
+        "agent_user": "remote-agent",
+        "lead_id": "42",
+        "campaign_id": "",
+        "ingroup_id": "",
+        "lead": {
+            "callerid": "M123",
+            "user": "remote-agent",
+            "lead_id": "42",
+        },
+    }
+    # The unconfigured lead field is never fetched.
+    assert "X-VICIDIAL-first_name" not in requested
+    assert len(requested) == 5
+
+
+@pytest.mark.asyncio
+async def test_vicidial_adapter_ignores_duplicate_and_invalid_lead_fields():
+    adapter = create_adapter(_vicidial_config())
+    headers = {
+        "X-VICIDIAL-callerid": "M123",
+        "X-VICIDIAL-user": "remote-agent",
+        "X-VICIDIAL-first_name": "Ada",
+    }
+    read_header, requested = _header_access(headers)
+
+    await adapter.capture_call_identity(
+        read_header,
+        # duplicate, identity field, whitespace, empty, and injection-shaped
+        ["first_name", " first_name ", "callerid", "", "bad name)"],
+    )
+
+    assert requested.count("X-VICIDIAL-first_name") == 1
+    assert requested.count("X-VICIDIAL-callerid") == 1
+    assert len(requested) == 6
+
+
+@pytest.mark.asyncio
+async def test_vicidial_adapter_returns_none_without_callerid():
+    adapter = create_adapter(_vicidial_config())
+    read_header, _ = _header_access({"X-VICIDIAL-first_name": "Ada"})
+
+    identity = await adapter.capture_call_identity(read_header, ["first_name"])
+
+    assert identity is None
+
+
+def _ari_connection(monkeypatch, variables: dict[str, str]):
+    """An ARIConnection whose ARI variable reads are recorded, not sent."""
+    from api.services.telephony import ari_manager
+
+    connection = ari_manager.ARIConnection(
+        organization_id=7,
+        telephony_configuration_id=1,
+        ari_endpoint="http://asterisk.example.com",
+        app_name="dograh",
+        app_password="secret",
+        external_pbx_config=_vicidial_config(),
+    )
+    requested: list[str] = []
+
+    async def fake_get_channel_var(channel_id: str, variable: str) -> str:
+        requested.append(variable)
+        return variables.get(variable, "")
+
+    monkeypatch.setattr(connection, "_get_channel_var", fake_get_channel_var)
+    return connection, requested
+
+
+@pytest.mark.asyncio
+async def test_available_headers_are_listed_in_one_request(monkeypatch):
+    from api.services.telephony import ari_manager
+
+    monkeypatch.setattr(ari_manager, "LOG_EXTERNAL_PBX_AVAILABLE_HEADERS", True)
+    connection, requested = _ari_connection(
+        monkeypatch,
+        {
+            "PJSIP_HEADERS(X-VICIDIAL-)": (
+                "X-VICIDIAL-callerid,X-VICIDIAL-user,X-VICIDIAL-first_name"
+            ),
+            "PJSIP_HEADER(read,X-VICIDIAL-callerid)": "M123",
+            "PJSIP_HEADER(read,X-VICIDIAL-user)": "remote-agent",
+        },
+    )
+
+    await connection._capture_external_pbx_call("chan-1", "PJSIP/inbound-0001")
+
+    # Enumeration is a single request regardless of how many headers exist.
+    assert requested.count("PJSIP_HEADERS(X-VICIDIAL-)") == 1
+    # ...and it does not pull the values of the fields it merely lists.
+    assert "PJSIP_HEADER(read,X-VICIDIAL-first_name)" not in requested
+
+
+@pytest.mark.asyncio
+async def test_available_header_listing_is_skipped_when_disabled(monkeypatch):
+    from api.services.telephony import ari_manager
+
+    monkeypatch.setattr(ari_manager, "LOG_EXTERNAL_PBX_AVAILABLE_HEADERS", False)
+    connection, requested = _ari_connection(
+        monkeypatch, {"PJSIP_HEADER(read,X-VICIDIAL-callerid)": "M123"}
+    )
+
+    await connection._capture_external_pbx_call("chan-1", "PJSIP/inbound-0001")
+
+    assert not any(name.startswith("PJSIP_HEADERS(") for name in requested)
+    assert len(requested) == 5
 
 
 @pytest.mark.asyncio

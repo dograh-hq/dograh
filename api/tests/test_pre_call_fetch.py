@@ -65,18 +65,18 @@ class TestExtractInitialContext:
 
         assert _extract_initial_context(response) == {"customer_name": "Jane"}
 
-    def test_greeting_override_is_not_accepted_from_pre_call_fetch(self):
+    def test_greeting_override_is_accepted_from_pre_call_fetch(self):
         response = {
             "initial_context": {
                 "account_id": "ACC-123",
                 "greeting_override": {
                     "type": "text",
-                    "text": "This must not replace the trigger greeting",
+                    "text": "Welcome back to account {{account_id}}",
                 },
             }
         }
 
-        assert _extract_initial_context(response) == {"account_id": "ACC-123"}
+        assert _extract_initial_context(response) == response["initial_context"]
 
     def test_empty_when_no_known_keys(self):
         """A response with neither key yields an empty dict."""

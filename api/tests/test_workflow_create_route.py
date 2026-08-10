@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.enums import CallType
 from api.routes.workflow import router
 from api.services.auth.depends import get_user
 
@@ -241,4 +242,42 @@ def test_create_workflow_run_uses_draft_and_template_context():
     assert create_kwargs["initial_context"] == {
         "name": "draft",
         "draft_only": "kept",
+        "direction": "inbound",
     }
+    assert create_kwargs["call_type"] == CallType.INBOUND
+
+
+def test_create_workflow_webrtc_run_can_simulate_outbound_from_template_context():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    workflow = SimpleNamespace(id=33, current_definition=None)
+    draft = SimpleNamespace(
+        id=88,
+        template_context_variables={"direction": " OUTBOUND "},
+    )
+    run = SimpleNamespace(
+        id=501,
+        workflow_id=workflow.id,
+        name="WR-test",
+        mode="smallwebrtc",
+        created_at=datetime.now(UTC),
+        definition_id=draft.id,
+        initial_context={"direction": "outbound"},
+        gathered_context={},
+    )
+
+    with patch("api.routes.workflow.db_client") as mock_db:
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_draft_version = AsyncMock(return_value=draft)
+        mock_db.create_workflow_run = AsyncMock(return_value=run)
+
+        response = client.post(
+            f"/workflow/{workflow.id}/runs",
+            json={"name": "WR-test", "mode": "smallwebrtc"},
+        )
+
+    assert response.status_code == 200
+    create_kwargs = mock_db.create_workflow_run.await_args.kwargs
+    assert create_kwargs["call_type"] == CallType.OUTBOUND
+    assert create_kwargs["initial_context"]["direction"] == "outbound"

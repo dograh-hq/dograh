@@ -27,7 +27,14 @@ Use the `s3_key` from the response as the `source_url` when [creating a campaign
 The CSV must include a `phone_number` column. Any additional columns are passed as `initial_context` to each call, making them available as template variables in the workflow.
 
 ```csv
-phone_number,customer_name,plan
-+14155550100,Jane Smith,premium
-+14155550101,Bob Jones,basic
+phone_number,customer_name,plan,greeting_override_type,greeting_override_text
++14155550100,Jane Smith,premium,text,Hello {{customer_name}}
++14155550101,Bob Jones,basic,text,Welcome back {{customer_name}}
 ```
+
+To override the Start node greeting for a row, use these optional columns:
+
+- Text: set `greeting_override_type` to `text` and put the message in `greeting_override_text`.
+- Recording: set `greeting_override_type` to `audio` and put the public recording ID in `greeting_override_recording_id`.
+
+Greeting text can reference other CSV columns, such as `Hello {{customer_name}}`. Empty override columns preserve the greeting configured in the Start node.

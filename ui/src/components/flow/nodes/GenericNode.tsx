@@ -83,6 +83,17 @@ function seedValues(
     const d = data as unknown as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const prop of spec.properties) {
+        if (
+            spec.name === "startCall" &&
+            prop.name === "pre_call_fetch_mode" &&
+            d.pre_call_fetch_mode == null
+        ) {
+            // Old workflow definitions stored only the enable switch. Present
+            // those as Always so opening and resaving an existing node cannot
+            // silently disable its fetch.
+            out[prop.name] = d.pre_call_fetch_enabled === true ? "always" : "disabled";
+            continue;
+        }
         out[prop.name] = d[prop.name] ?? prop.default ?? undefined;
     }
     return out;

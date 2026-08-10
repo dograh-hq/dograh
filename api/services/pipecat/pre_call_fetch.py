@@ -19,7 +19,10 @@ from api.errors.failure import (
     log_failure,
     redact_failure_message,
 )
-from api.services.workflow.initial_context import merge_external_initial_context
+from api.services.workflow.initial_context import (
+    GREETING_OVERRIDE_CONTEXT_KEY,
+    merge_external_initial_context,
+)
 from api.utils.credential_auth import build_auth_header
 
 PRE_CALL_FETCH_TIMEOUT_SECONDS = 10
@@ -43,7 +46,16 @@ def _extract_initial_context(response_data: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("initial_context", "dynamic_variables"):
         value = container.get(key)
         if isinstance(value, dict):
-            return merge_external_initial_context({}, value)
+            # A call-level greeting override is an explicit trigger instruction,
+            # not CRM enrichment. A later fetch must not replace it.
+            return merge_external_initial_context(
+                {},
+                {
+                    context_key: context_value
+                    for context_key, context_value in value.items()
+                    if context_key != GREETING_OVERRIDE_CONTEXT_KEY
+                },
+            )
 
     return {}
 

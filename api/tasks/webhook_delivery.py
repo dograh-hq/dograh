@@ -43,45 +43,57 @@ _RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 _REDACTED = "[REDACTED]"
 _MAX_REQUEST_LOG_CHARS = 8_000
 _SENSITIVE_FIELD_RE = re.compile(
-    r"(?:^|[_-])(?:"
+    r"(?:^|_)(?:"
     r"authorization|cookie|credential|password|passwd|secret|signature|token|"
-    r"api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|"
-    r"email|phone|mobile|address|date[_-]?of[_-]?birth|dob|ssn|"
-    r"card(?:[_-]?(?:number|no))?|cvv|cvc"
-    r")(?:$|[_-])",
+    r"api_?key|access_?key|private_?key|client_?secret|"
+    r"email|phone|telephone|mobile|address|date_?of_?birth|dob|ssn|"
+    r"card(?:_?(?:number|no))?|cvv\d*|cvc\d*|callback_url|redirect_uri"
+    r")(?:$|_)",
     re.IGNORECASE,
 )
 
 
+def _normalize_webhook_field_name(key: Any) -> str:
+    """Normalize common field-name styles before checking for sensitive terms."""
+    name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key))
+    return re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
+
+
 def _redact_webhook_value(value: Any) -> Any:
-    """Return a log-safe copy while retaining payload shape for debugging."""
+    """Redact known sensitive fields while retaining payload shape for debugging."""
     if isinstance(value, dict):
         return {
             str(key): (
                 _REDACTED
-                if _SENSITIVE_FIELD_RE.search(str(key))
+                if _SENSITIVE_FIELD_RE.search(_normalize_webhook_field_name(key))
                 else _redact_webhook_value(nested)
             )
             for key, nested in value.items()
         }
     if isinstance(value, (list, tuple)):
         return [_redact_webhook_value(item) for item in value]
+    if isinstance(value, str):
+        try:
+            parsed = urlsplit(value)
+            if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+                return _REDACTED
+        except ValueError:
+            pass
     return value
 
 
 def _safe_webhook_url(url: str) -> str:
-    """Remove credentials, query values, and fragments from a URL before logging."""
+    """Return only the URL origin so path-based credentials cannot reach logs."""
     try:
         parsed = urlsplit(url)
         hostname = parsed.hostname or ""
+        if not parsed.scheme or not hostname:
+            return _REDACTED
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
         if parsed.port is not None:
             hostname = f"{hostname}:{parsed.port}"
-        safe_query = "&".join(
-            f"{part.split('=', 1)[0]}={_REDACTED}"
-            for part in parsed.query.split("&")
-            if part
-        )
-        return urlunsplit((parsed.scheme, hostname, parsed.path, safe_query, ""))
+        return urlunsplit((parsed.scheme, hostname, "", "", ""))
     except (TypeError, ValueError):
         return _REDACTED
 
@@ -92,7 +104,7 @@ def _log_webhook_request(
     attempt: int,
     headers: dict[str, str],
 ) -> None:
-    """Log the exact frozen request shape without logging credentials or PII."""
+    """Log the frozen request shape with known sensitive values redacted."""
     safe_headers = {
         key: (
             value

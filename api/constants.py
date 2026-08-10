@@ -17,6 +17,18 @@ VOICEMAIL_RECORDING_DURATION = 5.0
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_PROJECT_ID = os.getenv("LANGFUSE_PROJECT_ID")
+
+# Tracing as a whole is optional, but a half-configured Langfuse silently
+# produces dead trace links, so fail loudly at import instead.
+if all([LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY]) and not (
+    LANGFUSE_PROJECT_ID
+):
+    raise RuntimeError(
+        "LANGFUSE_PROJECT_ID is required when LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY "
+        "and LANGFUSE_SECRET_KEY are set. Find it in your Langfuse project URL "
+        "(/project/<project_id>/...) or via GET <host>/api/public/projects."
+    )
 
 # URLs for deployment
 #

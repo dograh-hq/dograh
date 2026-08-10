@@ -3474,6 +3474,10 @@ export type LangfuseCredentialsRequest = {
      * Secret Key
      */
     secret_key: string;
+    /**
+     * Project Id
+     */
+    project_id: string;
 };
 
 /**
@@ -3492,6 +3496,10 @@ export type LangfuseCredentialsResponse = {
      * Secret Key
      */
     secret_key?: string;
+    /**
+     * Project Id
+     */
+    project_id?: string;
     /**
      * Configured
      */

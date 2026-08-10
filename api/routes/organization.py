@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.constants import (
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
@@ -84,6 +84,7 @@ from api.services.organization_preferences import (
     get_organization_preferences,
     upsert_organization_preferences,
 )
+from api.services.pipecat.tracing_config import normalize_langfuse_host
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.base import ProviderPhoneNumberLookupError
@@ -1261,12 +1262,16 @@ class LangfuseCredentialsRequest(BaseModel):
     host: str
     public_key: str
     secret_key: str
+    # Required: Langfuse v4 trace links are project-scoped, and the legacy
+    # /trace/<id> form 404s without it.
+    project_id: str = Field(min_length=1)
 
 
 class LangfuseCredentialsResponse(BaseModel):
     host: str = ""
     public_key: str = ""
     secret_key: str = ""
+    project_id: str = ""
     configured: bool = False
 
 
@@ -1288,6 +1293,7 @@ async def get_langfuse_credentials(user: UserModel = Depends(get_user)):
         host=config.value.get("host", ""),
         public_key=mask_key(config.value.get("public_key", "")),
         secret_key=mask_key(config.value.get("secret_key", "")),
+        project_id=config.value.get("project_id", ""),
         configured=True,
     )
 
@@ -1307,9 +1313,10 @@ async def save_langfuse_credentials(
     )
 
     config_value = {
-        "host": request.host,
+        "host": normalize_langfuse_host(request.host),
         "public_key": request.public_key,
         "secret_key": request.secret_key,
+        "project_id": request.project_id.strip(),
     }
 
     # Preserve masked fields

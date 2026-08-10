@@ -658,6 +658,13 @@ export interface components {
              * @description Recording ID for an audio custom message.
              */
             customMessageRecordingId?: string | null;
+            /**
+             * Body Template
+             * @description Optional JSON body template for POST, PUT, and PATCH requests.
+             */
+            body_template?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * HttpApiToolDefinition

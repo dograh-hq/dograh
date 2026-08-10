@@ -45,10 +45,10 @@ export function BodyTemplateEditor({
     };
 
     return (
-        <div className="grid gap-2 pt-4 border-t">
+        <div className="grid gap-2">
             <Label>JSON Body Template</Label>
             <Label className="text-xs text-muted-foreground">
-                Optional. Use placeholders such as {"{{customer_id}}"}.
+                Use placeholders such as {"{{customer_id}}"}.
             </Label>
             <Textarea
                 className="min-h-48 font-mono text-xs"

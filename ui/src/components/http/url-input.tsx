@@ -13,10 +13,43 @@ import { cn } from "@/lib/utils";
 // - Optional path, query string, and fragment
 const URL_REGEX =
     /^https?:\/\/(?:[\w-]+(?::[\w-]+)?@)?(?:[\w-]+\.)*[\w-]+(?::\d{1,5})?(?:\/[^\s]*)?$/i;
+const HTTP_URL_PREFIX_REGEX = /^https?:\/\//i;
+const URL_TEMPLATE_REGEX = /\{\{\s*([^|}\s]+)\s*(?:\|[^}]+)?\}\}/g;
 
 export interface UrlValidationResult {
     valid: boolean;
     error?: string;
+}
+
+function extractUrlSegmentParameters(segment: string): string[] {
+    const parameters = Array.from(segment.matchAll(URL_TEMPLATE_REGEX), (match) => match[1]);
+    return Array.from(new Set(parameters));
+}
+
+export function extractUrlHostnameParameters(url: string): string[] {
+    const schemeSeparatorIndex = url.indexOf("://");
+    if (schemeSeparatorIndex === -1) return [];
+
+    const authorityStart = schemeSeparatorIndex + 3;
+    const authorityEndOffset = url.slice(authorityStart).search(/[/?#]/);
+    const authorityEnd =
+        authorityEndOffset === -1 ? url.length : authorityStart + authorityEndOffset;
+
+    return extractUrlSegmentParameters(url.slice(authorityStart, authorityEnd));
+}
+
+export function extractUrlPathParameters(url: string): string[] {
+    const schemeSeparatorIndex = url.indexOf("://");
+    const authorityStart = schemeSeparatorIndex === -1 ? 0 : schemeSeparatorIndex + 3;
+    const pathStart = url.indexOf("/", authorityStart);
+
+    if (pathStart === -1) return [];
+
+    const pathEndCandidates = [url.indexOf("?", pathStart), url.indexOf("#", pathStart)].filter(
+        (index) => index !== -1
+    );
+    const pathEnd = pathEndCandidates.length > 0 ? Math.min(...pathEndCandidates) : url.length;
+    return extractUrlSegmentParameters(url.slice(pathStart, pathEnd));
 }
 
 export function validateUrl(url: string): UrlValidationResult {
@@ -26,10 +59,25 @@ export function validateUrl(url: string): UrlValidationResult {
         return { valid: false, error: "URL is required" };
     }
 
-    if (!URL_REGEX.test(trimmedUrl)) {
+    if (!HTTP_URL_PREFIX_REGEX.test(trimmedUrl)) {
         return {
             valid: false,
             error: "Invalid URL format. Must start with http:// or https://",
+        };
+    }
+
+    const urlWithTemplatePlaceholders = trimmedUrl.replace(URL_TEMPLATE_REGEX, "template-value");
+    if (urlWithTemplatePlaceholders.includes("{{") || urlWithTemplatePlaceholders.includes("}}")) {
+        return {
+            valid: false,
+            error: "Invalid URL template format",
+        };
+    }
+
+    if (!URL_REGEX.test(urlWithTemplatePlaceholders)) {
+        return {
+            valid: false,
+            error: "Invalid URL format",
         };
     }
 

@@ -12,6 +12,7 @@ from api.services.pipecat.transport_params import realtime_param_overrides
 from api.services.telephony.factory import load_credentials_for_transport
 
 from .serializers import PlivoFrameSerializer
+from .strategies import PlivoConferenceStrategy, PlivoHangupStrategy
 
 
 async def create_transport(
@@ -44,6 +45,8 @@ async def create_transport(
         call_id=call_id,
         auth_id=auth_id,
         auth_token=auth_token,
+        transfer_strategy=PlivoConferenceStrategy(),
+        hangup_strategy=PlivoHangupStrategy(),
         params=PlivoFrameSerializer.InputParams(
             plivo_sample_rate=8000,
             sample_rate=audio_config.pipeline_sample_rate,

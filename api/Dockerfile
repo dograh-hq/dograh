@@ -149,6 +149,8 @@ COPY --chown=dograh:dograh ./api ./api
 #     which runs each workload (web, arq-worker, ari-manager,
 #     campaign-orchestrator, migrate) as its own pod. Keep this list in sync
 #     with the command:[] entries in deploy/helm/dograh/templates/*.yaml.
+#   drain_web.sh             — web pod preStop hook (call-safe scale-down); see
+#     lifecycle.preStop in deploy/helm/dograh/templates/web-deployment.yaml.
 COPY --chown=dograh:dograh \
      ./scripts/start_services_docker.sh \
      ./scripts/run_migrate.sh \
@@ -156,6 +158,7 @@ COPY --chown=dograh:dograh \
      ./scripts/run_arq_worker.sh \
      ./scripts/run_ari_manager.sh \
      ./scripts/run_campaign_orchestrator.sh \
+     ./scripts/drain_web.sh \
      ./scripts/
 
 # ts_validator Node deps (built in ts-deps stage with full node:22-slim image).

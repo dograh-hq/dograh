@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { formatLocalDateTime } from "@/lib/dateTime";
 import { getDatePresetValue } from "@/lib/filters";
 import { cn } from "@/lib/utils";
 import { DateRangeValue } from "@/types/filters";
@@ -40,7 +41,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
 
   const formatDate = (date: Date | null) => {
     if (!date) return "Select date";
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return formatLocalDateTime(date);
   };
 
   const handlePresetClick = (preset: string) => {

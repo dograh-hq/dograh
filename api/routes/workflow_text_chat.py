@@ -11,12 +11,15 @@ from api.db.models import UserModel, WorkflowRunTextSessionModel
 from api.enums import WorkflowRunMode
 from api.services.auth.depends import get_user_with_selected_organization
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.workflow.initial_context import merge_external_initial_context
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
     TextChatSessionExecutionError,
     TextChatSessionRevisionConflictError,
     TextChatTurnNotFoundError,
     append_text_chat_user_message,
+    complete_text_chat_session,
     default_text_chat_checkpoint,
     default_text_chat_session_data,
     execute_pending_text_chat_turn,
@@ -42,6 +45,10 @@ class AppendTextChatMessageRequest(BaseModel):
 
 class RewindTextChatSessionRequest(BaseModel):
     cursor_turn_id: str | None = None
+    expected_revision: int | None = None
+
+
+class EndTextChatSessionRequest(BaseModel):
     expected_revision: int | None = None
 
 
@@ -164,14 +171,26 @@ async def create_text_chat_session(
 ) -> WorkflowRunTextSessionResponse:
     session_name = request.name or f"WR-TEXT-{uuid4().hex[:6].upper()}"
     try:
+        workflow = await db_client.get_workflow(
+            workflow_id, organization_id=user.selected_organization_id
+        )
+        if not workflow:
+            raise ValueError(f"Workflow with ID {workflow_id} not found")
+        run_inputs = await prepare_workflow_run_inputs(
+            db_client,
+            workflow,
+            initial_context=merge_external_initial_context({}, request.initial_context),
+            use_draft=True,
+            include_template_context=True,
+        )
         workflow_run = await db_client.create_workflow_run(
             name=session_name,
             workflow_id=workflow_id,
             mode=WorkflowRunMode.TEXTCHAT.value,
             user_id=user.id,
-            initial_context=request.initial_context,
-            use_draft=True,
+            initial_context=run_inputs.initial_context,
             organization_id=user.selected_organization_id,
+            definition_id=run_inputs.definition_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -237,6 +256,12 @@ async def append_text_chat_message(
     user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
+    if (
+        text_session.workflow_run.is_completed
+        or normalize_text_chat_session_data(text_session.session_data)["status"]
+        == "completed"
+    ):
+        raise HTTPException(status_code=400, detail="Text chat session has ended")
     await _ensure_text_chat_quota(user, workflow_id, run_id)
 
     try:
@@ -257,6 +282,29 @@ async def append_text_chat_message(
 
 
 @router.post(
+    "/{workflow_id}/text-chat/sessions/{run_id}/end",
+    response_model=WorkflowRunTextSessionResponse,
+)
+async def end_text_chat_session(
+    workflow_id: int,
+    run_id: int,
+    request: EndTextChatSessionRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+) -> WorkflowRunTextSessionResponse:
+    text_session = await _load_text_session_or_404(workflow_id, run_id, user)
+    try:
+        text_session = await complete_text_chat_session(
+            run_id=run_id,
+            text_session=text_session,
+            expected_revision=request.expected_revision,
+        )
+    except TextChatSessionRevisionConflictError as e:
+        raise HTTPException(status_code=409, detail=_revision_conflict_detail(e))
+
+    return _build_response(text_session)
+
+
+@router.post(
     "/{workflow_id}/text-chat/sessions/{run_id}/rewind",
     response_model=WorkflowRunTextSessionResponse,
 )
@@ -267,6 +315,12 @@ async def rewind_text_chat_session(
     user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
+    if (
+        text_session.workflow_run.is_completed
+        or normalize_text_chat_session_data(text_session.session_data)["status"]
+        == "completed"
+    ):
+        raise HTTPException(status_code=400, detail="Text chat session has ended")
     try:
         text_session = await rewind_text_chat_session_state(
             run_id=run_id,

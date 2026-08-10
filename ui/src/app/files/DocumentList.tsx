@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
+import { formatDateTime } from '@/lib/dateTime';
 import logger from '@/lib/logger';
 
 interface DocumentListProps {
@@ -20,6 +22,7 @@ interface DocumentListProps {
 }
 
 export default function DocumentList({ refreshTrigger }: DocumentListProps) {
+  const organizationTimezone = useOrganizationTimezone();
   const [documents, setDocuments] = useState<DocumentResponseSchema[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -120,11 +123,6 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   };
 
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-  };
-
   const filteredDocuments = documents.filter((doc) =>
     doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -212,7 +210,7 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
                     {doc.processing_status === 'completed' && doc.retrieval_mode !== 'full_document' && (
                       <span>{doc.total_chunks} chunks</span>
                     )}
-                    <span>{formatDate(doc.created_at)}</span>
+                    <span>{formatDateTime(doc.created_at, organizationTimezone)}</span>
                   </div>
                   {doc.processing_error && (
                     <p className="text-xs text-destructive mt-1">

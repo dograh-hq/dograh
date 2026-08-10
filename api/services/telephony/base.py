@@ -4,6 +4,7 @@ This allows easy switching between different providers (Twilio, Vonage, etc.)
 while keeping business logic decoupled from specific implementations.
 """
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -40,6 +41,17 @@ class ProviderSyncResult:
     message: Optional[str] = None  # human-readable detail when ok=False
 
 
+class ProviderPhoneNumberLookupError(Exception):
+    """The provider could not determine whether it owns a phone number.
+
+    This is distinct from a successful lookup that reports ``ok=False``. The
+    latter means the address is definitely absent from the provider account;
+    this exception means credentials, transport, or the upstream API failed,
+    so callers should surface a provider error instead of treating the number
+    as unowned.
+    """
+
+
 @dataclass
 class NormalizedInboundData:
     """Standardized inbound call data across all providers."""
@@ -74,6 +86,28 @@ class TelephonyProvider(ABC):
     PROVIDER_NAME = None
     WEBHOOK_ENDPOINT = None
 
+    # Populated by provider constructors from the factory-normalized config.
+    from_numbers: List[str] = []
+    default_from_number: Optional[str] = None
+
+    def select_from_number(self, from_number: Optional[str] = None) -> Optional[str]:
+        """Resolve the caller ID for a one-off outbound call.
+
+        Preference order: explicit ``from_number`` > the configuration's
+        default caller ID > random pick from the pool. Callers that want
+        rotation across the pool (e.g. the campaign dispatcher) must pass an
+        explicit ``from_number`` — the default caller ID only applies when no
+        number was requested. Returns None when the pool is empty and no
+        default is set.
+        """
+        if from_number:
+            return from_number
+        if self.default_from_number:
+            return self.default_from_number
+        if self.from_numbers:
+            return random.choice(self.from_numbers)
+        return None
+
     @abstractmethod
     async def initiate_call(
         self,
@@ -90,7 +124,9 @@ class TelephonyProvider(ABC):
             to_number: The destination phone number
             webhook_url: The URL to receive call events
             workflow_run_id: Optional workflow run ID for tracking
-            from_number: Optional caller ID to use. If None, provider selects randomly.
+            from_number: Optional caller ID to use. If None, the config's
+                default caller ID is used when set, else one is selected
+                randomly from the pool.
             **kwargs: Provider-specific additional parameters
 
         Returns:
@@ -389,6 +425,17 @@ class TelephonyProvider(ABC):
         """
         return ProviderSyncResult(ok=True)
 
+    @abstractmethod
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Check that ``address`` belongs to this provider configuration.
+
+        Carrier-backed providers implement a read-only account-inventory
+        lookup. PBX-managed providers without a carrier ownership resource
+        must explicitly opt out so a newly registered provider cannot silently
+        bypass validation.
+        """
+        raise NotImplementedError
+
     @staticmethod
     @abstractmethod
     def generate_error_response(error_type: str, message: str) -> tuple:
@@ -446,3 +493,18 @@ class TelephonyProvider(ABC):
             True if provider supports call transfers, False otherwise
         """
         pass
+
+    async def transfer_external_pbx_call(
+        self,
+        *,
+        identity: Dict[str, Any],
+        destination: str,
+        field_updates: Optional[Dict[str, str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Handle an external-PBX-owned customer leg when one is present.
+
+        Providers without an external PBX return ``None`` so the ordinary
+        telephony transfer path continues unchanged.
+        """
+
+        return None

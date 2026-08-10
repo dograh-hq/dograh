@@ -18,8 +18,10 @@ from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.ari.external_pbx import create_adapter
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -51,6 +53,8 @@ class ARIProvider(TelephonyProvider):
         self.app_name = config.get("app_name", "")
         self.app_password = config.get("app_password", "")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
+        self.external_pbx_adapter = create_adapter(config.get("external_pbx"))
 
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
@@ -104,6 +108,9 @@ class ARIProvider(TelephonyProvider):
             ),
         }
 
+        # ARI omits callerId entirely when nothing is requested (the trunk
+        # decides), so only fall back to the config's default — never random.
+        from_number = from_number or self.default_from_number
         if from_number:
             params["callerId"] = from_number
 
@@ -121,10 +128,6 @@ class ARIProvider(TelephonyProvider):
                 response_text = await response.text()
 
                 if response.status != 200:
-                    logger.error(
-                        f"[ARI] Channel creation failed: "
-                        f"HTTP {response.status} - {response_text}"
-                    )
                     raise HTTPException(
                         status_code=response.status,
                         detail=f"Failed to create ARI channel: {response_text}",
@@ -170,6 +173,15 @@ class ARIProvider(TelephonyProvider):
     def validate_config(self) -> bool:
         """Validate ARI configuration."""
         return bool(self.ari_endpoint and self.app_name and self.app_password)
+
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Accept PBX-managed caller IDs and extensions.
+
+        ARI exposes channel endpoints and accepts ``callerId`` during channel
+        origination, but it has no carrier-number ownership resource. The PBX
+        dialplan and outbound trunk remain authoritative for these addresses.
+        """
+        return ProviderSyncResult(ok=True)
 
     async def verify_webhook_signature(
         self, url: str, params: Dict[str, Any], signature: str
@@ -362,6 +374,53 @@ class ARIProvider(TelephonyProvider):
     def supports_transfers(self) -> bool:
         """ARI supports call transfers via bridge manipulation."""
         return True
+
+    async def transfer_external_pbx_call(
+        self,
+        *,
+        identity: Dict[str, Any],
+        destination: str,
+        field_updates: Optional[Dict[str, str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Delegate a PBX-owned customer leg to the configured adapter."""
+
+        adapter = self.external_pbx_adapter
+        if adapter is None or not identity:
+            return None
+        identity_type = identity.get("type") or identity.get("provider")
+        if identity_type != adapter.type:
+            logger.warning(
+                "[ARI External PBX] Captured identity does not match configured "
+                f"adapter: identity={identity_type!r} adapter={adapter.type!r}"
+            )
+            return {
+                "status": "failed",
+                "action": "external_pbx_transfer",
+                "message": "The external PBX call identity is invalid.",
+                "reason": "external_pbx_identity_mismatch",
+            }
+
+        update_result = None
+        if field_updates:
+            update_result = await adapter.update_fields(identity, field_updates)
+            if not update_result.ok:
+                logger.warning(
+                    "[ARI External PBX] Field update failed; continuing transfer "
+                    f"adapter={adapter.type} message={update_result.message}"
+                )
+
+        transfer_result = await adapter.transfer(identity, destination)
+        return {
+            "status": "success" if transfer_result.ok else "failed",
+            "action": "external_pbx_transfer",
+            "message": (
+                "Transferring your call now."
+                if transfer_result.ok
+                else "I'm sorry, I couldn't complete the transfer."
+            ),
+            "reason": None if transfer_result.ok else "external_pbx_transfer_failed",
+            "field_update_ok": update_result.ok if update_result else None,
+        }
 
     async def transfer_call(
         self,

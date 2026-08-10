@@ -1,9 +1,9 @@
 {
   "name": "ui",
-  "version": "1.42.0",
+  "version": "1.44.0",
   "private": true,
   "scripts": {
-    "dev": "cross-env NODE_OPTIONS=--enable-source-maps next dev --turbopack",
+    "dev": "cross-env NODE_OPTIONS=--enable-source-maps node scripts/dev-server.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

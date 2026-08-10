@@ -1,9 +1,13 @@
 "use client";
 
+import { Info } from "lucide-react";
+
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {
     CredentialSelector,
+    extractUrlHostnameParameters,
+    extractUrlPathParameters,
     type HttpMethod,
     HttpMethodSelector,
     KeyValueEditor,
@@ -14,9 +18,11 @@ import {
     type ToolParameter,
     UrlInput,
 } from "@/components/http";
+import { BodyTemplateEditor } from "@/components/http/body-template-editor";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -37,6 +43,11 @@ export interface HttpApiToolConfigProps {
     onParametersChange: (parameters: ToolParameter[]) => void;
     presetParameters: PresetToolParameter[];
     onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
+    bodyTemplateEnabled: boolean;
+    onBodyTemplateEnabledChange: (enabled: boolean) => void;
+    bodyTemplate: Record<string, unknown> | null;
+    onBodyTemplateChange: (template: Record<string, unknown> | null) => void;
+    onBodyTemplateValidityChange: (valid: boolean) => void;
     timeoutMs: number;
     onTimeoutMsChange: (timeout: number) => void;
     customMessage: string;
@@ -65,6 +76,11 @@ export function HttpApiToolConfig({
     onParametersChange,
     presetParameters,
     onPresetParametersChange,
+    bodyTemplateEnabled,
+    onBodyTemplateEnabledChange,
+    bodyTemplate,
+    onBodyTemplateChange,
+    onBodyTemplateValidityChange,
     timeoutMs,
     onTimeoutMsChange,
     customMessage,
@@ -75,6 +91,9 @@ export function HttpApiToolConfig({
     onCustomMessageRecordingIdChange,
     recordings = [],
 }: HttpApiToolConfigProps) {
+    const urlHostnameParameters = extractUrlHostnameParameters(url);
+    const urlPathParameters = extractUrlPathParameters(url);
+
     return (
         <Card>
             <CardHeader>
@@ -147,6 +166,22 @@ export function HttpApiToolConfig({
                                 placeholder="https://api.example.com/appointments"
                                 showValidation
                             />
+                            {urlHostnameParameters.length > 0 && (
+                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-600 flex gap-2 items-start mt-2">
+                                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                                    <span>
+                                        Hostname parameters detected: {urlHostnameParameters.join(", ")}. Values resolve from tool call arguments or workflow context at runtime.
+                                    </span>
+                                </div>
+                            )}
+                            {urlPathParameters.length > 0 && (
+                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-600 flex gap-2 items-start mt-2">
+                                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                                    <span>
+                                        Path parameters detected: {urlPathParameters.join(", ")}. Values resolve from tool call arguments or workflow context at runtime.
+                                    </span>
+                                </div>
+                            )}
                         </div>
 
                         <div className="grid gap-2 pt-4 border-t">
@@ -205,6 +240,33 @@ export function HttpApiToolConfig({
                                 onChange={onPresetParametersChange}
                             />
                         </div>
+
+                        {["POST", "PUT", "PATCH"].includes(httpMethod) && (
+                            <div className="grid gap-4 pt-4 border-t">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="grid gap-1">
+                                        <Label htmlFor="body-template-enabled">
+                                            Tool Body Template
+                                        </Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Enable a custom JSON request body.
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        id="body-template-enabled"
+                                        checked={bodyTemplateEnabled}
+                                        onCheckedChange={onBodyTemplateEnabledChange}
+                                    />
+                                </div>
+                                {bodyTemplateEnabled && (
+                                    <BodyTemplateEditor
+                                        value={bodyTemplate}
+                                        onChange={onBodyTemplateChange}
+                                        onValidityChange={onBodyTemplateValidityChange}
+                                    />
+                                )}
+                            </div>
+                        )}
 
                         <div className="grid gap-2 pt-4 border-t">
                             <Label>Custom Headers</Label>

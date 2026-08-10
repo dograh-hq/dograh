@@ -21,7 +21,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.enums import WorkflowRunMode, WorkflowRunState
-from api.services.pipecat import active_calls
+from api.services.observability import active_calls
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.run_pipeline import _run_pipeline
 from api.services.pipecat.worker_runner import wait_for_pipeline_worker_started
@@ -91,7 +91,11 @@ async def test_run_pipeline_fires_initial_response_and_completes_run(
     the workflow_run row to COMPLETED."""
     workflow_run, user, workflow = workflow_run_setup
     transport = MockTransport(
-        TransportParams(audio_in_enabled=True, audio_out_enabled=True)
+        TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_out_end_silence_secs=0,
+        )
     )
 
     captured_task: list = []
@@ -171,7 +175,11 @@ async def test_call_stays_registered_for_drain_until_artifacts_uploaded(
     )
 
     transport = MockTransport(
-        TransportParams(audio_in_enabled=True, audio_out_enabled=True)
+        TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_out_end_silence_secs=0,
+        )
     )
     captured_task: list = []
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)

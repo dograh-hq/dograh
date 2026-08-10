@@ -345,6 +345,7 @@ PUBLIC_HOST=$PUBLIC_HOST_VALUE
 PUBLIC_BASE_URL=https://$PUBLIC_HOST_VALUE
 
 # TURN Server Configuration (time-limited credentials via TURN REST API)
+ENABLE_COTURN=true
 TURN_SECRET=$TURN_SECRET
 # Relay-only ICE candidates for explicit TURN diagnostics
 FORCE_TURN_RELAY=$FORCE_TURN_RELAY

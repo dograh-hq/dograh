@@ -6,9 +6,8 @@ import base64
 import hashlib
 import hmac
 import json
-import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlparse, urlunparse
 
 import aiohttp
 from fastapi import HTTPException
@@ -16,9 +15,11 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
@@ -42,6 +43,7 @@ class PlivoProvider(TelephonyProvider):
         self.auth_token = config.get("auth_token")
         self.application_id = config.get("application_id")
         self.from_numbers = config.get("from_numbers", [])
+        self.default_from_number = config.get("default_from_number")
 
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
@@ -61,8 +63,7 @@ class PlivoProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/Call/"
 
-        if from_number is None:
-            from_number = random.choice(self.from_numbers)
+        from_number = self.select_from_number(from_number)
 
         data = {
             "from": from_number.lstrip("+"),
@@ -241,10 +242,13 @@ class PlivoProvider(TelephonyProvider):
         self, workflow_id: int, organization_id: int, workflow_run_id: int
     ) -> str:
         _, wss_backend_endpoint = await get_backend_endpoints()
+        ws_url = ws_auth.build_media_ws_url(
+            wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
+        )
 
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}</Stream>
+    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{ws_url}</Stream>
 </Response>"""
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
@@ -485,6 +489,45 @@ class PlivoProvider(TelephonyProvider):
         )
         return ProviderSyncResult(ok=True)
 
+    async def validate_phone_number(self, address: str) -> ProviderSyncResult:
+        """Verify PSTN ownership through Plivo's Account Number resource."""
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            return ProviderSyncResult(ok=True)
+        if not (self.auth_id and self.auth_token):
+            raise ProviderPhoneNumberLookupError(
+                "Plivo auth ID and auth token are required to validate "
+                "phone-number ownership"
+            )
+
+        number = quote(normalized.canonical.lstrip("+"), safe="")
+        endpoint = f"{self.base_url}/Number/{number}/"
+        auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(endpoint, auth=auth) as response:
+                    if response.status == 200:
+                        return ProviderSyncResult(ok=True)
+                    if response.status == 404:
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=(
+                                f"Phone number {normalized.canonical} is not owned "
+                                f"by this Plivo account ({self.auth_id}). Add it "
+                                "in the Plivo console first."
+                            ),
+                        )
+                    body = await response.text()
+                    raise ProviderPhoneNumberLookupError(
+                        f"Plivo API {response.status}: {body}"
+                    )
+        except ProviderPhoneNumberLookupError:
+            raise
+        except Exception as e:
+            raise ProviderPhoneNumberLookupError(
+                f"Plivo phone-number lookup failed: {e}"
+            ) from e
+
     async def start_inbound_stream(
         self,
         *,
@@ -544,7 +587,88 @@ class PlivoProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        raise NotImplementedError("Plivo provider does not support call transfers")
+        """Dial the transfer destination and point its answer URL at the conference.
+
+        The destination answer callback seeds the conference. The original
+        caller is redirected later by ``PlivoConferenceStrategy`` when the
+        pipeline ends with ``TRANSFER_CALL``.
+        """
+        if not self.validate_config():
+            raise ValueError("Plivo provider not properly configured")
+
+        from_number = self.select_from_number()
+        logger.info(f"Selected phone number {from_number} for transfer call")
+
+        backend_endpoint, _ = await get_backend_endpoints()
+
+        answer_url = f"{backend_endpoint}/api/v1/telephony/plivo/transfer-xml/{conference_name}/{transfer_id}"
+        hangup_url = (
+            f"{backend_endpoint}/api/v1/telephony/plivo/transfer-result/{transfer_id}"
+        )
+
+        endpoint = f"{self.base_url}/Call/"
+        data = {
+            "to": destination,
+            "from": from_number.lstrip("+"),
+            "answer_url": answer_url,
+            "answer_method": "POST",
+            "hangup_url": hangup_url,
+            "hangup_method": "POST",
+            "ring_timeout": timeout,
+        }
+
+        try:
+            logger.debug(
+                f"Dialing Plivo transfer destination for transfer_id={transfer_id} "
+                f"to destination={destination}"
+            )
+
+            async with aiohttp.ClientSession() as session:
+                auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
+
+                async with session.post(endpoint, json=data, auth=auth) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+
+                    logger.info(
+                        f"Plivo transfer destination API response: {response_status}"
+                    )
+
+                    if response_status not in (200, 201, 202):
+                        error_msg = (
+                            f"Plivo API call failed with status "
+                            f"{response_status}: {response_text}"
+                        )
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+
+                    try:
+                        response_data = json.loads(response_text)
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to parse Plivo transfer response JSON: {e}"
+                        )
+                        raise Exception(f"Failed to parse transfer response: {e}")
+
+                    request_uuid = response_data.get("request_uuid")
+                    if not request_uuid:
+                        raise Exception(
+                            f"Plivo transfer response missing request_uuid: {response_data}"
+                        )
+                    logger.info(f"Plivo transfer destination initiated: {request_uuid}")
+
+                return {
+                    "call_sid": request_uuid,
+                    "status": "queued",
+                    "provider": self.PROVIDER_NAME,
+                    "from_number": from_number,
+                    "to_number": destination,
+                    "raw_response": response_data,
+                }
+
+        except Exception as e:
+            logger.error(f"Error initiating Plivo transfer call: {e}")
+            raise
 
     def supports_transfers(self) -> bool:
-        return False
+        return True

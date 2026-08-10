@@ -3,11 +3,13 @@
 import { Check, Copy } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { resolveBrowserBackendUrl } from "@/lib/apiClient";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 const MCP_PATH = "/api/v1/mcp/";
 
@@ -35,12 +37,16 @@ export function MCPSection() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const handleCopy = async (value: string, key: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopiedKey(key);
-    setTimeout(
-      () => setCopiedKey((current) => (current === key ? null : current)),
-      2000,
-    );
+    try {
+      await copyTextToClipboard(value);
+      setCopiedKey(key);
+      setTimeout(
+        () => setCopiedKey((current) => (current === key ? null : current)),
+        2000,
+      );
+    } catch {
+      toast.error("Failed to copy MCP endpoint");
+    }
   };
 
   return (

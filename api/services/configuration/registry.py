@@ -1,4 +1,5 @@
 import random
+from collections.abc import Iterable
 from enum import Enum, auto
 from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 
@@ -65,6 +66,7 @@ class ServiceType(Enum):
 
 class ServiceProviders(str, Enum):
     OPENAI = "openai"
+    ATLASCLOUD = "atlascloud"
     DEEPGRAM = "deepgram"
     GROQ = "groq"
     OPENROUTER = "openrouter"
@@ -95,11 +97,13 @@ class ServiceProviders(str, Enum):
     AZURE_REALTIME = "azure_realtime"
     SMALLEST = "smallest"
     XAI = "xai"
+    LMNT = "lmnt"
 
 
 class BaseServiceConfiguration(BaseModel):
     provider: Literal[
         ServiceProviders.OPENAI,
+        ServiceProviders.ATLASCLOUD,
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
@@ -126,6 +130,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SARVAM,
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
+        ServiceProviders.LMNT,
     ]
     api_key: str | list[str]
 
@@ -186,6 +191,50 @@ REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
 T = TypeVar("T", bound=BaseServiceConfiguration)
 
 
+def registered_provider_names(
+    service_types: Iterable[ServiceType] | None = None,
+) -> tuple[str, ...]:
+    """Return canonical provider IDs from the live configuration registry."""
+
+    selected_types = (
+        tuple(service_types) if service_types is not None else tuple(REGISTRY)
+    )
+    providers = {
+        str(getattr(provider, "value", provider))
+        for service_type in selected_types
+        for provider in REGISTRY.get(service_type, {})
+    }
+    return tuple(sorted(provider for provider in providers if provider))
+
+
+def match_registered_provider(
+    candidate: str,
+    *,
+    service_types: Iterable[ServiceType] | None = None,
+) -> str | None:
+    """Find a registered provider ID embedded in a runtime class/name hint.
+
+    Separators and case are ignored, and the most specific (longest) provider
+    ID wins. This keeps best-effort runtime discovery tied to registrations
+    instead of maintaining another provider catalog at each consumer.
+    """
+
+    compact_candidate = "".join(
+        character for character in candidate.casefold() if character.isalnum()
+    )
+    matches: list[tuple[int, str]] = []
+    for provider in registered_provider_names(service_types):
+        compact_provider = "".join(
+            character for character in provider.casefold() if character.isalnum()
+        )
+        if compact_provider and compact_provider in compact_candidate:
+            matches.append((len(compact_provider), provider))
+
+    if not matches:
+        return None
+    return max(matches, key=lambda match: (match[0], match[1]))[1]
+
+
 def register_service(service_type: ServiceType):
     """Generic decorator for registering service configurations"""
 
@@ -243,6 +292,10 @@ def provider_model_config(
 
 # Suggested models for each provider (used for UI dropdown)
 OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI")
+ATLASCLOUD_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Atlas Cloud",
+    description="Atlas Cloud OpenAI-compatible LLM API.",
+)
 GOOGLE_PROVIDER_MODEL_CONFIG = provider_model_config("Google")
 GROQ_PROVIDER_MODEL_CONFIG = provider_model_config("Groq")
 OPENROUTER_PROVIDER_MODEL_CONFIG = provider_model_config("Open Router")
@@ -261,6 +314,7 @@ DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
 XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
+LMNT_PROVIDER_MODEL_CONFIG = provider_model_config("LMNT")
 INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Inworld",
     description=(
@@ -310,6 +364,11 @@ OPENAI_MODELS = [
     "gpt-3.5-turbo",
 ]
 
+ATLASCLOUD_MODELS = [
+    "qwen/qwen3.5-flash",
+    "deepseek-ai/deepseek-v4-pro",
+]
+
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "deepseek-r1-distill-llama-70b",
@@ -355,11 +414,26 @@ class OpenAILLMService(BaseLLMConfiguration):
 
 
 @register_llm
+class AtlasCloudLLMService(BaseLLMConfiguration):
+    model_config = ATLASCLOUD_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.ATLASCLOUD] = ServiceProviders.ATLASCLOUD
+    model: str = Field(
+        default="qwen/qwen3.5-flash",
+        description="Atlas Cloud OpenAI-compatible chat model identifier.",
+        json_schema_extra={"examples": ATLASCLOUD_MODELS, "allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default="https://api.atlascloud.ai/v1",
+        description="Atlas Cloud OpenAI-compatible API endpoint.",
+    )
+
+
+@register_llm
 class GoogleLLMService(BaseLLMConfiguration):
     model_config = GOOGLE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-3.5-flash",
         description="Gemini model on Google AI Studio (not Vertex).",
         json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
     )
@@ -370,7 +444,7 @@ class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
     model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
     model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-3.5-flash",
         description="Gemini model on Vertex AI.",
         json_schema_extra={
             "examples": GOOGLE_VERTEX_MODELS,
@@ -565,11 +639,8 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
     model_config = SARVAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="sarvam-30b",
-        description=(
-            "Sarvam chat model. Use sarvam-30b for low-latency voice agents; "
-            "sarvam-105b for complex multi-step reasoning."
-        ),
+        default="sarvam-105b",
+        description="Sarvam chat model.",
         json_schema_extra={"examples": SARVAM_LLM_MODELS, "allow_custom_input": True},
     )
     temperature: float = Field(
@@ -824,6 +895,7 @@ REALTIME_PROVIDERS = {
 LLMConfig = Annotated[
     Union[
         OpenAILLMService,
+        AtlasCloudLLMService,
         GoogleVertexLLMConfiguration,
         GroqLLMService,
         OpenRouterLLMConfiguration,
@@ -1341,6 +1413,40 @@ class XAITTSConfiguration(BaseServiceConfiguration):
         return "xai-tts"
 
 
+LMNT_TTS_MODELS = ["aurora", "blizzard"]
+LMNT_TTS_VOICES = ["lily", "daniel", "ava", "caleb", "leah", "zeke"]
+
+
+@register_tts
+class LmntTTSConfiguration(BaseTTSConfiguration):
+    model_config = LMNT_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.LMNT] = ServiceProviders.LMNT
+    model: str = Field(
+        default="aurora",
+        description=(
+            "LMNT TTS model. 'aurora' is the general-purpose model; 'blizzard' "
+            "targets more expressive, conversational speech."
+        ),
+        json_schema_extra={"examples": LMNT_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="lily",
+        description=(
+            "LMNT voice ID. Use a stock voice name or a custom voice ID from "
+            "your LMNT account."
+        ),
+        json_schema_extra={"examples": LMNT_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description=(
+            "Language code for synthesis (e.g. 'en', 'es', 'fr', 'de', 'pt', "
+            "'zh', 'ko', 'hi')."
+        ),
+        json_schema_extra={"allow_custom_input": True},
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1358,6 +1464,7 @@ TTSConfig = Annotated[
         AzureSpeechTTSConfiguration,
         SmallestAITTSConfiguration,
         XAITTSConfiguration,
+        LmntTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1372,7 +1479,7 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     model: str = Field(
         default="nova-3-general",
         description="Deepgram STT model.",
-        json_schema_extra={"examples": DEEPGRAM_STT_MODELS},
+        json_schema_extra={"examples": DEEPGRAM_STT_MODELS, "allow_custom_input": True},
     )
     language: str = Field(
         default="multi",
@@ -1382,8 +1489,10 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
         ),
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
+            "allow_custom_input": True,
             "model_options": {
                 "nova-3-general": DEEPGRAM_LANGUAGES,
+                "nova-3-medical": DEEPGRAM_LANGUAGES,
                 "flux-general-en": ("en",),
                 "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },

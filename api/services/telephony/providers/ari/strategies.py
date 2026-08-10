@@ -3,10 +3,13 @@
 This module contains the business logic for Asterisk ARI call operations.
 """
 
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict
 
 from loguru import logger
 from pipecat.serializers.call_strategies import HangupStrategy, TransferStrategy
+
+if TYPE_CHECKING:
+    from .external_pbx import ExternalPBXAdapter
 
 
 class ARIBridgeSwapStrategy(TransferStrategy):
@@ -200,6 +203,9 @@ class ARIBridgeSwapStrategy(TransferStrategy):
 class ARIHangupStrategy(HangupStrategy):
     """Implements hangup for Asterisk ARI channels."""
 
+    def __init__(self, external_pbx_adapter: "ExternalPBXAdapter | None" = None):
+        self._external_pbx_adapter = external_pbx_adapter
+
     async def execute_hangup(self, context: Dict[str, Any]) -> bool:
         """Hang up the Asterisk channel via ARI REST API."""
         try:
@@ -216,6 +222,10 @@ class ARIHangupStrategy(HangupStrategy):
                     "Cannot hang up Asterisk channel: missing channel_id or ari_endpoint"
                 )
                 return False
+
+            # The external PBX owns the real customer leg. End it before the
+            # local ARI leg so its conference teardown cannot race our SIP BYE.
+            await self._terminate_external_pbx_if_any(channel_id)
 
             endpoint = f"{ari_endpoint}/ari/channels/{channel_id}"
             auth = BasicAuth(app_name, app_password)
@@ -243,3 +253,76 @@ class ARIHangupStrategy(HangupStrategy):
         except Exception as e:
             logger.exception(f"Failed to hang up Asterisk channel: {e}")
             return False
+
+    async def _terminate_external_pbx_if_any(self, channel_id: str) -> None:
+        """If configured, hang up the external PBX's customer leg first.
+
+        Reuses the same channel->run lookup the transfer strategy uses
+        (Redis ``ari:channel:{id}`` -> run_id -> ``initial_context``). Best-effort:
+        never blocks dograh's own hangup if the upstream call fails.
+        """
+        redis = None
+        try:
+            import redis.asyncio as aioredis
+
+            from api.constants import REDIS_URL
+            from api.db import db_client
+
+            redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+            run_id = await redis.get(f"ari:channel:{channel_id}")
+            if not run_id:
+                return
+            run = await db_client.get_workflow_run_by_id(int(run_id))
+            if not run:
+                return
+            identity = (run.initial_context or {}).get("external_pbx_call")
+            # Read the legacy key for calls created before this refactor.
+            identity = identity or (run.initial_context or {}).get("upstream_pbx")
+            # If the call was already transferred to the external PBX, the customer
+            # leg has moved on -- do NOT hang it up (that would drop the transferred
+            # customer); just let dograh's own legs tear down below.
+            transferred = (run.gathered_context or {}).get("external_pbx_transferred")
+            transferred = transferred or (run.gathered_context or {}).get(
+                "upstream_transferred"
+            )
+            if identity and not transferred and self._external_pbx_adapter:
+                from api.services.telephony.external_pbx import (
+                    resolve_external_pbx_field_mappings,
+                )
+
+                workflow_configurations = (
+                    await db_client.get_workflow_run_configurations(
+                        int(run_id), run.workflow.organization_id
+                    )
+                )
+                field_updates = resolve_external_pbx_field_mappings(
+                    run.gathered_context,
+                    workflow_configurations.get("external_pbx_field_mappings", []),
+                )
+                if field_updates:
+                    update_result = await self._external_pbx_adapter.update_fields(
+                        identity, field_updates
+                    )
+                    if not update_result.ok:
+                        logger.warning(
+                            "[ARI Hangup] External PBX field update failed; "
+                            f"continuing hangup: {update_result.message}"
+                        )
+                logger.info(
+                    "[ARI Hangup] External PBX call "
+                    f"({self._external_pbx_adapter.type}); "
+                    f"terminating customer leg via API before dropping dograh leg"
+                )
+                result = await self._external_pbx_adapter.hangup(identity)
+                if not result.ok:
+                    logger.warning(
+                        f"[ARI Hangup] External PBX rejected hangup: {result.message}"
+                    )
+        except Exception as e:
+            logger.error(f"[ARI Hangup] external PBX terminate check failed: {e}")
+        finally:
+            if redis is not None:
+                try:
+                    await redis.aclose()
+                except Exception as e:
+                    logger.warning(f"[ARI Hangup] failed to close Redis client: {e}")

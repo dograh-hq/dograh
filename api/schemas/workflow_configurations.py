@@ -1,6 +1,12 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from api.constants import (
+    MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+)
 
 DEFAULT_MAX_CALL_DURATION_SECONDS = 300
 # Hard ceiling on configurable call duration. Must stay <= the concurrency
@@ -14,6 +20,23 @@ DEFAULT_TURN_START_MIN_WORDS = 3
 DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5
 DEFAULT_TURN_STOP_STRATEGY = "transcription"
 DEFAULT_CONTEXT_COMPACTION_ENABLED = False
+
+
+class ExternalPBXFieldMapping(BaseModel):
+    """Map one gathered-context value to a provider-native field."""
+
+    context_path: str = Field(min_length=1, max_length=255)
+    destination_field: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+    @field_validator("context_path", mode="before")
+    @classmethod
+    def strip_context_path(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("destination_field", mode="before")
+    @classmethod
+    def strip_destination_field(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class AmbientNoiseConfigurationDefaults(BaseModel):
@@ -56,6 +79,23 @@ class WorkflowConfigurationDefaults(BaseModel):
     )
     dictionary: str = ""
     context_compaction_enabled: bool = DEFAULT_CONTEXT_COMPACTION_ENABLED
+    text_chat_inactivity_timeout_seconds: int = Field(
+        default=TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+        ge=MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+        le=MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    )
+    external_pbx_field_mappings: list[ExternalPBXFieldMapping] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+
+class TextChatInactivityTimeoutConstraints(BaseModel):
+    """Backend-owned timeout metadata consumed by generated API clients."""
+
+    default_seconds: int = TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    minimum_seconds: int = MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    maximum_seconds: int = MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
 
 
 def get_default_workflow_configurations() -> WorkflowConfigurationDefaults:

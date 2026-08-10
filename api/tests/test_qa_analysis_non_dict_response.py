@@ -30,6 +30,7 @@ async def test_whole_call_qa_tolerates_array_llm_response():
         usage_info={"call_duration_seconds": 12},
     )
     warning_mock = Mock()
+    llm = object()
 
     with (
         patch.object(
@@ -39,11 +40,8 @@ async def test_whole_call_qa_tolerates_array_llm_response():
         patch.object(qa_analysis, "compute_call_metrics", return_value={}),
         patch.object(
             qa_analysis,
-            "resolve_llm_config",
-            new=AsyncMock(return_value=("openai", "gpt-4o", "sk-test", {})),
-        ),
-        patch.object(
-            qa_analysis, "create_llm_service_from_provider", return_value=object()
+            "create_qa_llm_service",
+            new=AsyncMock(return_value=(llm, "gpt-4o")),
         ),
         patch.object(
             qa_analysis,

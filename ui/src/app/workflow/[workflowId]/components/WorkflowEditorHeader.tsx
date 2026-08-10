@@ -27,6 +27,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSidebar } from "@/components/ui/sidebar";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface WorkflowEditorHeaderProps {
     workflowName: string;
@@ -143,7 +144,7 @@ export const WorkflowEditorHeader = ({
             return;
         }
         try {
-            await navigator.clipboard.writeText(workflowUuid);
+            await copyTextToClipboard(workflowUuid);
             toast.success("Agent UUID copied");
         } catch {
             toast.error("Failed to copy Agent UUID");

@@ -25,7 +25,7 @@ from google.genai.types import Content, Part
 from loguru import logger
 
 from api.services.pipecat.gemini_json_schema_adapter import (
-    DograhGeminiJSONSchemaAdapter,
+    DograhGeminiLiveJSONSchemaAdapter,
 )
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
@@ -52,10 +52,11 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
 
     # Route tool schemas through Gemini's ``parameters_json_schema`` field so
     # MCP/imported tools that use JSON Schema keywords (``const``, ``not``,
-    # nested ``anyOf``) rejected by the strict ``Schema`` model are accepted.
-    # Mirrors the non-realtime ``DograhGoogleLLMService`` fix;
+    # nested ``anyOf``) rejected by the strict ``Schema`` model are accepted,
+    # while keeping upstream's Live-specific tool-call-to-text conversion for
+    # seeded contexts. Mirrors the non-realtime ``DograhGoogleLLMService`` fix;
     # ``DograhGeminiLiveVertexLLMService`` inherits this via MRO.
-    adapter_class = DograhGeminiJSONSchemaAdapter
+    adapter_class = DograhGeminiLiveJSONSchemaAdapter
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -214,6 +215,23 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         )
         self._schedule_node_transition_function_calls(fcs)
 
+    async def _disconnect_for_reconnect(self) -> bool:
+        """Disconnect without discarding a pending graceful shutdown.
+
+        Returns:
+            ``True`` when the caller should open a new Gemini session.
+            ``False`` when a deferred :class:`EndFrame` was released instead.
+        """
+        await self._disconnect(preserve_pending_end_frame=True)
+        if not self._end_frame_pending_bot_turn_finished:
+            return True
+
+        logger.info(
+            "Releasing deferred EndFrame instead of reconnecting Gemini service"
+        )
+        await self._release_deferred_end_frame()
+        return False
+
     async def _reconnect_for_node_transition(self) -> None:
         """Start a fresh connection and wait to seed the completed context.
 
@@ -227,7 +245,14 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         self._node_transition_context_received = False
         self._node_transition_context_seed_started = False
         self._session_resumption_handle = None
-        await self._disconnect()
+        should_open_new_session = await self._disconnect_for_reconnect()
+        if not should_open_new_session:
+            # The helper released a deferred EndFrame, so graceful shutdown now
+            # owns the lifecycle and this node transition must not reconnect.
+            self._awaiting_node_transition_context = False
+            self._node_transition_context_received = False
+            self._node_transition_context_seed_started = False
+            return
         await self._connect(session_resumption_handle=None)
 
     # ------------------------------------------------------------------

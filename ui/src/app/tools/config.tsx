@@ -18,7 +18,22 @@ import type {
 export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";
 
 export type EndCallMessageType = "none" | "custom" | "audio";
-export type TransferDestinationSource = "static" | "dynamic";
+export type TransferDestinationSource = "static" | "dynamic" | "context_mapping";
+
+export interface ContextDestinationRoute {
+    context_value: string;
+    destination: string;
+}
+
+export interface ContextDestinationRouteRow extends ContextDestinationRoute {
+    id: string;
+}
+
+export interface ContextDestinationMappingConfig {
+    context_path: string;
+    routes: ContextDestinationRoute[];
+    fallback_destination?: string | null;
+}
 
 export interface TransferResolverConfig {
     type: "http";
@@ -34,6 +49,7 @@ export interface TransferResolverConfig {
 export interface ExtendedTransferCallConfig extends TransferCallConfig {
     destination_source?: TransferDestinationSource;
     resolver?: TransferResolverConfig | null;
+    context_mapping?: ContextDestinationMappingConfig | null;
 }
 
 export interface ToolCategoryConfig {
@@ -74,7 +90,7 @@ export const TOOL_CATEGORIES: ToolCategoryConfig[] = [
     {
         value: "transfer_call",
         label: "Transfer Call",
-        description: "Transfer the call to another phone number (Twilio only)",
+        description: "Transfer the call to another phone number (Twilio, Plivo)",
         icon: PhoneForwarded,
         iconName: "phone-forwarded",
         iconColor: "#10B981",

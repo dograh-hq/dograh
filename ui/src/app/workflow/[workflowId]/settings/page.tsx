@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { ArrowLeft, BookA, Brain, CalendarIcon, Clipboard, Download, ExternalLink, FileDown, Fingerprint, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
+import { ArrowLeft, BookA, Brain, CalendarIcon, Clipboard, Download, ExternalLink, FileDown, Fingerprint, Loader2, Mic, Pause, PhoneOff, Play, Plus, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -38,10 +38,12 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { useOrgConfig } from "@/context/OrgConfigContext";
 import { UnsavedChangesProvider, useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import logger from "@/lib/logger";
 import { fetchModelConfigurationPricing } from "@/lib/modelConfigurationPricing";
 import {
@@ -49,6 +51,7 @@ import {
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
+    type ExternalPBXFieldMapping,
     resolveWorkflowConfigurations,
     TURN_START_STRATEGY_OPTIONS,
     type TurnStartStrategy,
@@ -63,6 +66,8 @@ import { useWorkflowState } from "../hooks/useWorkflowState";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+const PUBLISH_WORKFLOW_REMINDER = "Publish the agent to apply the changes.";
 
 const DEFAULT_VOICEMAIL_SYSTEM_PROMPT = `You are a voicemail detection classifier for an OUTBOUND calling system. A bot has called a phone number and you need to determine if a human answered or if the call went to voicemail based on the provided text.
 
@@ -273,6 +278,7 @@ function GeneralSection({
     workflowId: number;
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
 }) {
+    const { externalPbxIntegrationsEnabled } = useOrgConfig();
     const [name, setName] = useState(workflowName);
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
         workflowConfigurations.ambient_noise_configuration,
@@ -298,6 +304,9 @@ function GeneralSection({
     const [includeTranscriptEndTimestamps, setIncludeTranscriptEndTimestamps] = useState(
         workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false,
     );
+    const [externalPbxFieldMappings, setExternalPbxFieldMappings] = useState<ExternalPBXFieldMapping[]>(
+        workflowConfigurations.external_pbx_field_mappings,
+    );
     const [isSaving, setIsSaving] = useState(false);
     const [isUploadingAudio, setIsUploadingAudio] = useState(false);
     const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
@@ -305,6 +314,11 @@ function GeneralSection({
     const { playingId, toggle: togglePlayback } = useAudioPlayback();
     const selectedTurnStartStrategy = TURN_START_STRATEGY_OPTIONS.find(
         (option) => option.value === turnStartStrategy,
+    );
+    const externalPbxFieldMappingsValid = externalPbxFieldMappings.every(
+        (mapping) =>
+            Boolean(mapping.context_path.trim()) &&
+            /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(mapping.destination_field.trim()),
     );
 
     const isDirty = useMemo(() => {
@@ -321,9 +335,11 @@ function GeneralSection({
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
             includeTranscriptEndTimestamps !==
-            (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false)
+            (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false) ||
+            JSON.stringify(externalPbxFieldMappings) !==
+            JSON.stringify(workflowConfigurations.external_pbx_field_mappings)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, externalPbxFieldMappings, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -404,9 +420,11 @@ function GeneralSection({
                         ...(workflowConfigurations.transcript_configuration ?? {}),
                         include_end_timestamps: includeTranscriptEndTimestamps,
                     },
+                    external_pbx_field_mappings: externalPbxFieldMappings,
                 },
                 name,
             );
+            toast.success(`General settings saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save general settings:", error);
         } finally {
@@ -793,10 +811,94 @@ function GeneralSection({
                         </div>
                     </div>
                 </div>
+
+                {externalPbxIntegrationsEnabled && (
+                    <>
+                        <Separator />
+
+                        {/* External PBX Field Updates */}
+                        <div className="space-y-4">
+                            <div>
+                                <h3 className="text-sm font-medium">External PBX Field Updates</h3>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Optionally copy final gathered-context values into provider-native fields before transfer or hangup.
+                                </p>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <Label className="text-sm">Field Mappings</Label>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setExternalPbxFieldMappings((current) => [
+                                        ...current,
+                                        { context_path: "", destination_field: "" },
+                                    ])}
+                                >
+                                    <Plus className="mr-1 h-4 w-4" /> Add mapping
+                                </Button>
+                            </div>
+                            <div className="space-y-2">
+                                {externalPbxFieldMappings.map((mapping, index) => (
+                                    <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                                        <Input
+                                            aria-label={`Gathered context field ${index + 1}`}
+                                            value={mapping.context_path}
+                                            onChange={(event) => setExternalPbxFieldMappings((current) =>
+                                                current.map((item, itemIndex) =>
+                                                    itemIndex === index
+                                                        ? { ...item, context_path: event.target.value }
+                                                        : item,
+                                                )
+                                            )}
+                                            placeholder="qualified"
+                                        />
+                                        <Input
+                                            aria-label={`External PBX destination field ${index + 1}`}
+                                            value={mapping.destination_field}
+                                            onChange={(event) => setExternalPbxFieldMappings((current) =>
+                                                current.map((item, itemIndex) =>
+                                                    itemIndex === index
+                                                        ? { ...item, destination_field: event.target.value }
+                                                        : item,
+                                                )
+                                            )}
+                                            placeholder="address3"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label={`Remove external PBX field mapping ${index + 1}`}
+                                            onClick={() => setExternalPbxFieldMappings((current) =>
+                                                current.filter((_, itemIndex) => itemIndex !== index)
+                                            )}
+                                        >
+                                            <Trash2Icon className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                                {externalPbxFieldMappings.length === 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                        No external fields will be updated. Context names may be direct extracted-variable names or paths such as extracted_variables.qualified.
+                                    </p>
+                                )}
+                                {!externalPbxFieldMappingsValid && (
+                                    <p className="text-xs text-destructive">
+                                        Each mapping needs a context field and a destination field containing only letters, numbers, and underscores.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                )}
             </CardContent>
             <CardFooter className="justify-end gap-3 border-t pt-6">
                 {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
-                <Button onClick={handleSave} disabled={isSaving || !isDirty}>
+                <Button
+                    onClick={handleSave}
+                    disabled={isSaving || !isDirty || (externalPbxIntegrationsEnabled && !externalPbxFieldMappingsValid)}
+                >
                     {isSaving ? "Saving..." : "Save General Settings"}
                 </Button>
             </CardFooter>
@@ -851,6 +953,7 @@ function TemplateVariablesSection({
                 varsToSave = { ...varsToSave, [newKey]: newValue };
             }
             await onSave(varsToSave);
+            toast.success(`Template variables saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save variables:", error);
         } finally {
@@ -949,6 +1052,7 @@ function DictionarySection({
         setIsSaving(true);
         try {
             await onSave(dictionaryValue);
+            toast.success(`Dictionary saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save dictionary:", error);
         } finally {
@@ -1049,6 +1153,7 @@ function VoicemailSection({
                 { ...workflowConfigurations, voicemail_detection: voicemailConfig },
                 workflowName,
             );
+            toast.success(`Voicemail settings saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save voicemail settings:", error);
         } finally {
@@ -1152,7 +1257,7 @@ function VoicemailSection({
 function AgentUuidSection({ workflowUuid }: { workflowUuid: string }) {
     const handleCopy = async () => {
         try {
-            await navigator.clipboard.writeText(workflowUuid);
+            await copyTextToClipboard(workflowUuid);
             toast.success("Agent UUID copied");
         } catch {
             toast.error("Failed to copy Agent UUID");
@@ -1237,7 +1342,7 @@ function WorkflowModelOverridesSection({
         const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
         nextConfigurations.model_configuration_v2_override = configuration;
         await onSave(nextConfigurations, workflowName);
-        toast.success("Model override saved");
+        toast.success(`Model override saved. ${PUBLISH_WORKFLOW_REMINDER}`);
     };
 
     const removeV2Override = async () => {
@@ -1245,7 +1350,7 @@ function WorkflowModelOverridesSection({
         try {
             await onSave(withoutModelConfigurationOverrides(workflowConfigurations), workflowName);
             setOverrideEnabled(false);
-            toast.success("Using organization model configuration");
+            toast.success(`Organization model configuration saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } finally {
             setIsRemovingOverride(false);
         }
@@ -1332,7 +1437,6 @@ function WorkflowModelOverridesSection({
                                 {hasSavedModelOverride && (
                                     <Button
                                         type="button"
-                                        variant="outline"
                                         className="mt-3"
                                         onClick={removeV2Override}
                                         disabled={isRemovingOverride}
@@ -1471,6 +1575,7 @@ function WorkflowSettingsInner({
     const {
         workflowName,
         workflowConfigurations,
+        textChatInactivityTimeoutConstraints,
         templateContextVariables,
         dictionary,
         saveWorkflowConfigurations,
@@ -1680,12 +1785,17 @@ function WorkflowSettingsInner({
             </div>
 
             {/* Dialogs for complex sections */}
-            <EmbedDialog
-                open={isEmbedDialogOpen}
-                onOpenChange={setIsEmbedDialogOpen}
-                workflowId={workflowId}
-                workflowName={workflowName || workflow.name}
-            />
+            {resolvedWorkflowConfigurationsForRender && (
+                <EmbedDialog
+                    open={isEmbedDialogOpen}
+                    onOpenChange={setIsEmbedDialogOpen}
+                    workflowId={workflowId}
+                    workflowName={workflowName || workflow.name}
+                    workflowConfigurations={resolvedWorkflowConfigurationsForRender}
+                    textChatInactivityTimeoutConstraints={textChatInactivityTimeoutConstraints}
+                    onSaveWorkflowConfigurations={saveWorkflowConfigurations}
+                />
+            )}
         </div>
     );
 }

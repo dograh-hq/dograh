@@ -23,12 +23,14 @@ class TestSarvamLLMConfiguration:
     def test_default_values(self):
         config = SarvamLLMConfiguration(api_key="test-key")
         assert config.provider == ServiceProviders.SARVAM
-        assert config.model == "sarvam-30b"
+        assert config.model == "sarvam-105b"
         assert config.temperature == 0.5
 
     def test_custom_model(self):
-        config = SarvamLLMConfiguration(api_key="test-key", model="sarvam-105b")
-        assert config.model == "sarvam-105b"
+        # allow_custom_input is set, so a model outside the catalog is accepted
+        # here and validated by the service instead.
+        config = SarvamLLMConfiguration(api_key="test-key", model="sarvam-future")
+        assert config.model == "sarvam-future"
 
 
 class TestSarvamLLMServiceFactory:
@@ -39,14 +41,14 @@ class TestSarvamLLMServiceFactory:
             mock_service.Settings = RealSarvamLLMService.Settings
             create_llm_service_from_provider(
                 provider=ServiceProviders.SARVAM.value,
-                model="sarvam-30b",
+                model="sarvam-105b",
                 api_key="test-key",
             )
 
         assert mock_service.call_count == 1
         kwargs = mock_service.call_args.kwargs
         assert kwargs["api_key"] == "test-key"
-        assert kwargs["settings"].model == "sarvam-30b"
+        assert kwargs["settings"].model == "sarvam-105b"
         assert kwargs["settings"].temperature == 0.5
 
     def test_create_sarvam_llm_service_passes_user_temperature(self):
@@ -56,7 +58,7 @@ class TestSarvamLLMServiceFactory:
             mock_service.Settings = RealSarvamLLMService.Settings
             create_llm_service_from_provider(
                 provider=ServiceProviders.SARVAM.value,
-                model="sarvam-30b",
+                model="sarvam-105b",
                 api_key="test-key",
                 temperature=0.8,
             )
@@ -68,7 +70,7 @@ class TestSarvamLLMServiceFactory:
         user_config = SimpleNamespace(
             llm=SimpleNamespace(
                 provider=ServiceProviders.SARVAM.value,
-                model="sarvam-30b",
+                model="sarvam-105b",
                 api_key="test-key",
                 temperature=0.7,
             )

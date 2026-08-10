@@ -2,15 +2,29 @@
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 from loguru import logger
 
 from api.db import db_client
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    classify_exception,
+    classify_http_response,
+    log_failure,
+    redact_failure_message,
+)
 from api.services.configuration.masking import mask_key
 from api.utils.credential_auth import build_auth_header
-from api.utils.template_renderer import render_template
+from api.utils.template_renderer import (
+    get_nested_value,
+    render_template,
+    render_url_template,
+)
+from api.utils.url_security import validate_user_configured_service_url
 
 # Map tool parameter types to JSON schema types
 TYPE_MAP = {
@@ -21,8 +35,16 @@ TYPE_MAP = {
     "array": "array",
 }
 
+_FULL_PLACEHOLDER = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
 
-def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
+
+def custom_tool_function_name(name: str) -> str:
+    """Return the LLM function name generated for a custom tool."""
+    function_name = re.sub(r"[^a-z0-9_]", "_", name.lower())
+    return re.sub(r"_+", "_", function_name).strip("_")
+
+
+def serialize_query_params(arguments: dict[str, Any]) -> dict[str, Any]:
     """JSON-stringify dict/list values so they're safe to pass as query params.
 
     httpx (and query strings in general) only support primitive param values.
@@ -35,7 +57,7 @@ def serialize_query_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
+def tool_to_function_schema(tool: Any) -> dict[str, Any]:
     """Convert a ToolModel to an LLM function schema.
 
     Args:
@@ -110,10 +132,7 @@ def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
         }
         required.append("reason")
 
-    # Sanitize tool name for function name (lowercase, underscores only)
-    function_name = re.sub(r"[^a-z0-9_]", "_", tool.name.lower())
-    # Remove consecutive underscores and trim
-    function_name = re.sub(r"_+", "_", function_name).strip("_")
+    function_name = custom_tool_function_name(tool.name)
 
     return {
         "type": "function",
@@ -195,10 +214,10 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
 
 
 def _resolve_preset_parameters(
-    config: Dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]],
-    gathered_context_vars: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    config: dict[str, Any],
+    call_context_vars: dict[str, Any] | None,
+    gathered_context_vars: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Resolve fixed/template-backed parameters before executing the HTTP request."""
 
     preset_parameters = config.get("preset_parameters", []) or []
@@ -206,13 +225,15 @@ def _resolve_preset_parameters(
         return {}
 
     initial_context = dict(call_context_vars or {})
-    render_context: Dict[str, Any] = {
+    gathered_context = dict(gathered_context_vars or {})
+    render_context: dict[str, Any] = {
         **initial_context,
+        **gathered_context,
         "initial_context": initial_context,
-        "gathered_context": dict(gathered_context_vars or {}),
+        "gathered_context": gathered_context,
     }
 
-    resolved: Dict[str, Any] = {}
+    resolved: dict[str, Any] = {}
     for param in preset_parameters:
         param_name = (param.get("name") or "").strip()
         if not param_name:
@@ -233,15 +254,35 @@ def _resolve_preset_parameters(
     return resolved
 
 
+def render_body_template(template: Any, context: dict[str, Any]) -> Any:
+    """Render a JSON template while preserving whole-placeholder value types."""
+    if isinstance(template, dict):
+        return {
+            render_template(str(key), context): render_body_template(value, context)
+            for key, value in template.items()
+        }
+    if isinstance(template, list):
+        return [render_body_template(value, context) for value in template]
+    if not isinstance(template, str):
+        return template
+
+    match = _FULL_PLACEHOLDER.fullmatch(template)
+    if match:
+        value = get_nested_value(context, match.group(1))
+        if value is not None and not isinstance(value, str):
+            return value
+    return render_template(template, context)
+
+
 async def execute_http_tool(
     tool: Any,
-    arguments: Dict[str, Any],
-    call_context_vars: Optional[Dict[str, Any]] = None,
-    gathered_context_vars: Optional[Dict[str, Any]] = None,
-    preset_params: Optional[Dict[str, Any]] = None,
-    organization_id: Optional[int] = None,
+    arguments: dict[str, Any],
+    call_context_vars: dict[str, Any] | None = None,
+    gathered_context_vars: dict[str, Any] | None = None,
+    preset_params: dict[str, Any] | None = None,
+    organization_id: int | None = None,
     include_request_headers: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute an HTTP API tool.
 
     Args:
@@ -270,7 +311,7 @@ async def execute_http_tool(
 
     # Add auth header if credential is configured. Keep track of which headers
     # came from the credential so only those values are masked in test previews.
-    credential_headers: Dict[str, str] = {}
+    credential_headers: dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
     if credential_uuid and organization_id:
         try:
@@ -282,21 +323,49 @@ async def execute_http_tool(
                 headers.update(credential_headers)
                 logger.debug(f"Applied credential '{credential.name}' to tool request")
             else:
-                logger.warning(
-                    f"Credential {credential_uuid} not found for tool '{tool.name}'"
+                log_failure(
+                    DograhFailure(
+                        source=ErrorSource.TOOL,
+                        type=ErrorType.CONFIG_ERROR,
+                        code="custom-http-credential-not-found",
+                        internal_message=f"Credential not found for custom tool '{tool.name}'",
+                        external_message="The credential configured for this tool no longer exists.",
+                        provider="custom-http",
+                        error_owner="user",
+                        retryable=False,
+                    ),
+                    organization_id=organization_id,
+                    tool_name=tool.name,
                 )
         except Exception as e:
-            logger.error(f"Failed to fetch credential for tool '{tool.name}': {e}")
+            log_failure(
+                classify_exception(
+                    e,
+                    source=ErrorSource.TOOL,
+                    provider="custom-http",
+                    error_owner="user",
+                ),
+                organization_id=organization_id,
+                tool_name=tool.name,
+            )
 
-    request_headers: Dict[str, str] = {}
+    request_headers: dict[str, str] = {}
     if include_request_headers:
         request_headers = {str(name): str(value) for name, value in headers.items()}
         for header_name, header_value in credential_headers.items():
             request_headers[header_name] = mask_key(str(header_value))
 
-    def build_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    _rendered_url: str | None = None
+    _request_body_preview: Any = None
+
+    def build_result(result: dict[str, Any]) -> dict[str, Any]:
         if include_request_headers:
-            return {**result, "request_headers": request_headers}
+            return {
+                **result,
+                "request_headers": request_headers,
+                "rendered_url": _rendered_url,
+                "request_body_preview": _request_body_preview,
+            }
         return result
 
     # Get timeout
@@ -309,30 +378,89 @@ async def execute_http_tool(
                 config, call_context_vars, gathered_context_vars
             )
         except ValueError as e:
-            logger.error(f"Custom tool '{tool.name}' preset parameter error: {e}")
+            log_failure(
+                DograhFailure(
+                    source=ErrorSource.TOOL,
+                    type=ErrorType.CONFIG_ERROR,
+                    code="custom-http-invalid-preset",
+                    internal_message=f"Custom tool '{tool.name}' preset parameter error: {e}",
+                    external_message="A configured tool parameter could not be resolved.",
+                    provider="custom-http",
+                    error_owner="user",
+                    retryable=False,
+                ),
+                organization_id=organization_id,
+                tool_name=tool.name,
+            )
             return build_result({"status": "error", "error": str(e)})
     else:
         preset_arguments = dict(preset_params)
 
-    resolved_arguments = {**(arguments or {}), **preset_arguments}
+    llm_arguments = dict(arguments or {})
+    resolved_arguments = {**preset_arguments, **llm_arguments}
+
+    initial_context = dict(call_context_vars or {})
+    gathered_context = dict(gathered_context_vars or {})
+    # Unprefixed URL variables follow LLM > gathered > initial precedence.
+    # Preset aliases are context-derived fallbacks; explicit namespaces keep
+    # the original context maps available regardless of name collisions.
+    url_render_context: dict[str, Any] = {
+        **preset_arguments,
+        **initial_context,
+        **gathered_context,
+        **llm_arguments,
+        "initial_context": initial_context,
+        "gathered_context": gathered_context,
+    }
+
+    try:
+        url = render_url_template(
+            url=url,
+            context=url_render_context,
+        )
+        _rendered_url = url
+    except ValueError as e:
+        logger.error(f"Custom tool '{tool.name}' URL template render failed: {e}")
+        return build_result(
+            {"status": "error", "error": f"URL template rendering failed: {e!s}"}
+        )
+
+    try:
+        validate_user_configured_service_url(url, field_name="config.url")
+    except ValueError as e:
+        logger.error(f"Custom tool '{tool.name}' URL validation failed: {e}")
+        return build_result(
+            {"status": "error", "error": f"URL validation failed: {e!s}"}
+        )
 
     # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
     params = None
     if method in ("POST", "PUT", "PATCH"):
-        body = resolved_arguments
+        body_template = config.get("body_template")
+        if body_template is None:
+            body = resolved_arguments
+        else:
+            body = render_body_template(
+                body_template,
+                {
+                    **resolved_arguments,
+                    "initial_context": initial_context,
+                    "gathered_context": gathered_context,
+                },
+            )
+        _request_body_preview = body
     elif method in ("GET", "DELETE") and resolved_arguments:
         params = serialize_query_params(resolved_arguments)
 
     logger.info(
-        f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): {method} {url}"
+        f"Executing custom tool '{tool.name}' ({tool.tool_uuid}): "
+        f"{method} {redact_failure_message(url)}"
     )
     if preset_arguments:
         logger.debug(
             f"Resolved preset parameters for '{tool.name}': {list(preset_arguments.keys())}"
         )
-    logger.debug(f"Request body: {body}, params: {params}")
-
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             response = await client.request(
@@ -358,10 +486,32 @@ async def execute_http_tool(
             logger.debug(
                 f"Custom tool '{tool.name}' completed with status {response.status_code}"
             )
+            if response.status_code >= 400:
+                log_failure(
+                    classify_http_response(
+                        response.status_code,
+                        f"Custom tool '{tool.name}' returned HTTP "
+                        f"{response.status_code}: {response.text[:200]}",
+                        source=ErrorSource.TOOL,
+                        provider="custom-http",
+                        error_owner="user",
+                    ),
+                    organization_id=organization_id,
+                    tool_name=tool.name,
+                )
             return build_result(result)
 
-    except httpx.TimeoutException:
-        logger.error(f"Custom tool '{tool.name}' timed out after {timeout_seconds}s")
+    except httpx.TimeoutException as e:
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",
@@ -369,18 +519,36 @@ async def execute_http_tool(
             }
         )
     except httpx.RequestError as e:
-        logger.error(f"Custom tool '{tool.name}' request failed: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",
-                "error": f"Request failed: {str(e)}",
+                "error": f"Request failed: {e!s}",
             }
         )
     except Exception as e:
-        logger.error(f"Custom tool '{tool.name}' execution failed: {e}")
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TOOL,
+                provider="custom-http",
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            tool_name=tool.name,
+        )
         return build_result(
             {
                 "status": "error",
-                "error": f"Tool execution failed: {str(e)}",
+                "error": f"Tool execution failed: {e!s}",
             }
         )

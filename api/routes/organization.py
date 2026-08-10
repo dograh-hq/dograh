@@ -1,9 +1,9 @@
-from typing import List, Optional
+from copy import deepcopy
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
-from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel, Field
 
 from api.constants import (
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
@@ -12,8 +12,14 @@ from api.constants import (
 )
 from api.db import db_client
 from api.db.models import UserModel
-from api.db.telephony_configuration_client import TelephonyConfigurationInUseError
+from api.db.telephony_configuration_client import (
+    TelephonyConfigurationConflictError,
+    TelephonyConfigurationInUseError,
+)
+from api.db.telephony_phone_number_client import TelephonyPhoneNumberConflictError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
+from api.errors.failure import ErrorSource, classify_exception, log_failure
+from api.errors.mps import MPSUnavailableError
 from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
     DOGRAH_DEFAULT_VOICE,
@@ -74,15 +80,19 @@ from api.services.organization_context import (
     get_organization_context,
 )
 from api.services.organization_preferences import (
+    external_pbx_integrations_enabled,
     get_organization_preferences,
     upsert_organization_preferences,
 )
+from api.services.pipecat.tracing_config import normalize_langfuse_host
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
+from api.services.telephony.base import ProviderPhoneNumberLookupError
 from api.services.telephony.factory import get_telephony_provider_by_id
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -101,12 +111,22 @@ def _sensitive_fields(provider_name: str) -> List[str]:
 
 def _mask_sensitive(provider_name: str, value: dict) -> dict:
     """Return a copy of ``value`` with sensitive fields masked for display."""
-    out = dict(value)
+    out = deepcopy(value)
     for field_name in _sensitive_fields(provider_name):
-        v = out.get(field_name)
+        v = _get_nested_field(out, field_name)
         if v:
-            out[field_name] = mask_key(v)
+            _set_nested_field(out, field_name, mask_key(str(v)))
     return out
+
+
+class TelephonyProviderUIOption(BaseModel):
+    value: str
+    label: str
+
+
+class TelephonyProviderUICondition(BaseModel):
+    field: str
+    equals: Any
 
 
 class TelephonyProviderUIField(BaseModel):
@@ -119,6 +139,9 @@ class TelephonyProviderUIField(BaseModel):
     sensitive: bool
     description: Optional[str] = None
     placeholder: Optional[str] = None
+    options: Optional[List[TelephonyProviderUIOption]] = None
+    visible_when: Optional[TelephonyProviderUICondition] = None
+    section: Optional[str] = None
 
 
 class TelephonyProviderMetadata(BaseModel):
@@ -184,6 +207,9 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
+    external_pbx_enabled = await external_pbx_integrations_enabled(
+        user.selected_organization_id
+    )
     providers = []
     for spec in telephony_registry.all_specs():
         if spec.ui_metadata is None:
@@ -201,8 +227,30 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
                         sensitive=f.sensitive,
                         description=f.description,
                         placeholder=f.placeholder,
+                        options=(
+                            [
+                                {"value": option.value, "label": option.label}
+                                for option in f.options
+                            ]
+                            if f.options
+                            else None
+                        ),
+                        visible_when=(
+                            {
+                                "field": f.visible_when.field,
+                                "equals": f.visible_when.equals,
+                            }
+                            if f.visible_when
+                            else None
+                        ),
+                        section=f.section,
                     )
                     for f in spec.ui_metadata.fields
+                    if not f.feature_gate
+                    or (
+                        f.feature_gate == "external_pbx_integrations"
+                        and external_pbx_enabled
+                    )
                 ],
                 docs_url=spec.ui_metadata.docs_url,
             )
@@ -345,14 +393,23 @@ async def get_model_configuration_pricing(
             user.selected_organization_id,
         )
         return ModelConfigurationPricingResponse.model_validate(pricing)
+    except MPSUnavailableError:
+        # The MPS boundary emitted the classified failure. The app-level handler
+        # converts this typed dependency failure to a customer-safe HTTP 503.
+        raise
     except Exception as exc:
-        logger.error(
-            "Failed to get MPS model-configuration pricing for organization {}: {}",
-            user.selected_organization_id,
-            exc,
+        log_failure(
+            classify_exception(
+                exc,
+                source=ErrorSource.PLATFORM,
+                provider="dograh",
+                error_owner="operator",
+            ),
+            organization_id=user.selected_organization_id,
+            operation="validate_billing_pricing_response",
         )
         raise HTTPException(
-            status_code=502,
+            status_code=500,
             detail="Failed to retrieve model configuration pricing",
         ) from exc
 
@@ -496,24 +553,34 @@ async def get_model_configuration_preferences_legacy(
     return await get_preferences(user=user)
 
 
-@router.put(
-    "/model-configurations/preferences",
-    response_model=OrganizationPreferences,
-    include_in_schema=False,
-)
-async def save_model_configuration_preferences_legacy(
-    request: OrganizationPreferences,
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
-    return await save_preferences(request=request, user=user)
-
-
 def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):
     """If the client re-submitted a masked sensitive field, restore the original."""
     for field_name in _sensitive_fields(provider):
-        v = request_dict.get(field_name)
-        if v and is_mask_of(v, existing.get(field_name, "")):
-            request_dict[field_name] = existing[field_name]
+        v = _get_nested_field(request_dict, field_name)
+        existing_value = _get_nested_field(existing, field_name)
+        if v and is_mask_of(v, existing_value or ""):
+            _set_nested_field(request_dict, field_name, existing_value)
+
+
+def _get_nested_field(value: dict, dotted_path: str):
+    current = value
+    for part in dotted_path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _set_nested_field(value: dict, dotted_path: str, field_value) -> None:
+    current = value
+    parts = dotted_path.split(".")
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = field_value
 
 
 def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
@@ -540,8 +607,43 @@ def _phone_number_to_response(
     return response
 
 
+async def _ensure_provider_owns_phone_number(
+    config_id: int,
+    organization_id: int,
+    address: str,
+    country_hint: str | None = None,
+) -> None:
+    """Reject an address unless the provider can confirm account ownership.
+
+    Provider implementations use read-only inventory lookups. PBX-managed
+    providers that cannot prove carrier ownership explicitly opt out through
+    their ``validate_phone_number`` implementation.
+    """
+    try:
+        canonical_address = normalize_telephony_address(
+            address, country_hint=country_hint
+        ).canonical
+        provider = await get_telephony_provider_by_id(config_id, organization_id)
+        result = await provider.validate_phone_number(canonical_address)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ProviderPhoneNumberLookupError as e:
+        logger.error(
+            f"Provider phone-number lookup failed for config {config_id} "
+            f"address {address}: {e}"
+        )
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    if not result.ok:
+        raise HTTPException(
+            status_code=400,
+            detail=result.message
+            or "Phone number is not owned by this provider account",
+        )
+
+
 async def _sync_inbound_for_phone_number(
-    config_id: int, organization_id: int, address: str
+    config_id: int, organization_id: int, address: str, *, attach: bool = True
 ) -> ProviderSyncStatus:
     """Push inbound webhook configuration to the provider.
 
@@ -558,8 +660,10 @@ async def _sync_inbound_for_phone_number(
         logger.error(f"Failed to load telephony provider for config {config_id}: {e}")
         return ProviderSyncStatus(ok=False, message=f"Provider load failed: {e}")
 
-    backend_endpoint, _ = await get_backend_endpoints()
-    webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
+    webhook_url = None
+    if attach:
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
 
     try:
         result = await provider.configure_inbound(address, webhook_url)
@@ -594,6 +698,9 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 name=row.name,
                 provider=row.provider,
                 is_default_outbound=row.is_default_outbound,
+                inactive=row.inactive,
+                inactive_since=row.inactive_since,
+                inactive_reason=row.inactive_reason,
                 phone_number_count=len([n for n in numbers if n.is_active]),
                 created_at=row.created_at,
                 updated_at=row.updated_at,
@@ -622,7 +729,7 @@ async def create_telephony_configuration(
             credentials=credentials,
             is_default_outbound=request.is_default_outbound,
         )
-    except IntegrityError as e:
+    except TelephonyConfigurationConflictError as e:
         if "uq_telephony_configurations_org_name" in str(e):
             raise HTTPException(
                 status_code=409,
@@ -659,7 +766,7 @@ async def get_telephony_configuration_by_id(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     row = await db_client.get_telephony_configuration_for_org(
-        config_id, user.selected_organization_id
+        config_id, user.selected_organization_id, active_only=False
     )
     if not row:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -678,7 +785,7 @@ async def update_telephony_configuration(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     existing = await db_client.get_telephony_configuration_for_org(
-        config_id, user.selected_organization_id
+        config_id, user.selected_organization_id, active_only=False
     )
     if not existing:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -722,6 +829,36 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
     return _detail_response(row)
 
 
+@router.post(
+    "/telephony-configs/{config_id}/reactivate",
+    response_model=TelephonyConfigurationDetail,
+)
+async def reactivate_telephony_configuration(
+    config_id: int, user: UserModel = Depends(get_user)
+):
+    """Clear the inactive flag so connection workers pick the config up again.
+
+    A config is deactivated automatically when it keeps failing to connect, and
+    workers never re-enable it on their own. This endpoint is the only way back,
+    so the customer fixes their PBX and then explicitly retries.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    updated = await db_client.set_telephony_configuration_active(
+        config_id, user.selected_organization_id
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+
+    row = await db_client.get_telephony_configuration_for_org(
+        config_id, user.selected_organization_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+    return _detail_response(row)
+
+
 @router.delete("/telephony-configs/{config_id}")
 async def delete_telephony_configuration(
     config_id: int, user: UserModel = Depends(get_user)
@@ -748,6 +885,9 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
         name=row.name,
         provider=row.provider,
         is_default_outbound=row.is_default_outbound,
+        inactive=row.inactive,
+        inactive_since=row.inactive_since,
+        inactive_reason=row.inactive_reason,
         credentials=masked,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -761,7 +901,7 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
 
 async def _ensure_config_belongs_to_org(config_id: int, organization_id: int):
     cfg = await db_client.get_telephony_configuration_for_org(
-        config_id, organization_id
+        config_id, organization_id, active_only=False
     )
     if not cfg:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
@@ -809,6 +949,13 @@ async def create_phone_number(
         await _ensure_workflow_belongs_to_org(
             request.inbound_workflow_id, user.selected_organization_id
         )
+
+    await _ensure_provider_owns_phone_number(
+        config_id,
+        user.selected_organization_id,
+        request.address,
+        request.country_code,
+    )
 
     # Inbound dispatch (find_inbound_route_by_account) keys on (provider,
     # credentials[account_id_field], address_normalized) without the org, so
@@ -858,7 +1005,7 @@ async def create_phone_number(
             is_default_caller_id=request.is_default_caller_id,
             extra_metadata=request.extra_metadata,
         )
-    except IntegrityError:
+    except TelephonyPhoneNumberConflictError:
         raise HTTPException(
             status_code=409,
             detail="A phone number with this address already exists in the org.",
@@ -869,7 +1016,10 @@ async def create_phone_number(
     response = _phone_number_to_response(row)
     if request.inbound_workflow_id is not None:
         response.provider_sync = await _sync_inbound_for_phone_number(
-            config_id, user.selected_organization_id, row.address
+            config_id,
+            user.selected_organization_id,
+            row.address,
+            attach=row.is_active,
         )
     return response
 
@@ -934,7 +1084,10 @@ async def update_phone_number(
     # Sync the provider application or address with the inbound
     # calling webhook address
     response.provider_sync = await _sync_inbound_for_phone_number(
-        config_id, user.selected_organization_id, row.address
+        config_id,
+        user.selected_organization_id,
+        row.address,
+        attach=row.inbound_workflow_id is not None and row.is_active,
     )
     return response
 
@@ -972,11 +1125,29 @@ async def delete_phone_number(
     if not existing:
         raise HTTPException(status_code=404, detail="Phone number not found")
 
+    provider_sync = await _sync_inbound_for_phone_number(
+        config_id,
+        user.selected_organization_id,
+        existing.address,
+        attach=False,
+    )
+    if not provider_sync.ok:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                provider_sync.message
+                or "Provider rejected the phone-number detach request"
+            ),
+        )
+
     deleted = await db_client.delete_phone_number(phone_number_id, config_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Phone number not found")
 
-    return {"message": "Phone number deleted"}
+    return {
+        "message": "Phone number deleted",
+        "provider_sync": provider_sync.model_dump(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -994,7 +1165,7 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
         raise HTTPException(status_code=400, detail="No organization selected")
 
     cfg = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id
+        user.selected_organization_id, active_only=False
     )
     if not cfg:
         return TelephonyConfigurationResponse()
@@ -1027,7 +1198,7 @@ async def save_telephony_configuration(
     payload.pop("provider", None)
 
     default = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id
+        user.selected_organization_id, active_only=False
     )
 
     if default and default.provider == request.provider:
@@ -1051,6 +1222,11 @@ async def save_telephony_configuration(
     existing_by_address = {n.address: n for n in existing_numbers}
     incoming_set = set(new_addresses)
     for addr in new_addresses:
+        if addr not in existing_by_address:
+            await _ensure_provider_owns_phone_number(
+                row.id, user.selected_organization_id, addr
+            )
+    for addr in new_addresses:
         if addr in existing_by_address:
             continue
         try:
@@ -1059,7 +1235,7 @@ async def save_telephony_configuration(
                 telephony_configuration_id=row.id,
                 address=addr,
             )
-        except IntegrityError:
+        except TelephonyPhoneNumberConflictError:
             logger.warning(
                 f"Skipping duplicate phone number {addr!r} for config {row.id}"
             )
@@ -1086,12 +1262,16 @@ class LangfuseCredentialsRequest(BaseModel):
     host: str
     public_key: str
     secret_key: str
+    # Required: Langfuse v4 trace links are project-scoped, and the legacy
+    # /trace/<id> form 404s without it.
+    project_id: str = Field(min_length=1)
 
 
 class LangfuseCredentialsResponse(BaseModel):
     host: str = ""
     public_key: str = ""
     secret_key: str = ""
+    project_id: str = ""
     configured: bool = False
 
 
@@ -1113,6 +1293,7 @@ async def get_langfuse_credentials(user: UserModel = Depends(get_user)):
         host=config.value.get("host", ""),
         public_key=mask_key(config.value.get("public_key", "")),
         secret_key=mask_key(config.value.get("secret_key", "")),
+        project_id=config.value.get("project_id", ""),
         configured=True,
     )
 
@@ -1132,9 +1313,10 @@ async def save_langfuse_credentials(
     )
 
     config_value = {
-        "host": request.host,
+        "host": normalize_langfuse_host(request.host),
         "public_key": request.public_key,
         "secret_key": request.secret_key,
+        "project_id": request.project_id.strip(),
     }
 
     # Preserve masked fields

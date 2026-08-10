@@ -2,6 +2,82 @@
 title: "End Call"
 description: "You can use End Call node to configure how the Agent says its final message right before the call is terminated"
 ---
-<Note>
-You should have only one End Call node per Voice Agent.
-</Note>
+
+## Video Tutorial
+
+<iframe 
+  width="560" 
+  height="315" 
+  src="https://www.youtube.com/embed/cuglQXX9nPI" 
+  title="End Call Node Tutorial" 
+  frameBorder="0" 
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+  referrerPolicy="strict-origin-when-cross-origin" 
+  allowFullScreen
+></iframe>
+
+End Call is the terminal node in a workflow. It fires right before Dograh terminates the connection, giving your agent one last chance to speak. Every path through your workflow must eventually reach an End Call node.
+
+## When it runs
+
+End Call executes after all conversation logic is complete. The agent delivers its closing message, then the call drops.
+
+You can have multiple End Call nodes in one workflow, each reached by a different edge condition. For example, one for a successful outcome and one for a wrong-number path. Each can have its own distinct Prompt.
+
+## Fields
+
+**Name**
+
+Short identifier shown in the canvas and call logs. Use names that describe the ending context, for example "Successful close" or "Polite decline".
+
+**Prompt**
+
+System instructions for what the agent says before the call ends. You can make this conditional by describing different outcomes in the prompt.
+
+For example:
+
+```text
+If the caller committed to a payment, confirm the arrangement: the
+exact amount and expected processing time. If no commitment was made,
+thank them for their time and let them know they can call back to
+discuss options. Always close professionally.
+```
+
+The Prompt cannot reference `gathered_context` - variables extracted by this or earlier nodes are not available in any node's Prompt. To act on extracted data, send it out via a [Webhook node](./webhook) instead.
+
+**Add Global Prompt**
+
+When on and a Global Node exists, the Global Prompt is prepended to this node's Prompt at runtime. On by default.
+
+**Enable Variable Extraction**
+
+When on, an LLM extraction pass runs after this node's turn to capture structured data from the conversation into `gathered_context`.
+
+## Common mistakes
+
+**Leaving the Prompt empty.** An empty Prompt means the agent says nothing before the line drops. The caller experiences an abrupt silence.
+
+**Routing all paths into one End Call when outcomes need different closing lines.** Multiple End Call nodes are supported. If a wrong-number path and a successful-commitment path need different closing lines, use two End Call nodes with distinct Prompts rather than cramming both into one.
+
+**Agent Nodes that never route to End Call.** Any node without a downstream path to End Call leaves calls in an unresolvable state.
+
+<Warning>
+Check every Agent Node for a path to End Call before publishing. Nodes with no downstream connection to End Call will drop the call without a closing message.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="QA Node" href="./qa">
+    Automatically evaluate calls after they end.
+  </Card>
+  <Card title="Webhook Node" href="./webhook">
+    Sync call outcomes to your CRM or external systems.
+  </Card>
+  <Card title="Agent Node" href="./agent">
+    Configure the conversation logic that routes into End Call.
+  </Card>
+  <Card title="Context and Variables" href="../core-concepts/context-and-variables">
+    Learn where `gathered_context` can and cannot be referenced.
+  </Card>
+</CardGroup>

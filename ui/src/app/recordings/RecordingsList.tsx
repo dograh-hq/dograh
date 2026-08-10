@@ -14,9 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
+import { useOrganizationTimezone } from "@/hooks/useOrganizationTimezone";
+import { formatDateTime } from "@/lib/dateTime";
 import logger from "@/lib/logger";
 
 export default function RecordingsList({ refreshKey }: { refreshKey?: number }) {
+    const organizationTimezone = useOrganizationTimezone();
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
@@ -128,11 +131,6 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
         } catch (err) {
             setEditError(err instanceof Error ? err.message : "Failed to update recording ID");
         }
-    };
-
-    const formatDate = (dateString: string): string => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString() + " " + date.toLocaleTimeString();
     };
 
     const filteredRecordings = recordings.filter((rec) => {
@@ -288,7 +286,7 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
                                             {rec.transcript}
                                         </p>
                                         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                                            <span>{formatDate(rec.created_at)}</span>
+                                            <span>{formatDateTime(rec.created_at, organizationTimezone)}</span>
                                         </div>
                                     </div>
                                 </div>

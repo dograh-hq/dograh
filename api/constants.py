@@ -17,6 +17,18 @@ VOICEMAIL_RECORDING_DURATION = 5.0
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_PROJECT_ID = os.getenv("LANGFUSE_PROJECT_ID")
+
+# Tracing as a whole is optional, but a half-configured Langfuse silently
+# produces dead trace links, so fail loudly at import instead.
+if all([LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY]) and not (
+    LANGFUSE_PROJECT_ID
+):
+    raise RuntimeError(
+        "LANGFUSE_PROJECT_ID is required when LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY "
+        "and LANGFUSE_SECRET_KEY are set. Find it in your Langfuse project URL "
+        "(/project/<project_id>/...) or via GET <host>/api/public/projects."
+    )
 
 # URLs for deployment
 #
@@ -27,6 +39,16 @@ LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 # var can still be set explicitly to override it for a split deployment.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL") or None
 PUBLIC_HOST = os.getenv("PUBLIC_HOST") or None
+
+# The server's own IPv4 address, as the operator supplied it to the setup
+# script. Usually identical to PUBLIC_HOST, but kept distinct because it must
+# stay a raw IP (coturn's external-ip needs one) while PUBLIC_HOST may be a
+# hostname such as an sslip.io name. resolve_ice_filter_policies() classifies
+# it to detect a private-LAN or CGNAT deployment (e.g. Tailscale, no public
+# IP) and pick ICE candidate filtering accordingly, so an empty value here is
+# read as "public deployment" — every consumer of this must be wired through
+# docker-compose, or that detection silently misfires.
+SERVER_IP = os.getenv("SERVER_IP", "")
 
 # Public URL the backend builds webhook/callback/embed links from. Derives from
 # PUBLIC_BASE_URL (public IP / domain), falling back to localhost for local dev.
@@ -98,6 +120,22 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
 
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
+
+# Telephony media WebSocket authentication.
+# The carrier/connector dials back the media socket
+# /api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}, whose
+# id triple is otherwise a guessable bearer capability. When a secret is set,
+# providers append an HMAC token to that URL as a trailing path segment (carriers
+# strip query strings; ARI is the exception and passes ?token=) and the handler
+# verifies it (see api/services/telephony/ws_auth.py).
+# Two-phase, backward-compatible rollout:
+#   * secret unset            -> feature off, URLs unchanged (default)
+#   * secret set, enforce off -> tokens minted + verified; invalid ones only logged
+#   * secret set, enforce on  -> invalid/missing tokens rejected (WS close 4401)
+TELEPHONY_WS_TOKEN_SECRET = os.getenv("TELEPHONY_WS_TOKEN_SECRET") or None
+TELEPHONY_WS_TOKEN_ENFORCE = (
+    os.getenv("TELEPHONY_WS_TOKEN_ENFORCE", "false").lower() == "true"
+)
 
 # Logging configuration
 LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", None)
@@ -177,6 +215,20 @@ DEFAULT_WEBHOOK_DELIVERY_CONFIG = {
     "timeout_seconds": int(os.getenv("WEBHOOK_DELIVERY_TIMEOUT_SECONDS", 30)),
 }
 
+# Text chats have no transport disconnect event, so a periodic worker closes
+# sessions that have stopped changing. Workflows can override this default.
+MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS = 60
+TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS = 1800
+TEXT_CHAT_INACTIVITY_SWEEP_INTERVAL_MINUTES = 5
+TEXT_CHAT_INACTIVITY_SWEEP_LOOKBACK_SECONDS = 3 * 60 * 60
+MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS = (
+    TEXT_CHAT_INACTIVITY_SWEEP_LOOKBACK_SECONDS
+    - TEXT_CHAT_INACTIVITY_SWEEP_INTERVAL_MINUTES * 60
+)
+TEXT_CHAT_INACTIVITY_SWEEP_PAGE_SIZE = 500
+TEXT_CHAT_INACTIVITY_SWEEP_MAX_PAGES = 10
+TEXT_CHAT_INACTIVITY_SWEEP_ENQUEUE_LIMIT = 500
+
 
 # Circuit breaker defaults for campaign call failure detection
 DEFAULT_CIRCUIT_BREAKER_CONFIG = {
@@ -187,6 +239,8 @@ DEFAULT_CIRCUIT_BREAKER_CONFIG = {
 }
 
 
+# Whether this deployment runs a TURN server (coturn).
+ENABLE_COTURN = os.getenv("ENABLE_COTURN", "false").lower() == "true"
 TURN_SECRET = os.getenv("TURN_SECRET")
 # Host browsers dial for TURN/ICE. Derives from PUBLIC_HOST; set explicitly only
 # when the TURN server runs on a separate host from the app.

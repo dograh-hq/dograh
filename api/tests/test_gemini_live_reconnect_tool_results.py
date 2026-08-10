@@ -1,10 +1,11 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pipecat.frames.frames import (
+    EndFrame,
     NodeTransitionStartedFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
@@ -292,8 +293,34 @@ async def test_node_transition_uses_fresh_connection_instead_of_stale_handle():
     assert handled == {"system_instruction"}
     assert service._session_resumption_handle is None
     assert service._awaiting_node_transition_context is True
-    service._disconnect.assert_awaited_once()
+    service._disconnect.assert_awaited_once_with(preserve_pending_end_frame=True)
     service._connect.assert_awaited_once_with(session_resumption_handle=None)
+
+
+@pytest.mark.asyncio
+async def test_node_transition_releases_deferred_end_frame_instead_of_reconnecting():
+    service = _make_service()
+    service._session = _FakeSession()
+    service._connect = AsyncMock()
+    service.queue_frame = AsyncMock()
+    service._bot_is_responding = True
+
+    end_frame = EndFrame(reason="user_idle_max_duration_exceeded")
+    timeout_task = MagicMock()
+    timeout_task.done.return_value = False
+    service._end_frame_pending_bot_turn_finished = end_frame
+    service._end_frame_deferral_timeout_task = timeout_task
+
+    await service._reconnect_for_node_transition()
+
+    service.queue_frame.assert_awaited_once_with(end_frame)
+    service._connect.assert_not_awaited()
+    timeout_task.cancel.assert_called_once_with()
+    assert service._end_frame_pending_bot_turn_finished is None
+    assert service._end_frame_deferral_timeout_task is None
+    assert service._awaiting_node_transition_context is False
+    assert service._node_transition_context_received is False
+    assert service._node_transition_context_seed_started is False
 
 
 @pytest.mark.asyncio

@@ -118,6 +118,10 @@ config:
   turnHost: ""  # public hostname/IP of coturn (the LoadBalancer address)
   fastapiWorkers: 1  # informational only; web tier scales by pod, not in-pod workers
   enableSignup: true   # set false to 403 the /api/v1/auth/signup endpoint (invite-only lockdown)
+  # Reject media WebSocket connections whose capability token is missing or
+  # invalid (close 4401). No effect until secrets.telephonyWsTokenSecret is set —
+  # enabling this without a secret does nothing
+  telephonyWsTokenEnforce: false
 
 # -----------------------------------------------------------------------------
 # Secrets — rendered into a Kubernetes Secret unless secrets.existingSecret is
@@ -146,10 +150,23 @@ secrets:
   # TURN REST API shared secret (matches coturn.staticAuthSecret below).
   turnSecret: ""
 
+  # Shared secret gating the ops health endpoints (/api/v1/health/active-calls,
+  # /api/v1/health/autoscale-metric). REQUIRED when autoscaling.web.keda.enabled —
+  # KEDA presents it as X-Dograh-Devops-Secret to scrape the metric. When using
+  # secrets.existingSecret, put this under the DOGRAH_DEVOPS_SECRET key there.
+  devopsSecret: ""
+
   # Optional Langfuse tracing.
   langfuseSecretKey: ""
   langfusePublicKey: ""
   langfuseHost: ""
+  langfuseProjectId: ""
+
+  # Signs the telephony media WebSocket URL the carrier dials back, so the ids
+  # in that URL are no longer enough on their own to open the socket. Empty
+  # leaves the URLs unchanged and the check off. When using secrets.existingSecret, put it
+  # under the TELEPHONY_WS_TOKEN_SECRET key there.
+  telephonyWsTokenSecret: ""
 
 # -----------------------------------------------------------------------------
 # Web tier (FastAPI + WebSocket signaling)
@@ -173,11 +190,24 @@ web:
   # in-flight call. The two settings below give the gateway time to stop
   # routing new connections to a terminating pod and give in-flight calls
   # time to finish.
-  terminationGracePeriodSeconds: 600
-  # preStop sleep: long enough for the load balancer to observe the pod going
-  # NotReady and stop sending new connections. 15s is conservative for most
-  # controllers (gateway/nginx/ALB).
+  # Ceiling on how long the kubelet waits for drain before SIGKILL. For truly
+  # call-safe scale-down it must be >= the longest call. Calls are bounded by
+  # the 20-min stale timeout (rate_limiter.stale_call_timeout=1200s), so 1260s
+  # (21m) covers a max-length call plus SIGTERM handling. The drain exits the
+  # instant active_calls hits 0, so idle/short-call pods still terminate fast —
+  # this only stretches termination when a long call is genuinely still live.
+  # Lower it if you know your calls are shorter.
+  terminationGracePeriodSeconds: 1260
+  # preStop initial delay (DRAIN_INITIAL_DELAY): long enough for the gateway /
+  # load balancer to observe the pod leave the Service endpoints and stop
+  # sending new connections. 15s is conservative for most controllers.
   preStopSleepSeconds: 15
+  # Max seconds scripts/drain_web.sh waits for in-flight calls to finish before
+  # releasing SIGTERM. MUST stay below terminationGracePeriodSeconds (leave
+  # headroom for the 15s initial delay + SIGTERM handling) or the kubelet
+  # SIGKILLs mid-drain. 1200s matches the 20-min max call; with 1260s grace and
+  # the 15s initial delay this leaves ~45s of headroom.
+  drainMaxWaitSeconds: 1200
 
   resources:
     # These are conservative starting numbers. Tune to your workload —
@@ -495,6 +525,27 @@ autoscaling:
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
+    # Call-based autoscaling via KEDA (the preferred web signal — CPU is a poor
+    # proxy for long-lived call WebSockets). When keda.enabled, KEDA owns the
+    # web Deployment: the CPU/mem HPA above is suppressed and web.replicaCount
+    # is ignored. Requires KEDA installed in the cluster and secrets.devopsSecret
+    # set. desiredPods = ceil((fleet_active_calls + bufferCalls) / callsPerPod).
+    keda:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 20
+      # K — safe concurrent calls per pod. PLACEHOLDER: measure via a load
+      # test before trusting it.
+      callsPerPod: 2
+      # B — warm buffer, in calls. Keeps ceil(B/callsPerPod) spare pods ready to
+      # absorb a burst while a new pod cold-starts.
+      bufferCalls: 10
+      # Seconds between metric scrapes of /health/autoscale-metric.
+      pollingInterval: 10
+      # Fast up, slow down: long calls make aggressive scale-down risky. This
+      # only avoids thrash — call-SAFE scale-down is the preStop drain
+      # (scripts/drain_web.sh).
+      scaleDownStabilizationSeconds: 600
   workers:
     enabled: false
     minReplicas: 1

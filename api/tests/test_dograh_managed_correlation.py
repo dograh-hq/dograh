@@ -60,11 +60,12 @@ def test_dograh_llm_uses_explicit_mps_correlation_id():
 async def test_dograh_stt_config_uses_explicit_mps_correlation_id(monkeypatch):
     fake_ws = _FakeWebSocket()
 
-    async def fake_connect(url, additional_headers):
+    async def fake_connect(self, url, additional_headers):
         return fake_ws
 
     monkeypatch.setattr(
-        "pipecat.services.dograh.stt.websocket_connect",
+        DograhSTTService,
+        "_websocket_connect",
         fake_connect,
     )
 
@@ -86,11 +87,12 @@ async def test_dograh_stt_config_uses_explicit_mps_correlation_id(monkeypatch):
 async def test_dograh_tts_messages_use_explicit_mps_correlation_id(monkeypatch):
     fake_ws = _FakeWebSocket()
 
-    async def fake_connect(url, additional_headers):
+    async def fake_connect(self, url, additional_headers):
         return fake_ws
 
     monkeypatch.setattr(
-        "pipecat.services.dograh.tts.websocket_connect",
+        DograhTTSService,
+        "_websocket_connect",
         fake_connect,
     )
 

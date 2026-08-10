@@ -11,8 +11,11 @@ from starlette.requests import Request
 from api.services.telephony.providers.plivo.provider import PlivoProvider
 from api.services.telephony.providers.plivo.routes import (
     handle_plivo_hangup_callback,
+    handle_plivo_transfer_result,
+    handle_plivo_transfer_xml,
     handle_plivo_xml_webhook,
 )
+from api.services.telephony.transfer_event_protocol import TransferContext
 
 
 def _provider() -> PlivoProvider:
@@ -181,3 +184,295 @@ async def test_plivo_status_callback_rejects_missing_signature():
 
     assert result == {"status": "error", "reason": "invalid_signature"}
     process_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_destination_answer_is_published_once_for_duplicate_callbacks():
+    provider = _provider()
+    provider.verify_inbound_signature = AsyncMock(return_value=True)
+    request = _request(
+        path="/api/v1/telephony/plivo/transfer-xml/conference-1/transfer-1",
+        query={},
+        form_data={"CallUUID": "destination-call-uuid"},
+    )
+    context = TransferContext(
+        transfer_id="transfer-1",
+        call_sid="destination-request-uuid",
+        target_number="+15551230003",
+        tool_uuid="tool-1",
+        original_call_sid="original-call-uuid",
+        conference_name="conference-1",
+        initiated_at=0,
+        workflow_run_id=123,
+    )
+    manager = SimpleNamespace(
+        get_transfer_context=AsyncMock(return_value=context),
+        claim_transfer_step=AsyncMock(side_effect=[True, False]),
+        publish_transfer_event=AsyncMock(),
+        store_transfer_context=AsyncMock(),
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_call_transfer_manager",
+            new=AsyncMock(return_value=manager),
+        ),
+        patch("api.services.telephony.providers.plivo.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_telephony_provider_for_run",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+
+        first_response = await handle_plivo_transfer_xml(
+            "conference-1", "transfer-1", request
+        )
+        duplicate_request = _request(
+            path="/api/v1/telephony/plivo/transfer-xml/conference-1/transfer-1",
+            query={},
+            form_data={"CallUUID": "destination-call-uuid"},
+        )
+        duplicate_response = await handle_plivo_transfer_xml(
+            "conference-1", "transfer-1", duplicate_request
+        )
+
+    assert b"<Conference" in first_response.body
+    assert b"<Conference" in duplicate_response.body
+    manager.publish_transfer_event.assert_awaited_once()
+    event = manager.publish_transfer_event.await_args.args[0]
+    assert event.action == "destination_answered"
+    assert event.transfer_call_sid == "destination-call-uuid"
+    manager.store_transfer_context.assert_awaited_once_with(context)
+
+
+@pytest.mark.asyncio
+async def test_original_leg_xml_does_not_publish_destination_answered():
+    provider = _provider()
+    provider.verify_inbound_signature = AsyncMock(return_value=True)
+    request = _request(
+        path="/api/v1/telephony/plivo/transfer-xml/conference-1/transfer-1",
+        query={"leg": "aleg"},
+        form_data={"CallUUID": "original-call-uuid"},
+    )
+    context = TransferContext(
+        transfer_id="transfer-1",
+        call_sid="destination-call-uuid",
+        target_number="+15551230003",
+        tool_uuid="tool-1",
+        original_call_sid="original-call-uuid",
+        conference_name="conference-1",
+        initiated_at=0,
+        workflow_run_id=123,
+    )
+    manager = SimpleNamespace(
+        get_transfer_context=AsyncMock(return_value=context),
+        publish_transfer_event=AsyncMock(),
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_call_transfer_manager",
+            new=AsyncMock(return_value=manager),
+        ),
+        patch("api.services.telephony.providers.plivo.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_telephony_provider_for_run",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+
+        response = await handle_plivo_transfer_xml(
+            "conference-1", "transfer-1", request
+        )
+
+    assert b"<Conference" in response.body
+    manager.publish_transfer_event.assert_not_awaited()
+
+
+def _transfer_context() -> TransferContext:
+    return TransferContext(
+        transfer_id="transfer-1",
+        call_sid="destination-call-uuid",
+        target_number="+15551230003",
+        tool_uuid="tool-1",
+        original_call_sid="original-call-uuid",
+        conference_name="conference-1",
+        initiated_at=0,
+        workflow_run_id=123,
+    )
+
+
+async def _invoke_transfer_result(
+    hangup_cause: str,
+    *,
+    claim_result: bool = True,
+):
+    provider = _provider()
+    provider.verify_inbound_signature = AsyncMock(return_value=True)
+    request = _request(
+        path="/api/v1/telephony/plivo/transfer-result/transfer-1",
+        query={},
+        form_data={
+            "Event": "Hangup",
+            "CallUUID": "destination-call-uuid",
+            "HangupCause": hangup_cause,
+        },
+    )
+    manager = SimpleNamespace(
+        get_transfer_context=AsyncMock(return_value=_transfer_context()),
+        claim_transfer_step=AsyncMock(return_value=claim_result),
+        publish_transfer_event=AsyncMock(),
+        remove_transfer_context=AsyncMock(),
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_call_transfer_manager",
+            new=AsyncMock(return_value=manager),
+        ),
+        patch("api.services.telephony.providers.plivo.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_telephony_provider_for_run",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+        response = await handle_plivo_transfer_result("transfer-1", request)
+
+    return response, manager
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("hangup_cause", "expected_reason"),
+    [
+        ("USER_BUSY", "busy"),
+        ("NO_ANSWER", "no_answer"),
+        ("ORIGINATOR_CANCEL", "no_answer"),
+        ("CALL_REJECTED", "call_failed"),
+    ],
+)
+async def test_transfer_result_publishes_terminal_failure(
+    hangup_cause: str, expected_reason: str
+):
+    response, manager = await _invoke_transfer_result(hangup_cause)
+
+    assert response == {"status": "success"}
+    manager.publish_transfer_event.assert_awaited_once()
+    event = manager.publish_transfer_event.await_args.args[0]
+    assert event.reason == expected_reason
+    assert event.transfer_call_sid == "destination-call-uuid"
+    manager.remove_transfer_context.assert_awaited_once_with("transfer-1")
+
+
+@pytest.mark.asyncio
+async def test_transfer_result_normal_clearing_only_cleans_up_context():
+    response, manager = await _invoke_transfer_result("NORMAL_CLEARING")
+
+    assert response == {"status": "success"}
+    manager.publish_transfer_event.assert_not_awaited()
+    manager.claim_transfer_step.assert_not_awaited()
+    manager.remove_transfer_context.assert_awaited_once_with("transfer-1")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_transfer_failure_is_not_published_or_cleaned_up_twice():
+    response, manager = await _invoke_transfer_result("USER_BUSY", claim_result=False)
+
+    assert response == {"status": "success"}
+    manager.publish_transfer_event.assert_not_awaited()
+    manager.remove_transfer_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transfer_result_without_hangup_cause_remains_pending():
+    response, manager = await _invoke_transfer_result("")
+
+    assert response == {"status": "pending"}
+    manager.claim_transfer_step.assert_not_awaited()
+    manager.publish_transfer_event.assert_not_awaited()
+    manager.remove_transfer_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transfer_result_rejects_unknown_transfer_id():
+    request = _request(
+        path="/api/v1/telephony/plivo/transfer-result/missing-transfer",
+        query={},
+        form_data={"Event": "Hangup", "HangupCause": "USER_BUSY"},
+    )
+    manager = SimpleNamespace(
+        get_transfer_context=AsyncMock(return_value=None),
+        publish_transfer_event=AsyncMock(),
+    )
+
+    with patch(
+        "api.services.telephony.providers.plivo.routes.get_call_transfer_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        response = await handle_plivo_transfer_result("missing-transfer", request)
+
+    assert response == {"status": "error", "reason": "invalid_transfer_id"}
+    manager.publish_transfer_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transfer_result_rejects_invalid_signature():
+    provider = _provider()
+    provider.verify_inbound_signature = AsyncMock(return_value=False)
+    request = _request(
+        path="/api/v1/telephony/plivo/transfer-result/transfer-1",
+        query={},
+        form_data={
+            "Event": "Hangup",
+            "CallUUID": "destination-call-uuid",
+            "HangupCause": "USER_BUSY",
+        },
+    )
+    manager = SimpleNamespace(
+        get_transfer_context=AsyncMock(return_value=_transfer_context()),
+        claim_transfer_step=AsyncMock(),
+        publish_transfer_event=AsyncMock(),
+        remove_transfer_context=AsyncMock(),
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_call_transfer_manager",
+            new=AsyncMock(return_value=manager),
+        ),
+        patch("api.services.telephony.providers.plivo.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.plivo.routes.get_telephony_provider_for_run",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+        response = await handle_plivo_transfer_result("transfer-1", request)
+
+    assert response == {"status": "error", "reason": "invalid_signature"}
+    manager.claim_transfer_step.assert_not_awaited()
+    manager.publish_transfer_event.assert_not_awaited()
+    manager.remove_transfer_context.assert_not_awaited()

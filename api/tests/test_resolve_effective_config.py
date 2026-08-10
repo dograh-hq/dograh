@@ -181,7 +181,7 @@ class TestProviderChange:
             {
                 "llm": {
                     "provider": "google_vertex",
-                    "model": "gemini-2.5-flash",
+                    "model": "gemini-3.5-flash",
                     "project_id": "demo-project",
                     "location": "us-east4",
                     "credentials": '{"type":"service_account"}',

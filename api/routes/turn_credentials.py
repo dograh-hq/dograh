@@ -24,6 +24,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from api.constants import (
+    ENABLE_COTURN,
     ENVIRONMENT,
     TURN_CREDENTIAL_TTL,
     TURN_HOST,
@@ -144,6 +145,13 @@ async def get_turn_credentials(
     Returns:
         TurnCredentialsResponse with username, password, ttl, and TURN URIs
     """
+    if not ENABLE_COTURN:
+        logger.warning("TURN credentials requested but ENABLE_COTURN is false")
+        raise HTTPException(
+            status_code=503,
+            detail="TURN server not configured",
+        )
+
     if not TURN_SECRET:
         logger.warning("TURN credentials requested but TURN_SECRET not configured")
         raise HTTPException(

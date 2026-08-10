@@ -3,9 +3,10 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { client } from '@/client/client.gen';
-import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getUserConfigurationsApiV1UserConfigurationsUserGet } from '@/client/sdk.gen';
-import type { OrganizationContextResponse, UserConfigurationRequestResponseSchema } from '@/client/types.gen';
+import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getPreferencesApiV1OrganizationsPreferencesGet, getUserConfigurationsApiV1UserConfigurationsUserGet } from '@/client/sdk.gen';
+import type { OrganizationContextResponse, OrganizationPreferences, UserConfigurationRequestResponseSchema } from '@/client/types.gen';
 import { setupAuthInterceptor } from '@/lib/apiClient';
+import { detailFromError } from '@/lib/apiError';
 import type { AuthUser } from '@/lib/auth';
 import { useAuth } from '@/lib/auth';
 
@@ -28,6 +29,8 @@ interface OrgConfigContextType {
     permissions: TeamPermission[];
     user: AuthUser | null;
     organizationPricing: OrganizationPricing | null;
+    organizationPreferences: OrganizationPreferences | null;
+    externalPbxIntegrationsEnabled: boolean;
 }
 
 const OrgConfigContext = createContext<OrgConfigContextType | null>(null);
@@ -52,6 +55,7 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);
     const [organizationPricing, setOrganizationPricing] = useState<OrganizationPricing | null>(null);
+    const [organizationPreferences, setOrganizationPreferences] = useState<OrganizationPreferences | null>(null);
     const [permissions, setPermissions] = useState<TeamPermission[]>([]);
 
     const auth = useAuth();
@@ -102,10 +106,15 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
 
         setLoading(true);
         try {
-            const [orgContextResponse, userConfigResponse] = await Promise.all([
+            const [orgContextResponse, userConfigResponse, preferencesResponse] = await Promise.all([
                 getCurrentOrganizationContextApiV1OrganizationsContextGet(),
                 getUserConfigurationsApiV1UserConfigurationsUserGet(),
+                getPreferencesApiV1OrganizationsPreferencesGet(),
             ]);
+
+            if (preferencesResponse.error) {
+                throw new Error(detailFromError(preferencesResponse.error, 'Failed to load organization preferences'));
+            }
 
             if (orgContextResponse.data) {
                 setOrgContext(orgContextResponse.data);
@@ -114,6 +123,10 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
             if (userConfigResponse.data) {
                 setUserConfig(userConfigResponse.data);
                 setOrganizationPricing(pricingFromUserConfig(userConfigResponse.data));
+            }
+
+            if (preferencesResponse.data) {
+                setOrganizationPreferences(preferencesResponse.data);
             }
 
             setError(null);
@@ -147,6 +160,9 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
                 permissions,
                 user: auth.user,
                 organizationPricing,
+                organizationPreferences,
+                externalPbxIntegrationsEnabled:
+                    organizationPreferences?.external_pbx_integrations_enabled ?? false,
             }}
         >
             {children}

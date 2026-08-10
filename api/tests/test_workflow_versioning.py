@@ -557,6 +557,71 @@ class TestVersionDataOnDefinition:
 
 
 # ---------------------------------------------------------------------------
+# Model-configuration migration persistence
+# ---------------------------------------------------------------------------
+
+
+class TestModelConfigurationMigrationPersistence:
+    async def test_migration_reads_and_updates_are_organization_scoped(
+        self, db_session, async_session, org_and_user
+    ):
+        org, user = org_and_user
+        other_org = OrganizationModel(provider_id="test-org-migration-other")
+        async_session.add(other_org)
+        await async_session.flush()
+        other_user = UserModel(
+            provider_id="test-user-migration-other",
+            selected_organization_id=other_org.id,
+        )
+        async_session.add(other_user)
+        await async_session.flush()
+
+        workflow = await db_session.create_workflow(
+            name="Migration target",
+            workflow_definition=GRAPH_V1,
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        other_workflow = await db_session.create_workflow(
+            name="Other organization workflow",
+            workflow_definition=GRAPH_V1,
+            user_id=other_user.id,
+            organization_id=other_org.id,
+        )
+        workflow_definition = (await db_session.get_workflow_versions(workflow.id))[0]
+        other_definition = (await db_session.get_workflow_versions(other_workflow.id))[
+            0
+        ]
+
+        loaded = await db_session.list_workflows_for_model_configuration_migration(
+            org.id
+        )
+        assert [row.id for row in loaded] == [workflow.id]
+        assert [row.id for row in loaded[0].definitions] == [workflow_definition.id]
+
+        await db_session.bulk_update_workflow_model_configurations(
+            organization_id=org.id,
+            workflow_updates=[
+                (workflow.id, {"migrated": True}),
+                (other_workflow.id, {"cross_tenant": True}),
+            ],
+            definition_updates=[
+                (workflow_definition.id, {"migrated": True}),
+                (other_definition.id, {"cross_tenant": True}),
+            ],
+        )
+        await async_session.refresh(workflow)
+        await async_session.refresh(other_workflow)
+        await async_session.refresh(workflow_definition)
+        await async_session.refresh(other_definition)
+
+        assert workflow.workflow_configurations == {"migrated": True}
+        assert workflow_definition.workflow_configurations == {"migrated": True}
+        assert other_workflow.workflow_configurations != {"cross_tenant": True}
+        assert other_definition.workflow_configurations != {"cross_tenant": True}
+
+
+# ---------------------------------------------------------------------------
 # Run creation uses published (or draft for testing)
 # ---------------------------------------------------------------------------
 
@@ -574,21 +639,25 @@ class TestRunDefinitionBinding:
             workflow_definition=GRAPH_V2,
         )
 
+        versions = await db_session.get_workflow_versions(workflow.id)
+        published = next(v for v in versions if v.status == "published")
+
         # Create a run (simulating campaign dispatch)
         run = await db_session.create_workflow_run(
             name="Campaign Run",
             workflow_id=workflow.id,
             mode="webrtc",
             user_id=user.id,
+            definition_id=published.id,
         )
 
-        # Run should be bound to the published V1, not the draft V2
-        versions = await db_session.get_workflow_versions(workflow.id)
-        published = next(v for v in versions if v.status == "published")
+        # Run should be bound to the caller-selected published V1.
         assert run.definition_id == published.id
 
-    async def test_test_run_uses_draft_if_exists(self, db_session, workflow_with_v1):
-        """A test/phone call should use the draft version for pre-publish testing."""
+    async def test_run_uses_caller_supplied_draft_definition(
+        self, db_session, workflow_with_v1
+    ):
+        """Test/phone callers bind drafts before creating the run."""
         workflow, user = workflow_with_v1
 
         draft = await db_session.save_workflow_draft(
@@ -602,15 +671,15 @@ class TestRunDefinitionBinding:
             workflow_id=workflow.id,
             mode="webrtc",  # test mode
             user_id=user.id,
-            use_draft=True,
+            definition_id=draft.id,
         )
 
         assert run.definition_id == draft.id
 
-    async def test_run_initial_context_merges_with_template_context(
+    async def test_run_initial_context_is_stored_as_provided(
         self, db_session, workflow_with_v1
     ):
-        """Explicit run context should augment template context, not replace it."""
+        """Template context merging is handled before calling the DB client."""
         workflow, user = workflow_with_v1
         await db_session.save_workflow_draft(
             workflow_id=workflow.id,
@@ -634,6 +703,37 @@ class TestRunDefinitionBinding:
 
         assert run.initial_context == {
             "company_name": "Override Co",
-            "default_only": "kept",
             "provider": "smallwebrtc",
         }
+
+    async def test_run_rejects_definition_from_another_workflow(
+        self, db_session, org_and_user
+    ):
+        """The DB client must not bind a run to another workflow's definition."""
+        org, user = org_and_user
+        workflow_a = await db_session.create_workflow(
+            name="Workflow A",
+            workflow_definition=GRAPH_V1,
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        workflow_b = await db_session.create_workflow(
+            name="Workflow B",
+            workflow_definition=GRAPH_V2,
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        workflow_b_versions = await db_session.get_workflow_versions(workflow_b.id)
+        workflow_b_definition = next(
+            v for v in workflow_b_versions if v.status == "published"
+        )
+
+        with pytest.raises(ValueError, match="does not belong"):
+            await db_session.create_workflow_run(
+                name="Bad Run",
+                workflow_id=workflow_a.id,
+                mode="smallwebrtc",
+                user_id=user.id,
+                organization_id=org.id,
+                definition_id=workflow_b_definition.id,
+            )

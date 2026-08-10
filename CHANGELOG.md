@@ -1,5 +1,70 @@
 # Changelog
 
+## 1.44.0 (2026-08-01)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(tts): add LMNT as a Voice (TTS) provider by @amaanJvd in https://github.com/dograh-hq/dograh/pull/569
+* feat: add Plivo call transfer support by @arnofrxdd in https://github.com/dograh-hq/dograh/pull/564
+* feat(autoscaling): call-based KEDA autoscaling for web pods + call-safe drain by @anupPradhan0 in https://github.com/dograh-hq/dograh/pull/577
+* feat: add Atlas Cloud LLM provider by @binyangzhu000-sudo in https://github.com/dograh-hq/dograh/pull/552
+* feat: add chat functionality in the web widget by @a6kme in https://github.com/dograh-hq/dograh/pull/604
+### Bug Fixes
+* fix(vobiz): synchronize application number bindings by @Piyush-sahoo in https://github.com/dograh-hq/dograh/pull/543
+* fix: use default button style for "Save Organization Configuration" by @Harddiikk in https://github.com/dograh-hq/dograh/pull/582
+* fix(telephony): surface pre-call failures on workflow runs by @a6kme in https://github.com/dograh-hq/dograh/pull/587
+* fix: honor default caller ID for one-off outbound calls by @a6kme in https://github.com/dograh-hq/dograh/pull/593
+* fix(ui): serve public embed widget without auth redirect (#585) by @amaanJvd in https://github.com/dograh-hq/dograh/pull/591
+* fix(ui): prevent /embed prefix from exempting sibling routes from auth by @amaanJvd in https://github.com/dograh-hq/dograh/pull/605
+* fix: handle Ultravox playback_clear_buffer in realtime override by @Zelray in https://github.com/dograh-hq/dograh/pull/570
+* fix(telephony): validate number ownership before assignment by @a6kme in https://github.com/dograh-hq/dograh/pull/602
+
+## New Contributors
+* @Harddiikk made their first contribution in https://github.com/dograh-hq/dograh/pull/582
+* @arnofrxdd made their first contribution in https://github.com/dograh-hq/dograh/pull/564
+* @anupPradhan0 made their first contribution in https://github.com/dograh-hq/dograh/pull/577
+* @binyangzhu000-sudo made their first contribution in https://github.com/dograh-hq/dograh/pull/552
+* @Zelray made their first contribution in https://github.com/dograh-hq/dograh/pull/570
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.43.0...dograh-v1.44.0
+
+## 1.43.0 (2026-07-25)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add tool test panel for HTTP API tools by @rushilbh27 in https://github.com/dograh-hq/dograh/pull/547
+* feat(openai-realtime): allow pinning input transcription language by @jvcss in https://github.com/dograh-hq/dograh/pull/557
+* feat: add vici dial controls from UI by @a6kme in https://github.com/dograh-hq/dograh/pull/563
+* feat(tts): add websocket transport option for xAI TTS by @Flowentxo in https://github.com/dograh-hq/dograh/pull/548
+### Bug Fixes
+* fix(web): honor X-Forwarded-Proto in uvicorn so request.url is https behind a reverse proxy by @prabhatlepton in https://github.com/dograh-hq/dograh/pull/515
+* fix: clear both cookie jars during superadmin impersonation by @a6kme in https://github.com/dograh-hq/dograh/pull/558
+* fix: add Transcription Turn Start for non external STTs by @a6kme in https://github.com/dograh-hq/dograh/pull/559
+* fix(api): validate pagination bounds on run-list endpoints (#553) by @amaanJvd in https://github.com/dograh-hq/dograh/pull/554
+* fix(ui): restore committed states in workflow undo/redo by @AliFozooni in https://github.com/dograh-hq/dograh/pull/550
+* fix: move draft and template context handling out of create_workflow_run by @chewwbaka in https://github.com/dograh-hq/dograh/pull/560
+* fix: save call metadata in gathered context for an api trigger outbou… by @chewwbaka in https://github.com/dograh-hq/dograh/pull/566
+* fix: fix crypto.randomUUID crash by @a6kme in https://github.com/dograh-hq/dograh/pull/573
+* fix: cast usage run filter JSON values to Float instead of Integer by @a6kme in https://github.com/dograh-hq/dograh/pull/574
+* fix: use clipboard fallback across UI by @a6kme in https://github.com/dograh-hq/dograh/pull/578
+* fix(workflow): reject duplicate tool function names by @a6kme in https://github.com/dograh-hq/dograh/pull/579
+### Documentation
+* docs: flesh out all 5 voice agent node pages by @rushilbh27 in https://github.com/dograh-hq/dograh/pull/556
+### Other Changes
+* Add support for Cloudonix parameters in WebSocket start event by @greenfieldtech-nirs in https://github.com/dograh-hq/dograh/pull/549
+* updated youtube url link by @nihal0514 in https://github.com/dograh-hq/dograh/pull/568
+
+## New Contributors
+* @jvcss made their first contribution in https://github.com/dograh-hq/dograh/pull/557
+* @AliFozooni made their first contribution in https://github.com/dograh-hq/dograh/pull/550
+* @Flowentxo made their first contribution in https://github.com/dograh-hq/dograh/pull/548
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.42.0...dograh-v1.43.0
+
 ## 1.42.0 (2026-07-15)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

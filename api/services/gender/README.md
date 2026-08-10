@@ -67,19 +67,19 @@ service = GenderService()
 
 # Predict gender for a single name
 result = await service.predict("John")
-print(f"Gender: {result.gender}")       # "male"
-print(f"Confidence: {result.confidence}") # 0.996
-print(f"Source: {result.source}")       # "model"
+print(f"Gender: {result.gender}")  # "male"
+print(f"Confidence: {result.confidence}")  # 0.996
+print(f"Source: {result.source}")  # "model"
 
 # Get salutation for a name
 greeting = await service.get_salutation("John")
-print(f"Salutation: {greeting}")        # "Mr."
+print(f"Salutation: {greeting}")  # "Mr."
 
 greeting = await service.get_salutation("Mary")
-print(f"Salutation: {greeting}")        # "Ms."
+print(f"Salutation: {greeting}")  # "Ms."
 
 greeting = await service.get_salutation("Unknown")
-print(f"Salutation: {greeting}")        # "Dear"
+print(f"Salutation: {greeting}")  # "Dear"
 
 # Clean up
 await service.close()
@@ -91,9 +91,9 @@ await service.close()
 # Custom configuration
 service = GenderService(
     model_path="custom/path/to/model.txt",  # Default: ./model.txt
-    confidence_threshold=0.85,              # Default: 0.85
-    gender_api_key="your-api-key",         # Default: from GENDER_API_KEY env
-    gender_api_url="https://..."           # Default: GenderAPI v2 endpoint
+    confidence_threshold=0.85,  # Default: 0.85
+    gender_api_key="your-api-key",  # Default: from GENDER_API_KEY env
+    gender_api_url="https://...",  # Default: GenderAPI v2 endpoint
 )
 ```
 
@@ -101,19 +101,19 @@ service = GenderService(
 
 ```python
 # Get appropriate salutation based on gender
-salutation = await service.get_salutation("John")     # "Mr."
-salutation = await service.get_salutation("Mary")     # "Ms."
+salutation = await service.get_salutation("John")  # "Mr."
+salutation = await service.get_salutation("Mary")  # "Ms."
 salutation = await service.get_salutation("Unknown")  # "Dear"
 
 # Custom confidence threshold for salutation
 salutation = await service.get_salutation(
-    "Taylor",                    # Ambiguous name
-    confidence_threshold=0.9     # Higher threshold
+    "Taylor",  # Ambiguous name
+    confidence_threshold=0.9,  # Higher threshold
 )  # Returns "Dear" due to low confidence
 
 # Salutation logic:
 # - "Mr." for male with confidence >= threshold
-# - "Ms." for female with confidence >= threshold  
+# - "Ms." for female with confidence >= threshold
 # - "Dear" for unknown gender or low confidence
 ```
 
@@ -133,8 +133,8 @@ for name, result in zip(names, results):
 ```python
 class GenderPrediction:
     gender: "male" | "female" | "unknown"  # Predicted gender
-    confidence: float                      # 0.0 to 1.0
-    source: "model" | "genderapi"         # Prediction source
+    confidence: float  # 0.0 to 1.0
+    source: "model" | "genderapi"  # Prediction source
 ```
 
 ### Service Statistics

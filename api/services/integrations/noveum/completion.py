@@ -73,9 +73,7 @@ async def _read_stored_audio(storage_key: str) -> bytes | None:
                 pass
 
 
-async def _upload_manifest_audio(
-    client: Any, manifest: Any
-) -> tuple[int, int]:
+async def _upload_manifest_audio(client: Any, manifest: Any) -> tuple[int, int]:
     """
     Upload every parked audio segment to Noveum under the audio_uuid the
     observer already stamped on the span, with bounded parallelism.

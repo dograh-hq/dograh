@@ -216,9 +216,7 @@ def test_create_runtime_sessions_builds_one_deferred_session():
 
 
 def test_create_runtime_sessions_disables_audio_sink_when_opted_out():
-    context = _runtime_context(
-        [_graph_node(_node_data(noveum_record_audio=False))]
-    )
+    context = _runtime_context([_graph_node(_node_data(noveum_record_audio=False))])
 
     with patch(
         "api.services.integrations.noveum.runtime.build_deferred_observer"
@@ -709,9 +707,7 @@ async def test_sanitizer_handles_nan_and_nonstring_keys():
     observer.build_payload_snapshot.return_value = {
         "trace_id": "trace-1",
         "attributes": {},
-        "spans": [
-            {"attributes": {"latency": float("nan"), (1, 2): "tuple-keyed"}}
-        ],
+        "spans": [{"attributes": {"latency": float("nan"), (1, 2): "tuple-keyed"}}],
     }
 
     envelope = build_payload_envelope(observer, [], {})

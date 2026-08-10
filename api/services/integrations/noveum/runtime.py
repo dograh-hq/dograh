@@ -152,9 +152,7 @@ def create_runtime_sessions(
     call_attributes: dict[str, Any] = {
         "dograh.workflow_run_id": context.workflow_run_id,
         "dograh.mode": getattr(context.workflow_run, "mode", None),
-        "dograh.agent_version": getattr(
-            context.run_definition, "version_number", None
-        ),
+        "dograh.agent_version": getattr(context.run_definition, "version_number", None),
         "stt.model_label": models["stt"],
         "llm.model_label": models["llm"],
         "tts.model_label": models["tts"],

@@ -421,6 +421,10 @@ def test_safe_webhook_url_logs_only_origin():
     ("field_name", "sensitive_value"),
     [
         ("accessToken", "access-secret"),
+        ("APIToken", "api-token-secret"),
+        ("APISecret", "api-secret"),
+        ("APIAccessToken", "api-access-token-secret"),
+        ("SSNNumber", "123-45-6789"),
         ("emailAddress", "person@example.com"),
         ("phoneNumber", "+15551234567"),
         ("telephone_number", "+15557654321"),

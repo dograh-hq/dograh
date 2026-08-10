@@ -56,6 +56,7 @@ _SENSITIVE_FIELD_RE = re.compile(
 def _normalize_webhook_field_name(key: Any) -> str:
     """Normalize common field-name styles before checking for sensitive terms."""
     name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key))
+    name = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", name)
     return re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
 
 

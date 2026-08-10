@@ -1,16 +1,17 @@
 "use client";
 
-import { ExternalLink, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, Download, ExternalLink, FileJson, Plus, RotateCcw, Search, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
     createToolApiV1ToolsPost,
     deleteToolApiV1ToolsToolUuidDelete,
+    importToolsApiV1ToolsImportPost,
     listToolsApiV1ToolsGet,
     unarchiveToolApiV1ToolsToolUuidUnarchivePost,
 } from "@/client/sdk.gen";
-import type { CreateToolRequest, ToolResponse } from "@/client/types.gen";
+import type { CreateToolRequest, ImportToolError, ToolResponse } from "@/client/types.gen";
 import { CredentialSelector } from "@/components/http";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,12 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -71,6 +78,17 @@ export default function ToolsPage() {
     const [mcpUrl, setMcpUrl] = useState("");
     const [mcpCredentialUuid, setMcpCredentialUuid] = useState("");
     const [mcpToolsFilter, setMcpToolsFilter] = useState("");
+
+    // Import tools dialog state
+    const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+    const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+    const [importParsedTools, setImportParsedTools] = useState<Record<string, unknown>[] | null>(null);
+    const [importParseError, setImportParseError] = useState<string | null>(null);
+    const [isImporting, setIsImporting] = useState(false);
+    const [importResult, setImportResult] = useState<{
+        importedCount: number;
+        errors: ImportToolError[];
+    } | null>(null);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -240,6 +258,138 @@ export default function ToolsPage() {
         }
     };
 
+    const [isDragging, setIsDragging] = useState(false);
+
+    const handleJsonInputChange = (text: string) => {
+        setImportResult(null);
+        if (!text.trim()) {
+            setImportParsedTools(null);
+            setImportParseError(null);
+            return;
+        }
+        try {
+            const parsed = JSON.parse(text);
+            const toolsArray = Array.isArray(parsed) ? parsed : [parsed];
+            setImportParsedTools(toolsArray);
+            setImportParseError(null);
+        } catch (err: unknown) {
+            setImportParsedTools(null);
+            const msg = err instanceof Error ? err.message : "Invalid JSON format";
+            setImportParseError("Invalid JSON: " + msg);
+        }
+    };
+
+    const resetImport = () => {
+        setImportParsedTools(null);
+        setImportParseError(null);
+        setImportResult(null);
+        setSelectedFileName(null);
+    };
+
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setSelectedFileName(file.name);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const content = event.target?.result as string;
+            if (content) {
+                handleJsonInputChange(content);
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        setImportParseError(null);
+
+        const file = e.dataTransfer.files[0];
+        if (file && (file.type === 'application/json' || file.name.endsWith('.json'))) {
+            setSelectedFileName(file.name);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const content = event.target?.result as string;
+                if (content) {
+                    handleJsonInputChange(content);
+                }
+            };
+            reader.readAsText(file);
+        } else {
+            setImportParseError('Please upload a valid JSON file');
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
+
+    const handleImportTools = async () => {
+        if (!importParsedTools || importParsedTools.length === 0) return;
+        try {
+            setIsImporting(true);
+            setImportParseError(null);
+            const accessToken = await getAccessToken();
+            const response = await importToolsApiV1ToolsImportPost({
+                body: { tools: importParsedTools },
+                headers: { Authorization: `Bearer ${accessToken}` },
+            });
+
+            if (response.error) {
+                setImportParseError(detailFromError(response.error, "Failed to import tools"));
+                return;
+            }
+
+            if (response.data) {
+                setImportResult({
+                    importedCount: response.data.imported?.length || 0,
+                    errors: response.data.errors || [],
+                });
+                fetchTools();
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to import tools";
+            setImportParseError(msg);
+            console.error("Error importing tools:", err);
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
+    const handleExportTools = () => {
+        if (!tools || tools.length === 0) return;
+        const exportData = tools.map((t) => ({
+            id: t.id,
+            tool_uuid: t.tool_uuid,
+            name: t.name,
+            description: t.description,
+            category: t.category,
+            icon: t.icon,
+            icon_color: t.icon_color,
+            status: t.status,
+            definition: t.definition,
+            created_at: t.created_at,
+        }));
+
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `dograh-tools-export-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
     const filteredTools = tools.filter(
         (tool) =>
             tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -321,10 +471,31 @@ export default function ToolsPage() {
                                         Create and manage tools for your organization
                                     </CardDescription>
                                 </div>
-                                <Button onClick={() => setIsCreateDialogOpen(true)}>
-                                    <Plus className="w-4 h-4 mr-2" />
-                                    Create Tool
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="outline">
+                                                <Upload className="w-4 h-4 mr-2" />
+                                                Import / Export
+                                                <ChevronDown className="w-4 h-4 ml-2 opacity-70" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => setIsImportDialogOpen(true)} className="cursor-pointer">
+                                                <Upload className="w-4 h-4 mr-2" />
+                                                Import Tools
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={handleExportTools} disabled={tools.length === 0} className="cursor-pointer">
+                                                <Download className="w-4 h-4 mr-2" />
+                                                Export Tools
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                    <Button onClick={() => setIsCreateDialogOpen(true)}>
+                                        <Plus className="w-4 h-4 mr-2" />
+                                        Create Tool
+                                    </Button>
+                                </div>
                             </div>
                         </CardHeader>
                         <CardContent>
@@ -626,6 +797,158 @@ export default function ToolsPage() {
                         <Button onClick={handleCreateTool} disabled={isCreating}>
                             {isCreating ? "Creating..." : "Create Tool"}
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Import Tools Dialog */}
+            <Dialog open={isImportDialogOpen} onOpenChange={(open) => {
+                setIsImportDialogOpen(open);
+                if (!open) {
+                    setImportParsedTools(null);
+                    setImportParseError(null);
+                    setImportResult(null);
+                }
+            }}>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Upload className="w-5 h-5 text-primary" />
+                            Import Tools from JSON
+                        </DialogTitle>
+                        <DialogDescription>
+                            Upload a JSON file or paste tool definitions to bulk-create tools for your organization. Supports exported arrays or single tool objects.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid gap-4 py-3">
+                        {!importParsedTools && !importResult ? (
+                            /* Drag & Drop Upload Zone (shown when no file is loaded) */
+                            <div
+                                onDrop={handleDrop}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                                    isDragging
+                                        ? 'border-primary bg-primary/5'
+                                        : 'border-muted-foreground/25 hover:border-primary/50'
+                                }`}
+                            >
+                                <Upload className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
+                                <p className="text-sm font-medium mb-1">
+                                    Drop your tool definition JSON file here
+                                </p>
+                                <p className="text-xs text-muted-foreground mb-3">
+                                    or click to browse from your computer
+                                </p>
+                                <input
+                                    type="file"
+                                    accept=".json,application/json"
+                                    onChange={handleFileUpload}
+                                    className="hidden"
+                                    id="tool-file-upload"
+                                />
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => document.getElementById('tool-file-upload')?.click()}
+                                >
+                                    Browse Files
+                                </Button>
+                            </div>
+                        ) : null}
+
+                        {/* Syntax Parse Error */}
+                        {importParseError && (
+                            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                <div>{importParseError}</div>
+                            </div>
+                        )}
+
+                        {/* Parsed Preview */}
+                        {importParsedTools && importParsedTools.length > 0 && !importResult && (
+                            <div className="p-4 border rounded-lg bg-muted/30 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                                            <FileJson className="w-6 h-6" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-semibold">{selectedFileName || "Loaded JSON File"}</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Ready to import {importParsedTools.length} tool{importParsedTools.length === 1 ? "" : "s"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <Button variant="ghost" size="sm" onClick={resetImport} className="text-xs text-muted-foreground hover:text-foreground">
+                                        Change File
+                                    </Button>
+                                </div>
+                                <div className="max-h-40 overflow-y-auto space-y-1.5 text-xs font-mono pr-1 pt-1 border-t">
+                                    {importParsedTools.map((tool, idx) => {
+                                        const defObj = typeof tool.definition === "object" && tool.definition ? (tool.definition as Record<string, unknown>) : null;
+                                        const name = (tool.name as string) || (defObj?.name as string) || `Tool #${idx + 1}`;
+                                        const cat = (tool.category as string) || (defObj?.type as string) || "http_api";
+                                        return (
+                                            <div key={idx} className="flex items-center justify-between p-2 bg-background rounded border">
+                                                <span className="font-medium text-foreground truncate max-w-[300px]">{name}</span>
+                                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">{cat}</Badge>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Import Result Summary */}
+                        {importResult && (
+                            <div className="space-y-3">
+                                {importResult.importedCount > 0 && (
+                                    <div className="p-4 bg-green-500/10 border border-green-500/20 text-green-700 dark:text-green-400 rounded-lg text-sm flex items-center justify-between font-medium">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="w-5 h-5 shrink-0" />
+                                            Successfully imported {importResult.importedCount} tool{importResult.importedCount === 1 ? "" : "s"}!
+                                        </div>
+                                        <Button variant="outline" size="sm" onClick={resetImport} className="text-xs h-7 px-2">
+                                            Import Another File
+                                        </Button>
+                                    </div>
+                                )}
+                                {importResult.errors.length > 0 && (
+                                    <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm space-y-2">
+                                        <div className="font-semibold text-destructive flex items-center gap-1.5">
+                                            <AlertCircle className="w-4 h-4" />
+                                            {importResult.errors.length} tool{importResult.errors.length === 1 ? "" : "s"} failed to import:
+                                        </div>
+                                        <div className="space-y-1 max-h-32 overflow-y-auto text-xs text-destructive/90">
+                                            {importResult.errors.map((err, idx) => (
+                                                <div key={idx} className="border-b border-destructive/10 pb-1">
+                                                    <span className="font-mono font-bold">#{err.index + 1} ({err.name}):</span> {err.error}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setIsImportDialogOpen(false)}
+                        >
+                            {importResult ? "Close" : "Cancel"}
+                        </Button>
+                        {!importResult && (
+                            <Button
+                                onClick={handleImportTools}
+                                disabled={isImporting || !importParsedTools || importParsedTools.length === 0}
+                            >
+                                {isImporting ? "Importing..." : `Import ${importParsedTools?.length ? importParsedTools.length : ""} Tool${importParsedTools?.length === 1 ? "" : "s"}`}
+                            </Button>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

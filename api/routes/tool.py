@@ -15,6 +15,9 @@ from api.schemas.tool import (
     EndCallToolDefinition,
     HttpApiConfig,
     HttpApiToolDefinition,
+    ImportToolError,
+    ImportToolsRequest,
+    ImportToolsResponse,
     McpRefreshResponse,
     McpToolConfig,
     McpToolDefinition,
@@ -34,6 +37,7 @@ from api.services.tool_management import (
     ToolManagementError,
     build_tool_response,
     create_tool_for_user,
+    import_tools_for_user,
     refresh_mcp_tool_for_user,
     validate_external_pbx_tool_definition,
     validate_tool_credential_references,
@@ -159,6 +163,30 @@ async def create_tool(
         return await create_tool_for_user(request, user, source="api")
     except ToolManagementError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/import",
+    **sdk_expose(
+        method="import_tools",
+        description="Bulk import reusable tools for the authenticated organization.",
+    ),
+)
+async def import_tools(
+    request: ImportToolsRequest,
+    user: UserModel = Depends(get_user),
+) -> ImportToolsResponse:
+    """
+    Bulk-import tools from exported or JSON-defined tool objects.
+
+    Supports partial success: tools that fail validation are returned in the
+    'errors' list while valid tools are created.
+    """
+    try:
+        return await import_tools_for_user(request, user)
+    except ToolManagementError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
 
 
 @router.get("/{tool_uuid}")

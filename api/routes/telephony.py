@@ -184,6 +184,7 @@ async def initiate_call(
                 initial_context={
                     "phone_number": phone_number,
                     "called_number": phone_number,
+                    "direction": "outbound",
                     "provider": provider.PROVIDER_NAME,
                     "telephony_configuration_id": telephony_configuration_id,
                 },
@@ -279,6 +280,7 @@ async def initiate_call(
     updated_initial_context = {
         **(workflow_run.initial_context or {}),
         "called_number": phone_number,
+        "direction": "outbound",
         "telephony_configuration_id": telephony_configuration_id,
     }
     if result.caller_number:

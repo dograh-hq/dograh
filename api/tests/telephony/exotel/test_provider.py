@@ -145,6 +145,17 @@ async def test_verify_status_callback_token():
 
 
 @pytest.mark.asyncio
+async def test_verify_status_callback_token_rejects_non_ascii():
+    provider = _provider()
+    assert not await provider.verify_inbound_signature(
+        "https://example.test/api/v1/telephony/exotel/status-callback/42"
+        "?exotel_auth=%C3%A9vil",
+        {},
+        {},
+    )
+
+
+@pytest.mark.asyncio
 async def test_start_inbound_stream_contains_ws_url():
     provider = _provider()
     response = await provider.start_inbound_stream(

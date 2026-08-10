@@ -208,6 +208,39 @@ async def test_status_callback_rejects_call_sid_mismatch():
 
 
 @pytest.mark.asyncio
+async def test_status_callback_rejects_missing_bound_call_id():
+    provider = _provider()
+    workflow_run = SimpleNamespace(id=42, workflow_id=7, gathered_context={})
+    workflow = SimpleNamespace(id=7, organization_id=9)
+    request = _authed_form_request(
+        provider,
+        {"CallSid": "call-1", "Status": "completed"},
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.exotel.routes.db_client"
+        ) as db_client,
+        patch(
+            "api.services.telephony.providers.exotel.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.exotel.routes._process_status_update",
+            new_callable=AsyncMock,
+        ) as process_status,
+        pytest.raises(HTTPException) as exc,
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(return_value=workflow_run)
+        db_client.get_workflow_by_id = AsyncMock(return_value=workflow)
+        await handle_exotel_status_callback(42, request)
+
+    assert exc.value.status_code == 403
+    process_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_status_callback_malformed_json_does_not_500():
     request = _json_request(
         "/api/v1/telephony/exotel/status-callback/42",

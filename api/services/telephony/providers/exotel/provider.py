@@ -582,7 +582,13 @@ class ExotelProvider(TelephonyProvider):
             except ValueError:
                 return False
             expected = self._status_callback_token(run_id)
-            ok = hmac.compare_digest(expected, token)
+            try:
+                # Bytes compare: non-ASCII attacker tokens must fail auth, not 500.
+                ok = hmac.compare_digest(
+                    expected.encode("utf-8"), token.encode("utf-8")
+                )
+            except (TypeError, UnicodeError):
+                return False
             if not ok:
                 logger.warning("Exotel status callback token mismatch")
             return ok

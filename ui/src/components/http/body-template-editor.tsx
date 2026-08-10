@@ -56,7 +56,7 @@ export function BodyTemplateEditor({
                 value={text}
                 onChange={(event) => handleChange(event.target.value)}
                 placeholder={
-                    '{\n  "customer_id": "{{defined_llm_parameter}}",\n  "call_id": "{{initial_context.call_id}}"\n}'
+                    '{\n  "customer": {\n    "id": "{{defined_llm_parameter}}"\n  },\n  "metadata": {\n    "call": {\n      "id": "{{initial_context.call_id}}"\n    }\n  }\n}'
                 }
                 spellCheck={false}
             />

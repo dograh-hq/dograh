@@ -933,6 +933,22 @@ def _migrate_deprecated_google_model(model: str) -> str:
 
 
 @_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
+def _google_thinking_for_model(model: str):
+    """Return a thinking config compatible with the resolved Google model.
+
+    Gemini 2.5 uses ``thinking_budget``; Gemini 3 uses ``thinking_level`` — the
+    two must not be mixed. For unknown/legacy/custom model identifiers we return
+    ``None`` so no (possibly unsupported) thinking config is sent, and the raised
+    ``max_tokens`` ceiling alone protects the grader output from truncation.
+    """
+    ml = (model or "").lower()
+    if "gemini-2.5" in ml or "gemini-2-5" in ml:
+        return GoogleLLMService.ThinkingConfig(thinking_budget=4096)
+    if "gemini-3" in ml:
+        return GoogleLLMService.ThinkingConfig(thinking_level="low")
+    return None
+
+
 def create_llm_service_from_provider(
     provider: str,
     model: str,
@@ -1003,23 +1019,33 @@ def create_llm_service_from_provider(
         model = _migrate_deprecated_google_model(model)
         google_settings_kwargs: dict = {"model": model, "temperature": 0.1}
         if max_tokens is not None:
-            # Give the grader a large explicit output ceiling and cap "thinking"
-            # so the reasoning budget can't crowd out the answer. Gemini's default
-            # (4096, shared with dynamic thinking) truncated long QA-grader JSON.
+            # Give the grader a large explicit output ceiling and bound "thinking"
+            # so the reasoning budget can't crowd out the answer (Gemini's default
+            # 4096, shared with dynamic thinking, truncated long QA-grader JSON).
+            # Pick the thinking knob that matches the model family (2.5 -> budget,
+            # 3 -> level; omit for unknown/legacy) via _google_thinking_for_model.
             google_settings_kwargs["max_tokens"] = max_tokens
-            google_settings_kwargs["thinking"] = GoogleLLMService.ThinkingConfig(
-                thinking_budget=4096
-            )
+            thinking = _google_thinking_for_model(model)
+            if thinking is not None:
+                google_settings_kwargs["thinking"] = thinking
         return DograhGoogleLLMService(
             api_key=api_key,
             settings=GoogleLLMSettings(**google_settings_kwargs),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
+        vertex_settings_kwargs: dict = {"model": model, "temperature": 0.1}
+        if max_tokens is not None:
+            # Same truncation guard as the Google branch: raise the output
+            # ceiling and bound thinking with the model-family-appropriate knob.
+            vertex_settings_kwargs["max_tokens"] = max_tokens
+            thinking = _google_thinking_for_model(model)
+            if thinking is not None:
+                vertex_settings_kwargs["thinking"] = thinking
         return DograhGoogleVertexLLMService(
             credentials=credentials,
             project_id=project_id,
             location=location or "us-east4",
-            settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
+            settings=GoogleVertexLLMSettings(**vertex_settings_kwargs),
         )
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:

@@ -937,14 +937,16 @@ def _google_thinking_for_model(model: str):
     """Return a thinking config compatible with the resolved Google model.
 
     Gemini 2.5 uses ``thinking_budget``; Gemini 3 uses ``thinking_level`` — the
-    two must not be mixed. For unknown/legacy/custom model identifiers we return
-    ``None`` so no (possibly unsupported) thinking config is sent, and the raised
-    ``max_tokens`` ceiling alone protects the grader output from truncation.
+    two must not be mixed. We match on the model-family *prefix* and return
+    ``None`` for any id that isn't a recognized Gemini 2.5/3 family (custom,
+    legacy, or future, including ids that merely embed the family name), so an
+    unsupported thinking config is never sent; the raised ``max_tokens`` ceiling
+    alone then guards against truncation.
     """
-    ml = (model or "").lower()
-    if "gemini-2.5" in ml or "gemini-2-5" in ml:
+    ml = (model or "").strip().lower()
+    if ml.startswith("gemini-2.5") or ml.startswith("gemini-2-5"):
         return GoogleLLMService.ThinkingConfig(thinking_budget=4096)
-    if "gemini-3" in ml:
+    if ml.startswith("gemini-3"):
         return GoogleLLMService.ThinkingConfig(thinking_level="low")
     return None
 

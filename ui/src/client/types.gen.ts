@@ -2740,6 +2740,12 @@ export type GoogleRealtimeLlmConfiguration = {
      * ISO 639-1 language code.
      */
     language?: string;
+    /**
+     * Temperature
+     *
+     * Sampling temperature for Gemini Live (0.0 to 2.0).
+     */
+    temperature?: number | null;
 };
 
 /**
@@ -2906,6 +2912,12 @@ export type GoogleVertexRealtimeLlmConfiguration = {
      * BCP-47 language code (e.g. 'en-US').
      */
     language?: string;
+    /**
+     * Temperature
+     *
+     * Sampling temperature for Gemini Live (0.0 to 2.0).
+     */
+    temperature?: number | null;
     /**
      * Project Id
      *

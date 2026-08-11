@@ -29,6 +29,7 @@ from api.routes.turn_credentials import (
     generate_turn_credentials,
 )
 from api.schemas.embed_chat import PublicEmbedChatSessionResponse
+from api.schemas.widget_texts import WidgetTexts
 from api.services.workflow.embed_chat_limiter import allow_embed_chat_init
 from api.services.workflow.embed_context import sanitize_embed_context_variables
 from api.services.workflow.embed_session_service import (
@@ -85,6 +86,9 @@ class EmbedConfigResponse(BaseModel):
 
     workflow_id: int
     settings: dict
+    # Visitor-facing copy, already resolved against the agent owner's overrides.
+    # The widget renders these verbatim and holds no defaults of its own.
+    texts: WidgetTexts
     theme: str
     position: str
     button_text: str
@@ -486,6 +490,7 @@ async def get_embed_config(token: str, request: Request, response: Response):
     return EmbedConfigResponse(
         workflow_id=embed_token.workflow_id,
         settings=settings,
+        texts=WidgetTexts.resolve(settings),
         theme=settings.get("theme", "light"),
         position=settings.get("position", "bottom-right"),
         button_text=settings.get("buttonText", "Start Voice Call"),

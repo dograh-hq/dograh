@@ -2030,6 +2030,7 @@ export type DefaultConfigurationsResponse = {
     };
     workflow_configurations: WorkflowConfigurationDefaults;
     text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints;
+    widget_text_defaults: WidgetTexts;
 };
 
 /**
@@ -2444,6 +2445,7 @@ export type EmbedConfigResponse = {
     settings: {
         [key: string]: unknown;
     };
+    texts: WidgetTexts;
     /**
      * Theme
      */
@@ -7242,6 +7244,94 @@ export type VonageConfigurationResponse = {
  * Webhook credential authentication types
  */
 export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
+
+/**
+ * WidgetTexts
+ *
+ * Every visitor-facing string the embed widget can render.
+ */
+export type WidgetTexts = {
+    /**
+     * Endchattext
+     */
+    endChatText?: string;
+    /**
+     * Conversationendedtext
+     */
+    conversationEndedText?: string;
+    /**
+     * Startnewchattext
+     */
+    startNewChatText?: string;
+    /**
+     * Chatretrytext
+     */
+    chatRetryText?: string;
+    /**
+     * Chatinputplaceholder
+     */
+    chatInputPlaceholder?: string;
+    /**
+     * Sendmessagelabel
+     */
+    sendMessageLabel?: string;
+    /**
+     * Closechatlabel
+     */
+    closeChatLabel?: string;
+    /**
+     * Voiceconnectingtext
+     */
+    voiceConnectingText?: string;
+    /**
+     * Voiceendcalltext
+     */
+    voiceEndCallText?: string;
+    /**
+     * Voiceretrytext
+     */
+    voiceRetryText?: string;
+    /**
+     * Voicereadytitle
+     */
+    voiceReadyTitle?: string;
+    /**
+     * Voiceconnectingsubtext
+     */
+    voiceConnectingSubtext?: string;
+    /**
+     * Voiceconnectedtitle
+     */
+    voiceConnectedTitle?: string;
+    /**
+     * Voiceconnectedsubtext
+     */
+    voiceConnectedSubtext?: string;
+    /**
+     * Voicecallendedtitle
+     */
+    voiceCallEndedTitle?: string;
+    /**
+     * Voicecallendedsubtext
+     */
+    voiceCallEndedSubtext?: string;
+    /**
+     * Voiceconnectionfailedtitle
+     */
+    voiceConnectionFailedTitle?: string;
+    /**
+     * Voiceconnectionfailedsubtext
+     */
+    voiceConnectionFailedSubtext?: string;
+    /**
+     * Voiceconnectionlosttitle
+     */
+    voiceConnectionLostTitle?: string;
+    /**
+     * Voiceconnectionlostsubtext
+     */
+    voiceConnectionLostSubtext?: string;
+};
 
 /**
  * WorkflowConfigurationDefaults

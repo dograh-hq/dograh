@@ -13,9 +13,9 @@ operations that must affect the original customer leg:
 - Transfer the customer to a VICIdial in-group
 - Update selected VICIdial lead fields from gathered workflow context
 
-VICIdial controls are an advanced organization feature. Users who do not enable
-the feature do not see VICIdial configuration, transfer mappings, or lead field
-mappings in the UI.
+VICIdial credentials and lead-field controls are an advanced organization
+feature. Context Mapping in Transfer Call tools is generally available and can
+also route calls for telephony providers that are not connected to VICIdial.
 
 ## Prerequisites
 
@@ -35,9 +35,10 @@ Before configuring VICIdial, ensure that:
 1. Open **Platform Settings** by going to https://app.dograh.com/settings
 2. Enable **External PBX integrations**.
 
-This switch reveals the advanced settings in Asterisk telephony
-configurations, Transfer Call tools, and workflow configurations. Disabling it
-hides and disables those controls without deleting their saved values.
+This switch reveals VICIdial credentials in Asterisk telephony configurations
+and lead capture/update settings in workflow configurations. Disabling it hides
+those VICIdial-specific controls without deleting their saved values; Context
+Mapping remains available in Transfer Call tools.
 
 ## Configure VICIdial credentials
 

@@ -210,6 +210,28 @@ class TestVariableExtractionDuringTransitions:
 
 
 @pytest.mark.asyncio
+async def test_transfer_flush_is_repeatable_without_consuming_final_extraction():
+    engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
+    engine._current_node = SimpleNamespace(name="transfer-node")
+    engine._await_pending_extractions = AsyncMock()
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+
+    await engine.flush_variable_extraction()
+    await engine.flush_variable_extraction()
+
+    assert engine._final_extraction_done is False
+    assert engine._await_pending_extractions.await_count == 2
+    assert engine._perform_variable_extraction_if_needed.await_count == 2
+
+    await engine.perform_final_variable_extraction()
+    await engine.perform_final_variable_extraction()
+
+    assert engine._final_extraction_done is True
+    assert engine._await_pending_extractions.await_count == 3
+    assert engine._perform_variable_extraction_if_needed.await_count == 3
+
+
+@pytest.mark.asyncio
 async def test_extraction_uses_dedicated_llm(simple_workflow: WorkflowGraph):
     """Extraction must not fall back to the conversational LLM when one is supplied."""
     conversation_llm = SimpleNamespace(run_inference=AsyncMock())

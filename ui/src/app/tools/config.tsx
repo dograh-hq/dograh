@@ -5,6 +5,9 @@ import { type ReactNode } from "react";
 
 import type {
     CalculatorToolDefinition,
+    ContextDestinationMappingConfig,
+    ContextDestinationRoute,
+    ContextDestinationRule,
     EndCallConfig,
     EndCallToolDefinition,
     HttpApiToolDefinition,
@@ -21,33 +24,14 @@ export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculat
 export type EndCallMessageType = "none" | "custom" | "audio";
 export type TransferDestinationSource = "static" | "dynamic" | "context_mapping";
 
-export interface ContextDestinationRoute {
-    context_value: string;
-    destination: string;
-}
-
 export interface ContextDestinationRouteRow extends ContextDestinationRoute {
     id: string;
-}
-
-export interface ContextDestinationRule {
-    context_path: string;
-    routes: ContextDestinationRoute[];
 }
 
 export interface ContextDestinationRuleRow {
     id: string;
     context_path: string;
     routes: ContextDestinationRouteRow[];
-}
-
-export interface ContextDestinationMappingConfig {
-    /** Ordered rules; the first rule that matches wins. */
-    rules?: ContextDestinationRule[] | null;
-    /** Legacy single-rule shape, still present on tools saved before ordered rules. */
-    context_path?: string | null;
-    routes?: ContextDestinationRoute[] | null;
-    fallback_destination?: string | null;
 }
 
 export function createContextDestinationRouteRow(

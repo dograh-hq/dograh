@@ -18,6 +18,16 @@ _HEADER_PREFIX = "X-VICIDIAL-"
 _IDENTITY_HEADER_FIELDS = ("callerid", "user", "lead_id", "campaign_id", "ingroup_id")
 
 
+def _response_code(response_text: str) -> str:
+    """Return a diagnostic VICIdial status without retaining response PII."""
+    if not response_text:
+        return "empty"
+    prefix = response_text.partition(":")[0].strip().casefold()
+    if prefix in {"success", "error", "notice", "warning"}:
+        return prefix
+    return "unexpected"
+
+
 class VicidialAdapter(ExternalPBXAdapter):
     type = "vicidial"
     header_prefix = _HEADER_PREFIX
@@ -109,7 +119,10 @@ class VicidialAdapter(ExternalPBXAdapter):
                 else "VICIdial rejected the operation",
             )
         except Exception as exc:
-            logger.error(f"[VICIdial] ra_call_control failed stage={stage}: {exc}")
+            logger.error(
+                "[VICIdial] ra_call_control failed "
+                f"stage={stage} error_type={type(exc).__name__}"
+            )
             return ExternalPBXResult(
                 False, stage.lower(), "VICIdial API request failed"
             )
@@ -183,14 +196,11 @@ class VicidialAdapter(ExternalPBXAdapter):
                 async with session.get(self._non_agent_url, params=params) as response:
                     response_text = (await response.text()).strip()
                     ok = response.status == 200 and response_text.startswith("SUCCESS")
-            # On rejection the body carries VICIdial's own reason; logging only
-            # status and ok leaves no way to tell a permission error from a bad
-            # field name without replaying the call by hand.
-            detail = "" if ok else f" response={response_text[:200]!r}"
             logger.info(
                 "[VICIdial] update_lead completed "
                 f"status={response.status} ok={ok} "
-                f"field_count={len(safe_fields)}{detail}"
+                f"field_count={len(safe_fields)} "
+                f"response_code={_response_code(response_text)}"
             )
             return ExternalPBXResult(
                 ok,
@@ -198,7 +208,9 @@ class VicidialAdapter(ExternalPBXAdapter):
                 "VICIdial lead updated" if ok else "VICIdial rejected the lead update",
             )
         except Exception as exc:
-            logger.error(f"[VICIdial] update_lead failed: {exc}")
+            logger.error(
+                f"[VICIdial] update_lead failed error_type={type(exc).__name__}"
+            )
             return ExternalPBXResult(
                 False, "update_lead", "VICIdial API request failed"
             )

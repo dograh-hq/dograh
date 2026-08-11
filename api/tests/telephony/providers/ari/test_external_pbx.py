@@ -227,6 +227,42 @@ async def test_vicidial_update_lead_treats_an_empty_body_as_a_rejection():
     assert result.message == "VICIdial rejected the lead update"
 
 
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_log_redacts_rejection_body():
+    adapter = create_adapter(_vicidial_config())
+    response_body = (
+        "ERROR: update_lead PERMISSION DENIED - "
+        "lead-api-user|42|+14155550123|Ada Lovelace"
+    )
+    session = _StubSession(_StubResponse(200, response_body))
+
+    with (
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.info"
+        ) as log_info,
+    ):
+        result = await adapter.update_fields(
+            {"lead_id": "42"}, {"comments": "private note"}
+        )
+
+    assert not result.ok
+    messages = " ".join(call.args[0] for call in log_info.call_args_list)
+    assert "response_code=error" in messages
+    for sensitive_value in (
+        response_body,
+        "lead-api-user",
+        "42",
+        "+14155550123",
+        "Ada Lovelace",
+        "private note",
+    ):
+        assert sensitive_value not in messages
+
+
 def _ari_connection(monkeypatch, variables: dict[str, str]):
     """An ARIConnection whose ARI variable reads are recorded, not sent."""
     from api.services.telephony import ari_manager
@@ -275,6 +311,36 @@ async def test_available_headers_are_always_listed_in_one_request(monkeypatch):
         "Available vicidial lead fields" in call.args[0]
         for call in log_info.call_args_list
     )
+
+
+@pytest.mark.asyncio
+async def test_captured_identity_log_contains_field_names_not_values(monkeypatch):
+    from api.services.telephony import ari_manager
+
+    connection, _ = _ari_connection(
+        monkeypatch,
+        {
+            "PJSIP_HEADERS(X-VICIDIAL-)": (
+                "X-VICIDIAL-callerid,X-VICIDIAL-user,X-VICIDIAL-lead_id,"
+                "X-VICIDIAL-first_name"
+            ),
+            "PJSIP_HEADER(read,X-VICIDIAL-callerid)": "M123",
+            "PJSIP_HEADER(read,X-VICIDIAL-user)": "remote-agent",
+            "PJSIP_HEADER(read,X-VICIDIAL-lead_id)": "42",
+            "PJSIP_HEADER(read,X-VICIDIAL-first_name)": "Ada",
+        },
+    )
+
+    with patch.object(ari_manager.logger, "info") as log_info:
+        await connection._capture_external_pbx_call(
+            "chan-1", "PJSIP/inbound-0001", ["first_name"]
+        )
+
+    messages = " ".join(call.args[0] for call in log_info.call_args_list)
+    assert "identity_fields" in messages
+    assert "lead_fields" in messages
+    for sensitive_value in ("M123", "remote-agent", "42", "Ada"):
+        assert sensitive_value not in messages
 
 
 @pytest.mark.asyncio

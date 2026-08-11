@@ -118,7 +118,7 @@ class RecordingEngine:
     async def _get_organization_id(self):
         return 1
 
-    async def perform_final_variable_extraction(self):
+    async def flush_variable_extraction(self):
         return None
 
     async def end_call_with_reason(self, reason, abort_immediately=False):

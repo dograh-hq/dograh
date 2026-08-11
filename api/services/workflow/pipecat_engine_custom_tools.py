@@ -43,6 +43,12 @@ if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
 
 
+_TRANSFER_PLAYBACK_START_TIMEOUT_SECS = 5.0
+_TRANSFER_PLAYBACK_FINISH_TIMEOUT_SECS = 30.0
+_TRANSFER_EXTERNAL_PBX_API_TIMEOUT_SECS = 30.0
+_TRANSFER_POST_HANDOFF_DELAY_SECS = 4.0
+
+
 def _render_transfer_destination(
     destination_template: Any,
     call_context_vars: Optional[Dict[str, Any]],
@@ -357,7 +363,18 @@ class CustomToolManager:
                 resolver_timeout = 3.0
             resolver_timeout = min(max(resolver_timeout, 0.5), 5.0)
 
-        return float(transfer_timeout) + resolver_timeout + 15.0
+        # The function-call deadline wraps every sequential transfer phase.
+        # In particular, external-PBX handoff waits for caller-facing speech,
+        # then makes a provider request (VICIdial caps this at 30s), and finally
+        # allows the remote PBX to redirect the customer before local teardown.
+        return (
+            float(transfer_timeout)
+            + resolver_timeout
+            + _TRANSFER_PLAYBACK_START_TIMEOUT_SECS
+            + _TRANSFER_PLAYBACK_FINISH_TIMEOUT_SECS
+            + _TRANSFER_EXTERNAL_PBX_API_TIMEOUT_SECS
+            + _TRANSFER_POST_HANDOFF_DELAY_SECS
+        )
 
     def _register_calculator_handler(self) -> None:
         """Register the built-in calculator function with the LLM."""
@@ -620,8 +637,9 @@ class CustomToolManager:
                 destination_source = config.get("destination_source", "static")
                 if external_pbx_call or destination_source == "context_mapping":
                     # Context routing and external-PBX lead-field mappings must
-                    # see the final conversation-derived values.
-                    await self._engine.perform_final_variable_extraction()
+                    # see current conversation-derived values. This flush is
+                    # repeatable because a failed transfer resumes the agent.
+                    await self._engine.flush_variable_extraction()
 
                 resolver = config.get("resolver") if isinstance(config, dict) else None
                 is_dynamic_transfer = config.get(
@@ -705,7 +723,10 @@ class CustomToolManager:
                     # the transfer API returns, so the pre-transfer message has
                     # to finish playing before we make that call.
                     if message_queued:
-                        await self._engine.wait_for_speech_playback()
+                        await self._engine.wait_for_speech_playback(
+                            start_timeout=_TRANSFER_PLAYBACK_START_TIMEOUT_SECS,
+                            playback_timeout=_TRANSFER_PLAYBACK_FINISH_TIMEOUT_SECS,
+                        )
                     external_result = await provider.transfer_external_pbx_call(
                         identity=external_pbx_call,
                         destination=destination,
@@ -725,7 +746,7 @@ class CustomToolManager:
                             )
                             # Let VICIdial redirect the customer out of its
                             # conference before Dograh tears down the local leg.
-                            await asyncio.sleep(4)
+                            await asyncio.sleep(_TRANSFER_POST_HANDOFF_DELAY_SECS)
                             await self._engine.end_call_with_reason(
                                 EndTaskReason.END_CALL_TOOL_REASON.value,
                                 abort_immediately=True,

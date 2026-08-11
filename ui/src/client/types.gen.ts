@@ -1401,7 +1401,19 @@ export type ContextDestinationMappingConfig = {
      *
      * Ordered routing rules evaluated top to bottom; first match wins.
      */
-    rules: Array<ContextDestinationRule>;
+    rules?: Array<ContextDestinationRule> | null;
+    /**
+     * Context Path
+     *
+     * Deprecated single-rule context path. Use rules instead; accepted for backward compatibility.
+     */
+    context_path?: string | null;
+    /**
+     * Routes
+     *
+     * Deprecated single-rule routes. Use rules instead; accepted for backward compatibility.
+     */
+    routes?: Array<ContextDestinationRoute> | null;
     /**
      * Fallback Destination
      *

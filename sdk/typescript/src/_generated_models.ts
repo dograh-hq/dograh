@@ -325,7 +325,17 @@ export interface components {
              * Rules
              * @description Ordered routing rules evaluated top to bottom; first match wins.
              */
-            rules: components["schemas"]["ContextDestinationRule"][];
+            rules?: components["schemas"]["ContextDestinationRule"][] | null;
+            /**
+             * Context Path
+             * @description Deprecated single-rule context path. Use rules instead; accepted for backward compatibility.
+             */
+            context_path?: string | null;
+            /**
+             * Routes
+             * @description Deprecated single-rule routes. Use rules instead; accepted for backward compatibility.
+             */
+            routes?: components["schemas"]["ContextDestinationRoute"][] | null;
             /**
              * Fallback Destination
              * @description Optional provider-native destination or context template used when no rule matched.

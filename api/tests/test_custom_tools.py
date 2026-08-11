@@ -1046,7 +1046,7 @@ class TestCoerceParameterValue:
 class TestTransferResolver:
     """Tests for dynamic transfer resolution behavior."""
 
-    def test_dynamic_transfer_handler_timeout_includes_resolver_budget(self):
+    def test_dynamic_transfer_handler_timeout_includes_all_sequential_phases(self):
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         manager = CustomToolManager(Mock())
@@ -1072,7 +1072,7 @@ class TestTransferResolver:
 
         _handler, timeout_secs = manager._create_handler(tool, "transfer_call")
 
-        assert timeout_secs == 140.0
+        assert timeout_secs == 194.0
 
     @pytest.mark.asyncio
     async def test_http_resolver_resolves_transfer_context_destination(self):
@@ -1725,7 +1725,7 @@ class TestCustomToolManagerUnit:
         mock_engine._call_context_vars = {"department": "sales"}
         mock_engine._gathered_context = {}
         mock_engine._get_organization_id = AsyncMock(return_value=1)
-        mock_engine.perform_final_variable_extraction = AsyncMock()
+        mock_engine.flush_variable_extraction = AsyncMock()
         mock_engine.arm_speech_playback = Mock()
 
         manager = CustomToolManager(mock_engine)
@@ -1788,7 +1788,7 @@ class TestCustomToolManagerUnit:
         ):
             await handler(mock_params)
 
-        mock_engine.perform_final_variable_extraction.assert_awaited_once()
+        mock_engine.flush_variable_extraction.assert_awaited_once()
         assert result_received["reason"] == "provider_does_not_support_transfer"
 
     @pytest.mark.asyncio

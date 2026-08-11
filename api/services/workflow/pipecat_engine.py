@@ -108,9 +108,9 @@ class PipecatEngine:
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
-        # True once a final (synchronous) extraction has run, so the end-of-call
-        # and upstream-transfer paths don't redundantly re-extract the same
-        # terminal state.
+        # True once terminal call disposal has run its synchronous extraction.
+        # Recoverable operations such as a failed transfer use a repeatable
+        # flush and must not consume this one-shot finalization state.
         self._final_extraction_done: bool = False
 
         # Will be set later in initialize() when we have
@@ -536,28 +536,30 @@ class PipecatEngine:
                 f"Incomplete: {incomplete}"
             )
 
-    async def perform_final_variable_extraction(self) -> None:
-        """Flush in-flight + current-node variable extraction synchronously.
+    async def flush_variable_extraction(self) -> None:
+        """Refresh extracted variables without marking the call finalized.
 
-        Awaits any background extractions still running from previous nodes,
-        then runs the current node's extraction inline so callers that need the
-        freshest extracted variables before acting can rely on them -- e.g.
-        end_call_with_reason before disposing the call, a context-mapped
-        transfer, or an external-PBX lead update before handing the customer
-        off.
-
-        Idempotent: only the first call does work. Transfer paths run this
-        before resolving routing or forwarding update_lead, so a subsequent
-        end_call_with_reason must not re-extract the same terminal state.
+        This operation is intentionally repeatable. Transfer routing and
+        external-PBX field mappings need current conversation values, but a
+        failed transfer can return control to the agent and gather more input.
         """
-        if self._final_extraction_done:
-            logger.debug("Final variable extraction already performed; skipping")
-            return
-        self._final_extraction_done = True
         await self._await_pending_extractions()
         await self._perform_variable_extraction_if_needed(
             self._current_node, run_in_background=False
         )
+
+    async def perform_final_variable_extraction(self) -> None:
+        """Perform the one-shot extraction used during call disposal.
+
+        Awaits any background extractions still running from previous nodes,
+        then runs the current node's extraction inline. Idempotency prevents
+        duplicate terminal extraction when multiple teardown paths converge.
+        """
+        if self._final_extraction_done:
+            logger.debug("Final variable extraction already performed; skipping")
+            return
+        await self.flush_variable_extraction()
+        self._final_extraction_done = True
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""

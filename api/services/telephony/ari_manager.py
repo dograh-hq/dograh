@@ -685,14 +685,18 @@ class ARIConnection:
             read_header, lead_fields or ()
         )
         if identity:
-            # The lead payload can carry PII (name, address, DOB) — log only
-            # which fields were captured, not their values.
-            summary = {k: v for k, v in identity.items() if k != "lead"}
+            # Identity and lead payload values can carry customer/provider PII.
+            # Log only the names of non-empty fields that were captured.
+            identity_fields = sorted(
+                key
+                for key, value in identity.items()
+                if key != "lead" and value not in (None, "")
+            )
             lead_fields = sorted((identity.get("lead") or {}).keys())
             logger.info(
                 f"[ARI org={self.organization_id}] Captured "
                 f"{self.external_pbx_adapter.type} call identity for channel {channel_id} "
-                f"identity: {summary} lead_fields: {lead_fields}"
+                f"identity_fields: {identity_fields} lead_fields: {lead_fields}"
             )
         return identity
 

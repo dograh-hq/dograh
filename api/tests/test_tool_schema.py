@@ -1,6 +1,6 @@
 import pytest
 
-from api.schemas.tool import TransferCallConfig
+from api.schemas.tool import ContextDestinationMappingConfig, TransferCallConfig
 
 
 def test_transfer_call_destination_accepts_initial_context_template():
@@ -68,6 +68,14 @@ def test_transfer_call_context_mapping_accepts_unique_routes():
     assert config.context_mapping.rules[0].routes[0].destination == "sales"
 
 
+def test_context_mapping_openapi_advertises_legacy_single_rule_shape():
+    schema = ContextDestinationMappingConfig.model_json_schema()
+
+    assert "rules" not in schema.get("required", [])
+    assert "Deprecated" in schema["properties"]["context_path"]["description"]
+    assert "Deprecated" in schema["properties"]["routes"]["description"]
+
+
 def test_transfer_call_context_mapping_keeps_rule_order():
     config = TransferCallConfig(
         destination_source="context_mapping",
@@ -98,6 +106,22 @@ def test_transfer_call_context_mapping_requires_at_least_one_rule():
         TransferCallConfig(
             destination_source="context_mapping",
             context_mapping={"rules": []},
+        )
+
+
+def test_transfer_call_context_mapping_rejects_more_than_twenty_rules():
+    with pytest.raises(ValueError, match="more than 20"):
+        TransferCallConfig(
+            destination_source="context_mapping",
+            context_mapping={
+                "rules": [
+                    {
+                        "context_path": f"path_{index}",
+                        "routes": [{"context_value": "yes", "destination": "sales"}],
+                    }
+                    for index in range(21)
+                ]
+            },
         )
 
 

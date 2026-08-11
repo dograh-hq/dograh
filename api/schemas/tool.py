@@ -298,10 +298,25 @@ class ContextDestinationMappingConfig(BaseModel):
     matched. Destinations may be provider-native values or context templates.
     """
 
-    rules: list[ContextDestinationRule] = Field(
-        min_length=1,
-        max_length=20,
+    rules: list[ContextDestinationRule] | None = Field(
+        default=None,
         description="Ordered routing rules evaluated top to bottom; first match wins.",
+    )
+    context_path: str | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "Deprecated single-rule context path. Use rules instead; accepted for "
+            "backward compatibility."
+        ),
+    )
+    routes: list[ContextDestinationRoute] | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "Deprecated single-rule routes. Use rules instead; accepted for "
+            "backward compatibility."
+        ),
     )
     fallback_destination: str | None = Field(
         default=None,
@@ -329,6 +344,14 @@ class ContextDestinationMappingConfig(BaseModel):
             {"context_path": data.get("context_path"), "routes": data.get("routes")}
         ]
         return folded
+
+    @model_validator(mode="after")
+    def require_rules(self):
+        if not self.rules:
+            raise ValueError("context mapping rules must contain at least one rule")
+        if len(self.rules) > 20:
+            raise ValueError("context mapping rules cannot contain more than 20 rules")
+        return self
 
     @field_validator("fallback_destination")
     @classmethod

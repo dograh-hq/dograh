@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, Plus, Trash2 } from "lucide-react";
 
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { DOCS_BASE } from "@/constants/documentation";
 
 import {
     type ContextDestinationRuleRow,
@@ -62,7 +63,6 @@ export interface TransferCallToolConfigProps {
     onParametersChange: (parameters: ToolParameter[]) => void;
     presetParameters: PresetToolParameter[];
     onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
-    externalPbxRoutingEnabled: boolean;
     contextDestinationRules: ContextDestinationRuleRow[];
     onContextDestinationRulesChange: (rules: ContextDestinationRuleRow[]) => void;
     fallbackDestination: string;
@@ -101,7 +101,6 @@ export function TransferCallToolConfig({
     onParametersChange,
     presetParameters,
     onPresetParametersChange,
-    externalPbxRoutingEnabled,
     contextDestinationRules,
     onContextDestinationRulesChange,
     fallbackDestination,
@@ -247,25 +246,18 @@ export function TransferCallToolConfig({
                     <div>
                         <Label>Destination Source</Label>
                         <p className="text-xs text-muted-foreground">
-                            Choose whether the transfer uses a configured destination or resolves one from an HTTP endpoint.
+                            Choose a configured destination, ordered context rules, or an HTTP resolver.
                         </p>
                     </div>
-                    {!externalPbxRoutingEnabled && destinationSource === "context_mapping" ? (
-                        <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                            This tool has advanced external-PBX routing configured. Enable
-                            External PBX integrations in Platform Settings to view or change it.
-                        </div>
-                    ) : <Tabs
+                    <Tabs
                         value={destinationSource}
                         onValueChange={(v) => onDestinationSourceChange(v as TransferDestinationSource)}
                         className="w-full"
                     >
-                        <TabsList className={`grid w-full ${externalPbxRoutingEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+                        <TabsList className="grid w-full grid-cols-3">
                             <TabsTrigger value="static">Static / Template</TabsTrigger>
                             <TabsTrigger value="dynamic">Dynamic HTTP Resolver</TabsTrigger>
-                            {externalPbxRoutingEnabled && (
-                                <TabsTrigger value="context_mapping">Context Mapping</TabsTrigger>
-                            )}
+                            <TabsTrigger value="context_mapping">Context Mapping</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="static" className="space-y-4 mt-4">
@@ -291,9 +283,19 @@ export function TransferCallToolConfig({
 
                         <TabsContent value="dynamic" className="space-y-5 mt-4">
                             <div>
-                                <Label>Dynamic Transfer Resolver</Label>
+                                <div className="flex items-center gap-2">
+                                    <Label>Dynamic Transfer Resolver</Label>
+                                </div>
                                 <p className="text-xs text-muted-foreground">
-                                    Dograh sends the resolved argument dictionary to this endpoint. The endpoint must return transfer_context.destination and may return transfer_context.custom_message.
+                                    Dograh sends the resolved argument dictionary to this endpoint. The endpoint must return transfer_context.destination and may return transfer_context.custom_message.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-response`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
                                 </p>
                             </div>
 
@@ -350,9 +352,17 @@ export function TransferCallToolConfig({
 
                             <div className="grid gap-2 pt-4 border-t">
                                 <Label>LLM Parameters</Label>
-                                <Label className="text-xs text-muted-foreground">
-                                    Define values the agent should provide when calling this transfer tool, such as state, department, or reason.
-                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Define values the agent should provide when calling this transfer tool, such as state, department, or reason.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-request`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                </p>
                                 <ParameterEditor
                                     parameters={parameters}
                                     onChange={onParametersChange}
@@ -361,9 +371,17 @@ export function TransferCallToolConfig({
 
                             <div className="grid gap-2 pt-4 border-t">
                                 <Label>Preset Parameters</Label>
-                                <Label className="text-xs text-muted-foreground">
-                                    Add values Dograh injects at runtime. These are not exposed to the LLM and can use templates like {`{{initial_context.state}}`} or {`{{gathered_context.state}}`}.
-                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Add values Dograh injects at runtime. These are not exposed to the LLM and can use templates like {`{{initial_context.state}}`} or {`{{gathered_context.state}}`}.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-request`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                </p>
                                 <PresetParameterEditor
                                     parameters={presetParameters}
                                     onChange={onPresetParametersChange}
@@ -384,17 +402,33 @@ export function TransferCallToolConfig({
                                 />
                             </div>
                         </TabsContent>
-                        {externalPbxRoutingEnabled && (
-                            <TabsContent value="context_mapping" className="space-y-5 mt-4">
-                                <div>
-                                    <Label>External PBX Context Routing</Label>
-                                    <p className="text-xs text-muted-foreground">
-                                        Resolve a gathered-context value to a provider-native destination.
-                                        Rules are evaluated top to bottom: the first rule whose context value
-                                        matches one of its mappings wins, otherwise the next rule is tried.
-                                        Matching ignores case and surrounding whitespace.
-                                    </p>
-                                </div>
+                        <TabsContent value="context_mapping" className="space-y-5 mt-4">
+                            <div className="space-y-2">
+                                <Label>Ordered Context Routing</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Rules are evaluated top to bottom. The first matching value selects its
+                                    destination; matching ignores case and surrounding whitespace.
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    An unprefixed field such as <code>department</code> checks{" "}
+                                    <code>gathered_context.department</code> first, then{" "}
+                                    <code>initial_context.department</code>. Use an explicit prefix to read only
+                                    one context.
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Destinations can be a SIP endpoint, E.164 PSTN number, another
+                                    provider-supported destination, or a template such as{" "}
+                                    <code>{"{{initial_context.transfer_destination}}"}</code>.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#context-mapping`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                </p>
+                            </div>
                                 {contextDestinationRules.map((rule, ruleIndex) => (
                                     <div key={rule.id} className="space-y-4 rounded-lg border p-4">
                                         <div className="flex items-center justify-between">
@@ -434,18 +468,18 @@ export function TransferCallToolConfig({
                                             </div>
                                         </div>
                                         <div className="grid gap-2">
-                                            <Label htmlFor={`pbx-context-path-${rule.id}`}>
-                                                Gathered Context Field
+                                            <Label htmlFor={`context-path-${rule.id}`}>
+                                                Context Field
                                             </Label>
                                             <Input
-                                                id={`pbx-context-path-${rule.id}`}
-                                                aria-label={`Gathered context field ${ruleIndex + 1}`}
+                                                id={`context-path-${rule.id}`}
+                                                aria-label={`Context field ${ruleIndex + 1}`}
                                                 value={rule.context_path}
                                                 onChange={(event) => updateRule(rule.id, (item) => ({
                                                     ...item,
                                                     context_path: event.target.value,
                                                 }))}
-                                                placeholder="qualified or extracted_variables.qualified"
+                                                placeholder="department or initial_context.department"
                                             />
                                         </div>
                                         <div className="space-y-3">
@@ -483,7 +517,7 @@ export function TransferCallToolConfig({
                                                         placeholder="Context value"
                                                     />
                                                     <Input
-                                                        aria-label={`Rule ${ruleIndex + 1} PBX destination ${index + 1}`}
+                                                        aria-label={`Rule ${ruleIndex + 1} transfer destination ${index + 1}`}
                                                         value={route.destination}
                                                         onChange={(event) => updateRule(rule.id, (item) => ({
                                                             ...item,
@@ -493,7 +527,7 @@ export function TransferCallToolConfig({
                                                                     : existing
                                                             ),
                                                         }))}
-                                                        placeholder="Provider destination"
+                                                        placeholder="PJSIP/1001, +1234567890, or {{initial_context.destination}}"
                                                     />
                                                     <Button
                                                         type="button"
@@ -537,20 +571,19 @@ export function TransferCallToolConfig({
                                     </p>
                                 )}
                                 <div className="grid gap-2">
-                                    <Label htmlFor="pbx-fallback-destination">Fallback Destination (Optional)</Label>
+                                    <Label htmlFor="context-fallback-destination">Fallback Destination (Optional)</Label>
                                     <Input
-                                        id="pbx-fallback-destination"
+                                        id="context-fallback-destination"
                                         value={fallbackDestination}
                                         onChange={(event) => onFallbackDestinationChange(event.target.value)}
-                                        placeholder="Provider-native fallback destination"
+                                        placeholder="Provider destination or {{initial_context.destination}}"
                                     />
                                     <Label className="text-xs text-muted-foreground">
                                         Used only when no rule above matched.
                                     </Label>
                                 </div>
-                            </TabsContent>
-                        )}
-                    </Tabs>}
+                        </TabsContent>
+                    </Tabs>
                 </div>
             </CardContent>
         </Card>

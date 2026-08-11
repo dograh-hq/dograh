@@ -235,10 +235,21 @@ class HttpTransferResolverConfig(BaseModel):
 
 
 class ContextDestinationRoute(BaseModel):
-    """Map one gathered-context value to an external-PBX destination."""
+    """Map one context value to a transfer destination."""
 
-    context_value: str = Field(min_length=1, max_length=255)
-    destination: str = Field(min_length=1, max_length=255)
+    context_value: str = Field(
+        min_length=1,
+        max_length=255,
+        description="Context value that selects this destination.",
+    )
+    destination: str = Field(
+        min_length=1,
+        max_length=255,
+        description=(
+            "VICIdial in-group, SIP endpoint, E.164 phone number, or context "
+            "template used when this route matches."
+        ),
+    )
 
     @field_validator("context_value", "destination")
     @classmethod
@@ -250,13 +261,15 @@ class ContextDestinationRoute(BaseModel):
 
 
 class ContextDestinationRule(BaseModel):
-    """One gathered-context lookup with its value-to-destination routes."""
+    """One context lookup with its value-to-destination routes."""
 
     context_path: str = Field(
         min_length=1,
         max_length=255,
         description=(
-            "Gathered-context path or extracted-variable name used for routing."
+            "Context path used for routing. An unprefixed path checks gathered "
+            "context first, then initial context; use initial_context.* or "
+            "gathered_context.* to select one explicitly."
         ),
     )
     routes: list[ContextDestinationRoute] = Field(min_length=1, max_length=100)
@@ -278,11 +291,11 @@ class ContextDestinationRule(BaseModel):
 
 
 class ContextDestinationMappingConfig(BaseModel):
-    """Resolve an external-PBX destination from gathered context.
+    """Resolve a transfer destination from gathered or initial context.
 
-    Rules are evaluated in order. The first rule whose gathered-context value
-    matches one of its routes wins; ``fallback_destination`` applies only when
-    no rule matched.
+    Rules are evaluated in order. The first rule whose context value matches
+    one of its routes wins; ``fallback_destination`` applies only when no rule
+    matched. Destinations may be provider-native values or context templates.
     """
 
     rules: list[ContextDestinationRule] = Field(
@@ -293,7 +306,10 @@ class ContextDestinationMappingConfig(BaseModel):
     fallback_destination: str | None = Field(
         default=None,
         max_length=255,
-        description="Optional provider-native destination used when no rule matched.",
+        description=(
+            "Optional provider-native destination or context template used when "
+            "no rule matched."
+        ),
     )
 
     @model_validator(mode="before")
@@ -329,7 +345,7 @@ class TransferCallConfig(BaseModel):
         default="static",
         description=(
             "Whether the destination is static/template, resolved by HTTP, or "
-            "mapped from gathered context to an external-PBX destination."
+            "selected by ordered gathered/initial-context mapping rules."
         ),
     )
     destination: str = Field(
@@ -367,9 +383,7 @@ class TransferCallConfig(BaseModel):
     )
     context_mapping: ContextDestinationMappingConfig | None = Field(
         default=None,
-        description=(
-            "Optional ordered gathered-context to external-PBX destination rules."
-        ),
+        description="Optional ordered context-to-destination routing rules.",
     )
 
     @model_validator(mode="after")

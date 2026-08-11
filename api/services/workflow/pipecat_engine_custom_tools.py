@@ -617,9 +617,10 @@ class CustomToolManager:
                 external_pbx_call = external_pbx_call or (
                     getattr(workflow_run, "initial_context", None) or {}
                 ).get("upstream_pbx")
-                if external_pbx_call:
-                    # Context-to-in-group and lead-field mappings must see the
-                    # final conversation-derived values.
+                destination_source = config.get("destination_source", "static")
+                if external_pbx_call or destination_source == "context_mapping":
+                    # Context routing and external-PBX lead-field mappings must
+                    # see the final conversation-derived values.
                     await self._engine.perform_final_variable_extraction()
 
                 resolver = config.get("resolver") if isinstance(config, dict) else None
@@ -657,25 +658,6 @@ class CustomToolManager:
                     }
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
-                    )
-                    return
-
-                if (
-                    resolved_transfer.source == "context_mapping"
-                    and not external_pbx_call
-                ):
-                    await self._handle_transfer_result(
-                        {
-                            "status": "failed",
-                            "message": (
-                                "This call did not arrive through the configured "
-                                "external PBX."
-                            ),
-                            "action": "transfer_failed",
-                            "reason": "external_pbx_call_required",
-                        },
-                        function_call_params,
-                        properties,
                     )
                     return
 

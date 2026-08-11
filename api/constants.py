@@ -79,15 +79,6 @@ DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
 
-# Log which external-PBX lead headers an inbound INVITE actually carries, so an
-# integrator can see what the PBX attaches before listing fields under the
-# workflow's "Lead Fields To Capture" setting. Costs one extra ARI request per
-# inbound call — it reads header *names* only, not values — so turn this on
-# during integration setup and off again afterwards.
-LOG_EXTERNAL_PBX_AVAILABLE_HEADERS = (
-    os.getenv("LOG_EXTERNAL_PBX_AVAILABLE_HEADERS", "false").lower() == "true"
-)
-
 # Storage Configuration
 ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
 

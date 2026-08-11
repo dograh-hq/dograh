@@ -24,7 +24,7 @@ import redis.asyncio as aioredis
 import websockets
 from loguru import logger
 
-from api.constants import LOG_EXTERNAL_PBX_AVAILABLE_HEADERS, REDIS_URL
+from api.constants import REDIS_URL
 from api.db import db_client
 from api.enums import CallType, WorkflowRunMode
 from api.errors.failure import (
@@ -665,8 +665,8 @@ class ARIConnection:
         # Discovery aid: PJSIP_HEADERS() returns header *names* in a single
         # request, so listing what the PBX attaches costs one round trip no
         # matter how many headers there are. Reading their values is what costs
-        # one request each, which is why this stays names-only and opt-in.
-        if LOG_EXTERNAL_PBX_AVAILABLE_HEADERS and self.external_pbx_adapter.header_prefix:
+        # one request each, which is why this stays names-only.
+        if self.external_pbx_adapter.header_prefix:
             prefix = self.external_pbx_adapter.header_prefix
             raw = await self._get_channel_var(channel_id, f"PJSIP_HEADERS({prefix})")
             available = sorted(
@@ -860,10 +860,8 @@ class ARIConnection:
             # the workflow's draft-synced legacy column.
             lead_fields = []
             if self.external_pbx_adapter is not None:
-                workflow_configurations = (
-                    await db_client.get_definition_configurations(
-                        run_inputs.definition_id
-                    )
+                workflow_configurations = await db_client.get_definition_configurations(
+                    run_inputs.definition_id
                 )
                 lead_fields = (
                     workflow_configurations.get("external_pbx_lead_headers") or []

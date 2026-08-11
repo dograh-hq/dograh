@@ -215,12 +215,6 @@ services:
       ENABLE_ARI_MANAGER: "${ENABLE_ARI_MANAGER:-true}"
       ENABLE_CAMPAIGN_ORCHESTRATOR: "${ENABLE_CAMPAIGN_ORCHESTRATOR:-true}"
 
-      # Log which external-PBX lead headers each inbound call carries, to
-      # discover what the PBX attaches. Adds one ARI request per inbound call
-      # (header names only), so enable it during integration setup, not steady
-      # state.
-      LOG_EXTERNAL_PBX_AVAILABLE_HEADERS: "${LOG_EXTERNAL_PBX_AVAILABLE_HEADERS:-false}"
-
       # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
       # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches
       # uvicorn from a Docker-network IP (not loopback), but uvicorn trusts only

@@ -542,13 +542,13 @@ class PipecatEngine:
         Awaits any background extractions still running from previous nodes,
         then runs the current node's extraction inline so callers that need the
         freshest extracted variables before acting can rely on them -- e.g.
-        end_call_with_reason before disposing the call, or an external-PBX
-        transfer that maps extracted variables into a provider lead update
-        call before handing the customer off.
+        end_call_with_reason before disposing the call, a context-mapped
+        transfer, or an external-PBX lead update before handing the customer
+        off.
 
-        Idempotent: only the first call does work. The external-PBX transfer
-        runs this just before forwarding update_lead, so the subsequent
-        end_call_with_reason would otherwise re-extract the same terminal state.
+        Idempotent: only the first call does work. Transfer paths run this
+        before resolving routing or forwarding update_lead, so a subsequent
+        end_call_with_reason must not re-extract the same terminal state.
         """
         if self._final_extraction_done:
             logger.debug("Final variable extraction already performed; skipping")

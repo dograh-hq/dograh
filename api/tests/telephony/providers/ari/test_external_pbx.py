@@ -250,10 +250,9 @@ def _ari_connection(monkeypatch, variables: dict[str, str]):
 
 
 @pytest.mark.asyncio
-async def test_available_headers_are_listed_in_one_request(monkeypatch):
+async def test_available_headers_are_always_listed_in_one_request(monkeypatch):
     from api.services.telephony import ari_manager
 
-    monkeypatch.setattr(ari_manager, "LOG_EXTERNAL_PBX_AVAILABLE_HEADERS", True)
     connection, requested = _ari_connection(
         monkeypatch,
         {
@@ -265,27 +264,17 @@ async def test_available_headers_are_listed_in_one_request(monkeypatch):
         },
     )
 
-    await connection._capture_external_pbx_call("chan-1", "PJSIP/inbound-0001")
+    with patch.object(ari_manager.logger, "info") as log_info:
+        await connection._capture_external_pbx_call("chan-1", "PJSIP/inbound-0001")
 
     # Enumeration is a single request regardless of how many headers exist.
     assert requested.count("PJSIP_HEADERS(X-VICIDIAL-)") == 1
     # ...and it does not pull the values of the fields it merely lists.
     assert "PJSIP_HEADER(read,X-VICIDIAL-first_name)" not in requested
-
-
-@pytest.mark.asyncio
-async def test_available_header_listing_is_skipped_when_disabled(monkeypatch):
-    from api.services.telephony import ari_manager
-
-    monkeypatch.setattr(ari_manager, "LOG_EXTERNAL_PBX_AVAILABLE_HEADERS", False)
-    connection, requested = _ari_connection(
-        monkeypatch, {"PJSIP_HEADER(read,X-VICIDIAL-callerid)": "M123"}
+    assert any(
+        "Available vicidial lead fields" in call.args[0]
+        for call in log_info.call_args_list
     )
-
-    await connection._capture_external_pbx_call("chan-1", "PJSIP/inbound-0001")
-
-    assert not any(name.startswith("PJSIP_HEADERS(") for name in requested)
-    assert len(requested) == 5
 
 
 @pytest.mark.asyncio
@@ -329,13 +318,7 @@ def test_field_mapping_reads_extracted_variables_and_skips_empty_values():
 
 
 @pytest.mark.asyncio
-async def test_context_mapping_resolves_ingroup_destination(monkeypatch):
-    monkeypatch.setattr(
-        transfer_resolver,
-        "external_pbx_integrations_enabled",
-        AsyncMock(return_value=True),
-    )
-
+async def test_context_mapping_resolves_ingroup_destination():
     resolved = await transfer_resolver.resolve_transfer_config(
         tool=SimpleNamespace(tool_uuid="tool-1"),
         config={
@@ -359,13 +342,7 @@ async def test_context_mapping_resolves_ingroup_destination(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_context_mapping_falls_through_to_later_rule(monkeypatch):
-    monkeypatch.setattr(
-        transfer_resolver,
-        "external_pbx_integrations_enabled",
-        AsyncMock(return_value=True),
-    )
-
+async def test_context_mapping_falls_through_to_later_rule():
     resolved = await transfer_resolver.resolve_transfer_config(
         tool=SimpleNamespace(tool_uuid="tool-1"),
         config={
@@ -402,13 +379,7 @@ async def test_context_mapping_falls_through_to_later_rule(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_context_mapping_uses_fallback_after_all_rules_miss(monkeypatch):
-    monkeypatch.setattr(
-        transfer_resolver,
-        "external_pbx_integrations_enabled",
-        AsyncMock(return_value=True),
-    )
-
+async def test_context_mapping_uses_fallback_after_all_rules_miss():
     resolved = await transfer_resolver.resolve_transfer_config(
         tool=SimpleNamespace(tool_uuid="tool-1"),
         config={
@@ -442,13 +413,7 @@ async def test_context_mapping_uses_fallback_after_all_rules_miss(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_context_mapping_raises_when_no_rule_matches(monkeypatch):
-    monkeypatch.setattr(
-        transfer_resolver,
-        "external_pbx_integrations_enabled",
-        AsyncMock(return_value=True),
-    )
-
+async def test_context_mapping_raises_when_no_rule_matches():
     with pytest.raises(
         transfer_resolver.TransferResolutionError,
         match="No destination mapping matched",
@@ -483,34 +448,26 @@ async def test_context_mapping_raises_when_no_rule_matches(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_context_mapping_is_disabled_at_runtime(monkeypatch):
-    monkeypatch.setattr(
-        transfer_resolver,
-        "external_pbx_integrations_enabled",
-        AsyncMock(return_value=False),
+async def test_context_mapping_is_available_without_external_pbx_configuration():
+    resolved = await transfer_resolver.resolve_transfer_config(
+        tool=SimpleNamespace(tool_uuid="tool-1"),
+        config={
+            "destination_source": "context_mapping",
+            "context_mapping": {
+                "context_path": "qualified",
+                "routes": [
+                    {"context_value": "yes", "destination": "+14155550123"},
+                ],
+            },
+        },
+        arguments={},
+        call_context_vars={},
+        gathered_context_vars={"qualified": "yes"},
+        organization_id=None,
+        workflow_run_id=11,
     )
 
-    with pytest.raises(
-        transfer_resolver.TransferResolutionError,
-        match="External PBX integrations are disabled",
-    ):
-        await transfer_resolver.resolve_transfer_config(
-            tool=SimpleNamespace(tool_uuid="tool-1"),
-            config={
-                "destination_source": "context_mapping",
-                "context_mapping": {
-                    "context_path": "qualified",
-                    "routes": [
-                        {"context_value": "yes", "destination": "sales"},
-                    ],
-                },
-            },
-            arguments={},
-            call_context_vars={},
-            gathered_context_vars={"qualified": "yes"},
-            organization_id=7,
-            workflow_run_id=11,
-        )
+    assert resolved.destination == "+14155550123"
 
 
 @pytest.mark.asyncio

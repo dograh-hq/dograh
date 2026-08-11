@@ -98,8 +98,7 @@ only the fields you list:
 
 #### Discover which fields your PBX sends
 
-To see what a call actually carries, set `LOG_EXTERNAL_PBX_AVAILABLE_HEADERS=true`
-and place a test call. Each inbound call then logs the available field names:
+Each inbound call logs the available field names automatically:
 
 ```text
 [ARI org=7] Available vicidial lead fields on channel 1712...: ['callerid',
@@ -108,8 +107,7 @@ workflow's Lead Fields To Capture setting
 ```
 
 Listing the names costs a single request no matter how many headers are present,
-because it reads names only — never values. Turn the flag off once you have
-configured the fields you need.
+because it reads names only — never values.
 
 Captured fields are available to workflow prompts through template variables
 named after the header suffix:
@@ -126,8 +124,9 @@ the agent during a call.
 
 1. Open or create a **Transfer Call** tool.
 2. Select **Context Mapping** as the destination source.
-3. In **Rule 1**, enter a context path, such as `qualified` or
-   `extracted_variables.qualified`.
+3. In **Rule 1**, enter a context path, such as `qualified`,
+   `gathered_context.qualified`, or `initial_context.qualified`. An unprefixed
+   path checks gathered context first and then initial context.
 4. Add one route for each expected value and its destination in-group ID.
 5. Optionally select **Add routing rule** to check another context path when the
    rule above it does not match, and use the arrows to order the rules.

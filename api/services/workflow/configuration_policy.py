@@ -8,7 +8,6 @@ from typing import Any
 from api.db import db_client
 from api.services.organization_preferences import external_pbx_integrations_enabled
 
-
 # Configuration keys owned by the External PBX UI section. All of them vanish
 # from the request payload while that section is hidden, so all of them must be
 # preserved from storage rather than silently reset to their defaults.

@@ -40,7 +40,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
-import { useOrgConfig } from "@/context/OrgConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
@@ -89,7 +88,6 @@ function headersToRows(headers: Record<string, string> | undefined | null): KeyV
 export default function ToolDetailPage() {
     const { toolUuid } = useParams<{ toolUuid: string }>();
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
-    const { externalPbxIntegrationsEnabled } = useOrgConfig();
     const router = useRouter();
 
     const [tool, setTool] = useState<ToolResponse | null>(null);
@@ -450,13 +448,13 @@ export default function ToolDetailPage() {
             }
             if (transferDestinationSource === "context_mapping") {
                 if (transferContextDestinationRules.length === 0) {
-                    setError("Add at least one PBX routing rule");
+                    setError("Add at least one context routing rule");
                     return;
                 }
                 for (const [index, rule] of transferContextDestinationRules.entries()) {
                     const ruleLabel = `rule ${index + 1}`;
                     if (!rule.context_path.trim()) {
-                        setError(`Please enter a gathered-context field for ${ruleLabel}`);
+                        setError(`Please enter a context field for ${ruleLabel}`);
                         return;
                     }
                     if (
@@ -961,7 +959,6 @@ const data = await response.json();`;
                             onParametersChange={setTransferParameters}
                             presetParameters={transferPresetParameters}
                             onPresetParametersChange={setTransferPresetParameters}
-                            externalPbxRoutingEnabled={externalPbxIntegrationsEnabled}
                             contextDestinationRules={transferContextDestinationRules}
                             onContextDestinationRulesChange={setTransferContextDestinationRules}
                             fallbackDestination={transferFallbackDestination}

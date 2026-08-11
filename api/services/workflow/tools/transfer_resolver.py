@@ -11,7 +11,6 @@ import httpx
 from loguru import logger
 
 from api.db import db_client
-from api.services.organization_preferences import external_pbx_integrations_enabled
 from api.services.workflow.tools.custom_tool import _resolve_preset_parameters
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
@@ -129,27 +128,37 @@ def _context_value(
     call_context_vars: Optional[Dict[str, Any]],
     gathered_context_vars: Optional[Dict[str, Any]],
 ) -> Any:
+    """Read a mapping path, with gathered-before-initial fallback by default."""
+
     initial = call_context_vars or {}
     gathered = gathered_context_vars or {}
     normalized = path.strip()
     if normalized.startswith("initial_context."):
-        current: Any = initial
-        parts = normalized.removeprefix("initial_context.").split(".")
-    elif normalized.startswith("gathered_context."):
-        current = gathered
-        parts = normalized.removeprefix("gathered_context.").split(".")
-    else:
-        current = gathered
-        parts = normalized.split(".")
+        return _read_context_path(
+            initial, normalized.removeprefix("initial_context.").split(".")
+        )
+    if normalized.startswith("gathered_context."):
+        return _read_context_path(
+            gathered, normalized.removeprefix("gathered_context.").split(".")
+        )
 
-    for part in parts:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(part)
+    parts = normalized.split(".")
+    current = _read_context_path(gathered, parts)
     if current is None and "." not in normalized:
         extracted = gathered.get("extracted_variables")
         if isinstance(extracted, dict):
             current = extracted.get(normalized)
+    if current is not None:
+        return current
+    return _read_context_path(initial, parts)
+
+
+def _read_context_path(context: Dict[str, Any], parts: list[str]) -> Any:
+    current: Any = context
+    for part in parts:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
     return current
 
 
@@ -173,17 +182,21 @@ def _match_rule_destination(
     context_path: str,
     call_context_vars: Optional[Dict[str, Any]],
     gathered_context_vars: Optional[Dict[str, Any]],
-) -> str:
+) -> Optional[str]:
     raw_value = _context_value(context_path, call_context_vars, gathered_context_vars)
     match_value = "" if raw_value is None else str(raw_value).strip().casefold()
     if not match_value:
-        return ""
+        return None
     for route in rule.get("routes") or []:
         if not isinstance(route, dict):
             continue
         if str(route.get("context_value", "")).strip().casefold() == match_value:
-            return str(route.get("destination", "")).strip()
-    return ""
+            return _render_value(
+                route.get("destination", ""),
+                call_context_vars,
+                gathered_context_vars,
+            )
+    return None
 
 
 def _resolve_context_mapping_transfer(
@@ -211,7 +224,12 @@ def _resolve_context_mapping_transfer(
         destination = _match_rule_destination(
             rule, path, call_context_vars, gathered_context_vars
         )
-        if destination:
+        if destination is not None:
+            if not destination:
+                raise TransferResolutionError(
+                    "no_destination",
+                    f"The destination for context mapping rule {index + 1} is empty",
+                )
             return ResolvedTransferConfig(
                 destination=destination,
                 timeout_seconds=_base_timeout(config),
@@ -223,8 +241,15 @@ def _resolve_context_mapping_transfer(
                 },
             )
 
-    fallback = str(mapping.get("fallback_destination") or "").strip()
-    if fallback:
+    configured_fallback = mapping.get("fallback_destination")
+    if configured_fallback:
+        fallback = _render_value(
+            configured_fallback, call_context_vars, gathered_context_vars
+        )
+        if not fallback:
+            raise TransferResolutionError(
+                "no_destination", "The context mapping fallback destination is empty"
+            )
         return ResolvedTransferConfig(
             destination=fallback,
             timeout_seconds=_base_timeout(config),
@@ -237,8 +262,7 @@ def _resolve_context_mapping_transfer(
         )
     raise TransferResolutionError(
         "no_context_mapping_match",
-        "No destination mapping matched gathered context paths "
-        f"'{', '.join(evaluated_paths)}'",
+        f"No destination mapping matched context paths '{', '.join(evaluated_paths)}'",
     )
 
 
@@ -397,13 +421,6 @@ async def resolve_transfer_config(
 
     destination_source = config.get("destination_source", "static")
     if destination_source == "context_mapping":
-        if not organization_id or not await external_pbx_integrations_enabled(
-            organization_id
-        ):
-            raise TransferResolutionError(
-                "external_pbx_feature_disabled",
-                "External PBX integrations are disabled for this organization",
-            )
         resolved = _resolve_context_mapping_transfer(
             config, call_context_vars, gathered_context_vars
         )
@@ -412,7 +429,8 @@ async def resolve_transfer_config(
             f"context_path={resolved.metadata.get('context_path')} "
             f"rule_index={resolved.metadata.get('rule_index')} "
             f"fallback={bool(resolved.metadata.get('fallback'))} "
-            f"source={resolved.source} destination={resolved.destination}"
+            f"source={resolved.source} "
+            f"destination={_mask_destination(resolved.destination)}"
         )
         return resolved
 

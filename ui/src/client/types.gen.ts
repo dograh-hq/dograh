@@ -1351,9 +1351,11 @@ export type CloudonixConfigurationRequest = {
      */
     application_name?: string | null;
     /**
-     * Optional outbound SIP trunk that Dograh creates and keeps in sync on this Cloudonix domain
+     * Outbound Trunks
+     *
+     * Outbound SIP trunks Dograh creates and keeps in sync on this Cloudonix domain. Trunks dropped from the list are deactivated. The UI manages a single trunk today; the list is the storage shape so more can be added without a schema change.
      */
-    outbound_trunk?: CloudonixOutboundTrunkConfiguration | null;
+    outbound_trunks?: Array<CloudonixOutboundTrunkConfiguration>;
     /**
      * From Numbers
      *
@@ -1366,6 +1368,11 @@ export type CloudonixConfigurationRequest = {
  * CloudonixConfigurationResponse
  *
  * Response schema for Cloudonix configuration with masked sensitive fields.
+ *
+ * Server-managed credential fields (``domain_uuid``, ``provisioning_id``,
+ * ``managed_by``, the application and trunk UUIDs) are stripped before this
+ * is built — they are Dograh's bookkeeping, not something a client sends
+ * back or renders.
  */
 export type CloudonixConfigurationResponse = {
     /**
@@ -1381,22 +1388,13 @@ export type CloudonixConfigurationResponse = {
      */
     domain_id: string;
     /**
-     * Domain Uuid
-     *
-     * Cloudonix domain UUID fetched automatically from domainGet
-     */
-    domain_uuid?: string | null;
-    /**
      * Application Name
      */
     application_name?: string | null;
-    outbound_trunk?: CloudonixOutboundTrunkConfiguration | null;
     /**
-     * Outbound Trunk Uuid
-     *
-     * UUID of the Dograh-managed Cloudonix outbound voice trunk
+     * Outbound Trunks
      */
-    outbound_trunk_uuid?: string | null;
+    outbound_trunks?: Array<CloudonixOutboundTrunkConfiguration>;
     /**
      * From Numbers
      */
@@ -1404,33 +1402,22 @@ export type CloudonixConfigurationResponse = {
 };
 
 /**
- * CloudonixOutboundTrunkAuthentication
- *
- * Optional SIP digest credentials for the remote termination peer.
- */
-export type CloudonixOutboundTrunkAuthentication = {
-    /**
-     * Username
-     */
-    username?: string | null;
-    /**
-     * Password
-     */
-    password?: string | null;
-    /**
-     * Overwrite From
-     *
-     * Use the authentication username as the SIP From caller ID. Cloudonix sends this as profile.authentication.overwrite-from.
-     */
-    overwrite_from?: boolean;
-};
-
-/**
  * CloudonixOutboundTrunkConfiguration
  *
  * Dograh-managed Cloudonix outbound SIP trunk.
+ *
+ * Only the trunk name and the SIP domain are operator-supplied. The remote
+ * peer (IP, port, transport) is derived from ``region`` when the Cloudonix
+ * payload is built, so the trunk always terminates on the same regional edge
+ * the customer sees under SIP connectivity.
  */
 export type CloudonixOutboundTrunkConfiguration = {
+    /**
+     * Id
+     *
+     * Dograh-owned identifier for this trunk, minted on first save. Stable across renames, and the key the Cloudonix trunk UUID is stored under. Clients round-trip it; they never invent it.
+     */
+    id?: string | null;
     /**
      * Enabled
      */
@@ -1438,65 +1425,21 @@ export type CloudonixOutboundTrunkConfiguration = {
     /**
      * Name
      *
-     * Unique human-readable name for the Cloudonix voice trunk
+     * Unique name for the Cloudonix voice trunk. Letters, digits and hyphens only — Cloudonix trunk names cannot contain spaces.
      */
     name?: string | null;
     /**
-     * Ip
+     * Region
      *
-     * Remote carrier/PBX IP address or FQDN
+     * Cloudonix region whose SIP edge terminates this trunk; sets the remote IP, port and transport.
      */
-    ip?: string | null;
+    region?: string | null;
     /**
-     * Port
-     */
-    port?: number;
-    /**
-     * Transport
-     */
-    transport?: 'udp' | 'tcp' | 'tls';
-    /**
-     * Prefix
+     * Sip Domain
      *
-     * Technical prefix Cloudonix prepends to the dialed destination
+     * Domain Cloudonix puts in both the SIP To header and the SIP Request-URI for calls on this trunk.
      */
-    prefix?: string;
-    profile?: CloudonixOutboundTrunkProfile | null;
-};
-
-/**
- * CloudonixOutboundTrunkProfile
- *
- * Cloudonix-recognized outbound voice-trunk profile fields.
- */
-export type CloudonixOutboundTrunkProfile = {
-    /**
-     * Hostname
-     *
-     * Pin calls to one Cloudonix Border Gateway hostname or IP
-     */
-    hostname?: string | null;
-    /**
-     * Domain
-     *
-     * Override the domain in the SIP To header
-     */
-    domain?: string | null;
-    /**
-     * Ruri Domain
-     *
-     * Override the SIP Request-URI domain
-     */
-    ruri_domain?: string | null;
-    /**
-     * Connection Timeout
-     */
-    connection_timeout?: number | null;
-    /**
-     * Provisional Timeout
-     */
-    provisional_timeout?: number | null;
-    authentication?: CloudonixOutboundTrunkAuthentication | null;
+    sip_domain?: string | null;
 };
 
 /**

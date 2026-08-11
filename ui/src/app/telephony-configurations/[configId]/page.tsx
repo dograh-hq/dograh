@@ -70,6 +70,10 @@ import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 const INBOUND_WEBHOOK_PATH = "/api/v1/telephony/inbound/run";
 
+// Rendered by its own form below, so it would only show up here as "Configured".
+// Server-managed bookkeeping keys are already stripped by the backend.
+const HIDDEN_CREDENTIAL_KEYS = new Set(["outbound_trunk"]);
+
 export default function TelephonyConfigurationDetailPage() {
   const router = useRouter();
   const params = useParams<{ configId: string }>();
@@ -309,12 +313,8 @@ export default function TelephonyConfigurationDetailPage() {
           )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {})
+              .filter(([key]) => !HIDDEN_CREDENTIAL_KEYS.has(key))
               .filter(([key]) => key !== "external_pbx" || externalPbxIntegrationsEnabled)
-              .filter(
-                ([key]) =>
-                  config.provider !== "cloudonix" ||
-                  (key !== "outbound_trunk" && key !== "outbound_trunk_uuid"),
-              )
               .map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-3">
                   <dt className="text-muted-foreground">{k}</dt>

@@ -20,7 +20,7 @@ def _credentials(password: str = "agent-secret") -> dict:
 def test_nested_external_pbx_secrets_are_masked_without_mutating_source():
     credentials = _credentials()
 
-    masked = organization._mask_sensitive("ari", credentials)
+    masked = organization._credentials_for_display("ari", credentials)
 
     assert masked["app_password"] != "ari-secret"
     assert masked["external_pbx"]["agent_api"]["password"] != "agent-secret"
@@ -29,7 +29,7 @@ def test_nested_external_pbx_secrets_are_masked_without_mutating_source():
 
 def test_nested_masked_external_pbx_secrets_are_restored_on_update():
     existing = _credentials()
-    request = organization._mask_sensitive("ari", existing)
+    request = organization._credentials_for_display("ari", existing)
 
     organization.preserve_masked_fields("ari", request, existing)
 

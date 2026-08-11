@@ -30,6 +30,7 @@ from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
 from .config import normalize_cloudonix_domain
+from .regions import CLOUDONIX_REGIONS, CloudonixRegion
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -40,6 +41,45 @@ CLOUDONIX_API_BASE_URL = "https://api.cloudonix.io"
 # stream opens. The agent-stream route holds an org concurrency slot while we
 # wait, so an idle socket must not be able to hold it indefinitely.
 AGENT_STREAM_HANDSHAKE_TIMEOUT_S = 10
+
+
+def _first_enabled_trunk_name(trunks: Any) -> str | None:
+    """Name of the first enabled outbound trunk, or ``None`` when there is none."""
+    if not isinstance(trunks, list):
+        return None
+    for trunk in trunks:
+        if not isinstance(trunk, dict) or trunk.get("enabled") is not True:
+            continue
+        name = trunk.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
+def _inbound_transports(
+    hostname: str, region: CloudonixRegion
+) -> list[SIPTransportDetails]:
+    """The three SIP transports Cloudonix accepts on a region's edge."""
+    return [
+        SIPTransportDetails(
+            transport="UDP",
+            hostname=hostname,
+            port=region.sip_port,
+            uri=f"{hostname}:{region.sip_port}",
+        ),
+        SIPTransportDetails(
+            transport="TCP",
+            hostname=hostname,
+            port=region.sip_port,
+            uri=f"{hostname}:{region.sip_port};transport=tcp;",
+        ),
+        SIPTransportDetails(
+            transport="TLS",
+            hostname=hostname,
+            port=region.tls_port,
+            uri=f"{hostname}:{region.tls_port};transport=tls;",
+        ),
+    ]
 
 
 class CloudonixProvider(TelephonyProvider):
@@ -70,17 +110,10 @@ class CloudonixProvider(TelephonyProvider):
         self.domain_id = self._normalize_domain(config.get("domain_id"))
         self.domain_uuid = config.get("domain_uuid")
         self.application_name = config.get("application_name")
-        outbound_trunk = config.get("outbound_trunk")
-        outbound_trunk_name = (
-            outbound_trunk.get("name") if isinstance(outbound_trunk, dict) else None
-        )
-        self.outbound_trunk_name = (
-            outbound_trunk_name.strip()
-            if isinstance(outbound_trunk, dict)
-            and outbound_trunk.get("enabled") is True
-            and isinstance(outbound_trunk_name, str)
-            and outbound_trunk_name.strip()
-            else None
+        # Storage allows several trunks; outbound calls pin to the first
+        # enabled one until there is a rule for choosing between them.
+        self.outbound_trunk_name = _first_enabled_trunk_name(
+            config.get("outbound_trunks")
         )
         self.from_numbers = config.get("from_numbers", [])
         self.default_from_number = config.get("default_from_number")
@@ -112,85 +145,17 @@ class CloudonixProvider(TelephonyProvider):
         if not domain_uuid:
             return None
 
-        india_hostname = f"{domain_uuid}.in.dimi.tel"
-        uae_hostname = f"{domain_uuid}.uae.dimi.tel"
-        global_hostname = f"{domain_uuid}.sip.cloudonix.net"
-
         return SIPConnectivityDetails(
             provider_display_name="Cloudonix",
             regions=[
                 SIPRegionDetails(
-                    region="India",
-                    inbound_transports=[
-                        SIPTransportDetails(
-                            transport="UDP",
-                            hostname=india_hostname,
-                            port=9060,
-                            uri=f"{india_hostname}:9060",
-                        ),
-                        SIPTransportDetails(
-                            transport="TCP",
-                            hostname=india_hostname,
-                            port=9060,
-                            uri=f"{india_hostname}:9060;transport=tcp;",
-                        ),
-                        SIPTransportDetails(
-                            transport="TLS",
-                            hostname=india_hostname,
-                            port=9443,
-                            uri=f"{india_hostname}:9443;transport=tls;",
-                        ),
-                    ],
-                    outbound_origin_ip="128.199.27.19",
-                ),
-                SIPRegionDetails(
-                    region="UAE",
-                    inbound_transports=[
-                        SIPTransportDetails(
-                            transport="UDP",
-                            hostname=uae_hostname,
-                            port=9081,
-                            uri=f"{uae_hostname}:9081",
-                        ),
-                        SIPTransportDetails(
-                            transport="TCP",
-                            hostname=uae_hostname,
-                            port=9081,
-                            uri=f"{uae_hostname}:9081;transport=tcp;",
-                        ),
-                        SIPTransportDetails(
-                            transport="TLS",
-                            hostname=uae_hostname,
-                            port=9443,
-                            uri=f"{uae_hostname}:9443;transport=tls;",
-                        ),
-                    ],
-                    outbound_origin_ip="20.233.60.70",
-                ),
-                SIPRegionDetails(
-                    region="Global",
-                    inbound_transports=[
-                        SIPTransportDetails(
-                            transport="UDP",
-                            hostname=global_hostname,
-                            port=5060,
-                            uri=f"{global_hostname}:5060",
-                        ),
-                        SIPTransportDetails(
-                            transport="TCP",
-                            hostname=global_hostname,
-                            port=5060,
-                            uri=f"{global_hostname};transport=tcp;",
-                        ),
-                        SIPTransportDetails(
-                            transport="TLS",
-                            hostname=global_hostname,
-                            port=443,
-                            uri=f"{global_hostname}:443;transport=tls;",
-                        ),
-                    ],
-                    outbound_origin_ip="18.219.128.166",
-                ),
+                    region=region.name,
+                    inbound_transports=_inbound_transports(
+                        region.hostname(domain_uuid), region
+                    ),
+                    outbound_origin_ip=region.edge_ip,
+                )
+                for region in CLOUDONIX_REGIONS
             ],
         )
 

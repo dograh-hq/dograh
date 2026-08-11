@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -90,22 +91,15 @@ const configuration: TelephonyConfigurationDetail = {
     bearer_token: "********token",
     domain_id: "example.cloudonix.net",
     application_name: "dograh-app",
-    outbound_trunk: {
-      enabled: true,
-      name: "existing-trunk",
-      ip: "sip.example.com",
-      port: 5060,
-      transport: "udp",
-      prefix: "+",
-      profile: {
-        hostname: "border.example.com",
-        authentication: {
-          username: "carrier-user",
-          password: "********password",
-          overwrite_from: false,
-        },
+    outbound_trunks: [
+      {
+        id: "trunk-1",
+        enabled: true,
+        name: "existing-trunk",
+        region: "Global",
+        sip_domain: "sip.example.com",
       },
-    },
+    ],
   },
   sip_connectivity: details,
   created_at: "2026-08-08T00:00:00Z",
@@ -118,9 +112,10 @@ describe("SipConnectivityCard", () => {
     mocks.getAccessToken.mockResolvedValue("access-token");
     mocks.updateConfiguration.mockReset();
     mocks.updateConfiguration.mockResolvedValue({ data: configuration });
+    vi.mocked(toast.error).mockClear();
   });
 
-  it("separates inbound and outbound details and keeps advanced fields hidden", () => {
+  it("shows one inbound endpoint and asks only for the two trunk fields", () => {
     render(
       <SipConnectivityCard
         details={details}
@@ -144,16 +139,14 @@ describe("SipConnectivityCard", () => {
       screen.getByRole("switch", { name: "Enable outbound trunk" }),
     ).toBeTruthy();
     expect(screen.getByLabelText("Trunk Name")).toBeTruthy();
-    expect(screen.getByLabelText("Remote SIP Address")).toBeTruthy();
-    expect(screen.getByLabelText("Remote SIP Port")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Transport" })).toBeTruthy();
-    expect(screen.queryByLabelText("Technical Prefix")).toBeNull();
+    expect(screen.getByLabelText("SIP Domain")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
-
-    expect(screen.getByLabelText("Technical Prefix")).toBeTruthy();
-    expect(screen.getByLabelText("Cloudonix Border Gateway")).toBeTruthy();
-    expect(screen.getByText("SIP authentication")).toBeTruthy();
+    // Everything below is derived from the region, so it is not asked for.
+    expect(screen.queryByLabelText("Remote SIP Address")).toBeNull();
+    expect(screen.queryByLabelText("Remote SIP Port")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Transport" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Advanced" })).toBeNull();
+    expect(screen.queryByText("SIP authentication")).toBeNull();
   });
 
   it("saves the outbound trunk from the SIP connectivity panel", async () => {
@@ -170,11 +163,8 @@ describe("SipConnectivityCard", () => {
     fireEvent.change(screen.getByLabelText("Trunk Name"), {
       target: { value: "primary-carrier" },
     });
-    fireEvent.change(screen.getByLabelText("Remote SIP Address"), {
+    fireEvent.change(screen.getByLabelText("SIP Domain"), {
       target: { value: "voice.example.net" },
-    });
-    fireEvent.change(screen.getByLabelText("Remote SIP Port"), {
-      target: { value: "5080" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save outbound trunk" }));
 
@@ -188,27 +178,45 @@ describe("SipConnectivityCard", () => {
           bearer_token: "********token",
           domain_id: "example.cloudonix.net",
           application_name: "dograh-app",
-          outbound_trunk: {
-            enabled: true,
-            name: "primary-carrier",
-            ip: "voice.example.net",
-            port: 5080,
-            transport: "udp",
-            prefix: "+",
-            profile: {
-              hostname: "border.example.com",
-              authentication: {
-                username: "carrier-user",
-                password: "********password",
-                overwrite_from: false,
-              },
+          // A list so more trunks can be added later; this form owns the
+          // first one and round-trips its Dograh id.
+          outbound_trunks: [
+            {
+              id: "trunk-1",
+              enabled: true,
+              name: "primary-carrier",
+              region: "Global",
+              sip_domain: "voice.example.net",
             },
-          },
+          ],
         },
       },
     });
     expect(onSaved).toHaveBeenCalledOnce();
     expect(onSaved).toHaveBeenCalledWith(configuration);
+  });
+
+  it("rejects a trunk name containing spaces before calling the API", async () => {
+    render(
+      <SipConnectivityCard
+        details={details}
+        configuration={configuration}
+        onSaved={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    fireEvent.change(screen.getByLabelText("Trunk Name"), {
+      target: { value: "primary carrier" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save outbound trunk" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Trunk name may only contain letters, digits and hyphens",
+      ),
+    );
+    expect(mocks.updateConfiguration).not.toHaveBeenCalled();
   });
 
   it("persists the outbound trunk toggle", async () => {
@@ -226,7 +234,8 @@ describe("SipConnectivityCard", () => {
 
     await waitFor(() => expect(mocks.updateConfiguration).toHaveBeenCalledOnce());
     expect(
-      mocks.updateConfiguration.mock.calls[0][0].body.config.outbound_trunk.enabled,
+      mocks.updateConfiguration.mock.calls[0][0].body.config.outbound_trunks[0]
+        .enabled,
     ).toBe(false);
   });
 });

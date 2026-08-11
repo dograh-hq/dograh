@@ -1,8 +1,11 @@
 """Cloudonix telephony configuration schemas."""
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from .regions import CLOUDONIX_REGION_NAMES, get_cloudonix_region
 
 
 def normalize_cloudonix_domain(value: str | None) -> str | None:
@@ -17,106 +20,101 @@ def normalize_cloudonix_domain(value: str | None) -> str | None:
     return f"{value}.cloudonix.net"
 
 
-class CloudonixOutboundTrunkAuthentication(BaseModel):
-    """Optional SIP digest credentials for the remote termination peer."""
-
-    username: str | None = None
-    password: str | None = None
-    overwrite_from: bool = Field(
-        default=False,
-        description=(
-            "Use the authentication username as the SIP From caller ID. "
-            "Cloudonix sends this as profile.authentication.overwrite-from."
-        ),
-    )
-
-    @field_validator("username", "password")
-    @classmethod
-    def _strip_optional_auth_value(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        return value or None
-
-    @model_validator(mode="after")
-    def _require_complete_credentials(self):
-        if bool(self.username) != bool(self.password):
-            raise ValueError(
-                "Outbound trunk authentication username and password must be "
-                "provided together"
-            )
-        return self
-
-
-class CloudonixOutboundTrunkProfile(BaseModel):
-    """Cloudonix-recognized outbound voice-trunk profile fields."""
-
-    hostname: str | None = Field(
-        default=None,
-        description="Pin calls to one Cloudonix Border Gateway hostname or IP",
-    )
-    domain: str | None = Field(
-        default=None,
-        description="Override the domain in the SIP To header",
-    )
-    ruri_domain: str | None = Field(
-        default=None,
-        description="Override the SIP Request-URI domain",
-    )
-    connection_timeout: int | None = Field(default=None, ge=1)
-    provisional_timeout: int | None = Field(default=None, ge=1)
-    authentication: CloudonixOutboundTrunkAuthentication | None = None
-
-    @field_validator("hostname", "domain", "ruri_domain")
-    @classmethod
-    def _strip_optional_profile_value(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        return value or None
+_TRUNK_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 
 
 class CloudonixOutboundTrunkConfiguration(BaseModel):
-    """Dograh-managed Cloudonix outbound SIP trunk."""
+    """Dograh-managed Cloudonix outbound SIP trunk.
 
+    Only the trunk name and the SIP domain are operator-supplied. The remote
+    peer (IP, port, transport) is derived from ``region`` when the Cloudonix
+    payload is built, so the trunk always terminates on the same regional edge
+    the customer sees under SIP connectivity.
+    """
+
+    id: str | None = Field(
+        default=None,
+        description=(
+            "Dograh-owned identifier for this trunk, minted on first save. "
+            "Stable across renames, and the key the Cloudonix trunk UUID is "
+            "stored under. Clients round-trip it; they never invent it."
+        ),
+    )
     enabled: bool = False
     name: str | None = Field(
         default=None,
-        description="Unique human-readable name for the Cloudonix voice trunk",
+        description=(
+            "Unique name for the Cloudonix voice trunk. Letters, digits and "
+            "hyphens only — Cloudonix trunk names cannot contain spaces."
+        ),
     )
-    ip: str | None = Field(
+    region: str | None = Field(
         default=None,
-        description="Remote carrier/PBX IP address or FQDN",
+        description=(
+            "Cloudonix region whose SIP edge terminates this trunk; sets the "
+            "remote IP, port and transport."
+        ),
     )
-    port: int = Field(default=5060, ge=1, le=65535)
-    transport: Literal["udp", "tcp", "tls"] = "udp"
-    prefix: str = Field(
-        default="",
-        description="Technical prefix Cloudonix prepends to the dialed destination",
+    sip_domain: str | None = Field(
+        default=None,
+        description=(
+            "Domain Cloudonix puts in both the SIP To header and the SIP "
+            "Request-URI for calls on this trunk."
+        ),
     )
-    profile: CloudonixOutboundTrunkProfile | None = None
 
-    @field_validator("name", "ip")
+    @field_validator("id", "name", "region", "sip_domain")
     @classmethod
-    def _strip_required_when_enabled(cls, value: str | None) -> str | None:
+    def _strip_optional_value(cls, value: str | None) -> str | None:
         if value is None:
             return None
         value = value.strip()
         return value or None
 
-    @field_validator("prefix")
+    @field_validator("name")
     @classmethod
-    def _strip_prefix(cls, value: str) -> str:
-        return value.strip()
+    def _reject_spaces_in_name(cls, value: str | None) -> str | None:
+        if value is not None and not _TRUNK_NAME_PATTERN.match(value):
+            raise ValueError(
+                "Outbound trunk name may only contain letters, digits and hyphens"
+            )
+        return value
+
+    @field_validator("region")
+    @classmethod
+    def _known_region(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        region = get_cloudonix_region(value)
+        if region is None:
+            raise ValueError(
+                f"Unknown Cloudonix region '{value}'. Expected one of: "
+                + ", ".join(CLOUDONIX_REGION_NAMES)
+            )
+        return region.name
 
     @model_validator(mode="after")
-    def _require_peer_when_enabled(self):
-        if self.enabled and (not self.name or not self.ip):
+    def _require_fields_when_enabled(self):
+        if self.enabled and (not self.name or not self.region or not self.sip_domain):
             raise ValueError(
-                "Outbound trunk name and remote SIP address are required when "
+                "Outbound trunk name, region and SIP domain are required when "
                 "outbound trunk setup is enabled"
             )
         return self
+
+
+def _require_distinct_trunks(
+    trunks: list[CloudonixOutboundTrunkConfiguration],
+) -> list[CloudonixOutboundTrunkConfiguration]:
+    """Ids key the stored Cloudonix UUIDs; names are unique within a domain."""
+    ids = [trunk.id for trunk in trunks if trunk.id]
+    if len(set(ids)) != len(ids):
+        raise ValueError("Outbound trunk ids must be unique")
+
+    names = [trunk.name for trunk in trunks if trunk.name]
+    if len(set(names)) != len(names):
+        raise ValueError("Outbound trunk names must be unique")
+    return trunks
 
 
 class CloudonixConfigurationRequest(BaseModel):
@@ -140,32 +138,42 @@ class CloudonixConfigurationRequest(BaseModel):
             "save and its name is stored on the configuration."
         ),
     )
-    outbound_trunk: CloudonixOutboundTrunkConfiguration | None = Field(
-        default=None,
+    outbound_trunks: list[CloudonixOutboundTrunkConfiguration] = Field(
+        default_factory=list,
         description=(
-            "Optional outbound SIP trunk that Dograh creates and keeps in sync "
-            "on this Cloudonix domain"
+            "Outbound SIP trunks Dograh creates and keeps in sync on this "
+            "Cloudonix domain. Trunks dropped from the list are deactivated. "
+            "The UI manages a single trunk today; the list is the storage "
+            "shape so more can be added without a schema change."
         ),
     )
+
     from_numbers: list[str] = Field(
         default_factory=list, description="List of Cloudonix phone numbers (optional)"
     )
 
+    @field_validator("outbound_trunks")
+    @classmethod
+    def _distinct_trunks(
+        cls, value: list[CloudonixOutboundTrunkConfiguration]
+    ) -> list[CloudonixOutboundTrunkConfiguration]:
+        return _require_distinct_trunks(value)
+
 
 class CloudonixConfigurationResponse(BaseModel):
-    """Response schema for Cloudonix configuration with masked sensitive fields."""
+    """Response schema for Cloudonix configuration with masked sensitive fields.
+
+    Server-managed credential fields (``domain_uuid``, ``provisioning_id``,
+    ``managed_by``, the application and trunk UUIDs) are stripped before this
+    is built — they are Dograh's bookkeeping, not something a client sends
+    back or renders.
+    """
 
     provider: Literal["cloudonix"] = Field(default="cloudonix")
     bearer_token: str  # Masked
     domain_id: str
-    domain_uuid: str | None = Field(
-        default=None,
-        description="Cloudonix domain UUID fetched automatically from domainGet",
-    )
     application_name: str | None = None
-    outbound_trunk: CloudonixOutboundTrunkConfiguration | None = None
-    outbound_trunk_uuid: str | None = Field(
-        default=None,
-        description="UUID of the Dograh-managed Cloudonix outbound voice trunk",
+    outbound_trunks: list[CloudonixOutboundTrunkConfiguration] = Field(
+        default_factory=list
     )
     from_numbers: list[str]

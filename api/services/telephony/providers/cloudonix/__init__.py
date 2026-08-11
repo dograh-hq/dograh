@@ -10,16 +10,15 @@ from loguru import logger
 
 from api.services.telephony.registry import (
     ProviderSpec,
-    ProviderUICondition,
     ProviderUIField,
     ProviderUIMetadata,
-    ProviderUIOption,
     register,
 )
 from api.utils.common import get_backend_endpoints
 
 from .config import CloudonixConfigurationRequest, CloudonixConfigurationResponse
 from .provider import CLOUDONIX_API_BASE_URL, CloudonixProvider
+from .regions import CLOUDONIX_REGION_NAMES, get_cloudonix_region
 from .transport import create_transport
 
 
@@ -33,8 +32,8 @@ def _config_loader(value: dict[str, Any]) -> dict[str, Any]:
         "application_name": value.get("application_name"),
         "application_id": value.get("application_id"),
         "application_uuid": value.get("application_uuid"),
-        "outbound_trunk": value.get("outbound_trunk"),
-        "outbound_trunk_uuid": value.get("outbound_trunk_uuid"),
+        "outbound_trunks": value.get("outbound_trunks") or [],
+        "outbound_trunk_uuids": value.get("outbound_trunk_uuids") or {},
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -264,53 +263,50 @@ _MANAGED_TRUNK_PROFILE_FIELDS = {
 
 
 def _build_outbound_trunk_profile(configuration: dict[str, Any]) -> dict[str, Any]:
-    """Translate Dograh's Python-safe field names to Cloudonix profile keys."""
-    configured_profile = configuration.get("profile")
-    if not isinstance(configured_profile, dict):
+    """One operator-supplied SIP domain drives both Cloudonix domain keys."""
+    sip_domain = configuration.get("sip_domain")
+    if not isinstance(sip_domain, str) or not sip_domain.strip():
         return {}
 
-    profile: dict[str, Any] = {}
-    profile_fields = {
-        "hostname": "hostname",
-        "domain": "domain",
-        "ruri_domain": "ruri-domain",
-        "connection_timeout": "connection-timeout",
-        "provisional_timeout": "provisional-timeout",
-    }
-    for stored_name, cloudonix_name in profile_fields.items():
-        value = configured_profile.get(stored_name)
-        if value is not None and value != "":
-            profile[cloudonix_name] = value
-
-    authentication = configured_profile.get("authentication")
-    if isinstance(authentication, dict):
-        username = authentication.get("username")
-        password = authentication.get("password")
-        if username and password:
-            profile["authentication"] = {
-                "username": username,
-                "password": password,
-                "overwrite-from": bool(authentication.get("overwrite_from", False)),
-            }
-
-    return profile
+    sip_domain = sip_domain.strip()
+    return {"domain": sip_domain, "ruri-domain": sip_domain}
 
 
 def _build_outbound_trunk_payload(
     configuration: dict[str, Any],
 ) -> dict[str, Any]:
+    """Expand the two operator fields into a full Cloudonix trunk payload.
+
+    The remote peer comes from the configured region rather than the operator:
+    a Dograh-managed trunk always terminates on that region's Cloudonix edge.
+    """
+    region = get_cloudonix_region(configuration.get("region"))
+    if region is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Outbound trunk is missing a known Cloudonix region; expected "
+                "one of: " + ", ".join(CLOUDONIX_REGION_NAMES)
+            ),
+        )
+
     payload: dict[str, Any] = {
         "name": configuration["name"],
-        "ip": configuration["ip"],
-        "port": configuration.get("port", 5060),
-        "transport": configuration.get("transport", "udp"),
-        "prefix": configuration.get("prefix", ""),
+        "ip": region.edge_ip,
+        "port": region.sip_port,
+        "transport": "udp",
+        "prefix": "",
         "direction": _OUTBOUND_TRUNK_DIRECTION,
     }
     profile = _build_outbound_trunk_profile(configuration)
     if profile:
         payload["profile"] = profile
     return payload
+
+
+def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Return a safe-to-log copy of the request headers."""
+    return {**headers, "Authorization": "Bearer [REDACTED]"}
 
 
 def _redact_outbound_trunk_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -436,26 +432,169 @@ def _outbound_trunk_needs_update(
     return normalized_existing_profile != normalized_desired_profile
 
 
-async def _ensure_outbound_trunk(credentials: dict[str, Any]) -> dict[str, Any]:
-    """Create, update, or deactivate the Dograh-managed outbound trunk.
+async def _deactivate_outbound_trunk(
+    session,
+    collection_endpoint: str,
+    headers: dict[str, str],
+    remote: dict[str, Any],
+) -> None:
+    """Mark an existing Cloudonix trunk inactive. No-op when already inactive."""
+    if remote.get("active") is False:
+        return
 
-    Cloudonix trunk names are unique, and the created trunk UUID is persisted as
-    a server-managed credential. Subsequent saves first match that UUID and then
-    fall back to the configured name, preventing duplicate trunk creation if an
-    older Dograh configuration predates UUID persistence.
-    """
-    configuration = credentials.get("outbound_trunk")
-    if not isinstance(configuration, dict):
-        return credentials
+    remote_uuid = remote.get("uuid")
+    if not isinstance(remote_uuid, str) or not remote_uuid:
+        raise HTTPException(
+            status_code=502,
+            detail="Cloudonix voice trunk response did not include a UUID",
+        )
 
-    enabled = bool(configuration.get("enabled"))
-    trunk_uuid_value = credentials.get("outbound_trunk_uuid")
-    trunk_uuid = (
-        trunk_uuid_value.strip()
-        if isinstance(trunk_uuid_value, str) and trunk_uuid_value.strip()
-        else None
+    endpoint = f"{collection_endpoint}/{quote(remote_uuid, safe='')}"
+    body = {"active": False}
+    logger.info(
+        f"[Cloudonix] trunkUpdate request:\n"
+        f"Method: PUT\nEndpoint: {endpoint}\n"
+        f"Headers: {_redact_headers(headers)}\nPayload: {body}"
     )
-    if not enabled and not trunk_uuid:
+    async with session.put(endpoint, json=body, headers=headers) as response:
+        await response.text()
+        if response.status not in (200, 204):
+            logger.error(
+                f"[Cloudonix] trunkUpdate deactivation failed: HTTP {response.status}"
+            )
+            raise HTTPException(
+                status_code=response.status,
+                detail=(
+                    "Failed to deactivate Cloudonix outbound trunk: "
+                    f"HTTP {response.status}"
+                ),
+            )
+
+
+async def _apply_outbound_trunk(
+    session,
+    collection_endpoint: str,
+    headers: dict[str, str],
+    remote_trunks: list[dict[str, Any]],
+    configuration: dict[str, Any],
+    remote_uuid: str | None,
+) -> str:
+    """Create or update one trunk on Cloudonix. Returns its Cloudonix UUID."""
+    trunk_name = configuration.get("name")
+    trunk_name = trunk_name if isinstance(trunk_name, str) else None
+    existing = _find_managed_outbound_trunk(remote_trunks, remote_uuid, trunk_name)
+
+    same_name = next(
+        (
+            trunk
+            for trunk in remote_trunks
+            if trunk.get("name") == trunk_name
+            and trunk.get("direction") != _OUTBOUND_TRUNK_DIRECTION
+        ),
+        None,
+    )
+    if existing is None and same_name is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A Cloudonix trunk named '{trunk_name}' already exists "
+                "with a different direction"
+            ),
+        )
+
+    desired = _build_outbound_trunk_payload(configuration)
+    if existing is not None:
+        existing_uuid = existing.get("uuid")
+        if not isinstance(existing_uuid, str) or not existing_uuid:
+            raise HTTPException(
+                status_code=502,
+                detail="Cloudonix voice trunk response did not include a UUID",
+            )
+        update_payload = _outbound_trunk_update_payload(desired, existing)
+        if _outbound_trunk_needs_update(existing, update_payload):
+            endpoint = f"{collection_endpoint}/{quote(existing_uuid, safe='')}"
+            logger.info(
+                f"[Cloudonix] trunkUpdate request:\n"
+                f"Method: PUT\nEndpoint: {endpoint}\n"
+                f"Headers: {_redact_headers(headers)}\n"
+                f"Payload: {_redact_outbound_trunk_payload(update_payload)}"
+            )
+            async with session.put(
+                endpoint, json=update_payload, headers=headers
+            ) as response:
+                await response.text()
+                if response.status not in (200, 204):
+                    logger.error(
+                        f"[Cloudonix] trunkUpdate failed: HTTP {response.status}"
+                    )
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=(
+                            "Failed to update Cloudonix outbound trunk: "
+                            f"HTTP {response.status}"
+                        ),
+                    )
+        return existing_uuid
+
+    logger.info(
+        f"[Cloudonix] trunkCreate request:\n"
+        f"Method: POST\nEndpoint: {collection_endpoint}\n"
+        f"Headers: {_redact_headers(headers)}\n"
+        f"Payload: {_redact_outbound_trunk_payload(desired)}"
+    )
+    async with session.post(
+        collection_endpoint, json=desired, headers=headers
+    ) as response:
+        await response.text()
+        if response.status not in (200, 201):
+            logger.error(f"[Cloudonix] trunkCreate failed: HTTP {response.status}")
+            raise HTTPException(
+                status_code=response.status,
+                detail=(
+                    f"Failed to create Cloudonix outbound trunk: HTTP {response.status}"
+                ),
+            )
+        try:
+            created = await response.json()
+        except (aiohttp.ContentTypeError, ValueError):
+            created = None
+
+    created_uuid = created.get("uuid") if isinstance(created, dict) else None
+    if not isinstance(created_uuid, str) or not created_uuid:
+        # Some Cloudonix deployments return an empty success response. Resolve
+        # the newly-created resource by its unique name instead.
+        refreshed = await _list_outbound_domain_trunks(
+            session, collection_endpoint, headers
+        )
+        created_trunk = _find_managed_outbound_trunk(refreshed, None, trunk_name)
+        created_uuid = (
+            created_trunk.get("uuid") if isinstance(created_trunk, dict) else None
+        )
+    if not isinstance(created_uuid, str) or not created_uuid:
+        raise HTTPException(
+            status_code=502,
+            detail="Cloudonix trunkCreate response did not include a UUID",
+        )
+
+    logger.info(f"[Cloudonix] created outbound voice trunk '{trunk_name}'")
+    return created_uuid
+
+
+async def _ensure_outbound_trunks(credentials: dict[str, Any]) -> dict[str, Any]:
+    """Reconcile every configured outbound trunk against Cloudonix.
+
+    ``outbound_trunks`` is the desired state and ``outbound_trunk_uuids`` maps
+    each Dograh trunk id to the Cloudonix UUID it provisioned. Keeping the map
+    keyed by our own id — rather than matching on trunk name — means a rename
+    updates the existing Cloudonix trunk instead of orphaning it. A trunk that
+    is disabled or dropped from the list is deactivated remotely.
+    """
+    configurations = credentials.get("outbound_trunks")
+    configurations = configurations if isinstance(configurations, list) else []
+    stored_uuids = credentials.get("outbound_trunk_uuids")
+    stored_uuids = dict(stored_uuids) if isinstance(stored_uuids, dict) else {}
+
+    if not configurations and not stored_uuids:
         return credentials
 
     bearer_token = credentials.get("bearer_token")
@@ -470,164 +609,57 @@ async def _ensure_outbound_trunk(credentials: dict[str, Any]) -> dict[str, Any]:
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    safe_headers = {**headers, "Authorization": "Bearer [REDACTED]"}
 
     try:
         async with aiohttp.ClientSession() as session:
-            trunks = await _list_outbound_domain_trunks(
+            remote_trunks = await _list_outbound_domain_trunks(
                 session, collection_endpoint, headers
             )
-            trunk_name = configuration.get("name")
-            existing = _find_managed_outbound_trunk(
-                trunks,
-                trunk_uuid,
-                trunk_name if isinstance(trunk_name, str) else None,
-            )
 
-            if not enabled:
-                if existing is None:
-                    updated = dict(credentials)
-                    updated.pop("outbound_trunk_uuid", None)
-                    return updated
-                if existing.get("active") is False:
-                    return credentials
-
-                existing_uuid = existing.get("uuid")
-                if not isinstance(existing_uuid, str) or not existing_uuid:
+            provisioned: dict[str, str] = {}
+            for configuration in configurations:
+                if not isinstance(configuration, dict):
+                    continue
+                trunk_id = configuration.get("id")
+                if not isinstance(trunk_id, str) or not trunk_id:
                     raise HTTPException(
-                        status_code=502,
-                        detail="Cloudonix voice trunk response did not include a UUID",
+                        status_code=500,
+                        detail="Outbound trunk is missing its Dograh identifier",
                     )
-                endpoint = f"{collection_endpoint}/{quote(existing_uuid, safe='')}"
-                body = {"active": False}
-                logger.info(
-                    f"[Cloudonix] trunkUpdate request:\n"
-                    f"Method: PUT\nEndpoint: {endpoint}\n"
-                    f"Headers: {safe_headers}\nPayload: {body}"
-                )
-                async with session.put(
-                    endpoint, json=body, headers=headers
-                ) as response:
-                    await response.text()
-                    if response.status not in (200, 204):
-                        logger.error(
-                            f"[Cloudonix] trunkUpdate deactivation failed: "
-                            f"HTTP {response.status}"
-                        )
-                        raise HTTPException(
-                            status_code=response.status,
-                            detail=(
-                                "Failed to deactivate Cloudonix outbound trunk: "
-                                f"HTTP {response.status}"
-                            ),
-                        )
-                return credentials
-
-            same_name = next(
-                (
-                    trunk
-                    for trunk in trunks
-                    if trunk.get("name") == trunk_name
-                    and trunk.get("direction") != _OUTBOUND_TRUNK_DIRECTION
-                ),
-                None,
-            )
-            if existing is None and same_name is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"A Cloudonix trunk named '{trunk_name}' already exists "
-                        "with a different direction"
-                    ),
+                if not configuration.get("enabled"):
+                    continue
+                provisioned[trunk_id] = await _apply_outbound_trunk(
+                    session,
+                    collection_endpoint,
+                    headers,
+                    remote_trunks,
+                    configuration,
+                    stored_uuids.get(trunk_id),
                 )
 
-            desired = _build_outbound_trunk_payload(configuration)
-            if existing is not None:
-                existing_uuid = existing.get("uuid")
-                if not isinstance(existing_uuid, str) or not existing_uuid:
-                    raise HTTPException(
-                        status_code=502,
-                        detail="Cloudonix voice trunk response did not include a UUID",
+            # Anything previously provisioned that is now disabled or removed.
+            listed_ids = {
+                configuration.get("id")
+                for configuration in configurations
+                if isinstance(configuration, dict)
+            }
+            resolved = dict(provisioned)
+            for stale_id, stale_uuid in stored_uuids.items():
+                if stale_id in provisioned:
+                    continue
+                remote = _find_managed_outbound_trunk(remote_trunks, stale_uuid, None)
+                if remote is not None:
+                    await _deactivate_outbound_trunk(
+                        session, collection_endpoint, headers, remote
                     )
-                update_payload = _outbound_trunk_update_payload(desired, existing)
-                if _outbound_trunk_needs_update(existing, update_payload):
-                    endpoint = f"{collection_endpoint}/{quote(existing_uuid, safe='')}"
-                    logger.info(
-                        f"[Cloudonix] trunkUpdate request:\n"
-                        f"Method: PUT\nEndpoint: {endpoint}\n"
-                        f"Headers: {safe_headers}\n"
-                        f"Payload: {_redact_outbound_trunk_payload(update_payload)}"
-                    )
-                    async with session.put(
-                        endpoint, json=update_payload, headers=headers
-                    ) as response:
-                        await response.text()
-                        if response.status not in (200, 204):
-                            logger.error(
-                                f"[Cloudonix] trunkUpdate failed: "
-                                f"HTTP {response.status}"
-                            )
-                            raise HTTPException(
-                                status_code=response.status,
-                                detail=(
-                                    "Failed to update Cloudonix outbound trunk: "
-                                    f"HTTP {response.status}"
-                                ),
-                            )
-                return {**credentials, "outbound_trunk_uuid": existing_uuid}
+                # A trunk still on the config is only switched off: keep its
+                # UUID so re-enabling reuses the Cloudonix trunk even if the
+                # operator renamed it while it was disabled. A trunk dropped
+                # from the config is forgotten.
+                if stale_id in listed_ids:
+                    resolved[stale_id] = stale_uuid
 
-            logger.info(
-                f"[Cloudonix] trunkCreate request:\n"
-                f"Method: POST\nEndpoint: {collection_endpoint}\n"
-                f"Headers: {safe_headers}\n"
-                f"Payload: {_redact_outbound_trunk_payload(desired)}"
-            )
-            async with session.post(
-                collection_endpoint, json=desired, headers=headers
-            ) as response:
-                await response.text()
-                if response.status not in (200, 201):
-                    logger.error(
-                        f"[Cloudonix] trunkCreate failed: HTTP {response.status}"
-                    )
-                    raise HTTPException(
-                        status_code=response.status,
-                        detail=(
-                            "Failed to create Cloudonix outbound trunk: "
-                            f"HTTP {response.status}"
-                        ),
-                    )
-                try:
-                    created = await response.json()
-                except (aiohttp.ContentTypeError, ValueError):
-                    created = None
-
-            created_uuid = created.get("uuid") if isinstance(created, dict) else None
-            if not isinstance(created_uuid, str) or not created_uuid:
-                # Some Cloudonix deployments return an empty success response.
-                # Resolve the newly-created resource by its unique name instead.
-                trunks = await _list_outbound_domain_trunks(
-                    session, collection_endpoint, headers
-                )
-                created_trunk = _find_managed_outbound_trunk(
-                    trunks, None, str(trunk_name)
-                )
-                created_uuid = (
-                    created_trunk.get("uuid")
-                    if isinstance(created_trunk, dict)
-                    else None
-                )
-            if not isinstance(created_uuid, str) or not created_uuid:
-                raise HTTPException(
-                    status_code=502,
-                    detail="Cloudonix trunkCreate response did not include a UUID",
-                )
-
-            logger.info(
-                f"[Cloudonix] created outbound voice trunk '{trunk_name}' "
-                f"on domain {domain_id}"
-            )
-            return {**credentials, "outbound_trunk_uuid": created_uuid}
+            return {**credentials, "outbound_trunk_uuids": resolved}
     except aiohttp.ClientError as e:
         logger.error(f"[Cloudonix] outbound trunk transport error: {e}")
         raise HTTPException(
@@ -636,12 +668,27 @@ async def _ensure_outbound_trunk(credentials: dict[str, Any]) -> dict[str, Any]:
         ) from e
 
 
+def _assign_outbound_trunk_ids(credentials: dict[str, Any]) -> dict[str, Any]:
+    """Mint a Dograh id for any trunk saved without one."""
+    configurations = credentials.get("outbound_trunks")
+    if not isinstance(configurations, list) or not configurations:
+        return credentials
+
+    stamped = []
+    for configuration in configurations:
+        if isinstance(configuration, dict) and not configuration.get("id"):
+            configuration = {**configuration, "id": str(uuid.uuid4())}
+        stamped.append(configuration)
+    return {**credentials, "outbound_trunks": stamped}
+
+
 async def _preprocess_credentials_on_save(
     credentials: dict[str, Any],
 ) -> dict[str, Any]:
     credentials = await _fetch_domain_uuid(credentials)
     credentials = await _ensure_application_name(credentials)
-    return await _ensure_outbound_trunk(credentials)
+    credentials = _assign_outbound_trunk_ids(credentials)
+    return await _ensure_outbound_trunks(credentials)
 
 
 _UI_METADATA = ProviderUIMetadata(
@@ -676,187 +723,6 @@ _UI_METADATA = ProviderUIMetadata(
             ),
         ),
         ProviderUIField(
-            name="outbound_trunk.enabled",
-            label="Set up an outbound SIP trunk",
-            type="boolean",
-            description=(
-                "Create and manage a public-outbound Cloudonix voice trunk. "
-                "Turning this off deactivates a trunk previously created by Dograh."
-            ),
-            section="Outbound SIP trunk",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.name",
-            label="Trunk Name",
-            type="text",
-            placeholder="e.g. dograh-carrier",
-            description="A unique name for this trunk in your Cloudonix domain.",
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound SIP trunk",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.ip",
-            label="Remote SIP Address",
-            type="text",
-            placeholder="sip.example.com",
-            description=(
-                "The carrier, PBX, or SIP service IP address or FQDN. "
-                "Cloudonix does not perform SRV lookups."
-            ),
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound SIP trunk",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.port",
-            label="Remote SIP Port",
-            type="number",
-            required=False,
-            placeholder="5060",
-            description="Defaults to 5060.",
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound SIP trunk",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.transport",
-            label="Transport",
-            type="select",
-            required=False,
-            options=[
-                ProviderUIOption(value="udp", label="UDP (default)"),
-                ProviderUIOption(value="tcp", label="TCP"),
-                ProviderUIOption(value="tls", label="TLS"),
-            ],
-            description="Transport used to connect to the remote SIP peer.",
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound SIP trunk",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.prefix",
-            label="Technical Prefix",
-            type="text",
-            required=False,
-            placeholder="e.g. +",
-            description=(
-                "Cloudonix prepends this value to every destination sent through "
-                "the public-outbound trunk. Leave blank if your peer needs none."
-            ),
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound SIP trunk",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.authentication.username",
-            label="Authentication Username",
-            type="text",
-            required=False,
-            description=(
-                "Optional SIP digest username. Username and password must be "
-                "provided together."
-            ),
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk authentication",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.authentication.password",
-            label="Authentication Password",
-            type="password",
-            required=False,
-            sensitive=True,
-            description="Optional SIP digest password for the remote peer.",
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk authentication",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.authentication.overwrite_from",
-            label="Use authentication username as caller ID",
-            type="boolean",
-            required=False,
-            description=(
-                "Enable only when your SIP provider requires the authentication "
-                "username in the From header."
-            ),
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk authentication",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.hostname",
-            label="Cloudonix Border Gateway",
-            type="text",
-            required=False,
-            description=(
-                "Pin outbound calls to one Cloudonix Border Gateway hostname or "
-                "IP. Normally leave blank to retain high availability."
-            ),
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk advanced settings",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.domain",
-            label="SIP To Domain",
-            type="text",
-            required=False,
-            description="Override the domain in the SIP INVITE To header.",
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk advanced settings",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.ruri_domain",
-            label="SIP Request-URI Domain",
-            type="text",
-            required=False,
-            description=(
-                "Override the Request-URI domain while still connecting to the "
-                "remote SIP address above."
-            ),
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk advanced settings",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.connection_timeout",
-            label="Connection Timeout (seconds)",
-            type="number",
-            required=False,
-            placeholder="10",
-            description="Cloudonix defaults to 10 seconds.",
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk advanced settings",
-        ),
-        ProviderUIField(
-            name="outbound_trunk.profile.provisional_timeout",
-            label="Provisional Timeout (seconds)",
-            type="number",
-            required=False,
-            placeholder="2",
-            description="Cloudonix defaults to 2 seconds.",
-            visible_when=ProviderUICondition(
-                field="outbound_trunk.enabled", equals=True
-            ),
-            section="Outbound trunk advanced settings",
-        ),
-        ProviderUIField(
             name="from_numbers",
             label="Phone Numbers",
             type="string-array",
@@ -881,7 +747,7 @@ SPEC = ProviderSpec(
         "application_uuid",
         "managed_by",
         "provisioning_id",
-        "outbound_trunk_uuid",
+        "outbound_trunk_uuids",
     ),
     preprocess_credentials_on_save=_preprocess_credentials_on_save,
 )

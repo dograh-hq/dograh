@@ -30,14 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface SipConnectivityCardProps {
@@ -64,6 +56,19 @@ export function SipConnectivityCard({
     defaultRegion;
 
   if (!region) return null;
+
+  // A region's transports all share one hostname and differ only by port, and
+  // UDP/TCP usually share that too — so the endpoint is one hostname plus a
+  // short port list ("UDP/TCP 9060", "TLS 9443"), not a row per transport.
+  const inboundHostname = region.inbound_transports[0]?.hostname;
+  const portGroups = region.inbound_transports.reduce<
+    { port: number; transports: string[] }[]
+  >((groups, transport) => {
+    const group = groups.find((candidate) => candidate.port === transport.port);
+    if (group) group.transports.push(transport.transport);
+    else groups.push({ port: transport.port, transports: [transport.transport] });
+    return groups;
+  }, []);
 
   const copyValue = (value: string, label: string) => {
     copyTextToClipboard(value)
@@ -94,7 +99,15 @@ export function SipConnectivityCard({
         <CollapsibleContent>
           <CardContent className="space-y-6 border-t pt-6">
             <div className="max-w-xs space-y-2">
-              <p className="text-sm font-medium">Select Region</p>
+              <p className="flex items-center gap-2 text-sm font-medium">
+                Select Region
+                {/* Every endpoint below is region-specific, so the picker is
+                    easy to walk past and read the wrong hostnames from. */}
+                <span aria-hidden className="relative flex h-3 w-3 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
+                </span>
+              </p>
               <Select value={region.region} onValueChange={setSelectedRegion}>
                 <SelectTrigger aria-label="SIP region">
                   <SelectValue />
@@ -113,48 +126,38 @@ export function SipConnectivityCard({
               <div className="border-b bg-muted/20 p-4">
                 <h3 className="font-semibold">Inbound</h3>
                 <p className="text-sm text-muted-foreground">
-                  Route calls to {details.provider_display_name}/Dograh using one of
-                  these SIP endpoints.
+                  Route calls to {details.provider_display_name}/Dograh using this
+                  SIP endpoint.
                 </p>
               </div>
-              <div className="overflow-x-auto p-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Transport</TableHead>
-                      <TableHead>Hostname</TableHead>
-                      <TableHead>Port</TableHead>
-                      <TableHead>URI</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {region.inbound_transports.map((transport) => (
-                      <TableRow key={transport.transport}>
-                        <TableCell>
-                          <Badge variant="outline">{transport.transport}</Badge>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap font-mono text-xs">
-                          {transport.hostname}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {transport.port}
-                        </TableCell>
-                        <TableCell>
-                          <button
-                            type="button"
-                            onClick={() => copyValue(transport.uri, "SIP URI")}
-                            title={`Copy ${transport.transport} SIP URI`}
-                            aria-label={`Copy ${transport.transport} SIP URI`}
-                            className="inline-flex items-center gap-2 whitespace-nowrap rounded font-mono text-xs hover:text-foreground"
-                          >
-                            {transport.uri}
-                            <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          </button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="space-y-3 p-4">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-muted/30 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Hostname</span>
+                  {inboundHostname ? (
+                    <button
+                      type="button"
+                      onClick={() => copyValue(inboundHostname, "Hostname")}
+                      title="Copy inbound hostname"
+                      aria-label="Copy inbound hostname"
+                      className="inline-flex items-center gap-2 rounded font-mono hover:text-foreground"
+                    >
+                      {inboundHostname}
+                      <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Ports</span>
+                  {portGroups.map((group) => (
+                    <Badge
+                      key={group.port}
+                      variant="outline"
+                      className="font-mono font-normal"
+                    >
+                      {group.transports.join("/")} {group.port}
+                    </Badge>
+                  ))}
+                </div>
               </div>
             </section>
 
@@ -186,6 +189,7 @@ export function SipConnectivityCard({
                 {configuration.provider === "cloudonix" ? (
                   <CloudonixOutboundTrunkForm
                     configuration={configuration}
+                    region={region.region}
                     onSaved={onSaved}
                   />
                 ) : null}

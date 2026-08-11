@@ -112,13 +112,24 @@ def _sensitive_fields(provider_name: str) -> List[str]:
     return [f.name for f in spec.ui_metadata.fields if f.sensitive]
 
 
-def _mask_sensitive(provider_name: str, value: dict) -> dict:
-    """Return a copy of ``value`` with sensitive fields masked for display."""
+def _credentials_for_display(provider_name: str, value: dict) -> dict:
+    """Return a copy of ``value`` fit to hand back to a client.
+
+    Sensitive fields are masked, and server-managed bookkeeping fields are
+    dropped entirely — clients never send them (provider request schemas do
+    not declare them) and they are restored from the stored row on save, so
+    echoing them back is noise the UI would only have to hide again.
+    """
     out = deepcopy(value)
     for field_name in _sensitive_fields(provider_name):
         v = _get_nested_field(out, field_name)
         if v:
             _set_nested_field(out, field_name, mask_key(str(v)))
+
+    spec = telephony_registry.get_optional(provider_name)
+    if spec:
+        for field_name in spec.server_managed_credential_fields:
+            out.pop(field_name, None)
     return out
 
 
@@ -914,7 +925,7 @@ async def delete_telephony_configuration(
 
 
 def _detail_response(row) -> TelephonyConfigurationDetail:
-    masked = _mask_sensitive(row.provider, row.credentials or {})
+    masked = _credentials_for_display(row.provider, row.credentials or {})
     return TelephonyConfigurationDetail(
         id=row.id,
         name=row.name,
@@ -1213,7 +1224,7 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
         return TelephonyConfigurationResponse()
 
     addresses = await db_client.list_active_normalized_addresses_for_config(cfg.id)
-    masked = _mask_sensitive(cfg.provider, cfg.credentials or {})
+    masked = _credentials_for_display(cfg.provider, cfg.credentials or {})
     payload = {**masked, "provider": cfg.provider, "from_numbers": addresses}
     response_obj = spec.config_response_cls.model_validate(payload)
     return TelephonyConfigurationResponse(**{cfg.provider: response_obj})

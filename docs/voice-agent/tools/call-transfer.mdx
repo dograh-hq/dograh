@@ -1,9 +1,9 @@
 ---
 title: "Call Transfer"
-description: "Transfer live telephony calls to static destinations or resolve the destination dynamically during the call."
+description: "Transfer live telephony calls using static destinations, ordered context mappings, or dynamic resolution."
 ---
 
-The Call Transfer tool lets your AI agent transfer an active telephony call to a phone number or SIP endpoint. You can configure a fixed destination, use a template from call context, or resolve the destination at transfer time by calling your HTTP endpoint.
+The Call Transfer tool lets your AI agent transfer an active telephony call to a phone number or SIP endpoint. You can configure a fixed destination, select one with ordered context rules, use a template from call context, or resolve the destination at transfer time by calling your HTTP endpoint.
 
 Use this tool when the caller should speak to a human operator, department, escalation queue, support queue, or another phone system.
 
@@ -22,7 +22,7 @@ When the LLM decides a transfer is needed, it calls the Call Transfer tool. Dogr
 For a successful transfer:
 
 1. The agent calls the Call Transfer tool.
-2. Dograh resolves the destination from either static configuration or a dynamic HTTP resolver.
+2. Dograh resolves the destination from static configuration, ordered context mappings, or a dynamic HTTP resolver.
 3. Dograh optionally plays a pre-transfer message.
 4. Dograh starts dialing the destination through the telephony provider.
 5. The caller hears hold music while the destination leg is connecting.
@@ -45,6 +45,21 @@ Static destinations can be:
 - A template value from context, such as `{{initial_context.transfer_destination}}`
 
 This is the simplest option for fixed support lines, fixed departments, or cases where the destination is provided before the call starts.
+
+### Context Mapping
+
+Use this when a finite set of context values should select the transfer destination. You can add multiple rules and order them. Dograh evaluates the rules from top to bottom and uses the first route whose value matches, ignoring case and surrounding whitespace.
+
+For each rule, enter a context field and one or more value-to-destination mappings. An unprefixed field such as `department` reads `gathered_context.department` first and falls back to `initial_context.department` when the gathered value is absent. You can use `gathered_context.department` or `initial_context.department` when you want to read only one context.
+
+Mapped and fallback destinations can be:
+
+- A VICIdial in-group, such as `sales`
+- A SIP endpoint, such as `PJSIP/1001`
+- An E.164 PSTN number, such as `+1234567890`
+- A context template, such as `{{initial_context.transfer_destination}}`
+
+Dograh performs final variable extraction before evaluating context mappings. If no rule matches, it uses the optional fallback destination. If there is no fallback, or a selected destination template resolves to an empty value, the transfer fails before dialing and the agent can continue the call.
 
 ### Dynamic HTTP Resolver
 
@@ -129,7 +144,7 @@ The dynamic resolver uses `POST` only. If you need custom backend behavior, impl
 
 ## Pre-transfer messages
 
-Call Transfer supports a common pre-transfer message setting for both static and dynamic destinations.
+Call Transfer supports a common pre-transfer message setting for static, context-mapped, and dynamic destinations.
 
 For static transfers:
 
@@ -150,7 +165,7 @@ Resolver `custom_message` overrides the configured pre-transfer message for that
 
 Transfer timeout is the maximum time Dograh waits for the destination to answer after the provider transfer starts.
 
-This timeout applies to both static and dynamic transfers.
+This timeout applies to static, context-mapped, and dynamic transfers.
 
 The resolver timeout is separate. It controls only how long Dograh waits for your HTTP resolver before dialing starts.
 
@@ -249,6 +264,7 @@ Your resolver returns:
 - Use a resolver wait message if the resolver may take noticeable time.
 - Send only the parameters your resolver needs.
 - Prefer preset parameters for values already available in `initial_context` or `gathered_context`.
+- Put the most specific context-mapping rules first and configure a fallback only when it is safe for every unmatched value.
 - Make LLM parameter descriptions explicit so the agent knows what to extract.
 - Test both successful transfer and resolver failure paths before going live.
 - Keep destination validation and routing logic in your backend when routing depends on account data or business rules.

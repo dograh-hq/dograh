@@ -314,31 +314,62 @@ export interface components {
         };
         /**
          * ContextDestinationMappingConfig
-         * @description Resolve an external-PBX destination from gathered context.
+         * @description Resolve a transfer destination from gathered or initial context.
+         *
+         *     Rules are evaluated in order. The first rule whose context value matches
+         *     one of its routes wins; ``fallback_destination`` applies only when no rule
+         *     matched. Destinations may be provider-native values or context templates.
          */
         ContextDestinationMappingConfig: {
             /**
-             * Context Path
-             * @description Gathered-context path or extracted-variable name used for routing.
+             * Rules
+             * @description Ordered routing rules evaluated top to bottom; first match wins.
              */
-            context_path: string;
-            /** Routes */
-            routes: components["schemas"]["ContextDestinationRoute"][];
+            rules?: components["schemas"]["ContextDestinationRule"][] | null;
+            /**
+             * Context Path
+             * @description Deprecated single-rule context path. Use rules instead; accepted for backward compatibility.
+             */
+            context_path?: string | null;
+            /**
+             * Routes
+             * @description Deprecated single-rule routes. Use rules instead; accepted for backward compatibility.
+             */
+            routes?: components["schemas"]["ContextDestinationRoute"][] | null;
             /**
              * Fallback Destination
-             * @description Optional provider-native fallback destination.
+             * @description Optional provider-native destination or context template used when no rule matched.
              */
             fallback_destination?: string | null;
         };
         /**
          * ContextDestinationRoute
-         * @description Map one gathered-context value to an external-PBX destination.
+         * @description Map one context value to a transfer destination.
          */
         ContextDestinationRoute: {
-            /** Context Value */
+            /**
+             * Context Value
+             * @description Context value that selects this destination.
+             */
             context_value: string;
-            /** Destination */
+            /**
+             * Destination
+             * @description VICIdial in-group, SIP endpoint, E.164 phone number, or context template used when this route matches.
+             */
             destination: string;
+        };
+        /**
+         * ContextDestinationRule
+         * @description One context lookup with its value-to-destination routes.
+         */
+        ContextDestinationRule: {
+            /**
+             * Context Path
+             * @description Context path used for routing. An unprefixed path checks gathered context first, then initial context; use initial_context.* or gathered_context.* to select one explicitly.
+             */
+            context_path: string;
+            /** Routes */
+            routes: components["schemas"]["ContextDestinationRoute"][];
         };
         /**
          * CreateToolRequest
@@ -1137,7 +1168,7 @@ export interface components {
         TransferCallConfig: {
             /**
              * Destination Source
-             * @description Whether the destination is static/template, resolved by HTTP, or mapped from gathered context to an external-PBX destination.
+             * @description Whether the destination is static/template, resolved by HTTP, or selected by ordered gathered/initial-context mapping rules.
              * @default static
              * @enum {string}
              */
@@ -1178,7 +1209,7 @@ export interface components {
             parameters?: components["schemas"]["ToolParameter"][] | null;
             /** @description Optional resolver that determines transfer routing at call time. */
             resolver?: components["schemas"]["HttpTransferResolverConfig"] | null;
-            /** @description Optional gathered-context to external-PBX destination mapping. */
+            /** @description Optional ordered context-to-destination routing rules. */
             context_mapping?: components["schemas"]["ContextDestinationMappingConfig"] | null;
         };
         /**
@@ -1284,6 +1315,8 @@ export interface components {
             text_chat_inactivity_timeout_seconds: number;
             /** External Pbx Field Mappings */
             external_pbx_field_mappings?: components["schemas"]["ExternalPBXFieldMapping"][];
+            /** External Pbx Lead Headers */
+            external_pbx_lead_headers?: string[];
         } & {
             [key: string]: unknown;
         };
@@ -1359,6 +1392,7 @@ export type CalculatorToolDefinition = components['schemas']['CalculatorToolDefi
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
 export type ContextDestinationMappingConfig = components['schemas']['ContextDestinationMappingConfig'];
 export type ContextDestinationRoute = components['schemas']['ContextDestinationRoute'];
+export type ContextDestinationRule = components['schemas']['ContextDestinationRule'];
 export type CreateToolRequest = components['schemas']['CreateToolRequest'];
 export type CreateWorkflowRequest = components['schemas']['CreateWorkflowRequest'];
 export type CreatedByResponse = components['schemas']['CreatedByResponse'];

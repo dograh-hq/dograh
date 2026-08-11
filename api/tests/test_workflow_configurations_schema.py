@@ -9,6 +9,7 @@ from api.constants import (
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     MAX_CALL_DURATION_SECONDS,
+    MAX_EXTERNAL_PBX_LEAD_HEADERS,
     TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
 )
@@ -144,3 +145,45 @@ def test_external_pbx_field_mapping_rejects_invalid_field_names():
                 {"context_path": "qualified", "destination_field": "invalid-field"}
             ]
         )
+
+
+def test_external_pbx_lead_headers_default_to_empty():
+    assert WorkflowConfigurationDefaults().external_pbx_lead_headers == []
+
+
+def test_external_pbx_lead_headers_are_stripped_and_deduplicated_in_order():
+    config = WorkflowConfigurationDefaults(
+        external_pbx_lead_headers=["  first_name  ", "address1", "first_name", "", "  "]
+    )
+
+    assert config.external_pbx_lead_headers == ["first_name", "address1"]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "1first_name",  # must start with a letter
+        "first name",  # no spaces
+        "first-name",  # no dashes
+        "PJSIP_HEADER(read,x))",  # function-injection shaped
+        "a" * 65,  # over the length cap
+    ],
+)
+def test_external_pbx_lead_headers_reject_unsafe_field_names(field):
+    with pytest.raises(ValidationError, match="external_pbx_lead_headers"):
+        WorkflowConfigurationDefaults(external_pbx_lead_headers=[field])
+
+
+def test_external_pbx_lead_headers_reject_oversized_list():
+    fields = [f"field_{index}" for index in range(MAX_EXTERNAL_PBX_LEAD_HEADERS + 1)]
+
+    with pytest.raises(ValidationError, match="external_pbx_lead_headers"):
+        WorkflowConfigurationDefaults(external_pbx_lead_headers=fields)
+
+
+def test_external_pbx_lead_headers_treat_null_as_unset():
+    config = WorkflowConfigurationDefaults.model_validate(
+        {"external_pbx_lead_headers": None}
+    )
+
+    assert config.external_pbx_lead_headers == []

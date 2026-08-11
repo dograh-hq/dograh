@@ -38,11 +38,11 @@ async def test_only_one_concurrent_claimant_wins(db_session):
         organization.id, LEASE_KEY, NEVER_STALE
     )
 
-    assert first is True
-    assert second is False
+    assert first is not None
+    assert second is None
 
     row = await db_session.get_configuration(organization.id, LEASE_KEY)
-    assert row.value == {"status": LEASE_PENDING}
+    assert row.value == {"status": LEASE_PENDING, "owner_token": first}
 
 
 @pytest.mark.asyncio
@@ -52,13 +52,13 @@ async def test_lease_is_scoped_per_organization(db_session):
 
     assert (
         await db_session.claim_configuration_lease(first_org.id, LEASE_KEY, NEVER_STALE)
-        is True
+        is not None
     )
     assert (
         await db_session.claim_configuration_lease(
             second_org.id, LEASE_KEY, NEVER_STALE
         )
-        is True
+        is not None
     )
 
 
@@ -67,26 +67,23 @@ async def test_stale_pending_lease_is_taken_over(db_session):
     """A holder that died mid-work must not block the organization forever."""
     organization = await _make_organization(db_session, "stale-takeover")
 
-    assert (
-        await db_session.claim_configuration_lease(
-            organization.id, LEASE_KEY, NEVER_STALE
-        )
-        is True
+    original_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, NEVER_STALE
     )
+    assert original_token is not None
     # Still held, and not yet stale.
     assert (
         await db_session.claim_configuration_lease(
             organization.id, LEASE_KEY, NEVER_STALE
         )
-        is False
+        is None
     )
     # Past the staleness window, the next caller takes it over.
-    assert (
-        await db_session.claim_configuration_lease(
-            organization.id, LEASE_KEY, ALREADY_STALE
-        )
-        is True
+    takeover_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, ALREADY_STALE
     )
+    assert takeover_token is not None
+    assert takeover_token != original_token
 
 
 @pytest.mark.asyncio
@@ -94,19 +91,19 @@ async def test_completed_lease_is_never_taken_over(db_session):
     """Terminal means terminal — the leased work must not run a second time."""
     organization = await _make_organization(db_session, "completed")
 
-    assert (
-        await db_session.claim_configuration_lease(
-            organization.id, LEASE_KEY, NEVER_STALE
-        )
-        is True
+    owner_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, NEVER_STALE
     )
-    await db_session.complete_configuration_lease(organization.id, LEASE_KEY)
+    assert owner_token is not None
+    await db_session.complete_configuration_lease(
+        organization.id, LEASE_KEY, owner_token
+    )
 
     assert (
         await db_session.claim_configuration_lease(
             organization.id, LEASE_KEY, ALREADY_STALE
         )
-        is False
+        is None
     )
 
     row = await db_session.get_configuration(organization.id, LEASE_KEY)
@@ -118,20 +115,20 @@ async def test_released_lease_is_reclaimable_immediately(db_session):
     """A failed holder releases, so the retry does not wait out the stale window."""
     organization = await _make_organization(db_session, "released")
 
-    assert (
-        await db_session.claim_configuration_lease(
-            organization.id, LEASE_KEY, NEVER_STALE
-        )
-        is True
+    owner_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, NEVER_STALE
     )
-    await db_session.release_configuration_lease(organization.id, LEASE_KEY)
+    assert owner_token is not None
+    await db_session.release_configuration_lease(
+        organization.id, LEASE_KEY, owner_token
+    )
 
     assert await db_session.get_configuration(organization.id, LEASE_KEY) is None
     assert (
         await db_session.claim_configuration_lease(
             organization.id, LEASE_KEY, NEVER_STALE
         )
-        is True
+        is not None
     )
 
 
@@ -140,10 +137,84 @@ async def test_release_does_not_drop_a_completed_lease(db_session):
     """Releasing after completion would re-open work that already succeeded."""
     organization = await _make_organization(db_session, "release-completed")
 
-    await db_session.claim_configuration_lease(organization.id, LEASE_KEY, NEVER_STALE)
-    await db_session.complete_configuration_lease(organization.id, LEASE_KEY)
-    await db_session.release_configuration_lease(organization.id, LEASE_KEY)
+    owner_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, NEVER_STALE
+    )
+    assert owner_token is not None
+    await db_session.complete_configuration_lease(
+        organization.id, LEASE_KEY, owner_token
+    )
+    await db_session.release_configuration_lease(
+        organization.id, LEASE_KEY, owner_token
+    )
 
     row = await db_session.get_configuration(organization.id, LEASE_KEY)
     assert row is not None
     assert row.value == {"status": LEASE_COMPLETED}
+
+
+@pytest.mark.asyncio
+async def test_expired_holder_cannot_release_takeover_lease(db_session):
+    """An expired holder must not reopen work owned by its successor."""
+    organization = await _make_organization(db_session, "fenced-release")
+
+    expired_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, NEVER_STALE
+    )
+    takeover_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, ALREADY_STALE
+    )
+    assert expired_token is not None
+    assert takeover_token is not None
+
+    await db_session.release_configuration_lease(
+        organization.id, LEASE_KEY, expired_token
+    )
+
+    row = await db_session.get_configuration(organization.id, LEASE_KEY)
+    assert row is not None
+    assert row.value == {
+        "status": LEASE_PENDING,
+        "owner_token": takeover_token,
+    }
+    assert (
+        await db_session.claim_configuration_lease(
+            organization.id, LEASE_KEY, NEVER_STALE
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_expired_holder_cannot_complete_takeover_lease(db_session):
+    """An expired holder must not mark its successor's unfinished work complete."""
+    organization = await _make_organization(db_session, "fenced-complete")
+
+    expired_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, NEVER_STALE
+    )
+    takeover_token = await db_session.claim_configuration_lease(
+        organization.id, LEASE_KEY, ALREADY_STALE
+    )
+    assert expired_token is not None
+    assert takeover_token is not None
+
+    await db_session.complete_configuration_lease(
+        organization.id, LEASE_KEY, expired_token
+    )
+
+    row = await db_session.get_configuration(organization.id, LEASE_KEY)
+    assert row.value == {
+        "status": LEASE_PENDING,
+        "owner_token": takeover_token,
+    }
+
+    await db_session.complete_configuration_lease(
+        organization.id, LEASE_KEY, takeover_token
+    )
+    assert (
+        await db_session.claim_configuration_lease(
+            organization.id, LEASE_KEY, ALREADY_STALE
+        )
+        is None
+    )

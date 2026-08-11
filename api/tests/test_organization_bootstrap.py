@@ -14,6 +14,7 @@ ORG_ID = 42
 CREATED_BY = "provider-user"
 EXISTING_KEY = "existing-svc-key"
 MINTED_KEY = "minted-svc-key"
+LEASE_OWNER_TOKEN = "lease-owner-token"
 
 
 def _dograh_config(api_key: str) -> OrganizationAIModelConfigurationV2:
@@ -67,7 +68,7 @@ def config(monkeypatch):
 @pytest.fixture
 def lease(monkeypatch):
     calls = SimpleNamespace(
-        claim=AsyncMock(return_value=True),
+        claim=AsyncMock(return_value=LEASE_OWNER_TOKEN),
         complete=AsyncMock(),
         release=AsyncMock(),
     )
@@ -142,10 +143,12 @@ async def test_fully_provisioned_org_backfills_the_sentinel(
         ORG_ID, created_by=CREATED_BY
     )
 
-    lease.claim.assert_not_awaited()
+    lease.claim.assert_awaited_once()
     mps.assert_not_awaited()
     sip.assert_not_awaited()
-    lease.complete.assert_awaited_once()
+    lease.complete.assert_awaited_once_with(
+        ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
+    )
 
 
 @pytest.mark.asyncio
@@ -166,7 +169,9 @@ async def test_existing_org_gets_owner_scoped_sip_without_minting_a_second_key(
     mps.assert_not_awaited()
     upsert.assert_not_awaited()
     sip.assert_awaited_once_with(ORG_ID, created_by=CREATED_BY)
-    lease.complete.assert_awaited_once()
+    lease.complete.assert_awaited_once_with(
+        ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
+    )
 
 
 @pytest.mark.asyncio
@@ -182,13 +187,15 @@ async def test_new_org_mints_key_and_independently_provisions_sip(
     assert configuration.mode == "dograh"
     assert configuration.dograh.api_key == MINTED_KEY
     sip.assert_awaited_once_with(ORG_ID, created_by=CREATED_BY)
-    lease.complete.assert_awaited_once()
+    lease.complete.assert_awaited_once_with(
+        ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
+    )
 
 
 @pytest.mark.asyncio
 async def test_losing_the_lease_skips_provisioning(config, lease, mps, upsert, sip):
     """A concurrent request already holds it; minting again would duplicate keys."""
-    lease.claim.return_value = False
+    lease.claim.return_value = None
 
     assert not await bootstrap.ensure_organization_bootstrapped(
         ORG_ID, created_by=CREATED_BY
@@ -211,7 +218,9 @@ async def test_key_mint_failure_releases_the_lease(config, lease, mps, upsert, s
     )
 
     upsert.assert_not_awaited()
-    lease.release.assert_awaited_once()
+    lease.release.assert_awaited_once_with(
+        ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
+    )
     lease.complete.assert_not_awaited()
 
 
@@ -225,7 +234,9 @@ async def test_missing_service_key_is_treated_as_failure(config, lease, mps, ups
     )
 
     upsert.assert_not_awaited()
-    lease.release.assert_awaited_once()
+    lease.release.assert_awaited_once_with(
+        ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
+    )
     lease.complete.assert_not_awaited()
 
 
@@ -271,7 +282,9 @@ async def test_byok_org_still_gets_owner_scoped_sip(config, lease, mps, upsert, 
 
     mps.assert_not_awaited()
     sip.assert_awaited_once_with(ORG_ID, created_by=CREATED_BY)
-    lease.complete.assert_awaited_once()
+    lease.complete.assert_awaited_once_with(
+        ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
+    )
 
 
 @pytest.mark.asyncio
@@ -289,4 +302,6 @@ async def test_billing_failure_does_not_discard_the_model_configuration(
     )
 
     upsert.assert_awaited_once()
-    lease.complete.assert_awaited_once()
+    lease.complete.assert_awaited_once_with(
+        ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
+    )

@@ -318,15 +318,16 @@ async def test_managed_preprocess_recovers_existing_app_without_duplicate_create
 
 
 @pytest.mark.asyncio
-async def test_update_preserves_server_managed_domain_uuid():
+async def test_update_preserves_server_managed_fields_for_same_domain():
     incoming_credentials = {
         "bearer_token": "secret-token",
-        "domain_id": "renamed-domain.cloudonix.net",
+        "domain_id": "friendly-name.cloudonix.net",
         "domain_uuid": "client-supplied-value",
         "application_uuid": "client-supplied-app-uuid",
         "application_name": "existing-app",
     }
     stored_credentials = {
+        "domain_id": "friendly-name.cloudonix.net",
         "domain_uuid": DOMAIN_UUID,
         "application_uuid": "stored-app-uuid",
     }
@@ -346,6 +347,55 @@ async def test_update_preserves_server_managed_domain_uuid():
         "domain_uuid": DOMAIN_UUID,
         "application_uuid": "stored-app-uuid",
     }
+
+
+@pytest.mark.asyncio
+async def test_update_refetches_server_managed_fields_when_domain_changes():
+    new_domain_uuid = "11111111-1111-4111-8111-111111111111"
+    session = _FakeSession(_FakeResponse(200, {"uuid": new_domain_uuid}))
+    incoming_credentials = {
+        "bearer_token": "secret-token",
+        "domain_id": "new-domain.cloudonix.net",
+        "domain_uuid": "client-supplied-value",
+        "application_uuid": "client-supplied-app-uuid",
+        "application_name": "existing-app",
+    }
+    stored_credentials = {
+        "domain_id": "old-domain.cloudonix.net",
+        "domain_uuid": DOMAIN_UUID,
+        "application_id": 5278,
+        "application_uuid": "stored-app-uuid",
+        "managed_by": "dograh-mps",
+        "provisioning_id": "22222222-2222-4222-8222-222222222222",
+        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
+    }
+
+    with patch(
+        "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await _run_preprocess_hook(
+            "cloudonix",
+            incoming_credentials,
+            stored_credentials,
+        )
+
+    assert result == {
+        "bearer_token": "secret-token",
+        "domain_id": "new-domain.cloudonix.net",
+        "domain_uuid": new_domain_uuid,
+        "application_name": "existing-app",
+        "managed_by": "dograh-mps",
+        "provisioning_id": "22222222-2222-4222-8222-222222222222",
+    }
+    assert session.get_calls[0][0].endswith(
+        "/customers/self/domains/new-domain.cloudonix.net"
+    )
+    details = get_sip_connectivity_details("cloudonix", result)
+    assert details is not None
+    assert details.regions[0].inbound_transports[0].hostname == (
+        f"{new_domain_uuid}.in.dimi.tel"
+    )
 
 
 @pytest.mark.asyncio
@@ -572,6 +622,12 @@ def test_cloudonix_metadata_leaves_outbound_trunks_to_the_dedicated_form():
         "application_uuid",
         "managed_by",
         "provisioning_id",
+        "outbound_trunk_uuids",
+    )
+    assert SPEC.account_scoped_server_managed_credential_fields == (
+        "domain_uuid",
+        "application_id",
+        "application_uuid",
         "outbound_trunk_uuids",
     )
 

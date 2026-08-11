@@ -121,6 +121,9 @@ class ProviderSpec:
         server_managed_credential_fields: Credential keys produced by the
             save preprocessor rather than accepted from clients. Stored values
             are carried forward on update and supplied to the preprocessor.
+        account_scoped_server_managed_credential_fields: Server-managed fields
+            to discard when the provider account identifier changes, allowing
+            the preprocessor to resolve replacements from the new account.
 
     Note: provider routes (webhooks, status callbacks, answer URLs) are
     NOT carried on the spec. They live in
@@ -147,6 +150,9 @@ class ProviderSpec:
     # trusted from request payloads and are preserved from the stored config
     # when an update re-submits the provider's editable credentials.
     server_managed_credential_fields: tuple[str, ...] = ()
+    # Subset of server_managed_credential_fields whose values identify remote
+    # resources within the account named by account_id_credential_field.
+    account_scoped_server_managed_credential_fields: tuple[str, ...] = ()
     # Optional async hook to mutate credentials before they're persisted on
     # create/update. Called with the post-mask, post-merge credentials dict
     # and must return the dict to write. Raise HTTPException to abort save.

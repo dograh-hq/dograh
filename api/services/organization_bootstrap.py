@@ -66,19 +66,23 @@ async def ensure_organization_bootstrapped(
 
     configuration = await get_organization_ai_model_configuration_v2(organization_id)
     sip_provisioned = await _has_managed_sip_connectivity(organization_id)
-    if configuration is not None and sip_provisioned:
-        # Provisioned before the sentinel existed. Record it so subsequent
-        # requests take the single-read fast path above.
-        await db_client.complete_configuration_lease(organization_id, _BOOTSTRAP_KEY)
-        return True
 
-    if not await db_client.claim_configuration_lease(
+    owner_token = await db_client.claim_configuration_lease(
         organization_id,
         _BOOTSTRAP_KEY,
         BOOTSTRAP_LEASE_STALE_AFTER,
-    ):
+    )
+    if owner_token is None:
         # Another request holds the lease and is provisioning right now.
         return False
+
+    if configuration is not None and sip_provisioned:
+        # Provisioned before the sentinel existed. Record it so subsequent
+        # requests take the single-read fast path above.
+        await db_client.complete_configuration_lease(
+            organization_id, _BOOTSTRAP_KEY, owner_token
+        )
+        return True
 
     try:
         complete = await _bootstrap_organization(
@@ -88,7 +92,9 @@ async def ensure_organization_bootstrapped(
             sip_provisioned=sip_provisioned,
         )
     except Exception:
-        await db_client.release_configuration_lease(organization_id, _BOOTSTRAP_KEY)
+        await db_client.release_configuration_lease(
+            organization_id, _BOOTSTRAP_KEY, owner_token
+        )
         logger.warning(
             "Failed to bootstrap organization {}; will retry on a later request",
             organization_id,
@@ -103,7 +109,9 @@ async def ensure_organization_bootstrapped(
         # provider on every single request.
         return False
 
-    await db_client.complete_configuration_lease(organization_id, _BOOTSTRAP_KEY)
+    await db_client.complete_configuration_lease(
+        organization_id, _BOOTSTRAP_KEY, owner_token
+    )
     return True
 
 
@@ -187,7 +195,7 @@ async def provision_dograh_managed_model_configuration(
         ),
         organization_id=(None if AUTH_PROVIDER == "local" else organization_id),
         created_by=created_by,
-        expires_in_days=7 if AUTH_PROVIDER == "local" else 90,
+        expires_in_days=90,
     )
     service_key = data.get("service_key")
     if not service_key:

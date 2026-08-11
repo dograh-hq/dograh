@@ -749,6 +749,12 @@ SPEC = ProviderSpec(
         "provisioning_id",
         "outbound_trunk_uuids",
     ),
+    account_scoped_server_managed_credential_fields=(
+        "domain_uuid",
+        "application_id",
+        "application_uuid",
+        "outbound_trunk_uuids",
+    ),
     preprocess_credentials_on_save=_preprocess_credentials_on_save,
 )
 

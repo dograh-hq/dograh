@@ -610,15 +610,30 @@ async def _run_preprocess_hook(
     credentials: dict,
     existing_credentials: dict | None = None,
 ) -> dict:
-    """Preserve server-managed fields, then preprocess credentials for save."""
+    """Preserve same-account server fields, then preprocess credentials."""
     spec = telephony_registry.get_optional(provider)
     if not spec:
         return credentials
 
     credentials = dict(credentials)
+    account_field = spec.account_id_credential_field
+    account_changed = bool(
+        existing_credentials is not None
+        and account_field
+        and credentials.get(account_field) != existing_credentials.get(account_field)
+    )
+    invalidated_fields = (
+        set(spec.account_scoped_server_managed_credential_fields)
+        if account_changed
+        else set()
+    )
     for field in spec.server_managed_credential_fields:
         credentials.pop(field, None)
-        if existing_credentials is not None and field in existing_credentials:
+        if (
+            field not in invalidated_fields
+            and existing_credentials is not None
+            and field in existing_credentials
+        ):
             credentials[field] = existing_credentials[field]
 
     if spec.preprocess_credentials_on_save:

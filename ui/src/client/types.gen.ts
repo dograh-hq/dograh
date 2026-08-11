@@ -1389,23 +1389,35 @@ export type CloudonixConfigurationResponse = {
 /**
  * ContextDestinationMappingConfig
  *
- * Resolve an external-PBX destination from gathered context.
+ * Resolve a transfer destination from gathered or initial context.
+ *
+ * Rules are evaluated in order. The first rule whose context value matches
+ * one of its routes wins; ``fallback_destination`` applies only when no rule
+ * matched. Destinations may be provider-native values or context templates.
  */
 export type ContextDestinationMappingConfig = {
     /**
+     * Rules
+     *
+     * Ordered routing rules evaluated top to bottom; first match wins.
+     */
+    rules?: Array<ContextDestinationRule> | null;
+    /**
      * Context Path
      *
-     * Gathered-context path or extracted-variable name used for routing.
+     * Deprecated single-rule context path. Use rules instead; accepted for backward compatibility.
      */
-    context_path: string;
+    context_path?: string | null;
     /**
      * Routes
+     *
+     * Deprecated single-rule routes. Use rules instead; accepted for backward compatibility.
      */
-    routes: Array<ContextDestinationRoute>;
+    routes?: Array<ContextDestinationRoute> | null;
     /**
      * Fallback Destination
      *
-     * Optional provider-native fallback destination.
+     * Optional provider-native destination or context template used when no rule matched.
      */
     fallback_destination?: string | null;
 };
@@ -1413,17 +1425,39 @@ export type ContextDestinationMappingConfig = {
 /**
  * ContextDestinationRoute
  *
- * Map one gathered-context value to an external-PBX destination.
+ * Map one context value to a transfer destination.
  */
 export type ContextDestinationRoute = {
     /**
      * Context Value
+     *
+     * Context value that selects this destination.
      */
     context_value: string;
     /**
      * Destination
+     *
+     * VICIdial in-group, SIP endpoint, E.164 phone number, or context template used when this route matches.
      */
     destination: string;
+};
+
+/**
+ * ContextDestinationRule
+ *
+ * One context lookup with its value-to-destination routes.
+ */
+export type ContextDestinationRule = {
+    /**
+     * Context Path
+     *
+     * Context path used for routing. An unprefixed path checks gathered context first, then initial context; use initial_context.* or gathered_context.* to select one explicitly.
+     */
+    context_path: string;
+    /**
+     * Routes
+     */
+    routes: Array<ContextDestinationRoute>;
 };
 
 /**
@@ -6395,7 +6429,7 @@ export type TransferCallConfig = {
     /**
      * Destination Source
      *
-     * Whether the destination is static/template, resolved by HTTP, or mapped from gathered context to an external-PBX destination.
+     * Whether the destination is static/template, resolved by HTTP, or selected by ordered gathered/initial-context mapping rules.
      */
     destination_source?: 'static' | 'dynamic' | 'context_mapping';
     /**
@@ -6439,7 +6473,7 @@ export type TransferCallConfig = {
      */
     resolver?: HttpTransferResolverConfig | null;
     /**
-     * Optional gathered-context to external-PBX destination mapping.
+     * Optional ordered context-to-destination routing rules.
      */
     context_mapping?: ContextDestinationMappingConfig | null;
 };
@@ -7348,6 +7382,10 @@ export type WorkflowConfigurationDefaults = {
      * External Pbx Field Mappings
      */
     external_pbx_field_mappings?: Array<ExternalPbxFieldMapping>;
+    /**
+     * External Pbx Lead Headers
+     */
+    external_pbx_lead_headers?: Array<string>;
     [key: string]: unknown;
 };
 

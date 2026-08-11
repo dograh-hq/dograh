@@ -1,29 +1,21 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
-import { FileText, LoaderCircle, X } from "lucide-react";
+import { FileDiff, FileText, LoaderCircle, X } from "lucide-react";
 import { useEffect } from "react";
 
+import type { WorkflowVersionResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
-
-export interface WorkflowVersion {
-    id: number;
-    version_number: number;
-    status: string;
-    created_at: string;
-    published_at: string | null;
-    workflow_json: { nodes?: unknown[]; edges?: unknown[]; viewport?: unknown };
-    workflow_configurations: Record<string, unknown> | null;
-    template_context_variables: Record<string, string> | null;
-}
 
 interface VersionHistoryPanelProps {
     isOpen: boolean;
     onClose: () => void;
-    versions: WorkflowVersion[];
+    versions: WorkflowVersionResponse[];
     loading: boolean;
     activeVersionId: number | null;
-    onSelectVersion: (version: WorkflowVersion) => void;
+    onSelectVersion: (version: WorkflowVersionResponse) => void;
+    onCompareVersion: (version: WorkflowVersionResponse) => void;
+    comparingVersionId: number | null;
     hasMore: boolean;
     loadingMore: boolean;
     onLoadMore: () => void;
@@ -48,6 +40,8 @@ export const VersionHistoryPanel = ({
     loading,
     activeVersionId,
     onSelectVersion,
+    onCompareVersion,
+    comparingVersionId,
     hasMore,
     loadingMore,
     onLoadMore,
@@ -76,6 +70,7 @@ export const VersionHistoryPanel = ({
                     <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Close version history"
                         onClick={onClose}
                         className="text-gray-400 hover:text-white hover:bg-[#2a2a2a]"
                     >
@@ -93,42 +88,70 @@ export const VersionHistoryPanel = ({
                     </p>
                 ) : (
                     <div className="space-y-2">
-                        {versions.map((version) => {
+                        {versions.map((version, index) => {
                             const isActive = version.id === activeVersionId;
                             const date = version.published_at || version.created_at;
+                            const previousVersion = versions[index + 1];
+                            const canCompare = Boolean(previousVersion) || hasMore;
+                            const compareLabel = previousVersion
+                                ? `Compare v${version.version_number} with v${previousVersion.version_number}`
+                                : `Compare v${version.version_number} with its previous version`;
                             return (
-                                <button
+                                <div
                                     key={version.id}
-                                    onClick={() => onSelectVersion(version)}
-                                    className={`w-full text-left p-3 rounded-lg border transition-colors cursor-pointer ${
+                                    className={`flex w-full overflow-hidden rounded-lg border transition-colors ${
                                         isActive
                                             ? "border-teal-500/50 bg-teal-500/10"
-                                            : "border-[#2a2a2a] bg-[#222] hover:bg-[#2a2a2a]"
+                                            : "border-[#2a2a2a] bg-[#222]"
                                     }`}
                                 >
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <div className="flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-gray-400" />
-                                            <span className="text-sm font-medium text-white">
-                                                v{version.version_number}
-                                            </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => onSelectVersion(version)}
+                                        className="min-w-0 flex-1 cursor-pointer p-3 text-left transition-colors hover:bg-[#2a2a2a]"
+                                    >
+                                        <div className="mb-1.5 flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="h-4 w-4 text-gray-400" />
+                                                <span className="text-sm font-medium text-white">
+                                                    v{version.version_number}
+                                                </span>
+                                            </div>
+                                            {version.status !== "archived" && (
+                                                <span
+                                                    className={`rounded-full border px-2 py-0.5 text-xs ${
+                                                        statusColor[version.status] ?? ""
+                                                    }`}
+                                                >
+                                                    {statusLabel[version.status] ?? version.status}
+                                                </span>
+                                            )}
                                         </div>
-                                        {version.status !== "archived" && (
-                                            <span
-                                                className={`text-xs px-2 py-0.5 rounded-full border ${
-                                                    statusColor[version.status] ?? ""
-                                                }`}
-                                            >
-                                                {statusLabel[version.status] ?? version.status}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <p className="text-xs text-gray-500">
-                                        {formatDistanceToNow(new Date(date), {
-                                            addSuffix: true,
-                                        })}
-                                    </p>
-                                </button>
+                                        <p className="text-xs text-gray-500">
+                                            {formatDistanceToNow(new Date(date), {
+                                                addSuffix: true,
+                                            })}
+                                        </p>
+                                    </button>
+
+                                    {canCompare && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label={compareLabel}
+                                            disabled={comparingVersionId !== null}
+                                            onClick={() => onCompareVersion(version)}
+                                            className="mr-2 h-7 w-7 shrink-0 self-center rounded-md border border-[#3a3a3a] text-gray-400 hover:bg-[#303030] hover:text-white"
+                                        >
+                                            {comparingVersionId === version.id ? (
+                                                <LoaderCircle className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <FileDiff className="h-4 w-4" />
+                                            )}
+                                        </Button>
+                                    )}
+                                </div>
                             );
                         })}
                         {hasMore && (

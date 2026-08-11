@@ -1,6 +1,13 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from api.constants import (
     MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
@@ -37,6 +44,17 @@ class ExternalPBXFieldMapping(BaseModel):
     @classmethod
     def strip_destination_field(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+
+# Extra lead fields to capture from the inbound INVITE, named without the
+# provider's header prefix (``first_name`` -> ``X-VICIDIAL-first_name``). Each
+# entry costs one ARI round trip during call setup, so the set is configured
+# explicitly per workflow rather than enumerated off the INVITE.
+MAX_EXTERNAL_PBX_LEAD_HEADERS = 50
+
+ExternalPBXLeadHeader = Annotated[
+    str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+]
 
 
 class AmbientNoiseConfigurationDefaults(BaseModel):
@@ -88,6 +106,23 @@ class WorkflowConfigurationDefaults(BaseModel):
         default_factory=list,
         max_length=100,
     )
+    external_pbx_lead_headers: list[ExternalPBXLeadHeader] = Field(
+        default_factory=list,
+        max_length=MAX_EXTERNAL_PBX_LEAD_HEADERS,
+    )
+
+    @field_validator("external_pbx_lead_headers", mode="before")
+    @classmethod
+    def strip_lead_headers(cls, value: object) -> object:
+        """Trim and de-duplicate while preserving the configured order."""
+        if not isinstance(value, list):
+            return value
+        cleaned: list[str] = []
+        for item in value:
+            name = item.strip() if isinstance(item, str) else item
+            if name and name not in cleaned:
+                cleaned.append(name)
+        return cleaned
 
 
 class TextChatInactivityTimeoutConstraints(BaseModel):

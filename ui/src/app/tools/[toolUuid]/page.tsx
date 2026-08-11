@@ -40,13 +40,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
-import { useOrgConfig } from "@/context/OrgConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
-import { createUuid } from "@/lib/uuid";
 
 import {
-    type ContextDestinationRouteRow,
+    type ContextDestinationRuleRow,
+    contextMappingToRuleRows,
+    createContextDestinationRuleRow,
     createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     type EndCallMessageType,
@@ -55,6 +55,7 @@ import {
     getToolTypeLabel,
     MCP_URL_PATTERN,
     renderToolIcon,
+    ruleRowsToContextMappingRules,
     type ToolCategory,
     type TransferDestinationSource,
 } from "../config";
@@ -87,7 +88,6 @@ function headersToRows(headers: Record<string, string> | undefined | null): KeyV
 export default function ToolDetailPage() {
     const { toolUuid } = useParams<{ toolUuid: string }>();
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
-    const { externalPbxIntegrationsEnabled } = useOrgConfig();
     const router = useRouter();
 
     const [tool, setTool] = useState<ToolResponse | null>(null);
@@ -146,10 +146,17 @@ export default function ToolDetailPage() {
     const [transferResolverWaitMessage, setTransferResolverWaitMessage] = useState("");
     const [transferParameters, setTransferParameters] = useState<ToolParameter[]>([]);
     const [transferPresetParameters, setTransferPresetParameters] = useState<PresetToolParameter[]>([]);
-    const [transferContextMappingPath, setTransferContextMappingPath] = useState("");
-    const [transferContextDestinationRoutes, setTransferContextDestinationRoutes] =
-        useState<ContextDestinationRouteRow[]>([]);
+    const [transferContextDestinationRules, setTransferContextDestinationRules] =
+        useState<ContextDestinationRuleRow[]>([]);
     const [transferFallbackDestination, setTransferFallbackDestination] = useState("");
+
+    const handleTransferDestinationSourceChange = (source: TransferDestinationSource) => {
+        setTransferDestinationSource(source);
+        // Start context routing with one editable rule instead of an empty tab.
+        if (source === "context_mapping" && transferContextDestinationRules.length === 0) {
+            setTransferContextDestinationRules([createContextDestinationRuleRow()]);
+        }
+    };
 
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
@@ -249,12 +256,8 @@ export default function ToolDetailPage() {
                         required: p.required ?? true,
                     })),
                 );
-                setTransferContextMappingPath(config.context_mapping?.context_path || "");
-                setTransferContextDestinationRoutes(
-                    (config.context_mapping?.routes || []).map((route) => ({
-                        ...route,
-                        id: createUuid(),
-                    }))
+                setTransferContextDestinationRules(
+                    contextMappingToRuleRows(config.context_mapping)
                 );
                 setTransferFallbackDestination(
                     config.context_mapping?.fallback_destination || ""
@@ -273,8 +276,7 @@ export default function ToolDetailPage() {
                 setTransferResolverWaitMessage("");
                 setTransferParameters([]);
                 setTransferPresetParameters([]);
-                setTransferContextMappingPath("");
-                setTransferContextDestinationRoutes([]);
+                setTransferContextDestinationRules([]);
                 setTransferFallbackDestination("");
             }
         } else if (tool.category === "mcp") {
@@ -445,25 +447,34 @@ export default function ToolDetailPage() {
                 }
             }
             if (transferDestinationSource === "context_mapping") {
-                if (!transferContextMappingPath.trim()) {
-                    setError("Please enter a gathered-context field for PBX routing");
+                if (transferContextDestinationRules.length === 0) {
+                    setError("Add at least one context routing rule");
                     return;
                 }
-                if (
-                    transferContextDestinationRoutes.length === 0 ||
-                    transferContextDestinationRoutes.some(
-                        (route) => !route.context_value.trim() || !route.destination.trim()
-                    )
-                ) {
-                    setError("Add at least one complete context value to destination mapping");
-                    return;
-                }
-                const routeValues = transferContextDestinationRoutes.map((route) =>
-                    route.context_value.trim().toLocaleLowerCase()
-                );
-                if (new Set(routeValues).size !== routeValues.length) {
-                    setError("Destination mapping context values must be unique");
-                    return;
+                for (const [index, rule] of transferContextDestinationRules.entries()) {
+                    const ruleLabel = `rule ${index + 1}`;
+                    if (!rule.context_path.trim()) {
+                        setError(`Please enter a context field for ${ruleLabel}`);
+                        return;
+                    }
+                    if (
+                        rule.routes.length === 0 ||
+                        rule.routes.some(
+                            (route) => !route.context_value.trim() || !route.destination.trim()
+                        )
+                    ) {
+                        setError(
+                            `Add at least one complete context value to destination mapping in ${ruleLabel}`
+                        );
+                        return;
+                    }
+                    const routeValues = rule.routes.map((route) =>
+                        route.context_value.trim().toLocaleLowerCase()
+                    );
+                    if (new Set(routeValues).size !== routeValues.length) {
+                        setError(`Destination mapping context values must be unique in ${ruleLabel}`);
+                        return;
+                    }
                 }
             }
         } else if (tool.category === "mcp") {
@@ -599,11 +610,7 @@ export default function ToolDetailPage() {
                         : undefined,
                     context_mapping: transferDestinationSource === "context_mapping"
                         ? {
-                            context_path: transferContextMappingPath.trim(),
-                            routes: transferContextDestinationRoutes.map((route) => ({
-                                context_value: route.context_value.trim(),
-                                destination: route.destination.trim(),
-                            })),
+                            rules: ruleRowsToContextMappingRules(transferContextDestinationRules),
                             fallback_destination:
                                 transferFallbackDestination.trim() || undefined,
                         }
@@ -926,7 +933,7 @@ const data = await response.json();`;
                             description={description}
                             onDescriptionChange={setDescription}
                             destinationSource={transferDestinationSource}
-                            onDestinationSourceChange={setTransferDestinationSource}
+                            onDestinationSourceChange={handleTransferDestinationSourceChange}
                             destination={transferDestination}
                             onDestinationChange={setTransferDestination}
                             messageType={transferMessageType}
@@ -952,11 +959,8 @@ const data = await response.json();`;
                             onParametersChange={setTransferParameters}
                             presetParameters={transferPresetParameters}
                             onPresetParametersChange={setTransferPresetParameters}
-                            externalPbxRoutingEnabled={externalPbxIntegrationsEnabled}
-                            contextMappingPath={transferContextMappingPath}
-                            onContextMappingPathChange={setTransferContextMappingPath}
-                            contextDestinationRoutes={transferContextDestinationRoutes}
-                            onContextDestinationRoutesChange={setTransferContextDestinationRoutes}
+                            contextDestinationRules={transferContextDestinationRules}
+                            onContextDestinationRulesChange={setTransferContextDestinationRules}
                             fallbackDestination={transferFallbackDestination}
                             onFallbackDestinationChange={setTransferFallbackDestination}
                         />

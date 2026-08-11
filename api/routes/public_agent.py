@@ -235,6 +235,7 @@ async def _execute_resolved_target(
     workflow_run_name = f"WR-{mode_label}-{random.randint(1000, 9999)}"
     initial_context = {
         "provider": provider.PROVIDER_NAME,
+        "direction": "outbound",
         "phone_number": request.phone_number,
         "trigger_mode": "test" if use_draft else "production",
         "telephony_configuration_id": resolved_cfg_id,

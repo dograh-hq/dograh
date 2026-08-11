@@ -15,7 +15,13 @@ from api.db import db_client
 from api.db.agent_trigger_client import TriggerPathConflictError
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
-from api.enums import CallType, PostHogEvent, StorageBackend, WorkflowStatus
+from api.enums import (
+    CallType,
+    PostHogEvent,
+    StorageBackend,
+    WorkflowRunMode,
+    WorkflowStatus,
+)
 from api.schemas.ai_model_configuration import OrganizationAIModelConfigurationV2
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
@@ -1397,14 +1403,33 @@ async def create_workflow_run(
         include_template_context=True,
     )
 
+    initial_context = dict(run_inputs.initial_context or {})
+    call_type = CallType.OUTBOUND
+    if request.mode == WorkflowRunMode.SMALLWEBRTC.value:
+        configured_direction = initial_context.get("direction")
+        normalized_direction = (
+            configured_direction.strip().lower()
+            if isinstance(configured_direction, str)
+            else None
+        )
+        # Browser voice tests are inbound by default. A workflow author can set
+        # the template-context variable `direction=outbound` to test that path.
+        call_type = (
+            CallType.OUTBOUND
+            if normalized_direction == CallType.OUTBOUND.value
+            else CallType.INBOUND
+        )
+        initial_context["direction"] = call_type.value
+
     run = await db_client.create_workflow_run(
         request.name,
         workflow_id,
         request.mode,
         user.id,
+        call_type=call_type,
         organization_id=user.selected_organization_id,
         definition_id=run_inputs.definition_id,
-        initial_context=run_inputs.initial_context,
+        initial_context=initial_context,
     )
     return {
         "id": run.id,

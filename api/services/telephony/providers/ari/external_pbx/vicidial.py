@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import aiohttp
 from loguru import logger
@@ -13,9 +14,23 @@ from .base import ExternalPBXAdapter, ExternalPBXResult, HeaderReader
 _LEAD_FIELD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _RESERVED_LEAD_FIELDS = frozenset({"source", "user", "pass", "function", "lead_id"})
 
+_HEADER_PREFIX = "X-VICIDIAL-"
+_IDENTITY_HEADER_FIELDS = ("callerid", "user", "lead_id", "campaign_id", "ingroup_id")
+
+
+def _response_code(response_text: str) -> str:
+    """Return a diagnostic VICIdial status without retaining response PII."""
+    if not response_text:
+        return "empty"
+    prefix = response_text.partition(":")[0].strip().casefold()
+    if prefix in {"success", "error", "notice", "warning"}:
+        return prefix
+    return "unexpected"
+
 
 class VicidialAdapter(ExternalPBXAdapter):
     type = "vicidial"
+    header_prefix = _HEADER_PREFIX
 
     def __init__(self, config: dict[str, Any]):
         agent_api = config.get("agent_api") or {}
@@ -33,22 +48,41 @@ class VicidialAdapter(ExternalPBXAdapter):
         )
 
     async def capture_call_identity(
-        self, read_header: HeaderReader
-    ) -> dict[str, str] | None:
-        callerid = (await read_header("X-VICIDIAL-callerid")).strip()
+        self, read_header: HeaderReader, lead_fields: Sequence[str] = ()
+    ) -> dict[str, Any] | None:
+        # Each header is its own ARI request, so read a fixed set: the identity
+        # fields the transfer/hangup paths need, plus whatever lead fields the
+        # workflow configured. Enumerating X-VICIDIAL-* instead would cost an
+        # extra request up front and one more per header VICIdial happens to
+        # attach — all on the latency-sensitive inbound setup path.
+        names = list(_IDENTITY_HEADER_FIELDS) + [
+            field
+            for field in dict.fromkeys(
+                value.strip() for value in lead_fields if isinstance(value, str)
+            )
+            if field
+            and field not in _IDENTITY_HEADER_FIELDS
+            and _LEAD_FIELD_RE.match(field)
+        ]
+        values = await asyncio.gather(
+            *(read_header(_HEADER_PREFIX + field) for field in names)
+        )
+        headers = {field: value.strip() for field, value in zip(names, values)}
+        callerid = headers.get("callerid", "")
         if not callerid:
             return None
         return {
             "type": self.type,
             "callerid": callerid,
-            "agent_user": (await read_header("X-VICIDIAL-user")).strip(),
-            "lead_id": (await read_header("X-VICIDIAL-lead_id")).strip(),
-            "campaign_id": (await read_header("X-VICIDIAL-campaign_id")).strip(),
-            "ingroup_id": (await read_header("X-VICIDIAL-ingroup_id")).strip(),
+            "agent_user": headers.get("user", ""),
+            "lead_id": headers.get("lead_id", ""),
+            "campaign_id": headers.get("campaign_id", ""),
+            "ingroup_id": headers.get("ingroup_id", ""),
+            "lead": {field: value for field, value in headers.items() if value},
         }
 
     async def _agent_call_control(
-        self, identity: Mapping[str, str], stage: str, **extra: str
+        self, identity: Mapping[str, Any], stage: str, **extra: str
     ) -> ExternalPBXResult:
         if not all([self._agent_url, self._agent_user, self._agent_password]):
             return ExternalPBXResult(
@@ -85,16 +119,19 @@ class VicidialAdapter(ExternalPBXAdapter):
                 else "VICIdial rejected the operation",
             )
         except Exception as exc:
-            logger.error(f"[VICIdial] ra_call_control failed stage={stage}: {exc}")
+            logger.error(
+                "[VICIdial] ra_call_control failed "
+                f"stage={stage} error_type={type(exc).__name__}"
+            )
             return ExternalPBXResult(
                 False, stage.lower(), "VICIdial API request failed"
             )
 
-    async def hangup(self, identity: Mapping[str, str]) -> ExternalPBXResult:
+    async def hangup(self, identity: Mapping[str, Any]) -> ExternalPBXResult:
         return await self._agent_call_control(identity, "HANGUP")
 
     async def transfer(
-        self, identity: Mapping[str, str], destination: str
+        self, identity: Mapping[str, Any], destination: str
     ) -> ExternalPBXResult:
         choice = destination.strip()
         if choice.lower() == "source":
@@ -108,7 +145,7 @@ class VicidialAdapter(ExternalPBXAdapter):
         )
 
     async def update_fields(
-        self, identity: Mapping[str, str], fields: Mapping[str, str]
+        self, identity: Mapping[str, Any], fields: Mapping[str, str]
     ) -> ExternalPBXResult:
         if not fields:
             return ExternalPBXResult(True, "update_lead", "No lead fields configured")
@@ -148,6 +185,11 @@ class VicidialAdapter(ExternalPBXAdapter):
             "pass": self._non_agent_password,
             "function": "update_lead",
             "lead_id": lead_id,
+            # non_agent_api.php gates its result line on this parameter: without
+            # it the update still runs but the response body is empty, which
+            # reads here as a rejection. The agent API echoes unconditionally,
+            # which is why only this call needs it.
+            "format": "text",
         }
         try:
             async with aiohttp.ClientSession(timeout=self._timeout) as session:
@@ -156,7 +198,9 @@ class VicidialAdapter(ExternalPBXAdapter):
                     ok = response.status == 200 and response_text.startswith("SUCCESS")
             logger.info(
                 "[VICIdial] update_lead completed "
-                f"status={response.status} ok={ok} field_count={len(safe_fields)}"
+                f"status={response.status} ok={ok} "
+                f"field_count={len(safe_fields)} "
+                f"response_code={_response_code(response_text)}"
             )
             return ExternalPBXResult(
                 ok,
@@ -164,7 +208,9 @@ class VicidialAdapter(ExternalPBXAdapter):
                 "VICIdial lead updated" if ok else "VICIdial rejected the lead update",
             )
         except Exception as exc:
-            logger.error(f"[VICIdial] update_lead failed: {exc}")
+            logger.error(
+                f"[VICIdial] update_lead failed error_type={type(exc).__name__}"
+            )
             return ExternalPBXResult(
                 False, "update_lead", "VICIdial API request failed"
             )

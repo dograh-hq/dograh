@@ -522,7 +522,7 @@ async def execute_text_chat_pending_turn(
     if (
         is_initial_node_opening
         and start_node
-        and start_node.pre_call_fetch_enabled
+        and start_node.should_run_pre_call_fetch(None)
         and start_node.pre_call_fetch_url
     ):
         fetch_result = await execute_pre_call_fetch(

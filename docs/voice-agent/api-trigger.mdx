@@ -122,6 +122,42 @@ You can reference the user's name in your agent prompt as `{{user.name}}` — in
 
 See [Context & Variables](/core-concepts/context-and-variables) for more on how data flows through a call.
 
+### Override the greeting for one call
+
+Pass `greeting_override` inside `initial_context` to replace the Start Call node's saved greeting for one API-triggered call. A valid override takes precedence over the saved greeting. If you omit it, Dograh uses the saved greeting; if neither exists, the Start node follows its normal no-greeting behavior.
+
+For a text greeting:
+
+```json
+{
+  "phone_number": "+14155550100",
+  "initial_context": {
+    "greeting_override": {
+      "type": "text",
+      "text": "Hi, please confirm account {{account_id}}."
+    }
+  }
+}
+```
+
+For a pre-recorded greeting, pass the recording's string ID from the Recordings page:
+
+```json
+{
+  "phone_number": "+14155550100",
+  "initial_context": {
+    "greeting_override": {
+      "type": "audio",
+      "recording_id": "callback-welcome"
+    }
+  }
+}
+```
+
+Dograh renders a text override after Pre-Call Data Fetch completes, so the override can reference variables returned by the fetch. The override follows the same playback restrictions as a saved greeting. In particular, static text greetings are not spoken by realtime speech-to-speech models; use an audio override for those configurations.
+
+Pre-Call Data Fetch can also return `greeting_override`. Because fetched context is applied after trigger context, a valid fetched override replaces one supplied by the trigger.
+
 ## Choosing a telephony configuration
 
 By default, calls are placed through your organization's default outbound [telephony configuration](/integrations/telephony/overview). To route a specific call through a different configuration — for example, to dial out from a regional number — pass `telephony_configuration_id` in the request body.

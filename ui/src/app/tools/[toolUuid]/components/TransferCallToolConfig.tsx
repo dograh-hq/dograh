@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, Plus, Trash2 } from "lucide-react";
 
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
@@ -21,10 +21,12 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { createUuid } from "@/lib/uuid";
+import { DOCS_BASE } from "@/constants/documentation";
 
 import {
-    type ContextDestinationRouteRow,
+    type ContextDestinationRuleRow,
+    createContextDestinationRouteRow,
+    createContextDestinationRuleRow,
     type EndCallMessageType,
     type TransferDestinationSource,
 } from "../../config";
@@ -61,11 +63,8 @@ export interface TransferCallToolConfigProps {
     onParametersChange: (parameters: ToolParameter[]) => void;
     presetParameters: PresetToolParameter[];
     onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
-    externalPbxRoutingEnabled: boolean;
-    contextMappingPath: string;
-    onContextMappingPathChange: (path: string) => void;
-    contextDestinationRoutes: ContextDestinationRouteRow[];
-    onContextDestinationRoutesChange: (routes: ContextDestinationRouteRow[]) => void;
+    contextDestinationRules: ContextDestinationRuleRow[];
+    onContextDestinationRulesChange: (rules: ContextDestinationRuleRow[]) => void;
     fallbackDestination: string;
     onFallbackDestinationChange: (destination: string) => void;
 }
@@ -102,14 +101,28 @@ export function TransferCallToolConfig({
     onParametersChange,
     presetParameters,
     onPresetParametersChange,
-    externalPbxRoutingEnabled,
-    contextMappingPath,
-    onContextMappingPathChange,
-    contextDestinationRoutes,
-    onContextDestinationRoutesChange,
+    contextDestinationRules,
+    onContextDestinationRulesChange,
     fallbackDestination,
     onFallbackDestinationChange,
 }: TransferCallToolConfigProps) {
+    const updateRule = (
+        ruleId: string,
+        update: (rule: ContextDestinationRuleRow) => ContextDestinationRuleRow,
+    ) => {
+        onContextDestinationRulesChange(
+            contextDestinationRules.map((rule) => (rule.id === ruleId ? update(rule) : rule))
+        );
+    };
+
+    const moveRule = (index: number, offset: number) => {
+        const target = index + offset;
+        if (target < 0 || target >= contextDestinationRules.length) return;
+        const reordered = [...contextDestinationRules];
+        [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+        onContextDestinationRulesChange(reordered);
+    };
+
     return (
         <Card>
             <CardHeader>
@@ -233,25 +246,18 @@ export function TransferCallToolConfig({
                     <div>
                         <Label>Destination Source</Label>
                         <p className="text-xs text-muted-foreground">
-                            Choose whether the transfer uses a configured destination or resolves one from an HTTP endpoint.
+                            Choose a configured destination, ordered context rules, or an HTTP resolver.
                         </p>
                     </div>
-                    {!externalPbxRoutingEnabled && destinationSource === "context_mapping" ? (
-                        <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                            This tool has advanced external-PBX routing configured. Enable
-                            External PBX integrations in Platform Settings to view or change it.
-                        </div>
-                    ) : <Tabs
+                    <Tabs
                         value={destinationSource}
                         onValueChange={(v) => onDestinationSourceChange(v as TransferDestinationSource)}
                         className="w-full"
                     >
-                        <TabsList className={`grid w-full ${externalPbxRoutingEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+                        <TabsList className="grid w-full grid-cols-3">
                             <TabsTrigger value="static">Static / Template</TabsTrigger>
                             <TabsTrigger value="dynamic">Dynamic HTTP Resolver</TabsTrigger>
-                            {externalPbxRoutingEnabled && (
-                                <TabsTrigger value="context_mapping">Context Mapping</TabsTrigger>
-                            )}
+                            <TabsTrigger value="context_mapping">Context Mapping</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="static" className="space-y-4 mt-4">
@@ -277,9 +283,19 @@ export function TransferCallToolConfig({
 
                         <TabsContent value="dynamic" className="space-y-5 mt-4">
                             <div>
-                                <Label>Dynamic Transfer Resolver</Label>
+                                <div className="flex items-center gap-2">
+                                    <Label>Dynamic Transfer Resolver</Label>
+                                </div>
                                 <p className="text-xs text-muted-foreground">
-                                    Dograh sends the resolved argument dictionary to this endpoint. The endpoint must return transfer_context.destination and may return transfer_context.custom_message.
+                                    Dograh sends the resolved argument dictionary to this endpoint. The endpoint must return transfer_context.destination and may return transfer_context.custom_message.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-response`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
                                 </p>
                             </div>
 
@@ -336,9 +352,17 @@ export function TransferCallToolConfig({
 
                             <div className="grid gap-2 pt-4 border-t">
                                 <Label>LLM Parameters</Label>
-                                <Label className="text-xs text-muted-foreground">
-                                    Define values the agent should provide when calling this transfer tool, such as state, department, or reason.
-                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Define values the agent should provide when calling this transfer tool, such as state, department, or reason.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-request`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                </p>
                                 <ParameterEditor
                                     parameters={parameters}
                                     onChange={onParametersChange}
@@ -347,9 +371,17 @@ export function TransferCallToolConfig({
 
                             <div className="grid gap-2 pt-4 border-t">
                                 <Label>Preset Parameters</Label>
-                                <Label className="text-xs text-muted-foreground">
-                                    Add values Dograh injects at runtime. These are not exposed to the LLM and can use templates like {`{{initial_context.state}}`} or {`{{gathered_context.state}}`}.
-                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Add values Dograh injects at runtime. These are not exposed to the LLM and can use templates like {`{{initial_context.state}}`} or {`{{gathered_context.state}}`}.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-request`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                </p>
                                 <PresetParameterEditor
                                     parameters={presetParameters}
                                     onChange={onPresetParametersChange}
@@ -370,100 +402,188 @@ export function TransferCallToolConfig({
                                 />
                             </div>
                         </TabsContent>
-                        {externalPbxRoutingEnabled && (
-                            <TabsContent value="context_mapping" className="space-y-5 mt-4">
-                                <div>
-                                    <Label>External PBX Context Routing</Label>
-                                    <p className="text-xs text-muted-foreground">
-                                        Resolve a gathered-context value to a provider-native destination.
-                                        Matching ignores case and surrounding whitespace.
-                                    </p>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="pbx-context-path">Gathered Context Field</Label>
-                                    <Input
-                                        id="pbx-context-path"
-                                        value={contextMappingPath}
-                                        onChange={(event) => onContextMappingPathChange(event.target.value)}
-                                        placeholder="qualified or extracted_variables.qualified"
-                                    />
-                                </div>
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <Label>Value to Destination Mappings</Label>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => onContextDestinationRoutesChange([
-                                                ...contextDestinationRoutes,
-                                                {
-                                                    id: createUuid(),
-                                                    context_value: "",
-                                                    destination: "",
-                                                },
-                                            ])}
-                                        >
-                                            <Plus className="mr-1 h-4 w-4" /> Add mapping
-                                        </Button>
-                                    </div>
-                                    {contextDestinationRoutes.map((route, index) => (
-                                        <div key={route.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                                            <Input
-                                                aria-label={`Context value ${index + 1}`}
-                                                value={route.context_value}
-                                                onChange={(event) => onContextDestinationRoutesChange(
-                                                    contextDestinationRoutes.map((item) =>
-                                                        item.id === route.id
-                                                            ? { ...item, context_value: event.target.value }
-                                                            : item
-                                                    )
-                                                )}
-                                                placeholder="Context value"
-                                            />
-                                            <Input
-                                                aria-label={`PBX destination ${index + 1}`}
-                                                value={route.destination}
-                                                onChange={(event) => onContextDestinationRoutesChange(
-                                                    contextDestinationRoutes.map((item) =>
-                                                        item.id === route.id
-                                                            ? { ...item, destination: event.target.value }
-                                                            : item
-                                                    )
-                                                )}
-                                                placeholder="Provider destination"
-                                            />
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                aria-label={`Remove mapping ${index + 1}`}
-                                                onClick={() => onContextDestinationRoutesChange(
-                                                    contextDestinationRoutes.filter((item) => item.id !== route.id)
-                                                )}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                        <TabsContent value="context_mapping" className="space-y-5 mt-4">
+                            <div className="space-y-2">
+                                <Label>Ordered Context Routing</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Rules are evaluated top to bottom. The first matching value selects its
+                                    destination; matching ignores case and surrounding whitespace.
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    An unprefixed field such as <code>department</code> checks{" "}
+                                    <code>gathered_context.department</code> first, then{" "}
+                                    <code>initial_context.department</code>. Use an explicit prefix to read only
+                                    one context.
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Destinations can be a SIP endpoint, E.164 PSTN number, another
+                                    provider-supported destination, or a template such as{" "}
+                                    <code>{"{{initial_context.transfer_destination}}"}</code>.{" "}
+                                    <a
+                                        href={`${DOCS_BASE}/voice-agent/tools/call-transfer#context-mapping`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                                    >
+                                        Docs <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                </p>
+                            </div>
+                                {contextDestinationRules.map((rule, ruleIndex) => (
+                                    <div key={rule.id} className="space-y-4 rounded-lg border p-4">
+                                        <div className="flex items-center justify-between">
+                                            <Label>Rule {ruleIndex + 1}</Label>
+                                            <div className="flex items-center gap-1">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    aria-label={`Move rule ${ruleIndex + 1} up`}
+                                                    disabled={ruleIndex === 0}
+                                                    onClick={() => moveRule(ruleIndex, -1)}
+                                                >
+                                                    <ArrowUp className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    aria-label={`Move rule ${ruleIndex + 1} down`}
+                                                    disabled={ruleIndex === contextDestinationRules.length - 1}
+                                                    onClick={() => moveRule(ruleIndex, 1)}
+                                                >
+                                                    <ArrowDown className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    aria-label={`Remove rule ${ruleIndex + 1}`}
+                                                    onClick={() => onContextDestinationRulesChange(
+                                                        contextDestinationRules.filter((item) => item.id !== rule.id)
+                                                    )}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </div>
-                                    ))}
-                                    {contextDestinationRoutes.length === 0 && (
-                                        <p className="text-xs text-muted-foreground">
-                                            Add at least one mapping.
-                                        </p>
-                                    )}
-                                </div>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor={`context-path-${rule.id}`}>
+                                                Context Field
+                                            </Label>
+                                            <Input
+                                                id={`context-path-${rule.id}`}
+                                                aria-label={`Context field ${ruleIndex + 1}`}
+                                                value={rule.context_path}
+                                                onChange={(event) => updateRule(rule.id, (item) => ({
+                                                    ...item,
+                                                    context_path: event.target.value,
+                                                }))}
+                                                placeholder="department or initial_context.department"
+                                            />
+                                        </div>
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <Label>Value to Destination Mappings</Label>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    aria-label={`Add mapping to rule ${ruleIndex + 1}`}
+                                                    onClick={() => updateRule(rule.id, (item) => ({
+                                                        ...item,
+                                                        routes: [
+                                                            ...item.routes,
+                                                            createContextDestinationRouteRow(),
+                                                        ],
+                                                    }))}
+                                                >
+                                                    <Plus className="mr-1 h-4 w-4" /> Add mapping
+                                                </Button>
+                                            </div>
+                                            {rule.routes.map((route, index) => (
+                                                <div key={route.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                                                    <Input
+                                                        aria-label={`Rule ${ruleIndex + 1} context value ${index + 1}`}
+                                                        value={route.context_value}
+                                                        onChange={(event) => updateRule(rule.id, (item) => ({
+                                                            ...item,
+                                                            routes: item.routes.map((existing) =>
+                                                                existing.id === route.id
+                                                                    ? { ...existing, context_value: event.target.value }
+                                                                    : existing
+                                                            ),
+                                                        }))}
+                                                        placeholder="Context value"
+                                                    />
+                                                    <Input
+                                                        aria-label={`Rule ${ruleIndex + 1} transfer destination ${index + 1}`}
+                                                        value={route.destination}
+                                                        onChange={(event) => updateRule(rule.id, (item) => ({
+                                                            ...item,
+                                                            routes: item.routes.map((existing) =>
+                                                                existing.id === route.id
+                                                                    ? { ...existing, destination: event.target.value }
+                                                                    : existing
+                                                            ),
+                                                        }))}
+                                                        placeholder="PJSIP/1001, +1234567890, or {{initial_context.destination}}"
+                                                    />
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        aria-label={`Remove rule ${ruleIndex + 1} mapping ${index + 1}`}
+                                                        onClick={() => updateRule(rule.id, (item) => ({
+                                                            ...item,
+                                                            routes: item.routes.filter(
+                                                                (existing) => existing.id !== route.id
+                                                            ),
+                                                        }))}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                            {rule.routes.length === 0 && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    Add at least one mapping.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-fit"
+                                    onClick={() => onContextDestinationRulesChange([
+                                        ...contextDestinationRules,
+                                        createContextDestinationRuleRow(),
+                                    ])}
+                                >
+                                    <Plus className="mr-1 h-4 w-4" /> Add routing rule
+                                </Button>
+                                {contextDestinationRules.length === 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Add at least one routing rule.
+                                    </p>
+                                )}
                                 <div className="grid gap-2">
-                                    <Label htmlFor="pbx-fallback-destination">Fallback Destination (Optional)</Label>
+                                    <Label htmlFor="context-fallback-destination">Fallback Destination (Optional)</Label>
                                     <Input
-                                        id="pbx-fallback-destination"
+                                        id="context-fallback-destination"
                                         value={fallbackDestination}
                                         onChange={(event) => onFallbackDestinationChange(event.target.value)}
-                                        placeholder="Provider-native fallback destination"
+                                        placeholder="Provider destination or {{initial_context.destination}}"
                                     />
+                                    <Label className="text-xs text-muted-foreground">
+                                        Used only when no rule above matched.
+                                    </Label>
                                 </div>
-                            </TabsContent>
-                        )}
-                    </Tabs>}
+                        </TabsContent>
+                    </Tabs>
                 </div>
             </CardContent>
         </Card>

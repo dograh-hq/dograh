@@ -15,6 +15,7 @@
  * Request body fields:
  *   • `phone_number` (string, required) — destination to dial.
  *   • `initial_context` (object, optional) — merged into the run's initial context.
+ *     To override the Start-node greeting for one call, provide `greeting_override`: either `{"type": "text", "text": "Hi {{name}}"}` or `{"type": "audio", "recording_id": "welcome-message"}`. A valid override takes precedence over the saved Start-node greeting.
  *   • `telephony_configuration_id` (int, optional) — pick a specific telephony configuration for the call. Must belong to the same organization as the trigger. When omitted, the org's default outbound configuration is used.
  */
 export interface Trigger {

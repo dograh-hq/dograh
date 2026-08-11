@@ -865,7 +865,8 @@ class ARIConnection:
             lead_fields = []
             if self.external_pbx_adapter is not None:
                 workflow_configurations = await db_client.get_definition_configurations(
-                    run_inputs.definition_id
+                    run_inputs.definition_id,
+                    organization_id=self.organization_id,
                 )
                 lead_fields = (
                     workflow_configurations.get("external_pbx_lead_headers") or []

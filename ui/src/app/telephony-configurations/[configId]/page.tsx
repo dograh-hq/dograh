@@ -30,6 +30,7 @@ import type {
 } from "@/client/types.gen";
 import { ConfigFormDialog } from "@/components/telephony/ConfigFormDialog";
 import { PhoneNumberDialog } from "@/components/telephony/PhoneNumberDialog";
+import { SipConnectivityCard } from "@/components/telephony/SipConnectivityCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,6 +69,10 @@ import { formatDateTime } from "@/lib/dateTime";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 const INBOUND_WEBHOOK_PATH = "/api/v1/telephony/inbound/run";
+
+// Rendered by its own form below, so it would only show up here as "Configured".
+// Server-managed bookkeeping keys are already stripped by the backend.
+const HIDDEN_CREDENTIAL_KEYS = new Set(["outbound_trunk"]);
 
 export default function TelephonyConfigurationDetailPage() {
   const router = useRouter();
@@ -308,15 +313,16 @@ export default function TelephonyConfigurationDetailPage() {
           )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {})
+              .filter(([key]) => !HIDDEN_CREDENTIAL_KEYS.has(key))
               .filter(([key]) => key !== "external_pbx" || externalPbxIntegrationsEnabled)
               .map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">{k}</dt>
-                <dd className="font-mono text-right truncate max-w-[60%]">
-                  {v && typeof v === "object" ? "Configured" : String(v ?? "")}
-                </dd>
-              </div>
-            ))}
+                <div key={k} className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{k}</dt>
+                  <dd className="font-mono text-right truncate max-w-[60%]">
+                    {v && typeof v === "object" ? "Configured" : String(v ?? "")}
+                  </dd>
+                </div>
+              ))}
           </dl>
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Inbound webhook URL</p>
@@ -338,6 +344,14 @@ export default function TelephonyConfigurationDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {config.sip_connectivity?.regions.length ? (
+        <SipConnectivityCard
+          details={config.sip_connectivity}
+          configuration={config}
+          onSaved={setConfig}
+        />
+      ) : null}
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">

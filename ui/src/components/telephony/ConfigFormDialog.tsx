@@ -115,8 +115,16 @@ export function ConfigFormDialog({
     () =>
       currentProvider?.fields.filter(
         (field) =>
-          !field.visible_when ||
-          values[field.visible_when.field] === field.visible_when.equals,
+          // Cloudonix outbound routing is edited alongside the inbound SIP
+          // endpoints on the configuration detail page. Keep its metadata for
+          // validation and sensitive-field masking, but do not duplicate those
+          // controls in the generic credentials dialog.
+          !(
+            currentProvider.provider === "cloudonix" &&
+            field.name.startsWith("outbound_trunk.")
+          ) &&
+          (!field.visible_when ||
+            values[field.visible_when.field] === field.visible_when.equals),
       ) ?? [],
     [currentProvider, values],
   );

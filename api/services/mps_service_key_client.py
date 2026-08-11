@@ -133,6 +133,41 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def ensure_cloudonix_domain(
+        self,
+        *,
+        organization_id: Optional[int],
+        created_by: str,
+    ) -> dict:
+        """Create or return the Cloudonix domain for the deployment owner.
+
+        OSS allocations are scoped by ``created_by``. Hosted allocations are
+        scoped by ``organization_id`` and authenticated with the Dograh/MPS
+        control-plane secret. No model-service key participates in ownership.
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.put(
+                f"{self.base_url}/api/v1/cloudonix/domains/self",
+                headers=self._get_headers(organization_id, created_by),
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                required = {
+                    "provisioning_id",
+                    "domain_name",
+                    "domain_uuid",
+                    "bearer_token",
+                }
+                if not isinstance(data, dict) or not required.issubset(data):
+                    raise MPSUnavailableError("ensure_cloudonix_domain")
+                return data
+
+            raise MPSUnavailableError(
+                "ensure_cloudonix_domain",
+                status_code=response.status_code,
+            )
+
     async def get_service_keys(
         self,
         organization_id: Optional[int] = None,

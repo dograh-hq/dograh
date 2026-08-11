@@ -18,6 +18,90 @@ class _Response:
         return self._payload
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "deployment_mode",
+        "organization_id",
+        "created_by",
+        "mps_secret",
+        "expected_headers",
+    ),
+    [
+        (
+            "oss",
+            None,
+            "oss_123_11111111-1111-4111-8111-111111111111",
+            None,
+            {
+                "Content-Type": "application/json",
+                "X-Created-By": ("oss_123_11111111-1111-4111-8111-111111111111"),
+            },
+        ),
+        (
+            "saas",
+            42,
+            "11111111-1111-4111-8111-111111111111",
+            "dograh-mps-secret",
+            {
+                "Content-Type": "application/json",
+                "X-Secret-Key": "dograh-mps-secret",
+                "X-Organization-Id": "42",
+            },
+        ),
+    ],
+)
+async def test_ensure_cloudonix_domain_uses_owner_scope_headers(
+    monkeypatch,
+    deployment_mode,
+    organization_id,
+    created_by,
+    mps_secret,
+    expected_headers,
+):
+    calls = []
+    payload = {
+        "provisioning_id": "11111111-1111-4111-8111-111111111111",
+        "domain_name": "oss-dograh-11111111",
+        "domain_uuid": "22222222-2222-4222-8222-222222222222",
+        "bearer_token": "domain-bearer",
+        "status": "ready",
+    }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def put(self, url, headers):
+            calls.append((url, headers))
+            return _Response(200, payload)
+
+    monkeypatch.setattr(mps_client_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", deployment_mode)
+    monkeypatch.setattr(mps_client_module, "DOGRAH_MPS_SECRET_KEY", mps_secret)
+    client = MPSServiceKeyClient()
+
+    assert (
+        await client.ensure_cloudonix_domain(
+            organization_id=organization_id,
+            created_by=created_by,
+        )
+        == payload
+    )
+    assert calls == [
+        (
+            f"{client.base_url}/api/v1/cloudonix/domains/self",
+            expected_headers,
+        )
+    ]
+
+
 def test_validate_service_key_uses_bearer_self_usage(monkeypatch):
     calls = []
 

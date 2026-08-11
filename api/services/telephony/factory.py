@@ -26,7 +26,7 @@ from api.db import db_client
 from api.db.models import TelephonyConfigurationModel, WorkflowRunModel
 from api.errors.failure import log_failure
 from api.services.telephony import registry
-from api.services.telephony.base import TelephonyProvider
+from api.services.telephony.base import SIPConnectivityDetails, TelephonyProvider
 from api.services.telephony.failure_reporting import (
     classify_telephony_exception,
     instrument_telephony_provider,
@@ -224,6 +224,24 @@ async def load_credentials_for_transport(
 async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:
     """All registered provider classes — used by inbound webhook detection."""
     return [spec.provider_cls for spec in registry.all_specs()]
+
+
+def get_sip_connectivity_details(
+    provider_name: str, credentials: dict[str, Any]
+) -> SIPConnectivityDetails | None:
+    """Build provider-owned SIP details from stored configuration credentials."""
+    spec = registry.get(provider_name)
+    if (
+        spec.provider_cls.get_sip_connectivity_details
+        is TelephonyProvider.get_sip_connectivity_details
+    ):
+        return None
+
+    raw = dict(credentials)
+    raw["provider"] = provider_name
+    config = spec.config_loader(raw)
+    provider = _instantiate(config)
+    return provider.get_sip_connectivity_details()
 
 
 async def _normalize_with_phone_numbers(

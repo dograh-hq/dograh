@@ -144,6 +144,8 @@ Renders a pill-shaped button anchored to a corner of the page.
 
 Configure **Button Text**, **Button Color**, and **Position** (top/bottom + left/right) from the dashboard.
 
+Every other word a visitor sees is editable too, under a collapsible section in the same dialog, so you can run the widget in your site's language: **Chat Panel Text** for chat widgets (end chat button, conversation-ended message, start-new-chat and retry buttons, message placeholder, and the send/close screen-reader labels), or **Voice Call Text** for voice widgets. Leave a field blank to keep the English default.
+
 The host page writes no JavaScript — pasting the embed snippet is the entire integration. If you want to subscribe to call lifecycle events (e.g. analytics), see [Lifecycle callbacks](#lifecycle-callbacks-all-modes) below
 
 ## Inline Component
@@ -155,7 +157,7 @@ Renders a panel inside a `<div>` you place in your page.
 - **Voice:** a status panel (status icon + status text + CTA button). Status changes update the panel in place.
 - **Chat:** a call-to-action screen first; clicking the button replaces it with a chat panel that fills the container. No extra JavaScript is needed.
 
-Configure **Button Text**, **Button Color**, and **Call to Action Text** from the dashboard.
+Configure **Button Text**, **Button Color**, and **Call to Action Text** from the dashboard, plus the **Chat Panel Text** / **Voice Call Text** section described under [Floating Widget](#floating-widget). Inline voice widgets show the most copy of any mode — a heading and subtext for each of ready, connecting, connected, ended, failed, and lost — so that section carries the full set here.
 
 ### Plain HTML
 

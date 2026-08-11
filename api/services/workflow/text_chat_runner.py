@@ -614,6 +614,9 @@ async def execute_text_chat_pending_turn(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
+        # Each text turn owns a short-lived pipeline. Complete extraction before
+        # leaving a node so teardown cannot discard the result before checkpointing.
+        run_transition_variable_extraction_in_background=False,
     )
     engine._gathered_context = dict(base_checkpoint["gathered_context"])
 

@@ -49,7 +49,7 @@ The request body, headers, and response shape are identical for both URLs.
 
 ## Making a request
 
-Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts optional `initial_context` and `telephony_configuration_id` fields.
+Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts optional `initial_context`, `telephony_configuration_id`, and `from_phone_number_id` fields.
 
 <CodeGroup>
 ```bash Production URL
@@ -158,7 +158,7 @@ Dograh renders a text override after Pre-Call Data Fetch completes, so the overr
 
 Pre-Call Data Fetch can also return `greeting_override`. Because fetched context is applied after trigger context, a valid fetched override replaces one supplied by the trigger.
 
-## Choosing a telephony configuration
+## Choosing a telephony configuration and caller ID
 
 By default, calls are placed through your organization's default outbound [telephony configuration](/integrations/telephony/overview). To route a specific call through a different configuration — for example, to dial out from a regional number — pass `telephony_configuration_id` in the request body.
 
@@ -170,6 +170,18 @@ By default, calls are placed through your organization's default outbound [telep
 ```
 
 The id is shown on each row in **Telephony configurations** (`https://app.dograh.com/telephony-configurations` for hosted or `http://localhost:3010/telephony-configurations` for local). The configuration must belong to the same organization as the API Trigger; otherwise the request returns `404`.
+
+To use a specific caller ID from that configuration, also pass `from_phone_number_id`:
+
+```json
+{
+  "phone_number": "+14155550100",
+  "telephony_configuration_id": 42,
+  "from_phone_number_id": 84
+}
+```
+
+`from_phone_number_id` is the ID of a phone number configured under the selected telephony configuration. The number must be active and belong to that configuration; otherwise the request returns `400`. You can retrieve configured numbers with [List phone numbers](/api-reference/telephony-configs/phone-numbers/list).
 
 <Note>
 For full endpoint details including all parameters and response fields, see the [API reference](/api-reference/runs/trigger).

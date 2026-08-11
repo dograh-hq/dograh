@@ -630,7 +630,9 @@ class GlobalNodeData(BaseNodeData, _PromptedNodeDataMixin):
         "A valid override takes precedence over the saved Start-node greeting.\n"
         "  • `telephony_configuration_id` (int, optional) — pick a specific telephony "
         "configuration for the call. Must belong to the same organization as the "
-        "trigger. When omitted, the org's default outbound configuration is used."
+        "trigger. When omitted, the org's default outbound configuration is used.\n"
+        "  • `from_phone_number_id` (int, optional) — pick the caller-ID number to "
+        "use. It must be active and registered to the resolved telephony configuration."
     ),
     category=NodeCategory.trigger,
     icon="Webhook",

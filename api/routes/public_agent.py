@@ -37,6 +37,8 @@ class TriggerCallRequest(BaseModel):
     phone_number: str
     initial_context: Optional[dict] = None
     telephony_configuration_id: int | None = None
+    # Optional active caller ID in the resolved telephony configuration.
+    from_phone_number_id: int | None = None
 
 
 class TriggerCallResponse(BaseModel):
@@ -227,6 +229,16 @@ async def _execute_resolved_target(
             detail="Telephony provider not configured for this organization",
         )
 
+    # Resolve an explicit caller ID within the selected configuration.
+    from_number: str | None = None
+    if request.from_phone_number_id is not None:
+        phone_row = await db_client.get_phone_number_for_config(
+            request.from_phone_number_id, resolved_cfg_id
+        )
+        if not phone_row or not phone_row.is_active:
+            raise HTTPException(status_code=400, detail="from_phone_number_not_found")
+        from_number = phone_row.address_normalized
+
     # 7. Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
 
@@ -243,6 +255,8 @@ async def _execute_resolved_target(
         "agent_identifier_type": target.identifier_type,
         "workflow_uuid": target.workflow.workflow_uuid,
     }
+    if request.from_phone_number_id is not None:
+        initial_context["from_phone_number_id"] = request.from_phone_number_id
     if target.identifier_type == "trigger_path":
         initial_context["agent_uuid"] = target.identifier_value
     if api_key_id is not None:
@@ -335,6 +349,7 @@ async def _execute_resolved_target(
             to_number=request.phone_number,
             webhook_url=webhook_url,
             workflow_run_id=workflow_run.id,
+            from_number=from_number,
             workflow_id=target.workflow.id,
             organization_id=target.organization_id,
         )

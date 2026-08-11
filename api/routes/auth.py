@@ -49,10 +49,10 @@ async def signup(request: SignupRequest):
     await db_client.update_user_selected_organization(user.id, organization.id)
 
     # Create default service configuration. This never raises, so signup still
-    # succeeds if MPS is down — but note that `get_user` short-circuits to
-    # `_handle_oss_auth` before its own bootstrap call, so unlike the Stack Auth
-    # path nothing retries this later. A failure here leaves the organization
-    # without a model configuration or SIP connectivity until it is re-run.
+    # succeeds if MPS is down; `_handle_oss_auth` re-enters bootstrap on the
+    # user's subsequent authenticated requests, so a failure here is recovered
+    # rather than permanent. Doing it here anyway means the common case has a
+    # model configuration and SIP connectivity by the time the UI first loads.
     await ensure_organization_bootstrapped(
         organization.id,
         created_by=user.provider_id,

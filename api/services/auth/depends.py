@@ -272,13 +272,22 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
     try:
         payload = decode_jwt_token(token)
         user = await db_client.get_user_by_id(int(payload["sub"]))
-        if user:
-            return user
-        raise HTTPException(status_code=401, detail="User not found")
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Deliberately outside the try above: a provisioning failure must not be
+    # reported to the user as an expired token.
+    if user.selected_organization_id:
+        await ensure_organization_bootstrapped(
+            user.selected_organization_id,
+            created_by=user.provider_id,
+        )
+
+    return user
 
 
 async def _handle_api_key_auth(api_key: str) -> UserModel:

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from api.services.auth import depends as auth_depends
 
@@ -233,6 +234,80 @@ async def test_get_user_succeeds_when_bootstrap_cannot_complete(monkeypatch):
 
     assert result is user
     assert result.selected_organization_id == 42
+
+
+def _patch_oss_auth_dependencies(monkeypatch, *, user, bootstrap):
+    monkeypatch.setattr(auth_depends, "AUTH_PROVIDER", "local")
+    monkeypatch.setattr(auth_depends, "decode_jwt_token", lambda token: {"sub": "7"})
+    monkeypatch.setattr(
+        auth_depends.db_client,
+        "get_user_by_id",
+        AsyncMock(return_value=user),
+    )
+    monkeypatch.setattr(auth_depends, "ensure_organization_bootstrapped", bootstrap)
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_bootstraps_existing_organization(monkeypatch):
+    """An OSS org that predates a bootstrap step must still be provisioned.
+
+    OSS users sign up exactly once, so a deployment that upgrades to a release
+    adding managed SIP has no signup left to run. Bootstrap has to be reachable
+    from an ordinary authenticated request or those orgs never get provisioned.
+    """
+    user = SimpleNamespace(id=7, provider_id="oss-user-1", selected_organization_id=42)
+    bootstrap = AsyncMock(return_value=True)
+
+    _patch_oss_auth_dependencies(monkeypatch, user=user, bootstrap=bootstrap)
+
+    result = await auth_depends.get_user(authorization="Bearer token")
+
+    assert result is user
+    bootstrap.assert_awaited_once_with(42, created_by="oss-user-1")
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_does_not_mask_bootstrap_error_as_invalid_token(monkeypatch):
+    """A provisioning error must not surface as an expired token.
+
+    The token decoded fine; telling the user to log in again would send them
+    chasing an auth problem they do not have.
+    """
+    user = SimpleNamespace(id=7, provider_id="oss-user-1", selected_organization_id=42)
+    bootstrap = AsyncMock(side_effect=RuntimeError("database unavailable"))
+
+    _patch_oss_auth_dependencies(monkeypatch, user=user, bootstrap=bootstrap)
+
+    with pytest.raises(RuntimeError):
+        await auth_depends.get_user(authorization="Bearer token")
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_skips_bootstrap_without_organization(monkeypatch):
+    user = SimpleNamespace(
+        id=7, provider_id="oss-user-1", selected_organization_id=None
+    )
+    bootstrap = AsyncMock(return_value=True)
+
+    _patch_oss_auth_dependencies(monkeypatch, user=user, bootstrap=bootstrap)
+
+    result = await auth_depends.get_user(authorization="Bearer token")
+
+    assert result is user
+    bootstrap.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_rejects_unknown_user(monkeypatch):
+    bootstrap = AsyncMock(return_value=True)
+    _patch_oss_auth_dependencies(monkeypatch, user=None, bootstrap=bootstrap)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_depends.get_user(authorization="Bearer token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "User not found"
+    bootstrap.assert_not_awaited()
 
 
 def test_associate_user_with_posthog_org_supports_backfill_arguments(monkeypatch):

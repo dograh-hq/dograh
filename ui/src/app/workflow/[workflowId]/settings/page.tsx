@@ -1576,6 +1576,7 @@ function WorkflowSettingsInner({
         workflowName,
         workflowConfigurations,
         textChatInactivityTimeoutConstraints,
+        widgetTextDefaults,
         templateContextVariables,
         dictionary,
         saveWorkflowConfigurations,
@@ -1793,6 +1794,7 @@ function WorkflowSettingsInner({
                     workflowName={workflowName || workflow.name}
                     workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                     textChatInactivityTimeoutConstraints={textChatInactivityTimeoutConstraints}
+                    widgetTextDefaults={widgetTextDefaults}
                     onSaveWorkflowConfigurations={saveWorkflowConfigurations}
                 />
             )}

@@ -85,6 +85,7 @@ class PipecatEngine:
         embeddings_api_version: Optional[str] = None,
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
+        run_transition_variable_extraction_in_background: bool = True,
     ):
         self.task = task
         self.llm = llm
@@ -102,6 +103,9 @@ class PipecatEngine:
         self._call_context_vars = call_context_vars
         self._workflow_run_id = workflow_run_id
         self._node_transition_callback = node_transition_callback
+        self._run_transition_variable_extraction_in_background = (
+            run_transition_variable_extraction_in_background
+        )
         self._initialized = False
         self._call_disposed = False
         self._current_node: Optional[Node] = None
@@ -253,7 +257,10 @@ class PipecatEngine:
 
             try:
                 # Perform variable extraction before transitioning to new node
-                await self._perform_variable_extraction_if_needed(self._current_node)
+                await self._perform_variable_extraction_if_needed(
+                    self._current_node,
+                    run_in_background=self._run_transition_variable_extraction_in_background,
+                )
 
                 # Queue transition speech/audio before switching nodes
                 speech_type = transition_speech_type or "text"

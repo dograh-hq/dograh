@@ -24,6 +24,9 @@ export type ServiceSegment = "llm" | "tts" | "stt" | "embeddings" | "realtime";
 interface SchemaProperty {
     type?: string;
     default?: string | number | boolean;
+    anyOf?: SchemaProperty[];
+    minimum?: number;
+    maximum?: number;
     enum?: string[];
     examples?: string[];
     model_options?: Record<string, string[]>;
@@ -141,6 +144,11 @@ function getSchemaDropdownOptions(
     }
 
     return dropdownOptions;
+}
+
+function getNumberSchema(schema: SchemaProperty | undefined): SchemaProperty | undefined {
+    if (schema?.type === "number") return schema;
+    return schema?.anyOf?.find(option => option.type === "number");
 }
 
 export function ServiceConfigurationForm({
@@ -694,6 +702,7 @@ export function ServiceConfigurationForm({
             actualSchema,
             watch(`${service}_model`) as string | undefined,
         );
+        const numberSchema = getNumberSchema(actualSchema);
 
         if (service === "tts" && field === "voice" && !actualSchema?.allow_custom_input) {
             if (!dropdownOptions) {
@@ -829,12 +838,18 @@ export function ServiceConfigurationForm({
 
         return (
             <Input
-                type={actualSchema?.type === "number" ? "number" : "text"}
-                {...(actualSchema?.type === "number" && { step: "any" })}
+                type={numberSchema ? "number" : "text"}
+                {...(numberSchema && {
+                    step: "any",
+                    min: numberSchema.minimum,
+                    max: numberSchema.maximum,
+                })}
                 placeholder={`Enter ${field}`}
                 {...register(`${service}_${field}`, {
                     required: service !== "embeddings" && providerSchema.required?.includes(field),
-                    valueAsNumber: actualSchema?.type === "number"
+                    ...(numberSchema && {
+                        setValueAs: (value: string) => value === "" ? undefined : Number(value),
+                    }),
                 })}
             />
         );

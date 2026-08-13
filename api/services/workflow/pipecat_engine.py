@@ -41,6 +41,7 @@ from loguru import logger
 
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
+from api.services.workflow.initial_context import GREETING_OVERRIDE_CONTEXT_KEY
 from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_context_composer import (
     compose_functions_for_node,
@@ -84,6 +85,7 @@ class PipecatEngine:
         embeddings_api_version: Optional[str] = None,
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
+        run_transition_variable_extraction_in_background: bool = True,
     ):
         self.task = task
         self.llm = llm
@@ -101,15 +103,18 @@ class PipecatEngine:
         self._call_context_vars = call_context_vars
         self._workflow_run_id = workflow_run_id
         self._node_transition_callback = node_transition_callback
+        self._run_transition_variable_extraction_in_background = (
+            run_transition_variable_extraction_in_background
+        )
         self._initialized = False
         self._call_disposed = False
         self._current_node: Optional[Node] = None
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
-        # True once a final (synchronous) extraction has run, so the end-of-call
-        # and upstream-transfer paths don't redundantly re-extract the same
-        # terminal state.
+        # True once terminal call disposal has run its synchronous extraction.
+        # Recoverable operations such as a failed transfer use a repeatable
+        # flush and must not consume this one-shot finalization state.
         self._final_extraction_done: bool = False
 
         # Will be set later in initialize() when we have
@@ -128,6 +133,12 @@ class PipecatEngine:
 
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
         self._bot_is_speaking: bool = False
+
+        # Playback tracking for speech a caller needs to await (see
+        # arm_speech_playback / wait_for_speech_playback). Armed state is
+        # "nothing started yet", so both events start cleared.
+        self._speech_playback_started: asyncio.Event = asyncio.Event()
+        self._speech_playback_finished: asyncio.Event = asyncio.Event()
 
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
@@ -252,7 +263,10 @@ class PipecatEngine:
 
             try:
                 # Perform variable extraction before transitioning to new node
-                await self._perform_variable_extraction_if_needed(self._current_node)
+                await self._perform_variable_extraction_if_needed(
+                    self._current_node,
+                    run_in_background=self._run_transition_variable_extraction_in_background,
+                )
 
                 # Queue transition speech/audio before switching nodes
                 speech_type = transition_speech_type or "text"
@@ -529,28 +543,30 @@ class PipecatEngine:
                 f"Incomplete: {incomplete}"
             )
 
-    async def perform_final_variable_extraction(self) -> None:
-        """Flush in-flight + current-node variable extraction synchronously.
+    async def flush_variable_extraction(self) -> None:
+        """Refresh extracted variables without marking the call finalized.
 
-        Awaits any background extractions still running from previous nodes,
-        then runs the current node's extraction inline so callers that need the
-        freshest extracted variables before acting can rely on them -- e.g.
-        end_call_with_reason before disposing the call, or an external-PBX
-        transfer that maps extracted variables into a provider lead update
-        call before handing the customer off.
-
-        Idempotent: only the first call does work. The external-PBX transfer
-        runs this just before forwarding update_lead, so the subsequent
-        end_call_with_reason would otherwise re-extract the same terminal state.
+        This operation is intentionally repeatable. Transfer routing and
+        external-PBX field mappings need current conversation values, but a
+        failed transfer can return control to the agent and gather more input.
         """
-        if self._final_extraction_done:
-            logger.debug("Final variable extraction already performed; skipping")
-            return
-        self._final_extraction_done = True
         await self._await_pending_extractions()
         await self._perform_variable_extraction_if_needed(
             self._current_node, run_in_background=False
         )
+
+    async def perform_final_variable_extraction(self) -> None:
+        """Perform the one-shot extraction used during call disposal.
+
+        Awaits any background extractions still running from previous nodes,
+        then runs the current node's extraction inline. Idempotency prevents
+        duplicate terminal extraction when multiple teardown paths converge.
+        """
+        if self._final_extraction_done:
+            logger.debug("Final variable extraction already performed; skipping")
+            return
+        await self.flush_variable_extraction()
+        self._final_extraction_done = True
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
@@ -666,12 +682,31 @@ class PipecatEngine:
         Returns:
             A tuple of (greeting_type, value) where:
             - ("text", rendered_text) for text greetings spoken via TTS
-            - ("audio", recording_id) for pre-recorded audio greetings
+            - ("audio", recording primary key) for configured audio greetings
+            - ("audio_recording_id", recording ID) for call-level audio overrides
             Or None if no greeting is configured.
         """
         node = self.workflow.nodes.get(node_id)
         if not node:
             return None
+
+        # A programmatic override applies only to the workflow entry greeting;
+        # greetings on later nodes continue to use their saved configuration.
+        if node.is_start:
+            override = self._call_context_vars.get(GREETING_OVERRIDE_CONTEXT_KEY)
+            if isinstance(override, dict):
+                override_type = override.get("type")
+                if override_type == "text":
+                    text = override.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return ("text", self._format_prompt(text))
+                elif override_type == "audio":
+                    recording_id = override.get("recording_id")
+                    if isinstance(recording_id, str) and recording_id.strip():
+                        return ("audio_recording_id", recording_id.strip())
+                logger.warning(
+                    "Ignoring invalid greeting_override; using Start-node greeting"
+                )
 
         greeting_type = node.greeting_type or "text"
 
@@ -709,15 +744,18 @@ class PipecatEngine:
             if greeting_info:
                 greeting_type, greeting_value = greeting_info
                 if (
-                    greeting_type == "audio"
+                    greeting_type in {"audio", "audio_recording_id"}
                     and greeting_value
                     and self._fetch_recording_audio
                     and self._transport_output is not None
                 ):
                     logger.debug(f"Playing audio greeting recording: {greeting_value}")
-                    result = await self._fetch_recording_audio(
-                        recording_pk=int(greeting_value)
+                    fetch_kwargs = (
+                        {"recording_id": greeting_value}
+                        if greeting_type == "audio_recording_id"
+                        else {"recording_pk": int(greeting_value)}
                     )
+                    result = await self._fetch_recording_audio(**fetch_kwargs)
                     if result:
                         await play_audio(
                             result.audio,
@@ -826,6 +864,61 @@ class PipecatEngine:
         )
         await self.task.queue_frame(frame_to_push)
 
+    def arm_speech_playback(self) -> None:
+        """Start tracking the next piece of speech queued to the transport.
+
+        Call this immediately *before* queueing a TTSSpeakFrame (or raw
+        recording audio) whose playback a later step must wait for. Any speech
+        already in flight is ignored: the tracker only completes once a fresh
+        BotStartedSpeakingFrame has been followed by a BotStoppedSpeakingFrame.
+        """
+        self._speech_playback_started.clear()
+        self._speech_playback_finished.clear()
+
+    async def wait_for_speech_playback(
+        self, *, start_timeout: float = 5.0, playback_timeout: float = 30.0
+    ) -> bool:
+        """Wait for speech armed via ``arm_speech_playback`` to finish playing.
+
+        Speech queued to the pipeline only reaches the caller once the output
+        transport has written it out in real time, so anything that tears the
+        audio path down (a PBX transfer, a hangup) must wait for this first.
+
+        Args:
+            start_timeout: Seconds to wait for playback to begin. TTS can fail
+                or return nothing, so a message that never starts must not
+                block the caller indefinitely.
+            playback_timeout: Seconds to wait for playback to complete once it
+                has begun.
+
+        Returns:
+            True if the speech played to completion, False if either wait timed
+            out (the caller should carry on regardless).
+        """
+        try:
+            await asyncio.wait_for(
+                self._speech_playback_started.wait(), timeout=start_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Queued speech never started playing within {start_timeout}s; "
+                "continuing without it"
+            )
+            return False
+
+        try:
+            await asyncio.wait_for(
+                self._speech_playback_finished.wait(), timeout=playback_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Queued speech did not finish playing within {playback_timeout}s; "
+                "continuing"
+            )
+            return False
+
+        return True
+
     async def should_mute_user(self, frame: "Frame") -> bool:
         """
         Callback for CallbackUserMuteStrategy to determine if the user should be muted.
@@ -842,9 +935,12 @@ class PipecatEngine:
             self._bot_is_speaking = True
             if self._queued_speech_mute_state == "waiting":
                 self._queued_speech_mute_state = "playing"
+            self._speech_playback_started.set()
+            self._speech_playback_finished.clear()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
             self._queued_speech_mute_state = "idle"
+            self._speech_playback_finished.set()
 
         # Always mute if pipeline is shutting down
         if self._mute_pipeline:

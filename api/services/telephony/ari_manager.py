@@ -633,7 +633,10 @@ class ARIConnection:
         return (result or {}).get("value", "") or ""
 
     async def _capture_external_pbx_call(
-        self, channel_id: str, channel_name: str = ""
+        self,
+        channel_id: str,
+        channel_name: str = "",
+        lead_fields: Optional[list] = None,
     ) -> Optional[dict]:
         """Capture adapter-defined identity from inbound SIP headers."""
         if self.external_pbx_adapter is None:
@@ -649,14 +652,51 @@ class ARIConnection:
             )
             return None
 
-        async def read_header(name: str) -> str:
-            return await self._get_channel_var(channel_id, f"PJSIP_HEADER(read,{name})")
+        # Adapters batch header reads with asyncio.gather; each read is one
+        # ARI request, so bound the fan-out against the Asterisk HTTP server.
+        read_semaphore = asyncio.Semaphore(8)
 
-        identity = await self.external_pbx_adapter.capture_call_identity(read_header)
+        async def read_header(name: str) -> str:
+            async with read_semaphore:
+                return await self._get_channel_var(
+                    channel_id, f"PJSIP_HEADER(read,{name})"
+                )
+
+        # Discovery aid: PJSIP_HEADERS() returns header *names* in a single
+        # request, so listing what the PBX attaches costs one round trip no
+        # matter how many headers there are. Reading their values is what costs
+        # one request each, which is why this stays names-only.
+        if self.external_pbx_adapter.header_prefix:
+            prefix = self.external_pbx_adapter.header_prefix
+            raw = await self._get_channel_var(channel_id, f"PJSIP_HEADERS({prefix})")
+            available = sorted(
+                name.strip()[len(prefix) :]
+                for name in raw.split(",")
+                if name.strip()[len(prefix) :]
+            )
+            logger.info(
+                f"[ARI org={self.organization_id}] Available "
+                f"{self.external_pbx_adapter.type} lead fields on channel "
+                f"{channel_id}: {available or 'none'} — add the ones you need "
+                f"under the workflow's Lead Fields To Capture setting"
+            )
+
+        identity = await self.external_pbx_adapter.capture_call_identity(
+            read_header, lead_fields or ()
+        )
         if identity:
+            # Identity and lead payload values can carry customer/provider PII.
+            # Log only the names of non-empty fields that were captured.
+            identity_fields = sorted(
+                key
+                for key, value in identity.items()
+                if key != "lead" and value not in (None, "")
+            )
+            lead_fields = sorted((identity.get("lead") or {}).keys())
             logger.info(
                 f"[ARI org={self.organization_id}] Captured "
-                f"{self.external_pbx_adapter.type} call identity for channel {channel_id} identity: {identity}"
+                f"{self.external_pbx_adapter.type} call identity for channel {channel_id} "
+                f"identity_fields: {identity_fields} lead_fields: {lead_fields}"
             )
         return identity
 
@@ -820,8 +860,19 @@ class ARIConnection:
             call_id = channel_id
             run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
             # Capture the configured external PBX identity from SIP headers.
+            # Lead fields come from the definition this run binds to, not from
+            # the workflow's draft-synced legacy column.
+            lead_fields = []
+            if self.external_pbx_adapter is not None:
+                workflow_configurations = await db_client.get_definition_configurations(
+                    run_inputs.definition_id,
+                    organization_id=self.organization_id,
+                )
+                lead_fields = (
+                    workflow_configurations.get("external_pbx_lead_headers") or []
+                )
             external_pbx_call = await self._capture_external_pbx_call(
-                channel_id, channel.get("name", "")
+                channel_id, channel.get("name", ""), lead_fields
             )
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",

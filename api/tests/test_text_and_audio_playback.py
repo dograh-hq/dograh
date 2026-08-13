@@ -374,6 +374,67 @@ class TestStartGreeting:
         result = engine.get_start_greeting()
         assert result == ("text", "Hello Alice!")
 
+    def test_trigger_text_greeting_override_wins_and_renders_context(
+        self, text_workflow: WorkflowGraph
+    ):
+        engine = PipecatEngine(
+            workflow=text_workflow,
+            call_context_vars={
+                "account_id": "ACC-123",
+                "greeting_override": {
+                    "type": "text",
+                    "text": "Please confirm account {{account_id}}.",
+                },
+            },
+            workflow_run_id=1,
+        )
+
+        assert engine.get_start_greeting() == (
+            "text",
+            "Please confirm account ACC-123.",
+        )
+
+    def test_invalid_trigger_greeting_override_uses_node_greeting(
+        self, text_workflow: WorkflowGraph
+    ):
+        engine = PipecatEngine(
+            workflow=text_workflow,
+            call_context_vars={"greeting_override": {"type": "text"}},
+            workflow_run_id=1,
+        )
+
+        assert engine.get_start_greeting() == ("text", TEXT_GREETING)
+
+    @pytest.mark.asyncio
+    async def test_audio_greeting_override_resolves_public_recording_id(
+        self, text_workflow: WorkflowGraph
+    ):
+        engine = PipecatEngine(
+            workflow=text_workflow,
+            call_context_vars={
+                "greeting_override": {
+                    "type": "audio",
+                    "recording_id": "callback-welcome",
+                }
+            },
+            workflow_run_id=1,
+        )
+        engine.set_transport_output(Mock(queue_frame=AsyncMock()))
+        engine.set_fetch_recording_audio(
+            AsyncMock(return_value=RecordingAudio(FAKE_PCM_AUDIO, "Welcome back"))
+        )
+
+        result = await engine.queue_node_opening(
+            node_id=text_workflow.start_node_id,
+            previous_node_id=None,
+            generate_if_no_greeting=True,
+        )
+
+        assert result == "greeting"
+        engine._fetch_recording_audio.assert_awaited_once_with(
+            recording_id="callback-welcome"
+        )
+
     @pytest.mark.asyncio
     async def test_queue_node_opening_queues_text_greeting(
         self, text_workflow: WorkflowGraph

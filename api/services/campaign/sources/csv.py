@@ -1,7 +1,7 @@
 import csv
 import hashlib
 from io import StringIO
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from loguru import logger
@@ -17,6 +17,39 @@ from api.services.storage import storage_fs
 
 class CSVSyncService(CampaignSourceSyncService):
     """Implementation for CSV file synchronization"""
+
+    GREETING_OVERRIDE_TYPE_COLUMN = "greeting_override_type"
+    GREETING_OVERRIDE_TEXT_COLUMN = "greeting_override_text"
+    GREETING_OVERRIDE_RECORDING_ID_COLUMN = "greeting_override_recording_id"
+
+    @classmethod
+    def _build_context_variables(
+        cls, headers: List[str], row_values: List[str]
+    ) -> Dict[str, Any]:
+        """Convert a flat CSV row into the initial context used by a campaign call."""
+        padded_row = row_values + [""] * (len(headers) - len(row_values))
+        context_vars: Dict[str, Any] = dict(zip(headers, padded_row))
+
+        override_type = (
+            context_vars.pop(cls.GREETING_OVERRIDE_TYPE_COLUMN, "").strip().lower()
+        )
+        override_text = context_vars.pop(cls.GREETING_OVERRIDE_TEXT_COLUMN, "")
+        recording_id = context_vars.pop(
+            cls.GREETING_OVERRIDE_RECORDING_ID_COLUMN, ""
+        ).strip()
+
+        if override_type == "text" and override_text.strip():
+            context_vars["greeting_override"] = {
+                "type": "text",
+                "text": override_text,
+            }
+        elif override_type == "audio" and recording_id:
+            context_vars["greeting_override"] = {
+                "type": "audio",
+                "recording_id": recording_id,
+            }
+
+        return context_vars
 
     async def _fetch_csv_data(self, file_key: str) -> List[List[str]]:
         """Download and parse CSV file from storage. Returns all rows including header."""
@@ -88,11 +121,7 @@ class CSVSyncService(CampaignSourceSyncService):
         # Convert to queued_runs
         queued_runs = []
         for idx, row_values in enumerate(rows, 1):
-            # Pad row to match headers length
-            padded_row = row_values + [""] * (len(headers) - len(row_values))
-
-            # Create context variables dict
-            context_vars = dict(zip(headers, padded_row))
+            context_vars = self._build_context_variables(headers, row_values)
 
             # Skip if no phone number
             if not context_vars.get("phone_number"):

@@ -98,6 +98,7 @@ class ServiceProviders(str, Enum):
     SMALLEST = "smallest"
     XAI = "xai"
     LMNT = "lmnt"
+    SPEECHIFY = "speechify"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -131,6 +132,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
+        ServiceProviders.SPEECHIFY,
     ]
     api_key: str | list[str]
 
@@ -315,6 +317,10 @@ ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
 XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
 LMNT_PROVIDER_MODEL_CONFIG = provider_model_config("LMNT")
+SPEECHIFY_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Speechify",
+    provider_docs_url="https://docs.speechify.ai",
+)
 INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Inworld",
     description=(
@@ -1459,6 +1465,49 @@ class LmntTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+SPEECHIFY_TTS_MODELS = [
+    "simba-3.2",
+    "simba-3.0",
+    "simba-english",
+    "simba-multilingual",
+]
+SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
+
+
+@register_tts
+class SpeechifyTTSConfiguration(BaseTTSConfiguration):
+    model_config = SPEECHIFY_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SPEECHIFY] = ServiceProviders.SPEECHIFY
+    model: str = Field(
+        default="simba-3.2",
+        description=(
+            "Speechify TTS model. 'simba-3.2' is the streaming-native English "
+            "model with the lowest latency; 'simba-3.0' adds German, Spanish, "
+            "French, Italian, and Portuguese."
+        ),
+        json_schema_extra={"examples": SPEECHIFY_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="beatrice_32",
+        description=(
+            "Speechify voice ID. Use a shared voice from the Speechify catalog "
+            "or a cloned voice ID from your account."
+        ),
+        json_schema_extra={
+            "examples": SPEECHIFY_TTS_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    language: str = Field(
+        default="en",
+        description=(
+            "Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', "
+            "'pt-BR'). simba-3.2 is English-only."
+        ),
+        json_schema_extra={"allow_custom_input": True},
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1477,6 +1526,7 @@ TTSConfig = Annotated[
         SmallestAITTSConfiguration,
         XAITTSConfiguration,
         LmntTTSConfiguration,
+        SpeechifyTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]

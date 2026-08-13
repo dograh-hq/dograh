@@ -227,6 +227,8 @@ def stt_uses_external_turns(user_config) -> bool:
         return dograh_stt_uses_flux_language(getattr(user_config.stt, "language", None))
     if user_config.stt.provider == ServiceProviders.CARTESIA.value:
         return user_config.stt.model == "ink-2"
+    if user_config.stt.provider == ServiceProviders.SONIOX.value:
+        return True
     return False
 
 
@@ -437,6 +439,12 @@ def create_stt_service(
                 language_hints=language_hints,
                 enable_language_identification=language_hints is None,
             ),
+            # Let Soniox's own endpoint detection decide end-of-turn (it is
+            # classified as an external-turn provider in stt_uses_external_turns);
+            # otherwise local VAD would force finalization and Soniox's low-latency
+            # turn detection would be unused.
+            vad_force_turn_endpoint=False,
+            should_interrupt=False,  # external turn strategies own interruption
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEACHES.value:

@@ -618,7 +618,9 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'xai';
     } & XaittsConfiguration) | ({
         provider: 'lmnt';
-    } & LmntTtsConfiguration);
+    } & LmntTtsConfiguration) | ({
+        provider: 'gandr';
+    } & GandrTtsConfiguration);
     /**
      * Stt
      */
@@ -3653,6 +3655,50 @@ export type LmntTtsConfiguration = {
      * Language code for synthesis (e.g. 'en', 'es', 'fr', 'de', 'pt', 'zh', 'ko', 'hi').
      */
     language?: string;
+};
+
+/**
+ * Gandr
+ */
+export type GandrTtsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'gandr';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Gandr TTS model. 'tts-1' is the OpenAI-compatible model id.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Gandr voice ID. Use a stock voice (gandr-mia/ava/leo/dane/jenny/lewis) or a gnd: clone id.
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * Language code for synthesis (e.g. 'en', 'hi', 'es', 'ar').
+     */
+    language?: string;
+    /**
+     * Base Url
+     *
+     * Gandr OpenAI-compatible base URL.
+     */
+    base_url?: string;
+    /**
+     * Speed
+     *
+     * Speech speed (0.25 to 4.0).
+     */
+    speed?: number;
 };
 
 /**

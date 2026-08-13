@@ -98,6 +98,7 @@ class ServiceProviders(str, Enum):
     SMALLEST = "smallest"
     XAI = "xai"
     LMNT = "lmnt"
+    GANDR = "gandr"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -131,6 +132,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
+        ServiceProviders.GANDR,
     ]
     api_key: str | list[str]
 
@@ -1241,6 +1243,54 @@ class RimeTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+GANDR_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Gandr",
+    description=(
+        "Flat-rate TTS API (gandr.ai). One stream, unlimited characters, "
+        "or $10 per million tokens. OpenAI-compatible /v1/audio/speech."
+    ),
+    provider_docs_url="https://gandr.ai/docs",
+)
+
+GANDR_TTS_MODELS = ["tts-1"]
+GANDR_TTS_VOICES = [
+    "gandr-mia",
+    "gandr-ava",
+    "gandr-leo",
+    "gandr-dane",
+    "gandr-jenny",
+    "gandr-lewis",
+]
+
+
+@register_tts
+class GandrTTSConfiguration(BaseTTSConfiguration):
+    model_config = GANDR_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GANDR] = ServiceProviders.GANDR
+    model: str = Field(
+        default="tts-1",
+        description="Gandr TTS model. 'tts-1' is the OpenAI-compatible model id.",
+        json_schema_extra={"examples": GANDR_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="gandr-mia",
+        description="Gandr voice ID. Use a stock voice (gandr-mia/ava/leo/dane/jenny/lewis) or a gnd: clone id.",
+        json_schema_extra={"examples": GANDR_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="Language code for synthesis (e.g. 'en', 'hi', 'es', 'ar').",
+        json_schema_extra={"allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default="https://tts.gandr.ai/v1",
+        description="Gandr OpenAI-compatible base URL.",
+    )
+    speed: float = Field(
+        default=1.0, ge=0.25, le=4.0, description="Speech speed (0.25 to 4.0)."
+    )
+
+
 SPEACHES_TTS_MODELS = ["hexgrad/Kokoro-82M"]
 
 
@@ -1477,6 +1527,7 @@ TTSConfig = Annotated[
         SmallestAITTSConfiguration,
         XAITTSConfiguration,
         LmntTTSConfiguration,
+        GandrTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]

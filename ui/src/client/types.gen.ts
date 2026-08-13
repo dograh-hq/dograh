@@ -3678,15 +3678,9 @@ export type GandrTtsConfiguration = {
     /**
      * Voice
      *
-     * Gandr voice ID. Use a stock voice (gandr-mia/ava/leo/dane/jenny/lewis) or a gnd: clone id.
+     * Gandr voice ID. Use a stock voice (gandr-mia/ava/leo/dane/jenny/lewis) or a gnd: clone id. Language follows the voice/clone.
      */
     voice?: string;
-    /**
-     * Language
-     *
-     * Language code for synthesis (e.g. 'en', 'hi', 'es', 'ar').
-     */
-    language?: string;
     /**
      * Base Url
      *

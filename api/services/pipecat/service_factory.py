@@ -716,25 +716,14 @@ def create_tts_service(
         # Set language directly as BCP-47 code (bypasses Language enum conversion)
         tts._settings.language = language
         return tts
-    elif user_config.tts.provider == ServiceProviders.SPEACHES.value:
-        _validate_runtime_service_url(user_config.tts.base_url, "base_url")
-        return SpeachesTTSService(
-            base_url=user_config.tts.base_url,
-            api_key=user_config.tts.api_key or "none",
-            settings=SpeachesTTSSettings(
-                model=user_config.tts.model,
-                voice=user_config.tts.voice,
-                speed=user_config.tts.speed,
-            ),
-            text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
-        )
-    elif user_config.tts.provider == ServiceProviders.GANDR.value:
-        # Gandr is OpenAI-compatible at /v1/audio/speech, so it reuses the
-        # Speaches service (a thin OpenAI TTS adapter that passes the voice
-        # through unchanged and streams raw PCM). base_url is Gandr's
-        # /v1 root, e.g. https://tts.gandr.ai/v1.
+    elif user_config.tts.provider in (
+        ServiceProviders.SPEACHES.value,
+        ServiceProviders.GANDR.value,
+    ):
+        # Both Speaches (self-hosted OpenAI-compatible) and Gandr (flat-rate
+        # TTS, also OpenAI-compatible at /v1/audio/speech) reuse the thin
+        # Speaches service, which passes voice/model through unchanged and
+        # streams raw PCM. base_url is the provider's /v1 root.
         _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         return SpeachesTTSService(
             base_url=user_config.tts.base_url,

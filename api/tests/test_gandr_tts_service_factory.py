@@ -19,7 +19,6 @@ def test_gandr_tts_configuration_defaults():
 
     assert config.provider == ServiceProviders.GANDR
     assert config.voice == "gandr-mia"
-    assert config.language == "en"
     assert config.model == "tts-1"
     assert config.base_url == "https://tts.gandr.ai/v1"
     assert GANDR_TTS_MODELS == ["tts-1"]
@@ -87,6 +86,10 @@ def test_gandr_is_registered_for_key_validation():
     assert ServiceProviders.GANDR.value in validator._validator_map
 
 
+def _gandr_config(base_url=None):
+    return SimpleNamespace(base_url=base_url) if base_url else SimpleNamespace()
+
+
 def test_gandr_key_validation_accepts_valid_key():
     validator = UserConfigurationValidator()
     with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
@@ -96,6 +99,25 @@ def test_gandr_key_validation_accepts_valid_key():
     assert called_url == "https://tts.gandr.ai/v1/voices"
     headers = mock_get.call_args.kwargs["headers"]
     assert headers["x-api-key"] == "gnd-valid-key"
+
+
+def test_gandr_key_validation_uses_configured_base_url():
+    # Save-time validation must match runtime synthesis: when a user points
+    # base_url at a regional/proxy Gandr endpoint, the key check hits that
+    # host's /voices, not the hard-coded default.
+    validator = UserConfigurationValidator()
+    with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
+        mock_get.return_value.status_code = 200
+        assert (
+            validator._check_gandr_api_key(
+                "tts-1",
+                "gnd-valid-key",
+                _gandr_config(base_url="https://tts-nyc.gandr.ai/v1"),
+            )
+            is True
+        )
+    called_url = mock_get.call_args.args[0]
+    assert called_url == "https://tts-nyc.gandr.ai/v1/voices"
 
 
 def test_gandr_key_validation_rejects_bad_key():

@@ -237,6 +237,7 @@ class UserConfigurationValidator:
             ServiceProviders.OPENAI.value,
             ServiceProviders.ATLASCLOUD.value,
             ServiceProviders.OPENAI_REALTIME.value,
+            ServiceProviders.GANDR.value,
         ):
             return validator(provider, api_key, service_config)
         return validator(provider, api_key)
@@ -444,14 +445,23 @@ class UserConfigurationValidator:
             )
         return True
 
-    def _check_gandr_api_key(self, model: str, api_key: str) -> bool:
+    def _check_gandr_api_key(
+        self,
+        model: str,
+        api_key: str,
+        service_config: Optional[ServiceConfig] = None,
+    ) -> bool:
         # Best-effort smoke test against Gandr's voice-list endpoint. Only a
         # clear auth failure rejects the save; other statuses are treated as
         # inconclusive so transient errors or API changes don't block valid
         # keys.
+        base_url = getattr(service_config, "base_url", None) if service_config else None
+        if not base_url:
+            base_url = "https://tts.gandr.ai/v1"
+        voices_url = base_url.rstrip("/") + "/voices"
         try:
             response = httpx.get(
-                "https://tts.gandr.ai/v1/voices",
+                voices_url,
                 headers={"x-api-key": api_key},
                 timeout=10.0,
             )

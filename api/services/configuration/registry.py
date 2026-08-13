@@ -1274,13 +1274,8 @@ class GandrTTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(
         default="gandr-mia",
-        description="Gandr voice ID. Use a stock voice (gandr-mia/ava/leo/dane/jenny/lewis) or a gnd: clone id.",
+        description="Gandr voice ID. Use a stock voice (gandr-mia/ava/leo/dane/jenny/lewis) or a gnd: clone id. Language follows the voice/clone.",
         json_schema_extra={"examples": GANDR_TTS_VOICES, "allow_custom_input": True},
-    )
-    language: str = Field(
-        default="en",
-        description="Language code for synthesis (e.g. 'en', 'hi', 'es', 'ar').",
-        json_schema_extra={"allow_custom_input": True},
     )
     base_url: str = Field(
         default="https://tts.gandr.ai/v1",

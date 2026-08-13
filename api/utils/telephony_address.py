@@ -73,10 +73,25 @@ def normalize_telephony_address(
 def _normalize_pstn(digits: str, country_hint: Optional[str]) -> NormalizedAddress:
     country_code: Optional[str] = None
 
+    # A leading "00" is the ITU international access prefix (ITU-T E.164 §3.3):
+    # the country code already follows it, so the hint must not be applied on
+    # top. Carriers that hand us "0091..." would otherwise get the dial code
+    # prepended twice ("00919262175513" → "+91919262175513").
+    #
+    # This is checked before the country hint because the hint's own
+    # `startswith(dial)` test cannot see past the access prefix.
+    if digits.startswith("00"):
+        digits = digits[2:]
+        # The number is explicitly international, so it need not belong to the
+        # hinted country — only claim the ISO code when the dial code matches.
+        if country_hint:
+            dial = get_country_code(country_hint)
+            if dial and digits.startswith(dial):
+                country_code = country_hint.upper()
     # If a country hint is given and the digits don't already start with that
     # country's dial code, try to apply it. Local numbers may include a leading
     # zero that needs stripping (e.g. India "0xxxx" → "+91xxxx").
-    if country_hint:
+    elif country_hint:
         dial = get_country_code(country_hint)
         if dial:
             country_code = country_hint.upper()

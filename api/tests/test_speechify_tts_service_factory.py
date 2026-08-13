@@ -1,11 +1,13 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 import pytest
 from pipecat.transcriptions.language import Language
 
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
+    SPEECHIFY_TTS_LANGUAGES_BY_MODEL,
     SPEECHIFY_TTS_MODELS,
     SPEECHIFY_TTS_VOICES,
     ServiceProviders,
@@ -23,6 +25,17 @@ def test_speechify_tts_configuration_defaults():
     assert config.language == "en"
     assert SPEECHIFY_TTS_MODELS[0] == "simba-3.2"
     assert "beatrice_32" in SPEECHIFY_TTS_VOICES
+
+
+def test_speechify_language_options_cover_every_model():
+    # The language dropdown is filtered per model via model_options; every
+    # selectable model needs an entry, and simba-3.2 is documented English-only.
+    assert set(SPEECHIFY_TTS_LANGUAGES_BY_MODEL) == set(SPEECHIFY_TTS_MODELS)
+    assert SPEECHIFY_TTS_LANGUAGES_BY_MODEL["simba-3.2"] == ["en"]
+    language_extra = SpeechifyTTSConfiguration.model_fields[
+        "language"
+    ].json_schema_extra
+    assert language_extra["model_options"] is SPEECHIFY_TTS_LANGUAGES_BY_MODEL
 
 
 @pytest.mark.parametrize("transport_out_sample_rate", [8000, 16000, 24000])
@@ -125,6 +138,13 @@ def test_speechify_key_validation_treats_non_auth_errors_as_inconclusive():
     validator = UserConfigurationValidator()
     with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
         mock_get.return_value.status_code = 500
+        assert validator._check_speechify_api_key("simba-3.2", "sk-valid-key") is True
+
+
+def test_speechify_key_validation_treats_connection_errors_as_inconclusive():
+    validator = UserConfigurationValidator()
+    with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
+        mock_get.side_effect = httpx.ConnectError("connection failed")
         assert validator._check_speechify_api_key("simba-3.2", "sk-valid-key") is True
 
 

@@ -5821,7 +5821,7 @@ export type SpeechifyTtsConfiguration = {
     /**
      * Language
      *
-     * Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', 'pt-BR'). simba-3.2 is English-only.
+     * Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', 'pt-BR'). Options are filtered to the selected model's documented languages; simba-3.2 is documented as English-only.
      */
     language?: string;
 };

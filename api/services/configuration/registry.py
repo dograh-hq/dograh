@@ -1472,6 +1472,40 @@ SPEECHIFY_TTS_MODELS = [
     "simba-multilingual",
 ]
 SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
+# Documented languages per model, used to filter the language dropdown. The
+# API accepts other codes (synthesis succeeds), so this steers rather than
+# hard-blocks: allow_custom_input still permits manual entry.
+SPEECHIFY_TTS_LANGUAGES_BY_MODEL = {
+    "simba-3.2": ["en"],
+    "simba-3.0": ["en", "de", "es", "fr", "it", "pt-BR"],
+    "simba-english": ["en"],
+    "simba-multilingual": [
+        "en",
+        "ar",
+        "bn",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "gu",
+        "hi",
+        "it",
+        "ja",
+        "ko",
+        "mr",
+        "nb",
+        "nl",
+        "pt-BR",
+        "pt-PT",
+        "ru",
+        "sv",
+        "ta",
+        "te",
+        "tr",
+        "ur",
+        "yue",
+    ],
+}
 
 
 @register_tts
@@ -1502,9 +1536,14 @@ class SpeechifyTTSConfiguration(BaseTTSConfiguration):
         default="en",
         description=(
             "Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', "
-            "'pt-BR'). simba-3.2 is English-only."
+            "'pt-BR'). Options are filtered to the selected model's documented "
+            "languages; simba-3.2 is documented as English-only."
         ),
-        json_schema_extra={"allow_custom_input": True},
+        json_schema_extra={
+            "examples": SPEECHIFY_TTS_LANGUAGES_BY_MODEL["simba-3.0"],
+            "allow_custom_input": True,
+            "model_options": SPEECHIFY_TTS_LANGUAGES_BY_MODEL,
+        },
     )
 
 

@@ -446,8 +446,9 @@ class UserConfigurationValidator:
 
     def _check_speechify_api_key(self, model: str, api_key: str) -> bool:
         # Best-effort smoke test against Speechify's voice-list endpoint. Only a
-        # clear auth failure rejects the save; other statuses are treated as
-        # inconclusive so transient errors or API changes don't block valid keys.
+        # clear auth failure rejects the save; connection failures and other
+        # statuses are treated as inconclusive so transient errors or API
+        # changes don't block valid keys.
         try:
             response = httpx.get(
                 "https://api.speechify.ai/v1/voices?limit=1",
@@ -455,10 +456,7 @@ class UserConfigurationValidator:
                 timeout=10.0,
             )
         except httpx.RequestError:
-            raise ValueError(
-                "Could not connect to the Speechify API. Please check your network "
-                "connection and try again."
-            )
+            return True
         if response.status_code == 401:
             raise ValueError(
                 "Invalid Speechify API key. The key was rejected by the Speechify API. "

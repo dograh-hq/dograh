@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, TypedDict
 
 import httpx
@@ -86,20 +87,36 @@ class UserConfigurationValidator:
         }
         status_list = []
 
-        status_list.extend(self._validate_service(configuration.llm, "llm"))
+        status_list.extend(
+            await asyncio.to_thread(self._validate_service, configuration.llm, "llm")
+        )
         if configuration.is_realtime:
             status_list.extend(
-                self._validate_service(
-                    configuration.realtime, "realtime", required=True
+                await asyncio.to_thread(
+                    self._validate_service,
+                    configuration.realtime,
+                    "realtime",
+                    True,
                 )
             )
         else:
-            status_list.extend(self._validate_service(configuration.stt, "stt"))
-            status_list.extend(self._validate_service(configuration.tts, "tts"))
+            status_list.extend(
+                await asyncio.to_thread(
+                    self._validate_service, configuration.stt, "stt"
+                )
+            )
+            status_list.extend(
+                await asyncio.to_thread(
+                    self._validate_service, configuration.tts, "tts"
+                )
+            )
         # Embeddings is optional - only validate if configured
         status_list.extend(
-            self._validate_service(
-                configuration.embeddings, "embeddings", required=False
+            await asyncio.to_thread(
+                self._validate_service,
+                configuration.embeddings,
+                "embeddings",
+                False,
             )
         )
 

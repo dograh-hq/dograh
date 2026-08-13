@@ -1,13 +1,17 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
 import pytest
 
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
     GANDR_TTS_MODELS,
     GANDR_TTS_VOICES,
+    DograhLLMService,
+    DograhSTTService,
     GandrTTSConfiguration,
     ServiceProviders,
 )
@@ -139,3 +143,63 @@ def test_gandr_key_validation_treats_network_error_as_loud():
     ):
         with pytest.raises(ValueError):
             validator._check_gandr_api_key("tts-1", "gnd-key")
+
+
+@pytest.mark.asyncio
+async def test_gandr_key_validation_does_not_block_event_loop():
+    # The bots flagged that a synchronous httpx.get inside the async validate()
+    # flow blocks the event loop for up to the request timeout. validate() now
+    # runs the sync validator chain via asyncio.to_thread, so a slow Gandr
+    # (mocked as a 0.3s blocking call) must NOT stall a concurrent coroutine.
+    import time
+
+    validator = UserConfigurationValidator()
+    config = EffectiveAIModelConfiguration(
+        llm=DograhLLMService(provider="dograh", api_key="dummy", model="tier-1"),
+        stt=DograhSTTService(provider="dograh", api_key="dummy", model="stt-1"),
+        tts=GandrTTSConfiguration(
+            provider="gandr",
+            api_key="gnd-valid-key",
+            model="tts-1",
+            voice="gandr-mia",
+        ),
+    )
+
+    ticks = 0
+
+    async def heartbeat():
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    def _slow_get(*args, **kwargs):
+        time.sleep(0.3)
+        return SimpleNamespace(status_code=200)
+
+    # Dograh self-hosted llm/stt keys are validated by a remote client too;
+    # stub that so the only network call under test is the slow Gandr httpx.get.
+    with (
+        patch(
+            "api.services.configuration.check_validity.httpx.get", side_effect=_slow_get
+        ) as mock_get,
+        patch(
+            "api.services.configuration.check_validity.mps_service_key_client"
+        ) as mock_mps,
+    ):
+        mock_mps.validate_service_key.return_value = True
+        heartbeat_task = asyncio.create_task(heartbeat())
+        try:
+            await validator.validate(config)
+        finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+    assert mock_get.call_count == 1
+    # If the event loop were blocked by the sync call, the heartbeat (10ms
+    # period) would advance ~0 times during the 300ms validation. Running off
+    # the loop, it advances many times.
+    assert ticks >= 10, f"event loop stalled: only {ticks} heartbeat ticks in 300ms"

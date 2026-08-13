@@ -51,6 +51,8 @@ from api.services.configuration.options import (
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
+    SONIOX_STT_LANGUAGES,
+    SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
 )
 from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
@@ -98,6 +100,7 @@ class ServiceProviders(str, Enum):
     SMALLEST = "smallest"
     XAI = "xai"
     LMNT = "lmnt"
+    SONIOX = "soniox"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -328,6 +331,7 @@ CAMB_PROVIDER_MODEL_CONFIG = provider_model_config("Camb.ai")
 RIME_PROVIDER_MODEL_CONFIG = provider_model_config("Rime")
 GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG = provider_model_config("Google Cloud")
 SPEECHMATICS_PROVIDER_MODEL_CONFIG = provider_model_config("Speechmatics")
+SONIOX_PROVIDER_MODEL_CONFIG = provider_model_config("Soniox")
 ASSEMBLYAI_PROVIDER_MODEL_CONFIG = provider_model_config("AssemblyAI")
 GLADIA_PROVIDER_MODEL_CONFIG = provider_model_config("Gladia")
 SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
@@ -1640,6 +1644,27 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
                 "saaras:v3": SARVAM_STT_LANGUAGES_V3,
             },
         },
+    )
+
+
+@register_stt
+class SonioxSTTConfiguration(BaseSTTConfiguration):
+    model_config = SONIOX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SONIOX] = ServiceProviders.SONIOX
+    model: str = Field(
+        default="stt-rt-v5",
+        description=(
+            "Soniox real-time STT model. stt-rt-v5 is the recommended current model."
+        ),
+        json_schema_extra={"examples": SONIOX_STT_MODELS},
+    )
+    language: str = Field(
+        default="auto",
+        description=(
+            "Language hint (ISO 639-1). Use 'auto' for Soniox automatic language "
+            "identification."
+        ),
+        json_schema_extra={"examples": SONIOX_STT_LANGUAGES},
     )
 
 

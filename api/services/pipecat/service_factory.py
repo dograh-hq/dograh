@@ -87,6 +87,7 @@ from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.smallest.stt import SmallestSTTService, SmallestSTTSettings
 from pipecat.services.smallest.tts import SmallestTTSService, SmallestTTSSettings
+from pipecat.services.soniox.stt import SonioxSTTService, SonioxSTTSettings
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
@@ -415,6 +416,26 @@ def create_stt_service(
             settings=SarvamSTTSettings(
                 model=user_config.stt.model,
                 language=pipecat_language,
+            ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.SONIOX.value:
+        # Soniox real-time STT. Pass a language hint when configured; "auto"
+        # (or an unmapped code) falls back to Soniox automatic language
+        # identification. Soniox drives its own end-of-turn detection.
+        language = getattr(user_config.stt, "language", None)
+        language_hints = None
+        if language and language not in ("auto", "unknown"):
+            try:
+                language_hints = [Language(language)]
+            except ValueError:
+                language_hints = None
+        return SonioxSTTService(
+            api_key=user_config.stt.api_key,
+            settings=SonioxSTTSettings(
+                model=user_config.stt.model,
+                language_hints=language_hints,
+                enable_language_identification=language_hints is None,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )

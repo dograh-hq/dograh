@@ -1,0 +1,83 @@
+;
+; pjsip.conf — rendered from pjsip.conf.template by entrypoint.sh.
+;
+; Verimor SIP trunk (registration + inbound identify) with NAT-safe, symmetric
+; RTP and G.711 (ulaw/alaw). Dograh's external media path is G.711 ulaw, so the
+; trunk endpoint MUST allow ulaw.
+;
+
+;=============================== Transport ==================================
+
+[transport-udp]
+type = transport
+protocol = udp
+bind = 0.0.0.0:${SIP_PORT}
+; Advertise the public addresses so SDP/Contact are reachable from Verimor
+; even though Asterisk sits on a private Docker/host network (NAT).
+external_signaling_address = ${EXTERNAL_SIGNALING_ADDRESS}
+external_media_address = ${EXTERNAL_MEDIA_ADDRESS}
+; RFC1918 ranges Asterisk should treat as local (not rewrite). LOCAL_NET adds
+; an optional extra range; leave it blank to skip.
+local_net = 10.0.0.0/8
+local_net = 172.16.0.0/12
+local_net = 192.168.0.0/16
+; LOCAL_NET adds an optional extra range; leave it blank to skip.
+; When blank, the empty directive is stripped by entrypoint.sh.
+local_net = ${LOCAL_NET}
+
+;=============================== Verimor trunk =============================
+
+[verimor_reg]
+type = registration
+transport = transport-udp
+outbound_auth = verimor_auth
+server_uri = sip:${VERIMOR_SIP_HOST}:${VERIMOR_SIP_PORT}
+client_uri = sip:${VERIMOR_SIP_USERNAME}@${VERIMOR_SIP_HOST}
+contact_user = ${VERIMOR_SIP_USERNAME}
+retry_interval = 60
+forbidden_retry_interval = 300
+expiration = 3600
+line = yes
+endpoint = verimor
+
+[verimor_auth]
+type = auth
+auth_type = userpass
+username = ${VERIMOR_SIP_USERNAME}
+password = ${VERIMOR_SIP_PASSWORD}
+
+[verimor_aor]
+type = aor
+contact = sip:${VERIMOR_SIP_HOST}:${VERIMOR_SIP_PORT}
+qualify_frequency = 60
+
+[verimor]
+type = endpoint
+transport = transport-udp
+; Inbound calls from Verimor enter the dialplan here.
+context = from-verimor
+disallow = all
+allow = ulaw
+allow = alaw
+outbound_auth = verimor_auth
+aors = verimor_aor
+from_user = ${VERIMOR_SIP_USERNAME}
+from_domain = ${VERIMOR_SIP_HOST}
+; Media must flow through Asterisk (never re-INVITE peer-to-peer) so it can be
+; bridged to the Dograh external-media WebSocket channel.
+direct_media = no
+; NAT-safe, symmetric RTP.
+rtp_symmetric = yes
+force_rport = yes
+rewrite_contact = yes
+rtp_timeout = 30
+rtp_timeout_hold = 60
+dtmf_mode = rfc4733
+
+; Match inbound INVITEs from the Verimor signaling host to this endpoint. If
+; Verimor sends from additional signaling IPs, add more `match =` lines (one
+; per line) here — confirm the current set with Verimor.
+[verimor_identify]
+type = identify
+endpoint = verimor
+match = ${VERIMOR_SIP_HOST}

@@ -1,9 +1,10 @@
-"""ARI (Asterisk REST Interface) telephony configuration schemas."""
+"""
+ARI (Asterisk REST Interface) telephony configuration schemas.
+"""
 
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-
 
 class VicidialAgentAPIConfiguration(BaseModel):
     """VICIdial remote-agent call-control API configuration."""
@@ -73,9 +74,7 @@ class ARIConfigurationRequest(BaseModel):
     ari_endpoint: str = Field(
         ..., description="ARI base URL (e.g., http://asterisk.example.com:8088)"
     )
-    app_name: str = Field(
-        ..., description="Stasis application name registered in Asterisk"
-    )
+    app_name: str = Field(..., description="Stasis application name registered in Asterisk")
     app_password: str = Field(..., description="ARI user password")
     ws_client_name: str = Field(
         default="",
@@ -89,6 +88,29 @@ class ARIConfigurationRequest(BaseModel):
         default_factory=list,
         description="List of SIP extensions/numbers for outbound calls (optional)",
     )
+    pjsip_outbound_endpoint: str = Field(
+        default="verimor",
+        description=(
+            "PJSIP endpoint name for outbound calls through the Asterisk trunk. "
+            "When Dial(DLG/...) originates a call via ARI, the endpoint will be "
+            "formatted as PJSIP/<digits>@<endpoint_name> (e.g., 'verimor' for a "
+            "Verimor trunk)."
+        ),
+    )
+    outbound_number_format: Literal["e164", "national_zero"] = Field(
+        default="e164",
+        description=(
+            "Digit format used for the PSTN number placed before "
+            "@<pjsip_outbound_endpoint>. 'e164' (default, backward-compatible) "
+            "sends country-code digits with no '+' (e.g. 905551234567). "
+            "'national_zero' converts Turkish (+90) numbers to 0 + the 10-digit "
+            "subscriber number (e.g. 05551234567), matching the dialplan "
+            "normalization documented for Verimor. This format is NOT yet "
+            "verified against a live Verimor account — confirm with Verimor "
+            "before enabling in production. Numbers outside +90 always use "
+            "the 'e164' format regardless of this setting."
+        ),
+    )
 
 
 class ARIConfigurationResponse(BaseModel):
@@ -101,3 +123,5 @@ class ARIConfigurationResponse(BaseModel):
     ws_client_name: str = ""
     external_pbx: Optional[VicidialExternalPBXConfiguration] = None
     from_numbers: List[str]
+    pjsip_outbound_endpoint: str = "verimor"
+    outbound_number_format: str = "e164"

@@ -27,3 +27,7 @@ node_modules/
 .superpowers/
 docs/superpowers/
 .gstack/
+
+# Dograh self-hosted Asterisk overlay
+# Never commit .env with real credentials
+deploy/asterisk/.env

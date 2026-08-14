@@ -1,0 +1,71 @@
+# Dograh — self-hosted Asterisk + Verimor SIP trunk overlay.
+#
+# This is a STANDALONE overlay that attaches a single Asterisk container to the
+# Dograh stack's existing "app-network" (referenced here as an external
+# network). It does not touch or restart the base stack.
+#
+# Bring-up (from the repo root, with the base stack already running):
+#
+#   cp deploy/asterisk/.env.example deploy/asterisk/.env   # then fill it in
+#   docker compose \
+#     -f deploy/asterisk/docker-compose.asterisk.yaml \
+#     --env-file deploy/asterisk/.env \
+#     up -d --build
+#
+# The --env-file flag is what lets the ${...} values below (ports, network
+# name) pick up your .env; the container itself also loads .env via env_file.
+#
+# ARI (8088) is deliberately NOT published — it is reachable only from
+# app-network, i.e. from the Dograh "api" container. See README.md.
+
+services:
+  asterisk:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ASTERISK_VERSION: "${ASTERISK_VERSION:-22}"
+    image: dograh-asterisk:local
+    container_name: dograh_asterisk
+    restart: unless-stopped
+    # Loads all runtime variables (Verimor creds, ARI creds, NAT addresses)
+    # into the container so entrypoint.sh can render the config templates.
+    # required:false keeps `docker compose config` working before .env exists.
+    env_file:
+      - path: .env
+        required: false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      # SIP signaling to the Verimor trunk (UDP).
+      - "${SIP_PORT:-5060}:${SIP_PORT:-5060}/udp"
+      # Bounded RTP media range for the carrier (UDP). Keep in sync with
+      # RTP_START/RTP_END in .env (they drive rtp.conf inside the container).
+      - "${RTP_START:-10000}-${RTP_END:-10100}:${RTP_START:-10000}-${RTP_END:-10100}/udp"
+    # NOTE: ARI/HTTP (8088) is intentionally omitted from `ports` — it must
+    # stay internal to app-network and must never be exposed to the host.
+    healthcheck:
+      # Confirms Asterisk booted AND the module Dograh's media path depends on
+      # is actually loaded.
+      test:
+        [
+          "CMD-SHELL",
+          "asterisk -rx 'module show like res_websocket_client' | grep -q Running || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    networks:
+      - app-network
+
+networks:
+  # The Dograh base stack owns this network; we attach to it rather than
+  # create it. Override the name via DOGRAH_NETWORK_NAME if your compose
+  # project name differs (see: docker network ls | grep app-network).
+  app-network:
+    external: true
+    name: "${DOGRAH_NETWORK_NAME:-dograh_app-network}"

@@ -1,0 +1,65 @@
+;
+; extensions.conf — rendered from extensions.conf.template by entrypoint.sh.
+;
+; NOTE: Dograh dialplan variables such as ${EXTEN}, ${CALLERID(num)} and
+; ${CHANNEL(...)} are intentionally PRESERVED here — the entrypoint substitutes
+; only the operator allowlist (e.g. ${ARI_APP_NAME}, ${VERIMOR_DID}), never
+; these. Do not add such variables to the allowlist.
+
+[general]
+static = yes
+writeprotect = no
+
+[globals]
+
+;=========================== Inbound from Verimor ==========================
+; Verimor delivers inbound calls to the `verimor` endpoint, whose context is
+; `from-verimor`. Every inbound call is handed to the Dograh Stasis app, which
+; matches the dialed number against the phone numbers you registered in Dograh
+; and runs the assigned inbound workflow. The dialed digits are passed through
+; unchanged so Dograh matches exactly what Verimor sent.
+[from-verimor]
+exten => _X.,1,NoOp(Inbound Verimor call from ${CALLERID(num)} to ${EXTEN})
+ same => n,Stasis(${ARI_APP_NAME})
+ same => n,Hangup()
+
+; Explicit entry for the configured DID (redundant with the pattern above, but
+; documents the number this trunk answers for).
+exten => ${VERIMOR_DID},1,NoOp(Inbound to configured DID ${VERIMOR_DID})
+ same => n,Stasis(${ARI_APP_NAME})
+ same => n,Hangup()
+
+;=========================== Outbound via Verimor ==========================
+; Dialplan-driven / manual outbound. Dograh's ARI provider originates
+; PJSIP/<number> directly into Stasis and BYPASSES this context (see README
+; "Outbound endpoint caveat"), so the Turkish-number normalization below applies
+; to calls originated INTO this context (e.g. Local/<number>@outbound-verimor),
+; not to Dograh-originated outbound calls.
+;
+; Normalization to Verimor's national 0-prefixed format (0 + 10 digits).
+; Confirm the exact format Verimor expects for your account and adjust if needed.
+; Turkish subscriber numbers are 10 digits (e.g. 5XX XXX XX XX). National
+; dialing format is 0 + those 10 digits (11 total).
+[outbound-verimor]
+; +90 5XXXXXXXXX -> 0 5XXXXXXXXX
+exten => _+90NXXXXXXXXX,1,NoOp(Outbound (+90) ${EXTEN})
+ same => n,Set(DEST=0${EXTEN:3})
+ same => n,Goto(dial-verimor,${DEST},1)
+; 90 5XXXXXXXXX  -> 0 5XXXXXXXXX
+exten => _90NXXXXXXXXX,1,NoOp(Outbound (90) ${EXTEN})
+ same => n,Set(DEST=0${EXTEN:2})
+ same => n,Goto(dial-verimor,${DEST},1)
+; 0 5XXXXXXXXX   -> as dialed (already national format)
+exten => _0NXXXXXXXXX,1,NoOp(Outbound (0) ${EXTEN})
+ same => n,Set(DEST=${EXTEN})
+ same => n,Goto(dial-verimor,${DEST},1)
+; 5XXXXXXXXX     -> 0 5XXXXXXXXX (bare 10-digit subscriber number)
+exten => _NXXXXXXXXX,1,NoOp(Outbound (bare) ${EXTEN})
+ same => n,Set(DEST=0${EXTEN})
+ same => n,Goto(dial-verimor,${DEST},1)
+
+[dial-verimor]
+exten => _X.,1,NoOp(Dialing ${EXTEN} out the Verimor trunk)
+ same => n,Set(CALLERID(num)=${VERIMOR_CALLERID})
+ same => n,Dial(PJSIP/${EXTEN}@verimor,60)
+ same => n,Hangup()

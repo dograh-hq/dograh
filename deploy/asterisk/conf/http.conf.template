@@ -1,0 +1,17 @@
+; Asterisk HTTP configuration for ARI
+;
+; This enables the ARI REST API on port 8088.
+; NOTE: 8088 is NOT published in docker-compose.asterisk.yaml — it is
+; internal-only and reachable only from the dograh_app-network, i.e. from
+; the “api” container.
+;
+; The previous `acl = 127.0.0.1/32` line is intentionally omitted: that ACL
+; would block HTTP connections from the api container (which connects from
+; a Docker network IP, not localhost). ARI is protected by the network
+; boundary (unpublished port + external-only Docker network), not by an
+; ACL restricted to loopback.
+
+[general]
+enabled = yes
+bindaddr = 0.0.0.0
+bindport = ${ARI_HTTP_PORT}

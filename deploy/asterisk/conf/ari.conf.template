@@ -1,0 +1,16 @@
+;
+; ari.conf — rendered from ari.conf.template by entrypoint.sh.
+;
+; The user section name (${ARI_APP_NAME}) is BOTH the ARI username and the
+; Stasis app name Dograh registers. It must match the "Stasis App Name" you
+; enter in Dograh, and ${ARI_PASSWORD} must match the "App Password".
+;
+
+[general]
+enabled = yes
+pretty = yes
+
+[${ARI_APP_NAME}]
+type = user
+read_only = no
+password = ${ARI_PASSWORD}

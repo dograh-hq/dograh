@@ -22,6 +22,7 @@ from api.services.telephony.base import (
     TelephonyProvider,
 )
 from api.services.telephony.providers.ari.external_pbx import create_adapter
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -55,6 +56,10 @@ class ARIProvider(TelephonyProvider):
         self.from_numbers = config.get("from_numbers", [])
         self.default_from_number = config.get("default_from_number")
         self.external_pbx_adapter = create_adapter(config.get("external_pbx"))
+        self.pjsip_outbound_endpoint = config.get(
+            "pjsip_outbound_endpoint", "verimor"
+        )
+        self.outbound_number_format = config.get("outbound_number_format", "e164")
 
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
@@ -64,6 +69,60 @@ class ARIProvider(TelephonyProvider):
     def _get_auth(self) -> aiohttp.BasicAuth:
         """Generate BasicAuth for ARI API requests."""
         return aiohttp.BasicAuth(self.app_name, self.app_password)
+
+    def _normalize_sip_endpoint(self, to_number: str) -> str:
+        """Build a PJSIP endpoint string for an outbound call.
+
+        Verimor (and most SIP trunks) are reached as a PJSIP *endpoint*
+        (a [trunk] section in pjsip.conf), not as a device.  A bare
+        ``PJSIP/<number>`` tries to dial a device literally named
+        ``<number>`` and fails with "device not found".  The correct form
+        for a trunk-dialed call is ``PJSIP/<digits>@<endpoint_name>``.
+
+        - ``SIP/...`` / ``PJSIP/...`` URIs are passed through verbatim
+          (the caller already supplied a full target).
+        - Bare PSTN numbers are normalized via ``normalize_telephony_address``
+          and formatted per ``self.outbound_number_format`` (see
+          ``_pstn_digits``), then suffixed with ``@<pjsip_outbound_endpoint>``.
+        - Short extensions that are not PSTN are treated as local PJSIP
+          devices and dialed bare (no ``@``), preserving prior behavior.
+        """
+        if to_number.startswith("SIP/") or to_number.startswith("PJSIP/"):
+            return to_number
+
+        normalized = normalize_telephony_address(to_number)
+        if normalized.address_type == "pstn":
+            digits = self._pstn_digits(normalized.canonical)
+            return f"PJSIP/{digits}@{self.pjsip_outbound_endpoint}"
+
+        # sip_extension: dial as-is (bare device name, no @trunk).
+        return f"PJSIP/{normalized.canonical}"
+
+    def _pstn_digits(self, e164_canonical: str) -> str:
+        """Format an E.164 canonical PSTN number for the outbound trunk.
+
+        The digit format a SIP trunk expects for the number placed before
+        ``@<endpoint>`` is provider-specific and, for Verimor, has not been
+        verified against a live account. Two formats are supported via
+        ``self.outbound_number_format`` (config field, default preserves
+        the pre-existing behavior of this method):
+
+        - ``"e164"`` (default): country-code-prefixed digits, no ``+``
+          (e.g. ``905551234567``).
+        - ``"national_zero"``: Turkish (+90) numbers only are converted to
+          Verimor's documented national format — ``0`` + the 10-digit
+          subscriber number (e.g. ``05551234567``) — mirroring the
+          dialplan normalization in
+          ``deploy/asterisk/conf/extensions.conf.template``'s
+          ``[outbound-verimor]`` context. Non-+90 numbers fall back to the
+          ``"e164"`` format regardless, since no national convention for
+          them is established anywhere in this repo.
+        """
+        if self.outbound_number_format == "national_zero" and e164_canonical.startswith(
+            "+90"
+        ):
+            return "0" + e164_canonical[3:]
+        return e164_canonical.lstrip("+")
 
     async def initiate_call(
         self,
@@ -85,13 +144,10 @@ class ARIProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/channels"
 
-        # Build the SIP endpoint string
-        # to_number can be a SIP URI or extension
-        if to_number.startswith("SIP/") or to_number.startswith("PJSIP/"):
-            sip_endpoint = to_number
-        else:
-            # Default to PJSIP technology
-            sip_endpoint = f"PJSIP/{to_number}"
+        # Build the SIP endpoint string for the outbound leg.
+        # to_number can be a SIP URI, extension, or a bare PSTN number that
+        # needs to be routed through the configured PJSIP trunk endpoint.
+        sip_endpoint = self._normalize_sip_endpoint(to_number)
 
         # Prepare channel creation data
         params = {
@@ -465,11 +521,8 @@ class ARIProvider(TelephonyProvider):
         # Get call transfer manager for event correlation mapping
         call_transfer_manager = await get_call_transfer_manager()
 
-        # Build SIP endpoint
-        if destination.startswith("SIP/") or destination.startswith("PJSIP/"):
-            sip_endpoint = destination
-        else:
-            sip_endpoint = f"PJSIP/{destination}"
+        # Build SIP endpoint via the same trunk-routing logic as initiate_call
+        sip_endpoint = self._normalize_sip_endpoint(destination)
 
         # Build transfer appArgs for event correlation
         app_args = f"transfer,{transfer_id}"

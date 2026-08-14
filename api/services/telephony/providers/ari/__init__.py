@@ -24,6 +24,8 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "app_password": value.get("app_password"),
         "external_pbx": value.get("external_pbx"),
         "from_numbers": value.get("from_numbers", []),
+        "pjsip_outbound_endpoint": value.get("pjsip_outbound_endpoint", "verimor"),
+        "outbound_number_format": value.get("outbound_number_format", "e164"),
     }
 
 
@@ -60,6 +62,34 @@ _UI_METADATA = ProviderUIMetadata(
             label="From Extensions",
             type="string-array",
             description="SIP extensions/numbers for outbound calls",
+        ),
+        ProviderUIField(
+            name="pjsip_outbound_endpoint",
+            label="PJSIP Outbound Endpoint",
+            type="text",
+            required=False,
+            description=(
+                "Asterisk PJSIP endpoint name used to route bare PSTN numbers "
+                "(default: verimor)."
+            ),
+            placeholder="verimor",
+            section="Outbound Routing",
+        ),
+        ProviderUIField(
+            name="outbound_number_format",
+            label="Outbound Number Format",
+            type="select",
+            required=False,
+            description=(
+                "Use e164 for country-code digits or national_zero for Turkish "
+                "0-prefixed dialing. Confirm the carrier format before enabling "
+                "national_zero."
+            ),
+            options=[
+                ProviderUIOption(value="e164", label="E.164 digits (default)"),
+                ProviderUIOption(value="national_zero", label="Turkish national (0-prefixed)"),
+            ],
+            section="Outbound Routing",
         ),
         ProviderUIField(
             name="external_pbx.type",

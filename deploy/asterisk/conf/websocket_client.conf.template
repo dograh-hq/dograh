@@ -1,0 +1,21 @@
+; WebSocket client configuration for externalMedia
+;
+; This section establishes the outbound WebSocket connection from Asterisk
+; to the Dograh API, which handles call audio over the chan_websocket/externalMedia
+; channel. The `uri` does NOT include the query string — that is appended at
+; runtime by the externalMedia dial string in extensions.conf.
+;
+; The matching section name (`ws_client_name`) is the SHARED key:
+;   - Dograh API ARI config (provider config UI)
+;   - WebSocket connection target (uri in this file)
+;   - externalMedia POST body `external_host` field (generated in ari_manager.py)
+;
+; The scheme (ws or wss) comes from DOGRAH_WS_SCHEME. We do NOT hard-code a
+; "ws://" prefix here because that would produce a double scheme
+; (e.g. "ws://ws://api:8000/..."). The variable already includes the scheme.
+
+[${WS_CLIENT_NAME}]
+type = client
+sock = ${DOGRAH_WS_SCHEME}://${DOGRAH_API_HOST}:${DOGRAH_API_PORT}/api/v1/telephony/ws/ari
+protocols = media
+timeout = 10000 ; 10 second connection timeout

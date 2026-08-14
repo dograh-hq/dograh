@@ -32,6 +32,8 @@
 - **Maintained by YC alumni and exit founders**, committed to keeping voice AI open
 
 <p align="center">
+  <a href="https://www.producthunt.com/products/dograh?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_campaign=badge-dograh-3" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1217382&theme=light&period=daily&t=1786607298379" alt="Dograh - The open source VAPI alternative | Product Hunt" width="250" height="54"></a>
+  &nbsp;
   <a href="https://trendshift.io/repositories/31007" target="_blank"><img src="https://trendshift.io/api/badge/repositories/31007" alt="dograh-hq%2Fdograh | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
 

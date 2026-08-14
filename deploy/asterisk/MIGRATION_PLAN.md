@@ -124,8 +124,8 @@ These are the exact touch points. The Sonnet worker (t_194c2559) owns these.
    by compose; document for reviewer).
 4. `deploy/asterisk/conf/rtp.conf` — `rtpstart=${RTP_START}`,
    `rtpend=${RTP_END}`, plus `rtpenable=yes`. Binds the published UDP range.
-5. `deploy/asterisk/conf/websocket_client.conf.template` — a `[${WS_CLIENT_NAME}]`
-   stanza: `type=client`, `uri=${DOGRAH_WS_SCHEME}://${DOGRAH_API_HOST}:${DOGRAH_API_PORT}/api/v1/telephony/ws/ari`,
+5. `deploy/asterisk/conf/websocket_client.conf.template` — `[${WS_CLIENT_NAME}]`,
+   `type=websocket_client`, `uri=${DOGRAH_WS_SCHEME}://${DOGRAH_API_HOST}:${DOGRAH_API_PORT}/api/v1/telephony/ws/ari`,
    `protocols=media`. (The uri carries no query string; v() is appended at
    externalMedia time per the docs mdx:109-111.)
 6. `deploy/asterisk/README.md` — the missing operator doc (currently

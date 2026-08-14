@@ -15,7 +15,10 @@
 ; (e.g. "ws://ws://api:8000/..."). The variable already includes the scheme.
 
 [${WS_CLIENT_NAME}]
-type = client
-sock = ${DOGRAH_WS_SCHEME}://${DOGRAH_API_HOST}:${DOGRAH_API_PORT}/api/v1/telephony/ws/ari
+type = websocket_client
+uri = ${DOGRAH_WS_SCHEME}://${DOGRAH_API_HOST}:${DOGRAH_API_PORT}/api/v1/telephony/ws/ari
 protocols = media
-timeout = 10000 ; 10 second connection timeout
+connection_type = per_call_config
+connection_timeout = 10000 ; 10 second connection timeout
+reconnect_interval = 1000
+reconnect_attempts = 5

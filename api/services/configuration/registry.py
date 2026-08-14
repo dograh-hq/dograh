@@ -946,6 +946,15 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         default="aura-2-helena-en",
         description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
     )
+    base_url: str = Field(
+        default="",
+        description=(
+            "Deepgram API base URL. Override to reach a Deepgram self-hosted / "
+            "on-prem deployment, a regional endpoint, or an API-compatible "
+            "gateway. Leave empty to use Deepgram's default "
+            "(wss://api.deepgram.com)."
+        ),
+    )
 
     @computed_field
     @property
@@ -1509,6 +1518,15 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
                 "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },
         },
+    )
+    base_url: str = Field(
+        default="",
+        description=(
+            "Deepgram API base URL. Override to reach a Deepgram self-hosted / "
+            "on-prem deployment, a regional endpoint, or an API-compatible "
+            "gateway. Leave empty to use Deepgram's default. Not applied to "
+            "the Flux models, whose service does not accept a custom URL."
+        ),
     )
 
 

@@ -136,7 +136,7 @@ services:
       - app-network
 
   api:
-    image: local/dograh-api:voicelink-v1
+    image: local/dograh-api:voicelink-rumik-v1
     pull_policy: never
     restart: unless-stopped
     environment:

@@ -887,6 +887,7 @@ class ARIConnection:
                     "provider": "ari",
                     "telephony_configuration_id": self.telephony_configuration_id,
                     "external_pbx_call": external_pbx_call,
+                    "call_id": call_id,
                 },
                 gathered_context={
                     "call_id": call_id,

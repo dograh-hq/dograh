@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from loguru import logger
@@ -130,6 +131,11 @@ def create_call_capabilities(
                 f"returned {type(capability).__name__}, expected "
                 f"IntegrationCallCapabilities or None; skipping"
             )
+            if inspect.iscoroutine(capability):
+                # An accidentally `async def` factory: the coroutine was
+                # never awaited, so close it explicitly or Python warns
+                # about it later at an unrelated garbage-collection point.
+                capability.close()
             continue
         capabilities.append(capability)
     return capabilities

@@ -107,6 +107,33 @@ Integration nodes are resolved dynamically through:
 `RFNodeDTO` validates integration nodes by `type` through the registry. That is
 the intended extension path.
 
+## Pre-Call Path
+
+The runtime and completion hooks below let an integration *observe* a call and
+deliver data afterwards. `create_call_capabilities(...)` is the other direction:
+contributing to the call before it starts.
+
+Implement it in `capabilities.py` and return an `IntegrationCallCapabilities`,
+or `None` to opt out of this call. Both fields are optional:
+
+- `run_pre_call()` — async, returns a dict merged into `initial_context` before
+  the first agent turn, so node prompts can reference the values as
+  `{{variable}}`. It rides the same machinery as the start node's pre-call
+  fetch: fired concurrently with the rest of pipeline setup, awaited with the
+  ringer, and bounded by `PRE_CALL_FETCH_TIMEOUT_SECONDS`.
+- `prompt_addendum(call_context_vars)` — returns text appended to every node's
+  system prompt, the same way recording-mode instructions are appended. Return
+  `None` to append nothing.
+
+Both are best-effort by design. A hook that hangs is cancelled at the budget, one
+that raises is logged, and a non-dict result is ignored — in every case the call
+proceeds without the enrichment. Do not use this path for anything the call
+cannot start without.
+
+The generic wiring lives in `run_pipeline.py` (fires the hooks and sets the
+capabilities on the engine), `event_handlers.py` (awaits and merges them), and
+`pipecat_engine_context_composer.py` (appends the addenda).
+
 ## Live Call Path
 
 If the integration needs live call data, implement `create_runtime_sessions(...)`

@@ -4,7 +4,7 @@ Extracts prompt and function composition logic from PipecatEngine into
 reusable functions. Defines recording response mode markers and instructions.
 """
 
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
@@ -52,6 +52,7 @@ def compose_system_prompt_for_node(
     workflow: "WorkflowGraph",
     format_prompt: Callable[[str], str],
     has_recordings: bool,
+    integration_addenda: Sequence[str] = (),
 ) -> str:
     """Compose the full system prompt text for a workflow node.
 
@@ -64,6 +65,9 @@ def compose_system_prompt_for_node(
         workflow: The full workflow graph (needed for global node prompt).
         format_prompt: Callable to render template variables in prompts.
         has_recordings: Whether any node in the workflow uses recordings.
+        integration_addenda: Already-resolved text blocks contributed by
+            enabled integrations, appended last. Resolved by the caller so this
+            stays a pure function of its inputs.
 
     Returns:
         The composed system prompt text.
@@ -79,6 +83,8 @@ def compose_system_prompt_for_node(
 
     if has_recordings and "RECORDING_ID:" in formatted_node_prompt:
         parts.append(RECORDING_RESPONSE_MODE_INSTRUCTIONS)
+
+    parts.extend(addendum for addendum in integration_addenda if addendum)
 
     return "\n\n".join(parts)
 

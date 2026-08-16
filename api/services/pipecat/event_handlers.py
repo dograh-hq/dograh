@@ -14,6 +14,7 @@ from api.services.pipecat.in_memory_buffers import (
     InMemoryRecordingBuffers,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
+from api.services.pipecat.pre_call_fetch import PRE_CALL_FETCH_TIMEOUT_SECONDS
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
 )
@@ -65,6 +66,36 @@ async def _capture_call_event(
         logger.exception(f"Background PostHog capture failed for '{event}'")
 
 
+def _resolve_pre_call_task(label: str, task: asyncio.Task) -> dict:
+    """Read a finished pre-call task, or give up on it.
+
+    Every failure mode degrades to "no variables from this source" — pre-call
+    enrichment improves a call, it is never a precondition for one.
+    """
+    if not task.done():
+        logger.warning(f"{label} exceeded the pre-call budget, continuing without it")
+        task.cancel()
+        return {}
+
+    if task.cancelled():
+        logger.warning(f"{label} was cancelled, continuing without it")
+        return {}
+
+    error = task.exception()
+    if error is not None:
+        logger.error(f"{label} failed, continuing without it: {error}")
+        return {}
+
+    result = task.result()
+    if not isinstance(result, dict):
+        if result is not None:
+            logger.warning(
+                f"{label} returned {type(result).__name__}, expected a dict; ignoring"
+            )
+        return {}
+    return result
+
+
 def register_event_handlers(
     task: PipelineWorker,
     transport,
@@ -79,6 +110,7 @@ def register_event_handlers(
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
+    integration_pre_call_tasks: list[asyncio.Task] | None = None,
     include_transcript_end_timestamps: bool = False,
 ):
     """Register all event handlers for transport and task events.
@@ -126,11 +158,21 @@ def register_event_handlers(
                 )
             )
 
-            # Wait for pre-call fetch if in progress, playing ringer meanwhile
+            # Wait for pre-call work if in progress, playing ringer meanwhile.
+            # The start node's fetch and any integration pre-call hooks resolve
+            # concurrently, so the caller waits for the slowest, not the sum.
+            pre_call_sources: list[tuple[str, asyncio.Task]] = []
             if pre_call_fetch_task is not None:
-                if not pre_call_fetch_task.done():
+                pre_call_sources.append(("pre-call fetch", pre_call_fetch_task))
+            for index, task in enumerate(integration_pre_call_tasks or []):
+                pre_call_sources.append((f"integration pre-call #{index}", task))
+
+            if pre_call_sources:
+                pending = [task for _label, task in pre_call_sources if not task.done()]
+                if pending:
                     logger.info(
-                        "Pre-call fetch still in progress, playing ringer while waiting"
+                        f"Pre-call work still in progress ({len(pending)} pending), "
+                        "playing ringer while waiting"
                     )
                     stop_ringer = asyncio.Event()
                     sample_rate = audio_config.pipeline_sample_rate or 16000
@@ -142,16 +184,29 @@ def register_event_handlers(
                         )
                     )
                     try:
-                        fetch_result = await pre_call_fetch_task
+                        # Bounded so a hanging hook cannot hold the caller on the
+                        # ringer; stragglers are cancelled below.
+                        await asyncio.wait(
+                            pending, timeout=PRE_CALL_FETCH_TIMEOUT_SECONDS
+                        )
                     finally:
                         stop_ringer.set()
                         await ringer_task
-                else:
-                    fetch_result = pre_call_fetch_task.result()
 
-                if fetch_result:
+                merged_result: dict = {}
+                for label, task in pre_call_sources:
+                    result = _resolve_pre_call_task(label, task)
+                    if result:
+                        merged_result = merge_external_initial_context(
+                            merged_result, result
+                        )
+                        logger.info(
+                            f"{label} complete, merged keys: {list(result.keys())}"
+                        )
+
+                if merged_result:
                     engine._call_context_vars = merge_external_initial_context(
-                        engine._call_context_vars, fetch_result
+                        engine._call_context_vars, merged_result
                     )
                     try:
                         await db_client.update_workflow_run(
@@ -159,11 +214,7 @@ def register_event_handlers(
                             initial_context={**engine._call_context_vars},
                         )
                     except Exception as e:
-                        logger.error(f"Failed to persist pre-call fetch context: {e}")
-                    logger.info(
-                        f"Pre-call fetch complete, merged keys: "
-                        f"{list(fetch_result.keys())}"
-                    )
+                        logger.error(f"Failed to persist pre-call context: {e}")
 
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.

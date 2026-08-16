@@ -1,7 +1,7 @@
 // Shared dark two-column auth shell, used by BOTH the Stack Auth handler
 // (/handler/[...stack], cloud) and the local/OSS auth pages (/auth/login,
 // /auth/signup). LEFT: a centered card that wraps the auth form (`children`).
-// RIGHT (lg+ only): a brand/value panel with the Sakinah logo, proof points, and
+// RIGHT (lg+ only): a brand/value panel with the CALMOS logo, proof points, and
 // a Bland-style enterprise CTA block at the bottom (passed in as `enterpriseSlot`).
 // Mobile collapses to the single card column. The form column scrolls and stays
 // centered so tall (sign-up) forms never clip on short viewports. Palette is the
@@ -55,7 +55,7 @@ export function AuthShell({
 
         <div className="relative max-w-md space-y-5">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 xl:text-4xl">
-            Sakinah Voice Platform
+            CALMOS Studio
           </h1>
           <ul className="flex flex-wrap gap-2">
             {HIGHLIGHTS.map((point) => (
@@ -76,7 +76,7 @@ export function AuthShell({
             Need on-prem, data residency &amp; a data perimeter?
           </h2>
           <p className="text-sm text-zinc-400">
-            We deploy Sakinah inside your environment for regulated and
+            We deploy CALMOS inside your environment for regulated and
             high-scale teams.
           </p>
           {enterpriseSlot}

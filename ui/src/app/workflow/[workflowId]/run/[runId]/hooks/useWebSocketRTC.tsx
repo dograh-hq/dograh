@@ -711,7 +711,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 const message = detailFromError(
                     response.error,
                     isServiceUnavailable
-                        ? 'Sakinah is temporarily unavailable. Please try again later.'
+                        ? 'CALMOS is temporarily unavailable. Please try again later.'
                         : 'API Key Error',
                 );
 

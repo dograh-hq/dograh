@@ -295,7 +295,7 @@ export default function TelephonyConfigurationDetailPage() {
                     This configuration is disabled
                   </p>
                   <p className="text-muted-foreground">
-                    Sakinah stopped reconnecting after repeated connection
+                    CALMOS stopped reconnecting after repeated connection
                     failures
                     {config.inactive_reason ? `: ${config.inactive_reason}` : ""}.
                     Calls will not work until it is reconnected. Correct the

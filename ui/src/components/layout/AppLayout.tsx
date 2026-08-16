@@ -24,7 +24,7 @@ function AppHeader() {
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu" className="md:hidden">
           <Menu className="h-5 w-5" />
         </Button>
-        <Link href="/" className="text-lg font-bold md:hidden">Sakinah</Link>
+        <Link href="/" className="text-lg font-bold md:hidden">CALMOS</Link>
       </div>
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>

@@ -19,7 +19,7 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle className="text-3xl">
                             {isOSSMode ? (
-                                "Welcome to Sakinah"
+                                "Welcome to CALMOS Studio"
                             ) : (
                                 `Welcome${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}!`
                             )}
@@ -83,7 +83,7 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle>Resources</CardTitle>
                         <CardDescription>
-                            Get help and learn more about Sakinah
+                            Get help and learn more about CALMOS
                         </CardDescription>
                     </CardHeader>
                     <CardContent>

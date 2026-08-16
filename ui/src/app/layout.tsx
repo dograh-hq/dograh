@@ -29,8 +29,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sakinah",
-  description: "Sakinah Voice Platform - Open Source Voice Assistant Workflow Builder",
+  title: "CALMOS",
+  description: "CALMOS Studio - Open Source Voice Assistant Workflow Builder",
 };
 
 export default function RootLayout({

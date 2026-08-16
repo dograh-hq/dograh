@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-// Sakinah wordmark, rendered as styled text (theme-aware via CSS variables,
+// CALMOS wordmark, rendered as styled text (theme-aware via CSS variables,
 // so no separate light/dark artwork is needed). Pass `mark` to render the
 // square letter mark instead of the full wordmark (e.g. the app sidebar
 // header). Pass `inverse` when placing the wordmark on an always-dark surface
@@ -19,13 +19,13 @@ export function BrandLogo({
   if (mark) {
     return (
       <span
-        aria-label="Sakinah"
+        aria-label="CALMOS"
         className={cn(
           "inline-flex aspect-square items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground select-none",
           className,
         )}
       >
-        S
+        C
       </span>
     );
   }
@@ -37,7 +37,7 @@ export function BrandLogo({
         className,
       )}
     >
-      Sakinah
+      CALMOS
     </span>
   );
 }

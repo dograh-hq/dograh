@@ -114,6 +114,50 @@ def test_no_packages_at_all_is_not_an_error(fake_packages):
     assert registry.create_call_capabilities(context=_runtime_context()) == []
 
 
+@pytest.mark.parametrize(
+    "junk",
+    [
+        {"name": "memory"},  # right shape, wrong type
+        "memory",
+        42,
+        object(),
+    ],
+    ids=["dict", "str", "int", "object"],
+)
+def test_a_factory_returning_the_wrong_type_is_skipped(fake_packages, junk):
+    """Returning nonsense must be caught here, not on a later attribute access.
+
+    Guarding only the call would let a wrong-typed return through to
+    run_pipeline and pipecat_engine, where reading .run_pre_call or
+    .prompt_addendum off it raises far from anything that can recover.
+    """
+    healthy = IntegrationCallCapabilities(name="healthy")
+    fake_packages(
+        _package("junk", lambda _ctx: junk),
+        _package("healthy", lambda _ctx: healthy),
+    )
+
+    assert registry.create_call_capabilities(context=_runtime_context()) == [healthy]
+
+
+def test_an_async_factory_mistake_is_skipped_not_stored(fake_packages):
+    """An `async def` factory returns a coroutine — caught, not stored.
+
+    The likeliest way to hit the wrong-type path in practice.
+    """
+
+    async def accidentally_async(_ctx):
+        return IntegrationCallCapabilities(name="memory")
+
+    coroutine = accidentally_async(None)
+    try:
+        fake_packages(_package("memory", lambda _ctx: coroutine))
+
+        assert registry.create_call_capabilities(context=_runtime_context()) == []
+    finally:
+        coroutine.close()
+
+
 # ──────────────────────────── prompt composition ────────────────────────────
 
 
@@ -233,6 +277,27 @@ def test_addendum_text_is_stripped():
     )
 
     assert engine._resolve_integration_addenda() == ["block"]
+
+
+@pytest.mark.parametrize(
+    "junk",
+    [{"text": "block"}, 42, ["block"], object()],
+    ids=["dict", "int", "list", "object"],
+)
+def test_addendum_returning_a_non_string_is_skipped(junk):
+    """Wrong-typed text must not reach .strip().
+
+    That call sits outside the try above, so an AttributeError there would
+    escape _resolve_integration_addenda and leave the node with no prompt.
+    """
+    engine = _engine_with(
+        [
+            IntegrationCallCapabilities(name="junk", prompt_addendum=lambda _v: junk),
+            IntegrationCallCapabilities(name="ok", prompt_addendum=lambda _v: "kept"),
+        ]
+    )
+
+    assert engine._resolve_integration_addenda() == ["kept"]
 
 
 def test_a_raising_addendum_does_not_cost_the_caller_a_system_prompt():

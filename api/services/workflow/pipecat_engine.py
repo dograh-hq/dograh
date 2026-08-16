@@ -1032,8 +1032,20 @@ class PipecatEngine:
                     f"skipping: {e}"
                 )
                 continue
-            if text and text.strip():
-                addenda.append(text.strip())
+            if text is None:
+                continue
+            if not isinstance(text, str):
+                # Checked rather than assumed: .strip() on a non-string would
+                # raise here, outside the guard above, and take the node's
+                # prompt down with it.
+                logger.warning(
+                    f"Integration {capability.name!r} prompt addendum returned "
+                    f"{type(text).__name__}, expected str; skipping"
+                )
+                continue
+            stripped = text.strip()
+            if stripped:
+                addenda.append(stripped)
         return addenda
 
     def set_transport_output(self, transport_output) -> None:

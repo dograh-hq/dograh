@@ -4,6 +4,7 @@ from typing import Any
 
 from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.services.integrations.base import (
+    IntegrationCallCapabilities,
     IntegrationCompletionContext,
     IntegrationNodeRegistration,
     IntegrationPackageSpec,
@@ -90,6 +91,34 @@ def create_runtime_sessions(
             continue
         sessions.extend(package.create_runtime_sessions(context))
     return sessions
+
+
+def create_call_capabilities(
+    context: IntegrationRuntimeContext,
+) -> list[IntegrationCallCapabilities]:
+    _ensure_loaded()
+    capabilities: list[IntegrationCallCapabilities] = []
+    for package in all_packages():
+        if package.create_call_capabilities is None:
+            continue
+        try:
+            capability = package.create_call_capabilities(context)
+        except Exception as exc:
+            # A package failing to describe itself must not stop the call.
+            log_failure(
+                classify_exception(
+                    exc,
+                    source=ErrorSource.INTEGRATION,
+                    provider=package.name,
+                    error_owner="user",
+                ),
+                workflow_run_id=context.workflow_run_id,
+                integration_package=package.name,
+            )
+            continue
+        if capability is not None:
+            capabilities.append(capability)
+    return capabilities
 
 
 def iter_completion_packages(

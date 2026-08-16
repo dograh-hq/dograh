@@ -45,6 +45,10 @@ RULES:
 - Use ▸ when you need to generate a dynamic, contextual response.
 - *NEVER* mix modes in a single response, since we rely on the markers to decide whether to play using TTS or Pre-recorded audio."""
 
+NODE_TRANSITION_INSTRUCTIONS = """\
+NODE TRANSITION INSTRUCTIONS - MANDATORY:
+Evaluate the live conversation against the conditions described by the available transition tools. As soon as a condition is met, immediately call the matching transition tool."""
+
 
 def compose_system_prompt_for_node(
     *,
@@ -55,9 +59,9 @@ def compose_system_prompt_for_node(
 ) -> str:
     """Compose the full system prompt text for a workflow node.
 
-    Combines the global prompt, node-specific prompt, and (when recordings
-    are enabled anywhere in the workflow) the recording response mode
-    instructions into a single string.
+    Combines the global prompt, node-specific prompt, transition instructions,
+    and (when recordings are enabled anywhere in the workflow) the recording
+    response mode instructions into a single string.
 
     Args:
         node: The workflow node to compose the prompt for.
@@ -76,6 +80,9 @@ def compose_system_prompt_for_node(
     formatted_node_prompt = format_prompt(node.prompt)
 
     parts = [p for p in (global_prompt, formatted_node_prompt) if p]
+
+    if node.out_edges:
+        parts.append(NODE_TRANSITION_INSTRUCTIONS)
 
     if has_recordings and "RECORDING_ID:" in formatted_node_prompt:
         parts.append(RECORDING_RESPONSE_MODE_INSTRUCTIONS)

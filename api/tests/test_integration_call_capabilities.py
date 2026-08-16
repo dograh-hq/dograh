@@ -143,19 +143,19 @@ def test_a_factory_returning_the_wrong_type_is_skipped(fake_packages, junk):
 def test_an_async_factory_mistake_is_skipped_not_stored(fake_packages):
     """An `async def` factory returns a coroutine — caught, not stored.
 
-    The likeliest way to hit the wrong-type path in practice.
+    The likeliest way to hit the wrong-type path in practice. The coroutine
+    is also never awaited, so it must be closed here rather than left for
+    the garbage collector to warn about at some unrelated point later.
     """
 
     async def accidentally_async(_ctx):
         return IntegrationCallCapabilities(name="memory")
 
     coroutine = accidentally_async(None)
-    try:
-        fake_packages(_package("memory", lambda _ctx: coroutine))
+    fake_packages(_package("memory", lambda _ctx: coroutine))
 
-        assert registry.create_call_capabilities(context=_runtime_context()) == []
-    finally:
-        coroutine.close()
+    assert registry.create_call_capabilities(context=_runtime_context()) == []
+    assert coroutine.cr_frame is None  # closed, not left dangling
 
 
 # ──────────────────────────── prompt composition ────────────────────────────

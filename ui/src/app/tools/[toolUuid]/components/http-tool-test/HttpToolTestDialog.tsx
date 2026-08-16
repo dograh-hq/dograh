@@ -395,7 +395,7 @@ export function HttpToolTestDialog({
                             <div>
                                 <p className="text-sm font-medium">Preset Parameters</p>
                                 <p className="text-xs text-muted-foreground">
-                                    Resolved values that Dograh would normally derive from each configured preset.
+                                    Resolved values that Sakinah would normally derive from each configured preset.
                                 </p>
                             </div>
                             <ParameterFields

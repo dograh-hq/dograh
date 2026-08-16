@@ -52,7 +52,7 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: oklch(0.541 0.281 293.009);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -63,30 +63,25 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --ring: oklch(0.606 0.25 292.717);
+  --chart-1: oklch(0.541 0.281 293.009);
+  --chart-2: oklch(0.702 0.183 293.541);
+  --chart-3: oklch(0.432 0.232 292.759);
+  --chart-4: oklch(0.811 0.111 293.571);
+  --chart-5: oklch(0.491 0.27 292.581);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary: oklch(0.541 0.281 293.009);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-ring: oklch(0.606 0.25 292.717);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
-  /* Single restrained warm accent — used only on primary CTAs + focus rings. */
-  --cta: oklch(0.72 0.15 65);
-  --cta-foreground: oklch(0.16 0.02 60);
-  /* Giant faded "dograh" wordmark (authentic Proxima Nova letterforms traced
-     from the brand logo PNG — the font is commercial, so the lettering ships
-     as static artwork in /public; fill + 0.9% opacity are baked into the
-     files). Theme-switched here; consumed by .app-surface and .auth-imprint. */
-  --brand-imprint: url("/brand-imprint-light.svg");
+  /* Single restrained accent — used only on primary CTAs + focus rings. */
+  --cta: oklch(0.541 0.281 293.009);
+  --cta-foreground: oklch(0.985 0 0);
 }
 
 .dark {
@@ -96,8 +91,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.811 0.111 293.571);
+  --primary-foreground: oklch(0.283 0.141 291.089);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -107,24 +102,23 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  --ring: oklch(0.702 0.183 293.541);
+  --chart-1: oklch(0.702 0.183 293.541);
+  --chart-2: oklch(0.811 0.111 293.571);
+  --chart-3: oklch(0.491 0.27 292.581);
+  --chart-4: oklch(0.606 0.25 292.717);
+  --chart-5: oklch(0.894 0.057 293.283);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.541 0.281 293.009);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-  /* Warm accent, slightly brighter against the near-black surfaces. */
-  --cta: oklch(0.78 0.16 67);
-  --cta-foreground: oklch(0.16 0.02 60);
-  --brand-imprint: url("/brand-imprint-dark.svg");
+  --sidebar-ring: oklch(0.702 0.183 293.541);
+  /* Accent, slightly brighter against the near-black surfaces. */
+  --cta: oklch(0.702 0.183 293.541);
+  --cta-foreground: oklch(0.283 0.141 291.089);
 }
 
 @layer base {
@@ -151,7 +145,7 @@
 }
 
 /* Attention pulse applied by OnboardingTooltip to the element its arrow points
-   at; removed automatically when the tooltip is dismissed. Blue matches the
+   at; removed automatically when the tooltip is dismissed. Purple matches the
    tooltip body so the ring and the callout read as one unit. Two shadow layers:
    a constant outline so the target stays highlighted between pulses, plus an
    expanding wave, with a slight breathing scale on top. */
@@ -162,8 +156,8 @@
 @keyframes onboarding-pulse {
   0% {
     box-shadow:
-      0 0 0 3px rgba(59, 130, 246, 0.75),
-      0 0 0 3px rgba(59, 130, 246, 0.6);
+      0 0 0 3px rgba(139, 92, 246, 0.75),
+      0 0 0 3px rgba(139, 92, 246, 0.6);
     transform: scale(1);
   }
   40% {
@@ -171,21 +165,21 @@
   }
   70% {
     box-shadow:
-      0 0 0 3px rgba(59, 130, 246, 0.75),
-      0 0 0 18px rgba(59, 130, 246, 0);
+      0 0 0 3px rgba(139, 92, 246, 0.75),
+      0 0 0 18px rgba(139, 92, 246, 0);
     transform: scale(1);
   }
   100% {
     box-shadow:
-      0 0 0 3px rgba(59, 130, 246, 0.75),
-      0 0 0 18px rgba(59, 130, 246, 0);
+      0 0 0 3px rgba(139, 92, 246, 0.75),
+      0 0 0 18px rgba(139, 92, 246, 0);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .onboarding-pulse {
     animation: none;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.6);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.6);
   }
 }
 
@@ -230,42 +224,14 @@
     .auth-waveform span { animation: none; }
   }
 
-  /* Matte app background — flat charcoal (dark) / soft paper (light), NO
-     gradients, with one subtle graphic in BOTH themes: the giant faded
-     "dograh" wordmark (--brand-imprint, defined in :root/.dark) pinned to
-     the bottom of the viewport, echoing the dograh.com footer. */
-  /* NOTE: background-attachment: fixed positions in VIEWPORT space but only
-     paints inside .app-surface, which starts right of the ~270px sidebar —
-     the +135px x-shift recentres the wordmark on the VISIBLE canvas. */
+  /* Matte app background — flat charcoal (dark) / soft paper (light), with
+     no gradients or background imagery. */
   .app-surface {
     background-color: oklch(0.984 0.001 80);
-    background-image: var(--brand-imprint);
-    background-size: min(68vw, 980px) auto;
-    background-position: calc(50% + 135px) calc(100% - 24px);
-    background-repeat: no-repeat;
-    background-attachment: fixed;
-  }
-  /* Sidebar is offcanvas on small screens — true centre there. */
-  @media (max-width: 767px) {
-    .app-surface {
-      background-position: center calc(100% - 24px);
-    }
   }
   .dark .app-surface {
     background-color: oklch(0.165 0.002 80);
   }
-
-  /* Giant faded "dograh" imprint for the auth pages (applied to the AuthShell
-     form column, shared by Stack + OSS login/signup). Same --brand-imprint as
-     .app-surface; element-relative here (no fixed attachment), so it centers
-     and scales to whatever element carries the class. */
-  .auth-imprint {
-    background-image: var(--brand-imprint);
-    background-size: min(86%, 920px) auto;
-    background-position: center calc(100% - 32px);
-    background-repeat: no-repeat;
-  }
-
 }
 
 /* ---------------------------------------------------------------------------

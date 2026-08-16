@@ -83,7 +83,7 @@ export function SipConnectivityCard({
           <div className="space-y-1">
             <CardTitle>SIP connectivity</CardTitle>
             <CardDescription>
-              Configure how SIP calls enter and leave Dograh through this provider.
+              Configure how SIP calls enter and leave Sakinah through this provider.
             </CardDescription>
           </div>
           <CollapsibleTrigger asChild>
@@ -126,7 +126,7 @@ export function SipConnectivityCard({
               <div className="border-b bg-muted/20 p-4">
                 <h3 className="font-semibold">Inbound</h3>
                 <p className="text-sm text-muted-foreground">
-                  Route calls to {details.provider_display_name}/Dograh using this
+                  Route calls to {details.provider_display_name}/Sakinah using this
                   SIP endpoint.
                 </p>
               </div>
@@ -165,7 +165,7 @@ export function SipConnectivityCard({
               <div className="border-b bg-muted/20 p-4">
                 <h3 className="font-semibold">Outbound</h3>
                 <p className="text-sm text-muted-foreground">
-                  Send calls from {details.provider_display_name}/Dograh to your SIP
+                  Send calls from {details.provider_display_name}/Sakinah to your SIP
                   carrier or PBX.
                 </p>
               </div>

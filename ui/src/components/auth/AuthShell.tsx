@@ -1,11 +1,11 @@
 // Shared dark two-column auth shell, used by BOTH the Stack Auth handler
 // (/handler/[...stack], cloud) and the local/OSS auth pages (/auth/login,
 // /auth/signup). LEFT: a centered card that wraps the auth form (`children`).
-// RIGHT (lg+ only): a brand/value panel with the Dograh logo, proof points, and
+// RIGHT (lg+ only): a brand/value panel with the Sakinah logo, proof points, and
 // a Bland-style enterprise CTA block at the bottom (passed in as `enterpriseSlot`).
 // Mobile collapses to the single card column. The form column scrolls and stays
 // centered so tall (sign-up) forms never clip on short viewports. Palette is the
-// app's blacks/greys with one warm CTA accent.
+// app's blacks/greys with one purple CTA accent.
 
 import type { ReactNode } from "react";
 
@@ -27,13 +27,13 @@ export function AuthShell({
   return (
     <div className="grid min-h-screen w-full bg-background lg:grid-cols-[55%_45%]">
       {/* Form column (LEFT) — scrolls and stays centered so tall forms never
-          clip. Carries the giant faded "dograh" imprint along its bottom. */}
-      <main className="auth-imprint flex min-h-screen flex-col overflow-y-auto">
+          clip. */}
+      <main className="flex min-h-screen flex-col overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-6 sm:p-10">
           <div className="w-full max-w-md space-y-6 rounded-2xl border border-border/60 bg-card p-6 shadow-lg sm:p-8">
             {/* Mobile-only wordmark (brand panel is hidden) */}
             <div className="lg:hidden">
-              <BrandLogo className="h-7" />
+              <BrandLogo className="text-2xl" />
             </div>
             {children}
           </div>
@@ -50,12 +50,12 @@ export function AuthShell({
         />
 
         <div className="relative">
-          <BrandLogo inverse className="h-8" />
+          <BrandLogo inverse className="text-3xl" />
         </div>
 
         <div className="relative max-w-md space-y-5">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 xl:text-4xl">
-            The open-source voice AI platform.
+            Sakinah Voice Platform
           </h1>
           <ul className="flex flex-wrap gap-2">
             {HIGHLIGHTS.map((point) => (
@@ -76,7 +76,7 @@ export function AuthShell({
             Need on-prem, data residency &amp; a data perimeter?
           </h2>
           <p className="text-sm text-zinc-400">
-            We deploy Dograh inside your environment for regulated and
+            We deploy Sakinah inside your environment for regulated and
             high-scale teams.
           </p>
           {enterpriseSlot}

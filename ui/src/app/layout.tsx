@@ -29,8 +29,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dograh",
-  description: "Open Source Voice Assistant Workflow Builder",
+  title: "Sakinah",
+  description: "Sakinah Voice Platform - Open Source Voice Assistant Workflow Builder",
 };
 
 export default function RootLayout({

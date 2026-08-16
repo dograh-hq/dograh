@@ -79,5 +79,7 @@ class IntegrationPackageSpec:
     nodes: tuple[IntegrationNodeRegistration, ...] = ()
     routers: tuple[APIRouter, ...] = ()
     create_runtime_sessions: RuntimeFactory | None = None
-    create_call_capabilities: CallCapabilitiesFactory | None = None
     run_completion: CompletionHandler | None = None
+    # Appended last on purpose: inserting it earlier would shift the meaning of
+    # every positional argument after it for packages already constructing this.
+    create_call_capabilities: CallCapabilitiesFactory | None = None

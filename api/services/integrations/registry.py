@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from loguru import logger
+
 from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.services.integrations.base import (
     IntegrationCallCapabilities,
@@ -116,8 +118,20 @@ def create_call_capabilities(
                 integration_package=package.name,
             )
             continue
-        if capability is not None:
-            capabilities.append(capability)
+        if capability is None:
+            continue
+        if not isinstance(capability, IntegrationCallCapabilities):
+            # Guarding the call is not enough — a factory that *returns* the
+            # wrong thing (a dict, or the coroutine of an accidentally async
+            # factory) would only fail later, on attribute access, past the
+            # point where the call can still degrade gracefully.
+            logger.warning(
+                f"Integration {package.name!r} call-capabilities factory "
+                f"returned {type(capability).__name__}, expected "
+                f"IntegrationCallCapabilities or None; skipping"
+            )
+            continue
+        capabilities.append(capability)
     return capabilities
 
 

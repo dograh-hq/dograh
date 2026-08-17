@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Download, Globe } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, Globe } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
@@ -73,6 +73,15 @@ export default function UsagePage() {
         return pageParam ? parseInt(pageParam, 10) : 1;
     });
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
+    // Sort state (initialized from URL). Sorting is server-side because the
+    // listing is paginated — sorting the current page client-side would only
+    // reorder the 50 rows in hand.
+    const [sortBy, setSortBy] = useState<string | null>(() => {
+        return searchParams.get('sort_by') || null;
+    });
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => {
+        return searchParams.get('sort_order') === 'asc' ? 'asc' : 'desc';
+    });
     const [isDownloadingReport, setIsDownloadingReport] = useState(false);
     const [agentFilterOptions, setAgentFilterOptions] = useState<NumberFilterOption[] | null>(null);
     const [isLoadingAgentFilterOptions, setIsLoadingAgentFilterOptions] = useState(false);
@@ -141,7 +150,12 @@ export default function UsagePage() {
     };
 
     // Fetch usage history
-    const fetchUsageHistory = useCallback(async (page: number, filters?: ActiveFilter[]) => {
+    const fetchUsageHistory = useCallback(async (
+        page: number,
+        filters?: ActiveFilter[],
+        sortByParam?: string | null,
+        sortOrderParam?: 'asc' | 'desc'
+    ) => {
         if (!auth.isAuthenticated) return;
         setIsLoadingHistory(true);
         try {
@@ -150,6 +164,8 @@ export default function UsagePage() {
                     page,
                     limit: 50,
                     ...buildUsageQueryParams(filters),
+                    ...(sortByParam && { sort_by: sortByParam }),
+                    ...(sortOrderParam && { sort_order: sortOrderParam }),
                 },
             });
 
@@ -322,9 +338,9 @@ export default function UsagePage() {
     // Initial load - fetch when auth becomes available
     useEffect(() => {
         if (auth.isAuthenticated) {
-            fetchUsageHistory(currentPage, appliedFilters);
+            fetchUsageHistory(currentPage, appliedFilters, sortBy, sortOrder);
         }
-    }, [auth.isAuthenticated, currentPage, appliedFilters, fetchUsageHistory]);
+    }, [auth.isAuthenticated, currentPage, appliedFilters, sortBy, sortOrder, fetchUsageHistory]);
 
     // Fetch daily usage when organizationPricing becomes available
     useEffect(() => {
@@ -334,11 +350,21 @@ export default function UsagePage() {
     }, [auth.isAuthenticated, organizationPricing, fetchDailyUsage]);
 
     // Update URL with query parameters
-    const updateUrlParams = useCallback((params: { page?: number; filters?: ActiveFilter[] }) => {
+    const updateUrlParams = useCallback((params: {
+        page?: number;
+        filters?: ActiveFilter[];
+        sortBy?: string | null;
+        sortOrder?: 'asc' | 'desc';
+    }) => {
         const newParams = new URLSearchParams();
 
         if (params.page !== undefined) {
             newParams.set('page', params.page.toString());
+        }
+
+        if (params.sortBy) {
+            newParams.set('sort_by', params.sortBy);
+            newParams.set('sort_order', params.sortOrder || 'desc');
         }
 
         // Add filters to URL if present
@@ -357,10 +383,10 @@ export default function UsagePage() {
         setIsExecutingFilters(true);
         setCurrentPage(1); // Reset to first page when applying filters
         setAppliedFilters(activeFilters);
-        updateUrlParams({ page: 1, filters: activeFilters });
-        await fetchUsageHistory(1, activeFilters);
+        updateUrlParams({ page: 1, filters: activeFilters, sortBy, sortOrder });
+        await fetchUsageHistory(1, activeFilters, sortBy, sortOrder);
         setIsExecutingFilters(false);
-    }, [activeFilters, fetchUsageHistory, updateUrlParams]);
+    }, [activeFilters, fetchUsageHistory, updateUrlParams, sortBy, sortOrder]);
 
     const handleFiltersChange = useCallback((filters: ActiveFilter[]) => {
         setActiveFilters(filters);
@@ -371,17 +397,28 @@ export default function UsagePage() {
         setCurrentPage(1);
         setActiveFilters([]);
         setAppliedFilters([]);
-        updateUrlParams({ page: 1, filters: [] }); // Clear filters from URL
-        await fetchUsageHistory(1, []); // Fetch all runs without filters
+        updateUrlParams({ page: 1, filters: [], sortBy, sortOrder }); // Clear filters from URL
+        await fetchUsageHistory(1, [], sortBy, sortOrder); // Fetch all runs without filters
         setIsExecutingFilters(false);
-    }, [fetchUsageHistory, updateUrlParams]);
+    }, [fetchUsageHistory, updateUrlParams, sortBy, sortOrder]);
 
     // Handle page change
     const handlePageChange = (newPage: number) => {
         setCurrentPage(newPage);
-        updateUrlParams({ page: newPage, filters: appliedFilters });
-        fetchUsageHistory(newPage, appliedFilters);
+        updateUrlParams({ page: newPage, filters: appliedFilters, sortBy, sortOrder });
+        fetchUsageHistory(newPage, appliedFilters, sortBy, sortOrder);
     };
+
+    // Toggle sort direction on repeat clicks, otherwise start descending.
+    // The fetch effect above picks up the new state; page resets to 1 because
+    // the ordering of every page changes.
+    const handleSort = useCallback((field: string) => {
+        const newSortOrder = sortBy === field && sortOrder === 'desc' ? 'asc' : 'desc';
+        setSortBy(field);
+        setSortOrder(newSortOrder);
+        setCurrentPage(1);
+        updateUrlParams({ page: 1, filters: appliedFilters, sortBy: field, sortOrder: newSortOrder });
+    }, [sortBy, sortOrder, appliedFilters, updateUrlParams]);
 
     // Handle row click to navigate to workflow run
     const handleRowClick = (run: WorkflowRunUsageResponse) => {
@@ -550,7 +587,19 @@ export default function UsagePage() {
                                                 <TableHead className="font-semibold">Phone Number</TableHead>
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Date</TableHead>
-                                                <TableHead className="font-semibold text-right">Duration</TableHead>
+                                                <TableHead
+                                                    className="font-semibold text-right cursor-pointer hover:bg-muted/50 select-none"
+                                                    onClick={() => handleSort('duration')}
+                                                >
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        Duration
+                                                        {sortBy === 'duration' ? (
+                                                            sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                                                        ) : (
+                                                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                    </div>
+                                                </TableHead>
                                                 {organizationPricing?.price_per_second_usd && (
                                                     <TableHead className="font-semibold text-right">Cost (USD)</TableHead>
                                                 )}

@@ -8,7 +8,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import joinedload
 
 from api.db.base_client import BaseDBClient
-from api.db.filters import apply_workflow_run_filters
+from api.db.filters import (
+    apply_workflow_run_filters,
+    get_workflow_run_order_clause,
+)
 from api.db.models import (
     OrganizationConfigurationModel,
     OrganizationModel,
@@ -18,6 +21,23 @@ from api.db.models import (
 )
 from api.enums import OrganizationConfigurationKey
 from api.utils.recording_artifacts import get_recording_storage_key
+
+# Filters the org-wide usage surfaces accept. Anything else in the request is
+# dropped, so a caller can't reach fields the usage page doesn't expose. The
+# listing and the CSV export share this so they can't drift apart.
+USAGE_ALLOWED_FILTERS = frozenset(
+    {
+        "duration",
+        "dispositionCode",
+        "callerNumber",
+        "calledNumber",
+        "runId",
+        "workflowId",
+        "campaignId",
+        "callDirection",
+        "callChannel",
+    }
+)
 
 
 class OrganizationUsageClient(BaseDBClient):
@@ -130,8 +150,15 @@ class OrganizationUsageClient(BaseDBClient):
         limit: int = 50,
         offset: int = 0,
         filters: Optional[list[dict]] = None,
+        sort_by: Optional[str] = None,
+        sort_order: str = "desc",
     ) -> tuple[list[dict], int, float, int]:
-        """Get paginated workflow runs with usage for an organization."""
+        """Get paginated workflow runs with usage for an organization.
+
+        Args:
+            sort_by: Field to sort by ('duration', 'created_at'); defaults to created_at
+            sort_order: 'asc' or 'desc'
+        """
         async with self.async_session() as session:
             query = (
                 select(WorkflowRunModel)
@@ -140,7 +167,6 @@ class OrganizationUsageClient(BaseDBClient):
                     WorkflowModel.organization_id == organization_id,
                     WorkflowRunModel.usage_info.isnot(None),
                 )
-                .order_by(WorkflowRunModel.created_at.desc())
             )
 
             # Apply date filters if provided
@@ -151,15 +177,6 @@ class OrganizationUsageClient(BaseDBClient):
 
             # Only allow specific filters for usage history endpoint
             # This ensures security and prevents unexpected filter attributes
-            allowed_filters = {
-                "duration",
-                "dispositionCode",
-                "callerNumber",
-                "calledNumber",
-                "runId",
-                "workflowId",
-                "campaignId",
-            }
             sanitized_filters = []
 
             if filters:
@@ -167,7 +184,7 @@ class OrganizationUsageClient(BaseDBClient):
                     attribute = filter_item.get("attribute")
 
                     # Only process allowed filters
-                    if attribute in allowed_filters:
+                    if attribute in USAGE_ALLOWED_FILTERS:
                         sanitized_filters.append(filter_item)
 
             # Apply filters using the common filter function
@@ -179,8 +196,13 @@ class OrganizationUsageClient(BaseDBClient):
             )
             total_count = count_result.scalar()
 
+            # Tie-break on id so paging stays stable when many runs share the
+            # same duration (or timestamp) — without it, rows can repeat or be
+            # skipped across pages.
+            order_clause = get_workflow_run_order_clause(sort_by, sort_order)
             results = await session.execute(
                 query.options(joinedload(WorkflowRunModel.workflow))
+                .order_by(order_clause, WorkflowRunModel.id.desc())
                 .limit(limit)
                 .offset(offset)
             )
@@ -285,19 +307,10 @@ class OrganizationUsageClient(BaseDBClient):
             if end_date:
                 query = query.where(WorkflowRunModel.created_at <= end_date)
 
-            allowed_filters = {
-                "duration",
-                "dispositionCode",
-                "callerNumber",
-                "calledNumber",
-                "runId",
-                "workflowId",
-                "campaignId",
-            }
             sanitized_filters = []
             if filters:
                 for filter_item in filters:
-                    if filter_item.get("attribute") in allowed_filters:
+                    if filter_item.get("attribute") in USAGE_ALLOWED_FILTERS:
                         sanitized_filters.append(filter_item)
 
             query = apply_workflow_run_filters(query, sanitized_filters)

@@ -341,6 +341,8 @@ Supported `attribute` / `type` / `value` combinations:
 | `calledNumber`  | `text`        | `{ "value": "9911848" }`                     | substring match on `initial_context.called_number`   |
 | `dispositionCode` | `multiSelect` | `{ "codes": ["XFER", "DNC"] }`             | any of the codes in `gathered_context.mapped_call_disposition` |
 | `duration`      | `numberRange` | `{ "min": 60, "max": 300 }`                  | call duration (seconds), inclusive bounds            |
+| `callDirection` | `radio`       | `{ "status": "inbound" }`                    | `inbound` or `outbound`; any other value matches all |
+| `callChannel`   | `radio`       | `{ "status": "telephony" }`                  | `telephony`, `web`, or `chat` — the group of run modes for that channel |
 
 Unknown attributes and unsupported `type` values are silently ignored.
 
@@ -371,6 +373,16 @@ async def get_usage_history(
             '{"attribute":"duration","type":"numberRange","value":{"min":60,"max":300}}]',
             '[{"attribute":"dispositionCode","type":"multiSelect","value":{"codes":["XFER","DNC"]}}]',
         ],
+    ),
+    sort_by: Optional[str] = Query(
+        None,
+        description="Field to sort by ('duration'). Defaults to `created_at`.",
+        examples=["duration"],
+    ),
+    sort_order: str = Query(
+        "desc",
+        description="Sort order ('asc' or 'desc').",
+        pattern="^(asc|desc)$",
     ),
     user: UserModel = Depends(get_user),
 ):
@@ -404,6 +416,8 @@ async def get_usage_history(
             limit=limit,
             offset=offset,
             filters=parsed_filters,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
 
         total_pages = (total_count + limit - 1) // limit

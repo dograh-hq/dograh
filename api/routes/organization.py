@@ -661,6 +661,7 @@ async def _ensure_provider_phone_number(
     through their read-only inventory lookup; PBX-managed providers explicitly
     opt out through ``validate_phone_number``.
     """
+    provider = None
     try:
         canonical_address = normalize_telephony_address(
             address, country_hint=country_hint
@@ -685,9 +686,19 @@ async def _ensure_provider_phone_number(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except ProviderPhoneNumberLookupError as e:
-        logger.error(
-            f"Provider phone-number lookup failed for config {config_id} "
-            f"address {address}: {e}"
+        # The lookup runs against the org's own provider account, so whatever
+        # failed — their credentials or their provider — routes to the user,
+        # who also receives the detail in the HTTP response below.
+        log_failure(
+            classify_exception(
+                e.__cause__ or e,
+                source=ErrorSource.TELEPHONY,
+                provider=getattr(provider, "PROVIDER_NAME", None),
+                error_owner="user",
+            ),
+            organization_id=organization_id,
+            telephony_configuration_id=config_id,
+            address=address,
         )
         raise HTTPException(status_code=502, detail=str(e)) from e
 

@@ -76,7 +76,18 @@ class ProviderPhoneNumberLookupError(Exception):
     this exception means credentials, transport, or the upstream API failed,
     so callers should surface a provider error instead of treating the number
     as unowned.
+
+    ``status_code`` carries the provider's HTTP status when the lookup reached
+    the API. Failure classification reads it structurally — an auth rejection
+    has to be attributable as the account holder's configuration rather than a
+    Dograh fault, and that must not depend on parsing the provider's wording.
+    It is ``None`` when the call failed before a response (transport, DNS, or
+    credentials missing locally).
     """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass

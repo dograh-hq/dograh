@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock, Mock, patch
 
+import aiohttp
 import pytest
+from fastapi import HTTPException
 
 from api.services.telephony.providers.papi_voip.provider import PapiVoipProvider
 
@@ -32,6 +34,11 @@ class _FakeWebSocketContext:
 
     async def __aexit__(self, exc_type, exc, traceback):
         return False
+
+
+class _FakeWebSocket:
+    async def receive(self):
+        return aiohttp.WSMessage(aiohttp.WSMsgType.BINARY, b"pcm", "")
 
 
 class _FakeSession:
@@ -132,7 +139,7 @@ async def test_initiate_call_uses_nested_papi_call_id_for_media_stream():
 
 
 @pytest.mark.asyncio
-async def test_initiate_call_uses_active_stream_when_papi_dial_omits_call_id():
+async def test_initiate_call_rejects_a_dial_response_without_a_call_id():
     provider = _provider()
     session = _FakeSession(post_response=_FakeResponse(200, {"success": True}))
     provider._schedule_media_stream_task = Mock()
@@ -141,27 +148,22 @@ async def test_initiate_call_uses_active_stream_when_papi_dial_omits_call_id():
         "api.services.telephony.providers.papi_voip.provider.aiohttp.ClientSession",
         return_value=session,
     ):
-        result = await provider.initiate_call(
-            to_number="+5511988887777",
-            webhook_url="https://api.example.com/webhook",
-            workflow_run_id=42,
-            workflow_id=7,
-            organization_id=9,
-        )
+        with pytest.raises(HTTPException, match="call ID"):
+            await provider.initiate_call(
+                to_number="+5511988887777",
+                webhook_url="https://api.example.com/webhook",
+                workflow_run_id=42,
+                workflow_id=7,
+                organization_id=9,
+            )
 
-    assert result.call_id == "active"
-    provider._schedule_media_stream_task.assert_called_once_with(
-        workflow_id=7,
-        organization_id=9,
-        workflow_run_id=42,
-        call_id="active",
-    )
+    provider._schedule_media_stream_task.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_connect_outbound_media_stream_uses_papi_call_stream_endpoint():
     provider = _provider()
-    session = _FakeSession(websocket=object())
+    session = _FakeSession(websocket=_FakeWebSocket())
 
     with (
         patch(
@@ -169,7 +171,7 @@ async def test_connect_outbound_media_stream_uses_papi_call_stream_endpoint():
             return_value=session,
         ),
         patch(
-            "api.services.telephony.providers.papi_voip.provider.run_pipeline_telephony",
+            "api.services.pipecat.run_pipeline.run_pipeline_telephony",
             new=AsyncMock(),
         ) as run_pipeline,
     ):
@@ -200,3 +202,14 @@ async def test_connect_outbound_media_stream_uses_papi_call_stream_endpoint():
     assert run_pipeline.await_args.kwargs["workflow_run_id"] == 42
     assert run_pipeline.await_args.kwargs["call_id"] == "call-123"
     assert run_pipeline.await_args.kwargs["transport_kwargs"] == {"call_id": "call-123"}
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_rejects_unsigned_callbacks():
+    provider = _provider()
+
+    assert not await provider.verify_inbound_signature(
+        "https://dograh.example/api/v1/telephony/inbound/run",
+        {"provider": "papi_voip"},
+        {},
+    )

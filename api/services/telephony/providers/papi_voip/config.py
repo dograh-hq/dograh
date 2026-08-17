@@ -15,7 +15,7 @@ class PapiVoipConfigurationRequest(BaseModel):
     )
     api_key: str = Field(
         ...,
-        description="Papi API key (global API_KEY or instance key)",
+        description="API key for this WhatsApp instance with Voice/VoIP enabled",
     )
     instance_id: str = Field(
         ...,

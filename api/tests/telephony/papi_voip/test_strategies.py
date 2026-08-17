@@ -35,7 +35,7 @@ class _Session:
 
     def get(self, endpoint, **kwargs):
         self.calls.append(("GET", endpoint, kwargs))
-        return _Response(200, {"calls": [{"id": "papi-call-123"}]})
+        return _Response(200, {"calls": [{"sid": "papi-call-123"}]})
 
     def delete(self, endpoint, **kwargs):
         self.calls.append(("DELETE", endpoint, kwargs))

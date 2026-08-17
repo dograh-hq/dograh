@@ -18,7 +18,7 @@ class PapiVoipHangupStrategy(HangupStrategy):
     def _active_call_id(payload: Any) -> str | None:
         """Extract the first active PAP call ID from documented response shapes."""
         if isinstance(payload, dict):
-            for key in ("call_id", "callId", "id"):
+            for key in ("call_id", "callId", "sid", "id"):
                 value = payload.get(key)
                 if value:
                     return str(value)

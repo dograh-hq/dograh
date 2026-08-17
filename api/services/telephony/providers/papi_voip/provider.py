@@ -278,9 +278,15 @@ class PapiVoipProvider(TelephonyProvider):
 
                 response_data = await response.json()
 
-                # PAP can acknowledge dial without including the call ID. Its
-                # documented active stream endpoint identifies the current call.
-                call_id = self._get_call_id_from_response(response_data) or "active"
+                call_id = self._get_call_id_from_response(response_data)
+                if not call_id:
+                    # The active-call endpoint is instance-wide. Using it here
+                    # would allow overlapping workflows to attach to or end the
+                    # wrong PAPI call.
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Papi API dial response did not include a call ID",
+                    )
 
                 workflow_id = kwargs.get("workflow_id")
                 organization_id = kwargs.get("organization_id")
@@ -319,8 +325,9 @@ class PapiVoipProvider(TelephonyProvider):
     async def verify_webhook_signature(
         self, url: str, params: Dict[str, Any], signature: str
     ) -> bool:
-        # Assumes Papi doesn't enforce signature yet on its callbacks, relying on token embedded in stream url
-        return True
+        # PAPI does not currently document a verifiable callback signature.
+        # Reject callbacks rather than allowing unauthenticated run creation.
+        return False
 
     async def get_webhook_response(
         self, workflow_id: int, organization_id: int, workflow_run_id: int
@@ -395,14 +402,18 @@ class PapiVoipProvider(TelephonyProvider):
                 f"Papi Voip WebSocket connected for workflow_run {workflow_run_id}"
             )
 
-            # Extract call_id from workflow run gathered context as handshake does not contain it.
+            # Extract the real provider call ID saved when the inbound run was created.
             workflow_run = await db_client.get_workflow_run(
                 workflow_run_id, organization_id=organization_id
             )
             call_id = (workflow_run.gathered_context or {}).get("call_id") if workflow_run else None
 
             if not call_id:
-                call_id = str(workflow_run_id)
+                logger.error(
+                    f"Missing Papi Voip call ID for workflow_run {workflow_run_id}"
+                )
+                await websocket.close(code=4400, reason="Missing Papi Voip call ID")
+                return
 
             await run_pipeline_telephony(
                 websocket,
@@ -439,7 +450,13 @@ class PapiVoipProvider(TelephonyProvider):
 
         return NormalizedInboundData(
             provider=PapiVoipProvider.PROVIDER_NAME,
-            call_id=webhook_data.get("call_id", ""),
+            call_id=(
+                webhook_data.get("call_id")
+                or webhook_data.get("callId")
+                or webhook_data.get("sid")
+                or webhook_data.get("id")
+                or ""
+            ),
             from_number=from_raw,
             to_number=to_raw,
             direction="inbound",
@@ -455,7 +472,9 @@ class PapiVoipProvider(TelephonyProvider):
     async def verify_inbound_signature(
         self, url: str, webhook_data: Dict[str, Any], headers: Dict[str, str], body: str = ""
     ) -> bool:
-        return True
+        # PAPI does not currently document a verifiable callback signature.
+        # Reject callbacks rather than allowing unauthenticated run creation.
+        return False
 
     async def start_inbound_stream(
         self,

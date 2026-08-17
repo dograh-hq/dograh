@@ -44,9 +44,10 @@ class _FakeWebSocket:
 
 
 class _FakeSession:
-    def __init__(self, *, post_response=None, websocket=None):
+    def __init__(self, *, post_response=None, websocket=None, delete_response=None):
         self.post_response = post_response
         self.websocket = websocket
+        self.delete_response = delete_response or _FakeResponse(204, {})
         self.post_calls = []
         self.ws_connect_calls = []
         self.delete_calls = []
@@ -67,7 +68,7 @@ class _FakeSession:
 
     def delete(self, endpoint, **kwargs):
         self.delete_calls.append((endpoint, kwargs))
-        return _FakeResponse(204, {})
+        return self.delete_response
 
 
 class _FailingMediaSession(_FakeSession):
@@ -264,6 +265,49 @@ async def test_connect_outbound_media_stream_hangs_up_known_call_after_retry_exh
         "Papi Voip media stream could not be established",
     )
     concurrency_module.call_concurrency.release_workflow_run_slot.assert_awaited_once_with(42)
+
+
+@pytest.mark.asyncio
+async def test_media_failure_keeps_concurrency_slot_when_papi_hangup_is_not_confirmed():
+    provider = _provider()
+    session = _FailingMediaSession(delete_response=_FakeResponse(500, {"error": "unavailable"}))
+    mark_failed = AsyncMock()
+    failure_module = ModuleType("api.services.workflow_run_failure")
+    failure_module.mark_workflow_run_failed = mark_failed
+    concurrency_module = ModuleType("api.services.call_concurrency")
+    concurrency_module.call_concurrency = Mock(
+        release_workflow_run_slot=AsyncMock(),
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.papi_voip.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.papi_voip.provider.PAPI_MEDIA_STREAM_CONNECT_TIMEOUT_SECS",
+            0,
+        ),
+        patch.dict(
+            sys.modules,
+            {
+                "api.services.workflow_run_failure": failure_module,
+                "api.services.call_concurrency": concurrency_module,
+            },
+        ),
+    ):
+        await provider._connect_outbound_media_stream(
+            workflow_id=7,
+            organization_id=9,
+            workflow_run_id=42,
+            call_id="call-123",
+        )
+
+    mark_failed.assert_awaited_once_with(
+        42,
+        "Papi Voip media stream could not be established",
+    )
+    concurrency_module.call_concurrency.release_workflow_run_slot.assert_not_awaited()
 
 
 @pytest.mark.asyncio

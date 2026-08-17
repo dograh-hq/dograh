@@ -155,7 +155,7 @@ class PapiVoipProvider(TelephonyProvider):
             if exc:
                 logger.error(f"Papi Voip media stream task failed: {exc}")
 
-    async def _hangup_after_media_failure(self, call_id: str) -> None:
+    async def _hangup_after_media_failure(self, call_id: str) -> bool:
         """End a PAPI call when its media bridge cannot be established."""
         ended = await PapiVoipHangupStrategy().execute_hangup(
             {
@@ -170,16 +170,24 @@ class PapiVoipProvider(TelephonyProvider):
                 "Papi Voip could not hang up call after media failure: "
                 f"call_id={call_id}"
             )
+        return ended
 
     async def _finalize_media_failure(self, workflow_run_id: int, call_id: str) -> None:
         """Terminate the external call and finalize the orphaned workflow run."""
-        await self._hangup_after_media_failure(call_id)
+        ended = await self._hangup_after_media_failure(call_id)
         from api.services.workflow_run_failure import mark_workflow_run_failed
 
         await mark_workflow_run_failed(
             workflow_run_id,
             "Papi Voip media stream could not be established",
         )
+        if not ended:
+            logger.warning(
+                "Papi Voip media failure retained concurrency slot because "
+                f"hangup was not confirmed: workflow_run_id={workflow_run_id}"
+            )
+            return
+
         from api.services.call_concurrency import call_concurrency
 
         await call_concurrency.release_workflow_run_slot(workflow_run_id)

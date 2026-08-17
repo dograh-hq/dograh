@@ -535,5 +535,21 @@ class PapiVoipProvider(TelephonyProvider):
     def generate_error_response(error_type: str, message: str) -> tuple:
         return {"error": message}, "application/json"
 
+    @staticmethod
+    def generate_validation_error_response(error_type) -> Any:
+        """Generate JSON error response for validation failures."""
+        from fastapi import Response
+
+        from api.errors.telephony_errors import TELEPHONY_ERROR_MESSAGES, TelephonyError
+
+        message = TELEPHONY_ERROR_MESSAGES.get(
+            error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED]
+        )
+
+        return Response(
+            content=json.dumps({"error": str(error_type), "message": message}),
+            media_type="application/json",
+        )
+
     async def validate_phone_number(self, address: str) -> ProviderSyncResult:
         return ProviderSyncResult(ok=True)

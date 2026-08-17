@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from api.schemas.telephony_config import (
     PapiVoipConfigurationRequest,
     TelephonyConfigurationCreateRequest,
@@ -22,6 +25,16 @@ def test_telephony_config_create_accepts_papi_voip_provider():
     assert isinstance(request.config, PapiVoipConfigurationRequest)
     assert request.config.provider == "papi_voip"
     assert request.config.instance_id == "instance-123"
+
+
+def test_papi_voip_config_rejects_non_https_base_url():
+    with pytest.raises(ValidationError):
+        PapiVoipConfigurationRequest(
+            provider="papi_voip",
+            api_key="instance-key",
+            instance_id="instance-123",
+            base_url="http://insecure-papi.local",
+        )
 
 
 def test_telephony_configuration_response_supports_papi_voip_payload():

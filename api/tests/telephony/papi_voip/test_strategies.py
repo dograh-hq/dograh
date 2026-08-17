@@ -43,7 +43,7 @@ class _Session:
 
 
 @pytest.mark.asyncio
-async def test_hangup_resolves_active_call_id_before_deleting():
+async def test_hangup_deletes_specified_call_id():
     session = _Session()
 
     with patch(
@@ -52,7 +52,7 @@ async def test_hangup_resolves_active_call_id_before_deleting():
     ):
         result = await PapiVoipHangupStrategy().execute_hangup(
             {
-                "call_id": "active",
+                "call_id": "call-123",
                 "base_url": "https://api.papi.api.br",
                 "api_key": "instance-api-key",
                 "instance_id": "instance-123",
@@ -62,13 +62,21 @@ async def test_hangup_resolves_active_call_id_before_deleting():
     assert result is True
     assert session.calls == [
         (
-            "GET",
-            "https://api.papi.api.br/api/instances/instance-123/voice/calls",
-            {"headers": {"x-api-key": "instance-api-key", "apikey": "instance-api-key"}},
-        ),
-        (
             "DELETE",
-            "https://api.papi.api.br/api/instances/instance-123/voice/calls/papi-call-123",
+            "https://api.papi.api.br/api/instances/instance-123/voice/calls/call-123",
             {"headers": {"x-api-key": "instance-api-key", "apikey": "instance-api-key"}},
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_hangup_rejects_active_sentinel_or_missing_fields():
+    result = await PapiVoipHangupStrategy().execute_hangup(
+        {
+            "call_id": "active",
+            "base_url": "https://api.papi.api.br",
+            "api_key": "instance-api-key",
+            "instance_id": "instance-123",
+        }
+    )
+    assert result is False

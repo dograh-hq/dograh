@@ -4512,7 +4512,7 @@ export type PapiVoipConfigurationRequest = {
     /**
      * Api Key
      *
-     * Papi API key (global API_KEY or instance key)
+     * API key for this WhatsApp instance with Voice/VoIP enabled
      */
     api_key: string;
     /**
@@ -6745,6 +6745,10 @@ export type TriggerCallRequest = {
      * Telephony Configuration Id
      */
     telephony_configuration_id?: number | null;
+    /**
+     * From Phone Number Id
+     */
+    from_phone_number_id?: number | null;
 };
 
 /**

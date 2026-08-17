@@ -81,7 +81,7 @@ const translations = {
     "sidebar.telephony": "Telefonia",
     "sidebar.tools": "Ferramentas",
     "sidebar.files": "Arquivos",
-    "sidebar.recordings": "Gravacoes",
+    "sidebar.recordings": "Gravações",
     "sidebar.developers": "Desenvolvedores",
     "sidebar.manage": "GERENCIAR",
     "sidebar.agentRuns": "Execuções de agentes",
@@ -143,17 +143,29 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
 
   useEffect(() => {
-    const savedLocale = localStorage.getItem(STORAGE_KEY);
-    if (savedLocale === "en" || savedLocale === "pt-BR") {
-      setLocaleState(savedLocale);
-      document.documentElement.lang = savedLocale;
+    try {
+      const savedLocale = localStorage.getItem(STORAGE_KEY);
+      if (savedLocale === "en" || savedLocale === "pt-BR") {
+        setLocaleState(savedLocale);
+        if (typeof document !== "undefined") {
+          document.documentElement.lang = savedLocale;
+        }
+      }
+    } catch {
+      // Ignore localStorage access failures (e.g. storage disabled / sandbox)
     }
   }, []);
 
   const setLocale = (nextLocale: Locale) => {
     setLocaleState(nextLocale);
-    localStorage.setItem(STORAGE_KEY, nextLocale);
-    document.documentElement.lang = nextLocale;
+    try {
+      localStorage.setItem(STORAGE_KEY, nextLocale);
+    } catch {
+      // Ignore localStorage access failures
+    }
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = nextLocale;
+    }
   };
 
   const t = (key: TranslationKey) => translations[locale][key] ?? translations.en[key];

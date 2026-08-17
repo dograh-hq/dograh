@@ -2,7 +2,7 @@
 
 from typing import List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PapiVoipConfigurationRequest(BaseModel):
@@ -26,6 +26,14 @@ class PapiVoipConfigurationRequest(BaseModel):
         default_factory=list,
         description="Optional display/caller numbers (E.164 without + preferred)",
     )
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        url = (v or "").strip().rstrip("/")
+        if not url.startswith("https://"):
+            raise ValueError("base_url must use HTTPS scheme")
+        return url
 
 
 class PapiVoipConfigurationResponse(BaseModel):

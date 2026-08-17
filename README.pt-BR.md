@@ -96,7 +96,7 @@ Consulte o [guia de configuração local](https://docs.dograh.com/contribution/s
 
 ### Auto-hospedagem
 
-Consulte o [guia de implantação Docker](https://docs.dograh.com/deployment/docker#option-2-remote-server-deployment) para instalar em servidor com HTTPS.
+Consulte o [guia de implantação Docker](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment) para instalar em servidor com HTTPS.
 
 ### Versão em nuvem
 
@@ -111,7 +111,7 @@ Acesse [docs.dograh.com](https://docs.dograh.com/) para a documentação técnic
 - **Slack**: participe da comunidade global, discuta recursos e peça ajuda de implantação.
 - **GitHub Discussions**: compartilhe casos de uso e receitas de fluxos.
 - **GitHub Issues**: reporte bugs ou solicite recursos.
-- **Suporte em Português (Brasil)**: fale com Rafa Martins pelo [WhatsApp](https://wa.me/5527999082624).
+- **PAPI VoIP**: saiba mais sobre a integração em [papi.api.br](https://papi.api.br) ou consulte a [documentação da PAPI](https://docs.papi.api.br).
 
 👉 Comunidade global: [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g)
 

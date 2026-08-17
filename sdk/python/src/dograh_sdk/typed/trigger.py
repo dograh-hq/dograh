@@ -33,7 +33,9 @@ class Trigger(TypedNode):
     over the saved Start-node greeting.   • `telephony_configuration_id`
     (int, optional) — pick a specific telephony configuration for the call.
     Must belong to the same organization as the trigger. When omitted, the
-    org's default outbound configuration is used.
+    org's default outbound configuration is used.   • `from_phone_number_id`
+    (int, optional) — pick the caller-ID number to use. It must be active
+    and registered to the resolved telephony configuration.
     """
 
     type: ClassVar[str] = 'trigger'

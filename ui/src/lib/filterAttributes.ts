@@ -101,6 +101,31 @@ export const baseFilterAttributes: Record<string, Omit<FilterAttribute, "id">> =
       maxLength: 20,
     },
   },
+  callDirection: {
+    type: "radio",
+    label: "Direction",
+    config: {
+      radioOptions: [
+        { label: "Inbound", value: "inbound" },
+        { label: "Outbound", value: "outbound" },
+        { label: "All", value: "all" },
+      ],
+      defaultValue: "all",
+    },
+  },
+  callChannel: {
+    type: "radio",
+    label: "Type",
+    config: {
+      radioOptions: [
+        { label: "Telephony", value: "telephony" },
+        { label: "Web call", value: "web" },
+        { label: "Text chat", value: "chat" },
+        { label: "All", value: "all" },
+      ],
+      defaultValue: "all",
+    },
+  },
   campaignId: {
     type: "number",
     label: "Campaign ID",
@@ -172,6 +197,8 @@ export const usageFilterAttributes = createFilterAttributes(
     "dateRange",
     "duration",
     "dispositionCode",
+    "callDirection",
+    "callChannel",
     "callerNumber",
     "calledNumber",
     "runId",

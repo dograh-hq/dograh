@@ -62,6 +62,44 @@ class WorkflowRunMode(Enum):
     CHAT = "CHAT"
 
 
+class WorkflowRunChannel(Enum):
+    """How a run reached the agent, coarser than the provider-level mode.
+
+    `WorkflowRunMode` records the specific transport (twilio, telnyx, ...);
+    this groups those into the three channels users think in terms of when
+    filtering their runs.
+    """
+
+    TELEPHONY = "telephony"
+    WEB = "web"
+    CHAT = "chat"
+
+
+# Every WorkflowRunMode belongs to exactly one channel. Historical modes are
+# mapped too, so filtering never silently drops old runs.
+WORKFLOW_RUN_MODES_BY_CHANNEL: dict[str, tuple[str, ...]] = {
+    WorkflowRunChannel.TELEPHONY.value: (
+        WorkflowRunMode.ARI.value,
+        WorkflowRunMode.PLIVO.value,
+        WorkflowRunMode.TWILIO.value,
+        WorkflowRunMode.VONAGE.value,
+        WorkflowRunMode.VOBIZ.value,
+        WorkflowRunMode.CLOUDONIX.value,
+        WorkflowRunMode.TELNYX.value,
+        WorkflowRunMode.STASIS.value,
+        WorkflowRunMode.VOICE.value,
+    ),
+    WorkflowRunChannel.WEB.value: (
+        WorkflowRunMode.WEBRTC.value,
+        WorkflowRunMode.SMALLWEBRTC.value,
+    ),
+    WorkflowRunChannel.CHAT.value: (
+        WorkflowRunMode.TEXTCHAT.value,
+        WorkflowRunMode.CHAT.value,
+    ),
+}
+
+
 class StorageBackend(Enum):
     """Storage backend enumeration.
 

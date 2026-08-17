@@ -285,6 +285,7 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
             onChange={(value) => updateFilter(index, value)}
             error={error}
             options={filter.attribute.config.radioOptions || []}
+            label={`Select ${filter.attribute.label}`}
           />
         );
       case "tags":

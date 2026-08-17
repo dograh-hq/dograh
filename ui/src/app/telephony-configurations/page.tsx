@@ -99,10 +99,10 @@ export default function TelephonyConfigurationsPage() {
       const res = await getTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGet(
         { headers: { Authorization: `Bearer ${token}` } },
       );
+      if (res.error) return;
       setProviders(res.data?.providers ?? []);
     } catch {
-      // Branding is optional presentation metadata; configuration management still works.
-      setProviders([]);
+      // Preserve the last valid branding when a refresh fails.
     }
   }, [authLoading, user, getAccessToken]);
 

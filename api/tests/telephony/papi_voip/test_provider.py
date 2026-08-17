@@ -1,3 +1,5 @@
+import sys
+from types import ModuleType
 from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
@@ -47,6 +49,7 @@ class _FakeSession:
         self.websocket = websocket
         self.post_calls = []
         self.ws_connect_calls = []
+        self.delete_calls = []
 
     async def __aenter__(self):
         return self
@@ -61,6 +64,16 @@ class _FakeSession:
     def ws_connect(self, endpoint, **kwargs):
         self.ws_connect_calls.append((endpoint, kwargs))
         return _FakeWebSocketContext(self.websocket)
+
+    def delete(self, endpoint, **kwargs):
+        self.delete_calls.append((endpoint, kwargs))
+        return _FakeResponse(204, {})
+
+
+class _FailingMediaSession(_FakeSession):
+    def ws_connect(self, endpoint, **kwargs):
+        self.ws_connect_calls.append((endpoint, kwargs))
+        raise aiohttp.ClientConnectionError("PAPI media socket unavailable")
 
 
 def _provider():
@@ -164,16 +177,16 @@ async def test_initiate_call_rejects_a_dial_response_without_a_call_id():
 async def test_connect_outbound_media_stream_uses_papi_call_stream_endpoint():
     provider = _provider()
     session = _FakeSession(websocket=_FakeWebSocket())
+    run_pipeline = AsyncMock()
+    pipeline_module = ModuleType("api.services.pipecat.run_pipeline")
+    pipeline_module.run_pipeline_telephony = run_pipeline
 
     with (
         patch(
             "api.services.telephony.providers.papi_voip.provider.aiohttp.ClientSession",
             return_value=session,
         ),
-        patch(
-            "api.services.pipecat.run_pipeline.run_pipeline_telephony",
-            new=AsyncMock(),
-        ) as run_pipeline,
+        patch.dict(sys.modules, {"api.services.pipecat.run_pipeline": pipeline_module}),
     ):
         await provider._connect_outbound_media_stream(
             workflow_id=7,
@@ -202,6 +215,36 @@ async def test_connect_outbound_media_stream_uses_papi_call_stream_endpoint():
     assert run_pipeline.await_args.kwargs["workflow_run_id"] == 42
     assert run_pipeline.await_args.kwargs["call_id"] == "call-123"
     assert run_pipeline.await_args.kwargs["transport_kwargs"] == {"call_id": "call-123"}
+
+
+@pytest.mark.asyncio
+async def test_connect_outbound_media_stream_hangs_up_known_call_after_retry_exhaustion():
+    provider = _provider()
+    session = _FailingMediaSession()
+
+    with (
+        patch(
+            "api.services.telephony.providers.papi_voip.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.papi_voip.provider.PAPI_MEDIA_STREAM_CONNECT_TIMEOUT_SECS",
+            0,
+        ),
+    ):
+        await provider._connect_outbound_media_stream(
+            workflow_id=7,
+            organization_id=9,
+            workflow_run_id=42,
+            call_id="call-123",
+        )
+
+    assert session.delete_calls == [
+        (
+            "https://api.papi.api.br/api/instances/instance-123/voice/calls/call-123",
+            {"headers": {"x-api-key": "instance-api-key", "apikey": "instance-api-key"}},
+        )
+    ]
 
 
 @pytest.mark.asyncio

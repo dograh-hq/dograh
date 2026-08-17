@@ -22,6 +22,7 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.papi_voip.strategies import PapiVoipHangupStrategy
 from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
@@ -154,6 +155,22 @@ class PapiVoipProvider(TelephonyProvider):
             if exc:
                 logger.error(f"Papi Voip media stream task failed: {exc}")
 
+    async def _hangup_after_media_failure(self, call_id: str) -> None:
+        """End a PAPI call when its media bridge cannot be established."""
+        ended = await PapiVoipHangupStrategy().execute_hangup(
+            {
+                "call_id": call_id,
+                "base_url": self.base_url,
+                "api_key": self.api_key,
+                "instance_id": self.instance_id,
+            }
+        )
+        if not ended:
+            logger.error(
+                "Papi Voip could not hang up call after media failure: "
+                f"call_id={call_id}"
+            )
+
     async def _wait_for_answered_media(
         self, websocket: aiohttp.ClientWebSocketResponse, workflow_run_id: int
     ) -> aiohttp.WSMessage:
@@ -180,8 +197,6 @@ class PapiVoipProvider(TelephonyProvider):
         workflow_run_id: int,
         call_id: str,
     ) -> None:
-        from api.services.pipecat.run_pipeline import run_pipeline_telephony
-
         stream_url = self._build_call_stream_url(call_id)
         headers = self._build_auth_headers()
         deadline = asyncio.get_running_loop().time() + PAPI_MEDIA_STREAM_CONNECT_TIMEOUT_SECS
@@ -208,6 +223,8 @@ class PapiVoipProvider(TelephonyProvider):
                         logger.info(
                             f"Papi Voip media stream connected for workflow_run {workflow_run_id}"
                         )
+                        from api.services.pipecat.run_pipeline import run_pipeline_telephony
+
                         await run_pipeline_telephony(
                             _AiohttpClientWebSocketAdapter(websocket, first_audio_frame),
                             provider_name=self.PROVIDER_NAME,
@@ -233,6 +250,7 @@ class PapiVoipProvider(TelephonyProvider):
             "Papi Voip media stream did not become available for "
             f"workflow_run {workflow_run_id}: {last_error}"
         )
+        await self._hangup_after_media_failure(call_id)
 
     async def initiate_call(
         self,

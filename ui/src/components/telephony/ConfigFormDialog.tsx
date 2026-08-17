@@ -301,7 +301,7 @@ export function ConfigFormDialog({
                 Provider cannot be changed after creation.
               </p>
             )}
-            {currentProvider?.docs_url && !branding && (
+            {currentProvider?.docs_url && (
               <a
                 href={currentProvider.docs_url}
                 target="_blank"

@@ -1217,7 +1217,8 @@ class CloudonixProvider(TelephonyProvider):
                     if response.status != 200:
                         body = await response.text()
                         raise ProviderPhoneNumberLookupError(
-                            f"Cloudonix API {response.status}: {body}"
+                            f"Cloudonix API {response.status}: {body}",
+                            status_code=response.status,
                         )
                     data = await response.json()
         except ProviderPhoneNumberLookupError:

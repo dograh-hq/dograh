@@ -522,6 +522,9 @@ class TwilioProvider(TelephonyProvider):
 
         try:
             sid = await self._lookup_incoming_number_sid(normalized.canonical)
+        except ProviderPhoneNumberLookupError:
+            # Already carries the provider's status; re-wrapping would drop it.
+            raise
         except Exception as e:
             raise ProviderPhoneNumberLookupError(
                 f"Twilio phone-number lookup failed: {e}"
@@ -547,7 +550,10 @@ class TwilioProvider(TelephonyProvider):
             async with session.get(endpoint, params=params, auth=auth) as response:
                 if response.status != 200:
                     body = await response.text()
-                    raise Exception(f"Twilio API {response.status}: {body}")
+                    raise ProviderPhoneNumberLookupError(
+                        f"Twilio API {response.status}: {body}",
+                        status_code=response.status,
+                    )
                 data = await response.json()
         numbers = data.get("incoming_phone_numbers") or []
         for number in numbers:

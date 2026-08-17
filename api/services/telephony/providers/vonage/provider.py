@@ -708,7 +708,8 @@ class VonageProvider(TelephonyProvider):
                     if response.status != 200:
                         body = await response.text()
                         raise ProviderPhoneNumberLookupError(
-                            f"Vonage API {response.status}: {body}"
+                            f"Vonage API {response.status}: {body}",
+                            status_code=response.status,
                         )
                     data = await response.json()
         except ProviderPhoneNumberLookupError:

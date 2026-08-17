@@ -21,6 +21,10 @@ from api.services.telephony.providers.cloudonix.config import (
     CloudonixConfigurationRequest,
     CloudonixConfigurationResponse,
 )
+from api.services.telephony.providers.papi_voip.config import (
+    PapiVoipConfigurationRequest,
+    PapiVoipConfigurationResponse,
+)
 from api.services.telephony.providers.plivo.config import (
     PlivoConfigurationRequest,
     PlivoConfigurationResponse,
@@ -49,6 +53,7 @@ TelephonyConfigRequest = Annotated[
     Union[
         ARIConfigurationRequest,
         CloudonixConfigurationRequest,
+        PapiVoipConfigurationRequest,
         PlivoConfigurationRequest,
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
@@ -72,6 +77,7 @@ class TelephonyConfigurationResponse(BaseModel):
     vonage: Optional[VonageConfigurationResponse] = None
     vobiz: Optional[VobizConfigurationResponse] = None
     cloudonix: Optional[CloudonixConfigurationResponse] = None
+    papi_voip: Optional[PapiVoipConfigurationResponse] = None
     ari: Optional[ARIConfigurationResponse] = None
     telnyx: Optional[TelnyxConfigurationResponse] = None
 
@@ -144,6 +150,8 @@ __all__ = [
     "ARIConfigurationResponse",
     "CloudonixConfigurationRequest",
     "CloudonixConfigurationResponse",
+    "PapiVoipConfigurationRequest",
+    "PapiVoipConfigurationResponse",
     "PlivoConfigurationRequest",
     "PlivoConfigurationResponse",
     "TelephonyConfigRequest",

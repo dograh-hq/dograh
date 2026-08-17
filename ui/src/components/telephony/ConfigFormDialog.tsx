@@ -111,6 +111,7 @@ export function ConfigFormDialog({
     () => providers.find((p) => p.provider === providerName),
     [providers, providerName],
   );
+  const isPapiVoip = currentProvider?.provider === "papi_voip";
   const visibleFields = useMemo(
     () =>
       currentProvider?.fields.filter(
@@ -281,7 +282,16 @@ export function ConfigFormDialog({
               <SelectContent>
                 {providers.map((p) => (
                   <SelectItem key={p.provider} value={p.provider}>
-                    {p.display_name}
+                    <span className="flex items-center gap-2">
+                      {p.provider === "papi_voip" && (
+                        <img
+                          src="/providers/papi-logo.png"
+                          alt=""
+                          className="h-4 w-auto rounded-sm bg-zinc-950 px-1"
+                        />
+                      )}
+                      {p.display_name}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -291,7 +301,7 @@ export function ConfigFormDialog({
                 Provider cannot be changed after creation.
               </p>
             )}
-            {currentProvider?.docs_url && (
+            {currentProvider?.docs_url && !isPapiVoip && (
               <a
                 href={currentProvider.docs_url}
                 target="_blank"
@@ -302,6 +312,40 @@ export function ConfigFormDialog({
               </a>
             )}
           </div>
+
+          {isPapiVoip && (
+            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-16 items-center justify-center rounded-md bg-zinc-950 px-2">
+                  <img src="/providers/papi-logo.png" alt="PAPI" className="h-6 w-auto" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">PAPI VoIP for WhatsApp</p>
+                  <p className="text-xs text-muted-foreground">
+                    Connect a WhatsApp instance with Voice/VoIP enabled.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs">
+                <a
+                  href="https://papi.api.br/#planos"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-medium text-emerald-500 underline-offset-4 hover:underline"
+                >
+                  Get a WhatsApp VoIP number <ExternalLink className="h-3 w-3" />
+                </a>
+                <a
+                  href="https://papi.api.br"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  Need help? Visit papi.api.br <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </div>
+          )}
 
           {!isEdit && (
             <div className="flex items-center justify-between rounded border p-3">

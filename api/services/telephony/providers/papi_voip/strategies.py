@@ -20,8 +20,8 @@ class PapiVoipHangupStrategy(HangupStrategy):
         api_key = context.get("api_key")
         instance_id = context.get("instance_id")
 
-        if not all([call_id, base_url, api_key, instance_id]):
-            logger.warning("[Papi Voip] hangup missing call_id/base_url/api_key/instance_id")
+        if not all([call_id, base_url, api_key, instance_id]) or call_id == "active":
+            logger.warning("[Papi Voip] hangup missing or invalid call_id/base_url/api_key/instance_id")
             return False
 
         try:

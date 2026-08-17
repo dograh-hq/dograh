@@ -34,7 +34,7 @@ class PapiVoipConfigurationRequest(BaseModel):
     def validate_base_url(cls, v: str) -> str:
         url = (v or "").strip().rstrip("/")
         parsed = urlparse(url)
-        if parsed.scheme.lower() != "https" or not parsed.netloc:
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
             raise ValueError("base_url must be a valid HTTPS URL with a hostname")
         return url
 

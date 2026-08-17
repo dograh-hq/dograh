@@ -44,6 +44,22 @@ def test_papi_voip_config_rejects_non_https_base_url():
             base_url="https://",
         )
 
+    with pytest.raises(ValidationError):
+        PapiVoipConfigurationRequest(
+            provider="papi_voip",
+            api_key="instance-key",
+            instance_id="instance-123",
+            base_url="https://:8080",
+        )
+
+    with pytest.raises(ValidationError):
+        PapiVoipConfigurationRequest(
+            provider="papi_voip",
+            api_key="instance-key",
+            instance_id="instance-123",
+            base_url="https://@",
+        )
+
     # Valid HTTPS with mixed case scheme
     req = PapiVoipConfigurationRequest(
         provider="papi_voip",

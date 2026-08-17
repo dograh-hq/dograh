@@ -32,7 +32,7 @@
 
 - **100% open source e auto-hospedável**: sem dependência de fornecedor.
 - **Controle e transparência**: o código é aberto e as integrações de LLM, TTS e STT podem ser adaptadas.
-- **Interface em inglês e Português do Brasil**: alterne o idioma pelo seletor no topo da aplicação.
+- **Navegação e configuração de telefonia em inglês e português (Brasil)**: alterne o idioma pelo seletor no topo da aplicação.
 
 ## 🚀 Início rápido
 

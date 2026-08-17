@@ -86,11 +86,11 @@ export default function TelephonyConfigurationsPage() {
       if (res.error) throw new Error(detailFromError(res.error));
       setItems(res.data?.configurations ?? []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load configurations");
+      toast.error(err instanceof Error ? err.message : t("telephony.failedToLoadConfigurations"));
     } finally {
       setLoading(false);
     }
-  }, [authLoading, user, getAccessToken]);
+  }, [authLoading, user, getAccessToken, t]);
 
   const fetchProviders = useCallback(async () => {
     if (authLoading || !user) return;
@@ -136,7 +136,7 @@ export default function TelephonyConfigurationsPage() {
       setEditTarget(res.data ?? null);
       setEditOpen(true);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load configuration");
+      toast.error(err instanceof Error ? err.message : t("telephony.failedToLoadConfiguration"));
     }
   };
 
@@ -150,10 +150,10 @@ export default function TelephonyConfigurationsPage() {
         },
       );
       if (res.error) throw new Error(detailFromError(res.error));
-      toast.success(`${item.name} is now the default outbound configuration`);
+      toast.success(`${item.name} ${t("telephony.defaultOutboundSuccess")}`);
       fetchItems();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to set default");
+      toast.error(err instanceof Error ? err.message : t("telephony.failedToSetDefault"));
     }
   };
 
@@ -167,11 +167,11 @@ export default function TelephonyConfigurationsPage() {
         },
       );
       if (res.error) throw new Error(detailFromError(res.error));
-      toast.success(`${item.name} reactivated — reconnecting within a minute`);
+      toast.success(`${item.name} ${t("telephony.reactivatedSuccess")}`);
       fetchItems();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to reactivate configuration",
+        err instanceof Error ? err.message : t("telephony.failedToReactivate"),
       );
     }
   };
@@ -187,11 +187,11 @@ export default function TelephonyConfigurationsPage() {
         },
       );
       if (res.error) throw new Error(detailFromError(res.error));
-      toast.success("Configuration deleted");
+      toast.success(t("telephony.configurationDeleted"));
       setDeleteTarget(null);
       fetchItems();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete configuration");
+      toast.error(err instanceof Error ? err.message : t("telephony.failedToDelete"));
     }
   };
 
@@ -223,18 +223,10 @@ export default function TelephonyConfigurationsPage() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="space-y-1 text-sm">
-                <p className="font-medium">Webhook public key not configured</p>
+                <p className="font-medium">{t("telephony.webhookKeyMissing")}</p>
                 <p>
-                  {telnyxMissingWebhookPublicKeyCount === 1
-                    ? "1 Telnyx configuration is"
-                    : `${telnyxMissingWebhookPublicKeyCount} Telnyx configurations are`}{" "}
-                  missing a webhook public key. Without it, Telnyx call status
-                  updates and inbound calls are being rejected. Copy your
-                  public key from{" "}
-                  <span className="whitespace-nowrap">
-                    Mission Control Portal → Keys &amp; Credentials → Public Key
-                  </span>{" "}
-                  and paste it into the affected Telnyx configuration below.
+                  {telnyxMissingWebhookPublicKeyCount}{" "}
+                  {t(telnyxMissingWebhookPublicKeyCount === 1 ? "telephony.webhookKeyMissingSingular" : "telephony.webhookKeyMissingPlural")}
                 </p>
               </div>
             </div>
@@ -246,15 +238,10 @@ export default function TelephonyConfigurationsPage() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="space-y-1 text-sm">
-                <p className="font-medium">Signature secret not configured</p>
+                <p className="font-medium">{t("telephony.signatureSecretMissing")}</p>
                 <p>
-                  {vonageMissingSignatureSecretCount === 1
-                    ? "1 Vonage configuration is"
-                    : `${vonageMissingSignatureSecretCount} Vonage configurations are`}{" "}
-                  missing a signature secret. Without it, Vonage signed webhooks
-                  are rejected, so inbound calls and call status updates will not
-                  work. Copy the signature secret from your Vonage account and
-                  paste it into the affected Vonage configuration below.
+                  {vonageMissingSignatureSecretCount}{" "}
+                  {t(vonageMissingSignatureSecretCount === 1 ? "telephony.signatureSecretMissingSingular" : "telephony.signatureSecretMissingPlural")}
                 </p>
               </div>
             </div>
@@ -308,12 +295,11 @@ export default function TelephonyConfigurationsPage() {
                         )}
                       </div>
                       <span className="text-sm text-muted-foreground">
-                        {item.phone_number_count} phone{" "}
-                        {item.phone_number_count === 1 ? "number" : "numbers"}
+                        {item.phone_number_count} {t(item.phone_number_count === 1 ? "telephony.phoneNumber" : "telephony.phoneNumbers")}
                       </span>
                       {item.inactive && (
                         <span className="text-sm text-destructive">
-                          Disabled after repeated connection failures
+                          {t("telephony.disabledAfterFailures")}
                           {item.inactive_reason ? `: ${item.inactive_reason}` : ""}
                         </span>
                       )}
@@ -323,13 +309,13 @@ export default function TelephonyConfigurationsPage() {
                           e.preventDefault();
                           e.stopPropagation();
                           copyTextToClipboard(String(item.id))
-                            .then(() => toast.success("Configuration ID copied"))
-                            .catch(() => toast.error("Failed to copy ID"));
+                            .then(() => toast.success(t("telephony.configurationIdCopied")))
+                            .catch(() => toast.error(t("telephony.failedToCopyId")));
                         }}
-                        title="Click to copy"
+                        title={t("telephony.copyConfigurationId")}
                         className="inline-flex items-center gap-1 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground"
                       >
-                        <span className="truncate">Configuration ID: {item.id}</span>
+                        <span className="truncate">{t("telephony.configurationId")}: {item.id}</span>
                         <Copy className="h-3 w-3 shrink-0" />
                       </button>
                     </div>
@@ -340,10 +326,10 @@ export default function TelephonyConfigurationsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => onReactivate(item)}
-                        title="Reconnect this configuration now"
+                        title={t("telephony.reconnectNow")}
                       >
                         <RotateCcw className="h-4 w-4 mr-1" />
-                        Reactivate
+                        {t("telephony.reactivate")}
                       </Button>
                     )}
                     {!item.is_default_outbound && (
@@ -351,7 +337,7 @@ export default function TelephonyConfigurationsPage() {
                         variant="ghost"
                         size="sm"
                         onClick={() => onSetDefault(item)}
-                        title="Set as default outbound"
+                        title={t("telephony.setDefaultOutbound")}
                       >
                         <Star className="h-4 w-4" />
                       </Button>
@@ -360,7 +346,7 @@ export default function TelephonyConfigurationsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => onEdit(item)}
-                      title="Edit"
+                      title={t("telephony.edit")}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -368,14 +354,14 @@ export default function TelephonyConfigurationsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => setDeleteTarget(item)}
-                      title="Delete"
+                      title={t("telephony.delete")}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                     <Button variant="outline" size="sm" asChild>
                       <Link
                         href={`/telephony-configurations/${item.id}`}
-                        aria-label={`Manage phone numbers for ${item.name}`}
+                        aria-label={`${t("telephony.managePhoneNumbersFor")} ${item.name}`}
                       >
                         {t("telephony.managePhoneNumbers")}
                         <ChevronRight className="h-4 w-4" />
@@ -408,16 +394,14 @@ export default function TelephonyConfigurationsPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete configuration?</AlertDialogTitle>
+            <AlertDialogTitle>{t("telephony.deleteConfiguration")}?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteTarget?.name} and all of its phone numbers will be removed. Any
-              campaigns that reference this configuration will block the deletion until
-              they are reassigned.
+              {deleteTarget?.name} {t("telephony.deleteConfigurationDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onConfirmDelete}>Delete</AlertDialogAction>
+            <AlertDialogCancel>{t("telephony.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={onConfirmDelete}>{t("telephony.delete")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

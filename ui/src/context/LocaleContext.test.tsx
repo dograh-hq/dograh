@@ -10,6 +10,11 @@ function LocaleProbe() {
     <>
       <span>{locale}</span>
       <span>{t("sidebar.telephony")}</span>
+      <span>{t("telephony.reactivate")}</span>
+      <span>{t("telephony.deleteConfiguration")}</span>
+      <span>{t("telephony.copyConfigurationId")}</span>
+      <span>{t("telephony.webhookKeyMissing")}</span>
+      <span>{t("telephony.signatureSecretMissing")}</span>
       <button type="button" onClick={() => setLocale("en")}>
         Set English
       </button>
@@ -30,6 +35,11 @@ describe("LocaleProvider", () => {
 
     await waitFor(() => expect(screen.getByText("pt-BR")).toBeTruthy());
     expect(screen.getByText("Telefonia")).toBeTruthy();
+    expect(screen.getByText("Reativar")).toBeTruthy();
+    expect(screen.getByText("Excluir configuração")).toBeTruthy();
+    expect(screen.getByText("Copiar ID da configuração")).toBeTruthy();
+    expect(screen.getByText("Chave pública de webhook não configurada")).toBeTruthy();
+    expect(screen.getByText("Segredo de assinatura não configurado")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Set English" }));
 

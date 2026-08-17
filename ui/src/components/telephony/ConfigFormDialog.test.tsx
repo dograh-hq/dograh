@@ -24,8 +24,17 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const papiProvider = {
-  provider: "papi_voip",
+  provider: "example_voice",
   display_name: "Papi Voip",
+  branding: {
+    logo_url: "/providers/papi-logo.png",
+    onboarding_title: "PAPI VoIP for WhatsApp",
+    onboarding_description: "Connect a WhatsApp instance with Voice/VoIP enabled.",
+    purchase_url: "https://papi.api.br/#planos",
+    purchase_label: "Get a WhatsApp VoIP number",
+    support_url: "https://papi.api.br",
+    support_label: "Need help? Visit papi.api.br",
+  },
   fields: [
     {
       name: "api_key",
@@ -62,6 +71,6 @@ describe("ConfigFormDialog", () => {
     expect(screen.getByText("Need help? Visit papi.api.br")).toBeTruthy();
     expect(screen.getByLabelText("Instance API Key")).toBeTruthy();
     expect(screen.queryByLabelText("API Base URL")).toBeNull();
-    expect(screen.getByAltText("PAPI")).toBeTruthy();
+    expect(screen.getByAltText("Papi Voip")).toBeTruthy();
   });
 });

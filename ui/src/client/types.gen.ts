@@ -4494,6 +4494,70 @@ export type OrganizationPreferences = {
 };
 
 /**
+ * PapiVoipConfigurationRequest
+ *
+ * Request schema for Papi Voip (Papi GO Cloud) configuration.
+ */
+export type PapiVoipConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'papi_voip';
+    /**
+     * Base Url
+     *
+     * Papi GO Cloud API base URL (HTTPS, no trailing slash)
+     */
+    base_url?: string;
+    /**
+     * Api Key
+     *
+     * Papi API key (global API_KEY or instance key)
+     */
+    api_key: string;
+    /**
+     * Instance Id
+     *
+     * WhatsApp instance id with voice/SIP enabled on Papi
+     */
+    instance_id: string;
+    /**
+     * From Numbers
+     *
+     * Optional display/caller numbers (E.164 without + preferred)
+     */
+    from_numbers?: Array<string>;
+};
+
+/**
+ * PapiVoipConfigurationResponse
+ *
+ * Response schema for Papi Voip configuration with masked secrets.
+ */
+export type PapiVoipConfigurationResponse = {
+    /**
+     * Provider
+     */
+    provider?: 'papi_voip';
+    /**
+     * Base Url
+     */
+    base_url: string;
+    /**
+     * Api Key
+     */
+    api_key: string;
+    /**
+     * Instance Id
+     */
+    instance_id: string;
+    /**
+     * From Numbers
+     */
+    from_numbers: Array<string>;
+};
+
+/**
  * PhoneNumberCreateRequest
  *
  * Create a new phone number under a telephony configuration.
@@ -5969,6 +6033,8 @@ export type TelephonyConfigurationCreateRequest = {
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'papi_voip';
+    } & PapiVoipConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
@@ -6105,6 +6171,7 @@ export type TelephonyConfigurationResponse = {
     vonage?: VonageConfigurationResponse | null;
     vobiz?: VobizConfigurationResponse | null;
     cloudonix?: CloudonixConfigurationResponse | null;
+    papi_voip?: PapiVoipConfigurationResponse | null;
     ari?: AriConfigurationResponse | null;
     telnyx?: TelnyxConfigurationResponse | null;
 };
@@ -6127,6 +6194,8 @@ export type TelephonyConfigurationUpdateRequest = {
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'papi_voip';
+    } & PapiVoipConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
@@ -6137,6 +6206,42 @@ export type TelephonyConfigurationUpdateRequest = {
     } & VobizConfigurationRequest) | ({
         provider: 'vonage';
     } & VonageConfigurationRequest) | null;
+};
+
+/**
+ * TelephonyProviderBranding
+ *
+ * Optional presentation and onboarding details for a provider.
+ */
+export type TelephonyProviderBranding = {
+    /**
+     * Logo Url
+     */
+    logo_url: string;
+    /**
+     * Onboarding Title
+     */
+    onboarding_title: string;
+    /**
+     * Onboarding Description
+     */
+    onboarding_description: string;
+    /**
+     * Purchase Url
+     */
+    purchase_url?: string | null;
+    /**
+     * Purchase Label
+     */
+    purchase_label?: string | null;
+    /**
+     * Support Url
+     */
+    support_url?: string | null;
+    /**
+     * Support Label
+     */
+    support_label?: string | null;
 };
 
 /**
@@ -6161,6 +6266,7 @@ export type TelephonyProviderMetadata = {
      * Docs Url
      */
     docs_url?: string | null;
+    branding?: TelephonyProviderBranding | null;
 };
 
 /**
@@ -12645,6 +12751,8 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData 
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'papi_voip';
+    } & PapiVoipConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';

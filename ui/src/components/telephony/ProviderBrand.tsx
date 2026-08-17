@@ -1,14 +1,15 @@
 interface ProviderBrandProps {
-  provider: string;
+  logoUrl?: string | null;
+  displayName?: string;
 }
 
-export function ProviderBrand({ provider }: ProviderBrandProps) {
-  if (provider !== "papi_voip") return null;
+export function ProviderBrand({ logoUrl, displayName }: ProviderBrandProps) {
+  if (!logoUrl) return null;
 
   return (
     <img
-      src="/providers/papi-logo.png"
-      alt="PAPI"
+      src={logoUrl}
+      alt={displayName ?? "Provider"}
       className="h-5 w-auto rounded-sm bg-zinc-950 px-1"
     />
   );

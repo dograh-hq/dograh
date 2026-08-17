@@ -72,12 +72,26 @@ class ProviderUIField:
 
 
 @dataclass(frozen=True)
+class ProviderUIBranding:
+    """Optional presentation and onboarding details for a provider."""
+
+    logo_url: str
+    onboarding_title: str
+    onboarding_description: str
+    purchase_url: Optional[str] = None
+    purchase_label: Optional[str] = None
+    support_url: Optional[str] = None
+    support_label: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class ProviderUIMetadata:
     """Display metadata for a provider's configuration form."""
 
     display_name: str
     fields: List[ProviderUIField]
     docs_url: Optional[str] = None
+    branding: Optional[ProviderUIBranding] = None
 
 
 # Signature every provider's transport factory must satisfy.

@@ -158,6 +158,18 @@ class TelephonyProviderUIField(BaseModel):
     section: Optional[str] = None
 
 
+class TelephonyProviderBranding(BaseModel):
+    """Optional presentation and onboarding details for a provider."""
+
+    logo_url: str
+    onboarding_title: str
+    onboarding_description: str
+    purchase_url: Optional[str] = None
+    purchase_label: Optional[str] = None
+    support_url: Optional[str] = None
+    support_label: Optional[str] = None
+
+
 class TelephonyProviderMetadata(BaseModel):
     """UI form metadata for a single telephony provider."""
 
@@ -165,6 +177,7 @@ class TelephonyProviderMetadata(BaseModel):
     display_name: str
     fields: List[TelephonyProviderUIField]
     docs_url: Optional[str] = None
+    branding: Optional[TelephonyProviderBranding] = None
 
 
 class TelephonyProvidersMetadataResponse(BaseModel):
@@ -267,6 +280,19 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
                     )
                 ],
                 docs_url=spec.ui_metadata.docs_url,
+                branding=(
+                    TelephonyProviderBranding(
+                        logo_url=spec.ui_metadata.branding.logo_url,
+                        onboarding_title=spec.ui_metadata.branding.onboarding_title,
+                        onboarding_description=spec.ui_metadata.branding.onboarding_description,
+                        purchase_url=spec.ui_metadata.branding.purchase_url,
+                        purchase_label=spec.ui_metadata.branding.purchase_label,
+                        support_url=spec.ui_metadata.branding.support_url,
+                        support_label=spec.ui_metadata.branding.support_label,
+                    )
+                    if spec.ui_metadata.branding
+                    else None
+                ),
             )
         )
     return TelephonyProvidersMetadataResponse(providers=providers)

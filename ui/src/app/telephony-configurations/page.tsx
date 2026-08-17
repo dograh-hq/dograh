@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import {
   deleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDelete,
   getTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGet,
+  getTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGet,
   listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
   reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost,
   setDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPost,
@@ -25,6 +26,7 @@ import {
 import type {
   TelephonyConfigurationDetail,
   TelephonyConfigurationListItem,
+  TelephonyProviderMetadata,
 } from "@/client/types.gen";
 import { ConfigFormDialog } from "@/components/telephony/ConfigFormDialog";
 import { ProviderBrand } from "@/components/telephony/ProviderBrand";
@@ -63,6 +65,7 @@ export default function TelephonyConfigurationsPage() {
     refresh: refreshWarnings,
   } = useTelephonyConfigWarnings();
   const [items, setItems] = useState<TelephonyConfigurationListItem[]>([]);
+  const [providers, setProviders] = useState<TelephonyProviderMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<TelephonyConfigurationDetail | null>(
@@ -89,6 +92,20 @@ export default function TelephonyConfigurationsPage() {
     }
   }, [authLoading, user, getAccessToken]);
 
+  const fetchProviders = useCallback(async () => {
+    if (authLoading || !user) return;
+    try {
+      const token = await getAccessToken();
+      const res = await getTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGet(
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setProviders(res.data?.providers ?? []);
+    } catch {
+      // Branding is optional presentation metadata; configuration management still works.
+      setProviders([]);
+    }
+  }, [authLoading, user, getAccessToken]);
+
   // After a save (create/update), webhook-verification warning state may have
   // changed — refresh the cached warning state so the page banner and nav badge
   // update without a manual reload.
@@ -99,7 +116,12 @@ export default function TelephonyConfigurationsPage() {
 
   useEffect(() => {
     fetchItems();
-  }, [fetchItems]);
+    fetchProviders();
+  }, [fetchItems, fetchProviders]);
+
+  const providersByName = Object.fromEntries(
+    providers.map((provider) => [provider.provider, provider]),
+  );
 
   const onEdit = async (item: TelephonyConfigurationListItem) => {
     try {
@@ -269,7 +291,10 @@ export default function TelephonyConfigurationsPage() {
                   >
                     <div className="flex flex-col gap-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <ProviderBrand provider={item.provider} />
+                        <ProviderBrand
+                          logoUrl={providersByName[item.provider]?.branding?.logo_url}
+                          displayName={providersByName[item.provider]?.display_name}
+                        />
                         <span className="font-medium truncate">{item.name}</span>
                         <Badge variant="secondary">{item.provider}</Badge>
                         {item.is_default_outbound && (

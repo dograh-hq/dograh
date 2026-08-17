@@ -111,7 +111,7 @@ export function ConfigFormDialog({
     () => providers.find((p) => p.provider === providerName),
     [providers, providerName],
   );
-  const isPapiVoip = currentProvider?.provider === "papi_voip";
+  const branding = currentProvider?.branding;
   const visibleFields = useMemo(
     () =>
       currentProvider?.fields.filter(
@@ -283,9 +283,9 @@ export function ConfigFormDialog({
                 {providers.map((p) => (
                   <SelectItem key={p.provider} value={p.provider}>
                     <span className="flex items-center gap-2">
-                      {p.provider === "papi_voip" && (
+                      {p.branding?.logo_url && (
                         <img
-                          src="/providers/papi-logo.png"
+                          src={p.branding.logo_url}
                           alt=""
                           className="h-4 w-auto rounded-sm bg-zinc-950 px-1"
                         />
@@ -301,7 +301,7 @@ export function ConfigFormDialog({
                 Provider cannot be changed after creation.
               </p>
             )}
-            {currentProvider?.docs_url && !isPapiVoip && (
+            {currentProvider?.docs_url && !branding && (
               <a
                 href={currentProvider.docs_url}
                 target="_blank"
@@ -313,36 +313,44 @@ export function ConfigFormDialog({
             )}
           </div>
 
-          {isPapiVoip && (
+          {branding && (
             <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-16 items-center justify-center rounded-md bg-zinc-950 px-2">
-                  <img src="/providers/papi-logo.png" alt="PAPI" className="h-6 w-auto" />
+                  <img
+                    src={branding.logo_url}
+                    alt={currentProvider.display_name}
+                    className="h-6 w-auto"
+                  />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold">PAPI VoIP for WhatsApp</p>
+                  <p className="text-sm font-semibold">{branding.onboarding_title}</p>
                   <p className="text-xs text-muted-foreground">
-                    Connect a WhatsApp instance with Voice/VoIP enabled.
+                    {branding.onboarding_description}
                   </p>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs">
-                <a
-                  href="https://papi.api.br/#planos"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 font-medium text-emerald-500 underline-offset-4 hover:underline"
-                >
-                  Get a WhatsApp VoIP number <ExternalLink className="h-3 w-3" />
-                </a>
-                <a
-                  href="https://papi.api.br"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                >
-                  Need help? Visit papi.api.br <ExternalLink className="h-3 w-3" />
-                </a>
+                {branding.purchase_url && branding.purchase_label && (
+                  <a
+                    href={branding.purchase_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-emerald-500 underline-offset-4 hover:underline"
+                  >
+                    {branding.purchase_label} <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+                {branding.support_url && branding.support_label && (
+                  <a
+                    href={branding.support_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    {branding.support_label} <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
               </div>
             </div>
           )}

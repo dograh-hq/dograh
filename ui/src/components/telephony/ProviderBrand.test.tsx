@@ -4,11 +4,13 @@ import { describe, expect, it } from "vitest";
 import { ProviderBrand } from "./ProviderBrand";
 
 describe("ProviderBrand", () => {
-  it("renders the PAPI logo only for the PAPI VoIP provider", () => {
-    const { rerender } = render(<ProviderBrand provider="papi_voip" />);
-    expect(screen.getByAltText("PAPI")).toBeTruthy();
+  it("renders branding supplied by provider metadata", () => {
+    const { rerender } = render(
+      <ProviderBrand logoUrl="/providers/example.png" displayName="Example Voice" />,
+    );
+    expect(screen.getByAltText("Example Voice")).toBeTruthy();
 
-    rerender(<ProviderBrand provider="twilio" />);
-    expect(screen.queryByAltText("PAPI")).toBeNull();
+    rerender(<ProviderBrand />);
+    expect(screen.queryByAltText("Example Voice")).toBeNull();
   });
 });

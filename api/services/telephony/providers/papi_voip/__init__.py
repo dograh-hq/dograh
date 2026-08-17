@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from api.services.telephony.registry import (
     ProviderSpec,
+    ProviderUIBranding,
     ProviderUIField,
     ProviderUIMetadata,
     register,
@@ -26,6 +27,15 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
 _UI_METADATA = ProviderUIMetadata(
     display_name="Papi Voip",
     docs_url="https://docs.papi.api.br",
+    branding=ProviderUIBranding(
+        logo_url="/providers/papi-logo.png",
+        onboarding_title="PAPI VoIP for WhatsApp",
+        onboarding_description="Connect a WhatsApp instance with Voice/VoIP enabled.",
+        purchase_url="https://papi.api.br/#planos",
+        purchase_label="Get a WhatsApp VoIP number",
+        support_url="https://papi.api.br",
+        support_label="Need help? Visit papi.api.br",
+    ),
     fields=[
         ProviderUIField(
             name="api_key",

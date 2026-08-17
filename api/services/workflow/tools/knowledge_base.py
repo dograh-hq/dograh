@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from opentelemetry import trace
+from pipecat.utils.tracing.langfuse_helpers import mark_trace_public
 
 from api.db import db_client
 from api.services.gen_ai import build_embedding_service
@@ -84,8 +85,7 @@ async def retrieve_from_knowledge_base(
                 "knowledge_base_retrieval", context=parent_context
             ) as span:
                 try:
-                    # Mark trace as public for Langfuse
-                    span.set_attribute("langfuse.trace.public", True)
+                    mark_trace_public(span)
 
                     # Add operation metadata
                     span.set_attribute(

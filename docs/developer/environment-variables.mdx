@@ -148,6 +148,7 @@ Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from t
 | `LANGFUSE_HOST` | `null` | Langfuse server URL |
 | `LANGFUSE_PUBLIC_KEY` | `null` | Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | `null` | Langfuse secret key |
+| `LANGFUSE_TRACES_PUBLIC` | `false` | When `true`, traces are marked public in Langfuse — anyone holding a trace URL can read it without logging in. Leave unset to keep traces visible only to your Langfuse project members. |
 
 Tracing activates automatically as soon as credentials are available — either via these environment variables (applied to all organizations) or per-organization in the UI under **Platform Settings**. If neither is set, spans are dropped silently. See the [Tracing guide](/configurations/tracing) for setup instructions.
 

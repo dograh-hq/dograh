@@ -221,6 +221,9 @@ async def test_connect_outbound_media_stream_uses_papi_call_stream_endpoint():
 async def test_connect_outbound_media_stream_hangs_up_known_call_after_retry_exhaustion():
     provider = _provider()
     session = _FailingMediaSession()
+    mark_failed = AsyncMock()
+    failure_module = ModuleType("api.services.workflow_run_failure")
+    failure_module.mark_workflow_run_failed = mark_failed
 
     with (
         patch(
@@ -231,6 +234,7 @@ async def test_connect_outbound_media_stream_hangs_up_known_call_after_retry_exh
             "api.services.telephony.providers.papi_voip.provider.PAPI_MEDIA_STREAM_CONNECT_TIMEOUT_SECS",
             0,
         ),
+        patch.dict(sys.modules, {"api.services.workflow_run_failure": failure_module}),
     ):
         await provider._connect_outbound_media_stream(
             workflow_id=7,
@@ -245,6 +249,10 @@ async def test_connect_outbound_media_stream_hangs_up_known_call_after_retry_exh
             {"headers": {"x-api-key": "instance-api-key", "apikey": "instance-api-key"}},
         )
     ]
+    mark_failed.assert_awaited_once_with(
+        42,
+        "Papi Voip media stream could not be established",
+    )
 
 
 @pytest.mark.asyncio

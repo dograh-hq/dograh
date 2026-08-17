@@ -171,6 +171,16 @@ class PapiVoipProvider(TelephonyProvider):
                 f"call_id={call_id}"
             )
 
+    async def _finalize_media_failure(self, workflow_run_id: int, call_id: str) -> None:
+        """Terminate the external call and finalize the orphaned workflow run."""
+        await self._hangup_after_media_failure(call_id)
+        from api.services.workflow_run_failure import mark_workflow_run_failed
+
+        await mark_workflow_run_failed(
+            workflow_run_id,
+            "Papi Voip media stream could not be established",
+        )
+
     async def _wait_for_answered_media(
         self, websocket: aiohttp.ClientWebSocketResponse, workflow_run_id: int
     ) -> aiohttp.WSMessage:
@@ -250,7 +260,7 @@ class PapiVoipProvider(TelephonyProvider):
             "Papi Voip media stream did not become available for "
             f"workflow_run {workflow_run_id}: {last_error}"
         )
-        await self._hangup_after_media_failure(call_id)
+        await self._finalize_media_failure(workflow_run_id, call_id)
 
     async def initiate_call(
         self,

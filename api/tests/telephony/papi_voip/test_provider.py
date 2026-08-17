@@ -153,25 +153,30 @@ async def test_initiate_call_uses_nested_papi_call_id_for_media_stream():
 
 
 @pytest.mark.asyncio
-async def test_initiate_call_rejects_a_dial_response_without_a_call_id():
+async def test_initiate_call_falls_back_to_active_without_explicit_call_id():
     provider = _provider()
-    session = _FakeSession(post_response=_FakeResponse(200, {"success": True}))
+    session = _FakeSession(post_response=_FakeResponse(200, {"status": "initiated"}))
     provider._schedule_media_stream_task = Mock()
 
     with patch(
         "api.services.telephony.providers.papi_voip.provider.aiohttp.ClientSession",
         return_value=session,
     ):
-        with pytest.raises(HTTPException, match="call ID"):
-            await provider.initiate_call(
-                to_number="+5511988887777",
-                webhook_url="https://api.example.com/webhook",
-                workflow_run_id=42,
-                workflow_id=7,
-                organization_id=9,
-            )
+        result = await provider.initiate_call(
+            to_number="+5511988887777",
+            webhook_url="https://api.example.com/webhook",
+            workflow_run_id=42,
+            workflow_id=7,
+            organization_id=9,
+        )
 
-    provider._schedule_media_stream_task.assert_not_called()
+    assert result.call_id == "active"
+    provider._schedule_media_stream_task.assert_called_once_with(
+        workflow_id=7,
+        organization_id=9,
+        workflow_run_id=42,
+        call_id="active",
+    )
 
 
 @pytest.mark.asyncio

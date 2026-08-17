@@ -162,7 +162,7 @@ Refer [Local Setup](https://docs.dograh.com/contribution/setup)
 
 ### Self-Hosted Deployment
 
-For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker#option-2-remote-server-deployment).
+For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment).
 
 ### Cloud Version
 

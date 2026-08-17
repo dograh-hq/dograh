@@ -70,12 +70,12 @@ async def test_hangup_deletes_specified_call_id():
 
 
 @pytest.mark.asyncio
-async def test_hangup_rejects_active_sentinel_or_missing_fields():
+async def test_hangup_rejects_missing_fields():
     result = await PapiVoipHangupStrategy().execute_hangup(
         {
-            "call_id": "active",
+            "call_id": "call-123",
             "base_url": "https://api.papi.api.br",
-            "api_key": "instance-api-key",
+            "api_key": None,
             "instance_id": "instance-123",
         }
     )

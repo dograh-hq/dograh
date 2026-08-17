@@ -36,6 +36,23 @@ def test_papi_voip_config_rejects_non_https_base_url():
             base_url="http://insecure-papi.local",
         )
 
+    with pytest.raises(ValidationError):
+        PapiVoipConfigurationRequest(
+            provider="papi_voip",
+            api_key="instance-key",
+            instance_id="instance-123",
+            base_url="https://",
+        )
+
+    # Valid HTTPS with mixed case scheme
+    req = PapiVoipConfigurationRequest(
+        provider="papi_voip",
+        api_key="instance-key",
+        instance_id="instance-123",
+        base_url="HTTPS://api.papi.api.br",
+    )
+    assert req.base_url == "HTTPS://api.papi.api.br"
+
 
 def test_telephony_configuration_response_supports_papi_voip_payload():
     response = TelephonyConfigurationResponse.model_validate(

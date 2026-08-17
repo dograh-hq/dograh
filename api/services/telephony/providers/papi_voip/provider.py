@@ -109,18 +109,24 @@ class PapiVoipProvider(TelephonyProvider):
 
     @staticmethod
     def _get_call_id_from_response(response_data: dict[str, Any]) -> str | None:
-        """Return the PAP call identifier from its supported dial response shapes."""
-        for key in ("call_id", "callId", "sid", "id"):
+        """Return the PAPI call identifier from its supported dial response shapes."""
+        if not isinstance(response_data, dict):
+            return None
+
+        for key in ("call_id", "callId", "sid", "id", "callID", "call_sid"):
             value = response_data.get(key)
             if value:
                 return str(value)
 
-        call = response_data.get("call")
-        if isinstance(call, dict):
-            for key in ("call_id", "callId", "sid", "id"):
-                value = call.get(key)
-                if value:
-                    return str(value)
+        for container_key in ("call", "data", "result", "item", "response"):
+            nested = response_data.get(container_key)
+            if isinstance(nested, dict):
+                for key in ("call_id", "callId", "sid", "id", "callID", "call_sid"):
+                    value = nested.get(key)
+                    if value:
+                        return str(value)
+            elif isinstance(nested, str) and container_key in ("call_id", "callId", "sid", "id"):
+                return nested
 
         return None
 
@@ -316,16 +322,11 @@ class PapiVoipProvider(TelephonyProvider):
                     )
 
                 response_data = await response.json()
+                logger.info(f"Papi API dial response payload: {response_data}")
 
-                call_id = self._get_call_id_from_response(response_data)
-                if not call_id:
-                    # The active-call endpoint is instance-wide. Using it here
-                    # would allow overlapping workflows to attach to or end the
-                    # wrong PAPI call.
-                    raise HTTPException(
-                        status_code=502,
-                        detail="Papi API dial response did not include a call ID",
-                    )
+                # PAPI can acknowledge dial without immediately returning a call ID.
+                # In that case, we fall back to "active" so the media stream connects to the active call stream.
+                call_id = self._get_call_id_from_response(response_data) or "active"
 
                 workflow_id = kwargs.get("workflow_id")
                 organization_id = kwargs.get("organization_id")

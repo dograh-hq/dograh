@@ -2,6 +2,8 @@
 
 from typing import List, Literal
 
+from urllib.parse import urlparse
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -31,8 +33,9 @@ class PapiVoipConfigurationRequest(BaseModel):
     @classmethod
     def validate_base_url(cls, v: str) -> str:
         url = (v or "").strip().rstrip("/")
-        if not url.startswith("https://"):
-            raise ValueError("base_url must use HTTPS scheme")
+        parsed = urlparse(url)
+        if parsed.scheme.lower() != "https" or not parsed.netloc:
+            raise ValueError("base_url must be a valid HTTPS URL with a hostname")
         return url
 
 

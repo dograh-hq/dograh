@@ -1,5 +1,6 @@
 """Main QA analysis orchestrator — per-node and whole-call fallback."""
 
+import asyncio
 import json
 from typing import Any
 
@@ -7,6 +8,12 @@ from loguru import logger
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.db.models import WorkflowRunModel
+from api.errors.failure import (
+    classify_exception,
+    failure_metadata_for_processor,
+    log_failure,
+    mark_failure_reported,
+)
 from api.services.gen_ai.json_parser import parse_llm_json
 from api.services.workflow.dto import QANodeData
 from api.services.workflow.qa.conversation import (
@@ -27,14 +34,48 @@ from api.services.workflow.qa.tracing import (
 )
 from api.utils.template_renderer import render_template
 
+_QA_LLM_ATTEMPTS = 3
+
 
 async def _run_llm_inference(
-    llm, messages: list[dict], system_prompt: str
+    llm,
+    messages: list[dict],
+    system_prompt: str,
+    *,
+    workflow_run_id: int | None = None,
+    failure_log_level: str = "ERROR",
 ) -> str | None:
-    """Run a one-shot LLM inference using the pipecat service."""
+    """Run a one-shot LLM inference using the pipecat service.
+
+    Transient provider failures (capacity 503s, timeouts) are retried with
+    backoff — QA runs post-call, so latency is cheap and a retry usually
+    erases the failure entirely. The final failure is classified and reported
+    here, once, so callers only note how they degraded.
+    """
     context = LLMContext()
     context.set_messages(messages)
-    return await llm.run_inference(context, system_instruction=system_prompt)
+    for attempt in range(1, _QA_LLM_ATTEMPTS + 1):
+        try:
+            return await llm.run_inference(context, system_instruction=system_prompt)
+        except Exception as exc:
+            metadata = failure_metadata_for_processor(llm)
+            failure = classify_exception(
+                exc,
+                source=metadata.source,
+                provider=metadata.provider,
+                error_owner=metadata.error_owner,
+            )
+            if failure.retryable and attempt < _QA_LLM_ATTEMPTS:
+                await asyncio.sleep(2**attempt)
+                continue
+            log_failure(
+                failure,
+                level=failure_log_level,
+                workflow_run_id=workflow_run_id,
+                qa_attempts=attempt,
+            )
+            mark_failure_reported(exc)
+            raise
 
 
 async def _generate_conversation_summary(
@@ -54,7 +95,14 @@ async def _generate_conversation_summary(
 
     try:
         summary = (
-            await _run_llm_inference(llm, messages, CONVERSATION_SUMMARY_SYSTEM_PROMPT)
+            # A missing summary only degrades QA context for later nodes, so
+            # its failure is reported at WARNING rather than ERROR.
+            await _run_llm_inference(
+                llm,
+                messages,
+                CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+                failure_log_level="WARNING",
+            )
             or ""
         )
 
@@ -172,10 +220,12 @@ async def run_per_node_qa_analysis(
 
         # Call QA LLM
         try:
-            raw_response = await _run_llm_inference(llm, messages, system_content)
+            raw_response = await _run_llm_inference(
+                llm, messages, system_content, workflow_run_id=workflow_run_id
+            )
         except Exception as e:
-            logger.error(
-                f"QA LLM call failed for node '{node_name}' on run {workflow_run_id}: {e}"
+            logger.warning(
+                f"QA analysis degraded for node '{node_name}' on run {workflow_run_id}: {e}"
             )
             node_results[node_id] = {
                 "node_name": node_name,
@@ -283,9 +333,11 @@ async def _run_whole_call_qa_analysis(
     ]
 
     try:
-        raw_response = await _run_llm_inference(llm, messages, system_content)
+        raw_response = await _run_llm_inference(
+            llm, messages, system_content, workflow_run_id=workflow_run_id
+        )
     except Exception as e:
-        logger.error(f"QA LLM call failed for run {workflow_run_id}: {e}")
+        logger.warning(f"QA analysis degraded for run {workflow_run_id}: {e}")
         return {"error": str(e), "node_results": {}}
 
     # Parse response

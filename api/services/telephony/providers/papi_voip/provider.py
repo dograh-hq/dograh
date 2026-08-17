@@ -180,6 +180,9 @@ class PapiVoipProvider(TelephonyProvider):
             workflow_run_id,
             "Papi Voip media stream could not be established",
         )
+        from api.services.call_concurrency import call_concurrency
+
+        await call_concurrency.release_workflow_run_slot(workflow_run_id)
 
     async def _wait_for_answered_media(
         self, websocket: aiohttp.ClientWebSocketResponse, workflow_run_id: int

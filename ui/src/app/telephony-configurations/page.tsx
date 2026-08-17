@@ -27,6 +27,7 @@ import type {
   TelephonyConfigurationListItem,
 } from "@/client/types.gen";
 import { ConfigFormDialog } from "@/components/telephony/ConfigFormDialog";
+import { ProviderBrand } from "@/components/telephony/ProviderBrand";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,11 +49,13 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
+import { useLocale } from "@/context/LocaleContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 export default function TelephonyConfigurationsPage() {
+  const { t } = useLocale();
   const { user, getAccessToken, loading: authLoading } = useAuth();
   const {
     telnyxMissingWebhookPublicKeyCount,
@@ -175,22 +178,21 @@ export default function TelephonyConfigurationsPage() {
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Telephony configurations</h1>
+            <h1 className="text-3xl font-bold mb-2">{t("telephony.title")}</h1>
             <p className="text-muted-foreground">
-              Connect one or more telephony provider accounts. Each campaign uses one
-              configuration; inbound calls are routed to the right one by account ID.{" "}
+              {t("telephony.description")} {" "}
               <a
                 href="https://docs.dograh.com/integrations/telephony/overview"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
               >
-                Learn more <ExternalLink className="h-3 w-3" />
+                {t("telephony.learnMore")} <ExternalLink className="h-3 w-3" />
               </a>
             </p>
           </div>
           <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" /> Add configuration
+            <Plus className="h-4 w-4 mr-2" /> {t("telephony.addConfiguration")}
           </Button>
         </div>
 
@@ -245,14 +247,14 @@ export default function TelephonyConfigurationsPage() {
         ) : items.length === 0 ? (
           <Card>
             <CardHeader>
-              <CardTitle>No telephony configurations yet</CardTitle>
+              <CardTitle>{t("telephony.noConfigurations")}</CardTitle>
               <CardDescription>
-                Add one to enable outbound calls and receive inbound calls.
+                {t("telephony.noConfigurationsDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" /> Add configuration
+                <Plus className="h-4 w-4 mr-2" /> {t("telephony.addConfiguration")}
               </Button>
             </CardContent>
           </Card>
@@ -267,16 +269,17 @@ export default function TelephonyConfigurationsPage() {
                   >
                     <div className="flex flex-col gap-1 min-w-0">
                       <div className="flex items-center gap-2">
+                        <ProviderBrand provider={item.provider} />
                         <span className="font-medium truncate">{item.name}</span>
                         <Badge variant="secondary">{item.provider}</Badge>
                         {item.is_default_outbound && (
                           <Badge className="gap-1">
                             <Star className="h-3 w-3 fill-current" />
-                            Default
+                            {t("telephony.default")}
                           </Badge>
                         )}
                         {item.inactive && (
-                          <Badge variant="destructive">Inactive</Badge>
+                          <Badge variant="destructive">{t("telephony.inactive")}</Badge>
                         )}
                       </div>
                       <span className="text-sm text-muted-foreground">
@@ -349,7 +352,7 @@ export default function TelephonyConfigurationsPage() {
                         href={`/telephony-configurations/${item.id}`}
                         aria-label={`Manage phone numbers for ${item.name}`}
                       >
-                        Manage Phone Numbers
+                        {t("telephony.managePhoneNumbers")}
                         <ChevronRight className="h-4 w-4" />
                       </Link>
                     </Button>

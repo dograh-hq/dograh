@@ -55,6 +55,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useLeadForms } from "@/context/LeadFormsContext";
+import { useLocale, type TranslationKey } from "@/context/LocaleContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
@@ -62,14 +63,14 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 type SidebarNavItem = {
-  title: string;
+  titleKey: TranslationKey;
   url: string;
   icon: LucideIcon;
   showsTelephonyWarning?: boolean;
 };
 
 type SidebarNavSection = {
-  label?: string;
+  labelKey?: TranslationKey;
   items: SidebarNavItem[];
 };
 
@@ -79,73 +80,73 @@ const NAV_SECTIONS: SidebarNavSection[] = [
   {
     items: [
       {
-        title: "Overview",
+        titleKey: "sidebar.overview",
         url: "/overview",
         icon: Home,
       },
     ],
   },
   {
-    label: "BUILD",
+    labelKey: "sidebar.build",
     items: [
       {
-        title: "Voice Agents",
+        titleKey: "sidebar.voiceAgents",
         url: "/workflow",
         icon: Workflow,
       },
       {
-        title: "Campaigns",
+        titleKey: "sidebar.campaigns",
         url: "/campaigns",
         icon: Megaphone,
       },
       {
-        title: "Models",
+        titleKey: "sidebar.models",
         url: "/model-configurations",
         icon: Brain,
       },
       {
-        title: "Telephony",
+        titleKey: "sidebar.telephony",
         url: "/telephony-configurations",
         icon: Phone,
         showsTelephonyWarning: true,
       },
       {
-        title: "Tools",
+        titleKey: "sidebar.tools",
         url: "/tools",
         icon: Wrench,
       },
       {
-        title: "Files",
+        titleKey: "sidebar.files",
         url: "/files",
         icon: Database,
       },
       {
-        title: "Recordings",
+        titleKey: "sidebar.recordings",
         url: "/recordings",
         icon: AudioLines,
       },
       {
-        title: "Developers",
+        titleKey: "sidebar.developers",
         url: "/api-keys",
         icon: Key,
       },
     ],
   },
   {
-    label: "MANAGE",
+    labelKey: "sidebar.manage",
     items: [
       {
-        title: "Agent Runs",
+        titleKey: "sidebar.agentRuns",
         url: "/usage",
         icon: TrendingUp,
       },
       {
-        title: "Billing",
+        titleKey: "sidebar.billing",
         url: "/billing",
         icon: CircleDollarSign,
       },
       {
-        title: "Reports",
+        titleKey: "sidebar.reports",
         url: "/reports",
         icon: FileText,
       }
@@ -160,6 +161,7 @@ export function AppSidebar() {
   const { provider, logout, user } = useAuth();
   const { config } = useAppConfig();
   const { openHireExpert } = useLeadForms();
+  const { t } = useLocale();
   const {
     telnyxMissingWebhookPublicKeyCount,
     vonageMissingSignatureSecretCount,
@@ -187,13 +189,14 @@ export function AppSidebar() {
   };
 
   const SidebarLink = ({ item }: { item: SidebarNavItem }) => {
+    const title = t(item.titleKey);
     const isItemActive = isActive(item.url);
     const Icon = item.icon;
     const showWarningDot = item.showsTelephonyWarning && hasTelephonyWarning;
     const tooltip = {
       children: (
         <div className="notranslate" translate="no">
-          <p>{item.title}</p>
+          <p>{title}</p>
           {showWarningDot && (
             <p className="text-amber-600 dark:text-amber-400">{TELEPHONY_WARNING_COPY}</p>
           )}
@@ -242,7 +245,7 @@ export function AppSidebar() {
             className={cn("notranslate min-w-0 flex-1 truncate", isCollapsed && "sr-only")}
             translate="no"
           >
-            {item.title}
+            {title}
           </span>
           {showWarningDot && (
             isCollapsed ? (
@@ -388,10 +391,10 @@ export function AppSidebar() {
       <SidebarContent className={cn("notranslate", isCollapsed && "px-0")} translate="no">
         {NAV_SECTIONS.map((section, index) => (
           <SidebarGroup
-            key={section.label ?? "overview"}
+            key={section.labelKey ?? "overview"}
             className={index === 0 ? "mt-2" : "mt-6"}
           >
-            {section.label && (
+            {section.labelKey && (
               <SidebarGroupLabel
                 className={cn(
                   "notranslate text-xs font-semibold uppercase tracking-wider text-muted-foreground",
@@ -399,12 +402,12 @@ export function AppSidebar() {
                 )}
                 translate="no"
               >
-                {section.label}
+                {t(section.labelKey)}
               </SidebarGroupLabel>
             )}
             <SidebarMenu>
               {section.items.map((item) => (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem key={item.titleKey}>
                   <SidebarLink item={item} />
                 </SidebarMenuItem>
               ))}

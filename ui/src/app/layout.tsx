@@ -12,6 +12,7 @@ import SpinLoader from "@/components/SpinLoader";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/context/AppConfigContext";
+import { LocaleProvider } from "@/context/LocaleContext";
 import { OnboardingProvider } from "@/context/OnboardingContext";
 import { OrgConfigProvider } from "@/context/OrgConfigContext";
 import { TelephonyConfigWarningsProvider } from "@/context/TelephonyConfigWarningsContext";
@@ -74,9 +75,11 @@ export default function RootLayout({
                     <TelephonyConfigWarningsProvider>
                       <OnboardingProvider>
                         <PostHogIdentify />
-                        <AppLayout>
-                          {children}
-                        </AppLayout>
+                        <LocaleProvider>
+                          <AppLayout>
+                            {children}
+                          </AppLayout>
+                        </LocaleProvider>
                         <Toaster />
                         <ChatwootWidget />
                       </OnboardingProvider>

@@ -14,7 +14,7 @@ import { useLocale, type Locale } from "@/context/LocaleContext";
 
 const locales: Record<Locale, { code: string; flag: string; label: string }> = {
   en: { code: "EN", flag: "🇺🇸", label: "English" },
-  "pt-BR": { code: "PT-BR", flag: "🇧🇷", label: "Portugues (Brasil)" },
+  "pt-BR": { code: "PT-BR", flag: "🇧🇷", label: "Português (Brasil)" },
 };
 
 export function LocaleSelector() {

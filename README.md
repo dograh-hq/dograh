@@ -26,7 +26,8 @@
   <a href="https://docs.dograh.com">📖 Docs</a> &nbsp;·&nbsp;
   <a href="LICENSE">📜 BSD 2-Clause</a> &nbsp;·&nbsp;
   <a href="README.zh-CN.md">🌐 中文</a> &nbsp;·&nbsp;
-  <a href="README.ja-JP.md">🌐 日本語</a>
+  <a href="README.ja-JP.md">🌐 日本語</a> &nbsp;·&nbsp;
+  <a href="README.pt-BR.md">🌐 Português (Brasil)</a>
 </p>
 
 <p align="center">
@@ -151,6 +152,7 @@ See the [MCP guide](https://docs.dograh.com/integrations/mcp) to connect your as
 - One-command Docker setup for self-hosting
 - Python backend and modular provider architecture for customization
 - Python and Node SDKs for programmatic agent creation and outbound calls
+- Interface localization with English and Portuguese (Brazil) support
 
 ## Deployment Options
 

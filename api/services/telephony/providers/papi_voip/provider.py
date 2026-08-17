@@ -277,7 +277,7 @@ class PapiVoipProvider(TelephonyProvider):
                     )
 
                 response_data = await response.json()
-                
+
                 # PAP can acknowledge dial without including the call ID. Its
                 # documented active stream endpoint identifies the current call.
                 call_id = self._get_call_id_from_response(response_data) or "active"
@@ -291,7 +291,7 @@ class PapiVoipProvider(TelephonyProvider):
                         workflow_run_id=workflow_run_id,
                         call_id=call_id,
                     )
-                
+
                 return CallInitiationResult(
                     call_id=call_id,
                     status=response_data.get("status", "initiated"),
@@ -436,7 +436,7 @@ class PapiVoipProvider(TelephonyProvider):
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
         from_raw = webhook_data.get("from", "")
         to_raw = webhook_data.get("to", "")
-        
+
         return NormalizedInboundData(
             provider=PapiVoipProvider.PROVIDER_NAME,
             call_id=webhook_data.get("call_id", ""),

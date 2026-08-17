@@ -45,6 +45,11 @@ async def test_public_embed_offer_rejects_when_org_concurrency_limit_reached():
         patch("api.routes.webrtc_signaling.call_concurrency") as mock_concurrency,
     ):
         mock_db.get_workflow_organization_id = AsyncMock(return_value=11)
+        # A live run: this test is about the concurrency limit, not about the
+        # spent-run refusal that precedes it.
+        mock_db.get_workflow_run = AsyncMock(
+            return_value=SimpleNamespace(id=501, is_completed=False)
+        )
         mock_concurrency.acquire_org_slot = AsyncMock(
             side_effect=CallConcurrencyLimitError(
                 organization_id=11,

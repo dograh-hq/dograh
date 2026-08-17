@@ -33,6 +33,12 @@ from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY, SERVER_I
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment, WorkflowRunMode
+from api.errors.failure import (
+    ErrorSource,
+    classify_exception,
+    failure_already_reported,
+    log_failure,
+)
 from api.routes.turn_credentials import (
     TURN_HOST,
     TURN_PORT,
@@ -306,6 +312,40 @@ class SignalingManager:
         self._peer_connections: Dict[str, SmallWebRTCConnection] = {}
         self._connection_peer_ids: Dict[str, Set[str]] = {}
         self._peer_connection_owners: Dict[str, str] = {}
+        # The pipeline runs detached, so without a done callback nothing ever
+        # retrieves its exception and asyncio reports it through the loop
+        # handler instead — unattributed, with no run id, and blamed on the
+        # operator. Holding the reference also keeps a running task from being
+        # collected, which asyncio does not guarantee on its own.
+        self._pipeline_tasks: set[asyncio.Task] = set()
+
+    def _on_pipeline_task_done(self, task: asyncio.Task, workflow_run_id: int) -> None:
+        self._pipeline_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        if isinstance(exc, HTTPException):
+            # A startup precondition the pipeline refused — what the client
+            # asked for, not a fault in the call.
+            logger.info(
+                f"[run {workflow_run_id}] WebRTC pipeline rejected: {exc.detail}"
+            )
+        elif failure_already_reported(exc):
+            logger.warning(
+                f"[run {workflow_run_id}] WebRTC pipeline ended on a reported failure: {exc}"
+            )
+        else:
+            # No layer inside the pipeline claimed this one, so this is its only
+            # report. Classify it here rather than emitting a bare ERROR: an
+            # unclassified record carries neither a source nor the run id, which
+            # is how these crashes have been reaching the operator channel
+            # anonymous and unattributable.
+            log_failure(
+                classify_exception(exc, source=ErrorSource.PLATFORM),
+                workflow_run_id=workflow_run_id,
+            )
 
     def _track_peer_connection(
         self, connection_id: str, pc_id: str, pc: SmallWebRTCConnection
@@ -556,6 +596,34 @@ class SignalingManager:
                 }
             )
         else:
+            # A client that re-offers after its call ended asks us to start a
+            # run that is already over — the run id is fixed by the page the
+            # offer came from. The pipeline refuses such a run deep inside a
+            # detached task, where the refusal reaches neither this handler nor
+            # the client, so the caller would otherwise receive a valid answer
+            # for a call that never runs. Refuse at the signalling boundary
+            # instead, before a concurrency slot is taken.
+            workflow_run = await db_client.get_workflow_run(
+                workflow_run_id, organization_id=organization_id
+            )
+            if workflow_run is not None and workflow_run.is_completed:
+                logger.info(
+                    f"Rejecting offer for completed workflow run {workflow_run_id}"
+                )
+                await ws.send_json(
+                    {
+                        "type": "error",
+                        "payload": {
+                            "error_type": "workflow_run_already_completed",
+                            "message": (
+                                "This test run has already finished. "
+                                "Start a new test to call the agent again."
+                            ),
+                        },
+                    }
+                )
+                return
+
             concurrency_slot = None
             concurrency_bound = False
             pipeline_started = False
@@ -636,7 +704,7 @@ class SignalingManager:
                         )
 
                 # Start pipeline in background
-                asyncio.create_task(
+                pipeline_task = asyncio.create_task(
                     run_pipeline_smallwebrtc(
                         pc,
                         workflow_id,
@@ -646,6 +714,10 @@ class SignalingManager:
                         user_provider_id=str(user.provider_id),
                         organization_id=organization_id,
                     )
+                )
+                self._pipeline_tasks.add(pipeline_task)
+                pipeline_task.add_done_callback(
+                    lambda task: self._on_pipeline_task_done(task, workflow_run_id)
                 )
                 pipeline_started = True
 

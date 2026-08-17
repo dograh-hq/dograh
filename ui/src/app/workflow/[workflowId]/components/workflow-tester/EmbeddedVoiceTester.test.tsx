@@ -38,12 +38,13 @@ function baseHookReturn(opts: {
     backendStatus?: BackendStatus;
     isStarting?: boolean;
     connectionStatus?: string;
+    isCompleted?: boolean;
 }) {
     return {
         audioRef: { current: null },
         connectionActive: false,
         permissionError: null,
-        isCompleted: false,
+        isCompleted: opts.isCompleted ?? false,
         apiKeyModalOpen: false,
         setApiKeyModalOpen: vi.fn(),
         apiKeyError: null,
@@ -366,5 +367,39 @@ describe("EmbeddedVoiceTester auto-start", () => {
         // top of it.
         expect(refreshAppConfig).toHaveBeenCalledTimes(2);
         expect(start).not.toHaveBeenCalled();
+    });
+});
+
+describe("EmbeddedVoiceTester spent run", () => {
+    // A run the backend refuses as already completed is surfaced by the hook as
+    // a completed call, not a failed one, so the footer must lead to a new run
+    // rather than a retry that would be refused again.
+    it("offers a new test and releases the run instead of retrying", () => {
+        const onReset = vi.fn();
+        const start = vi.fn();
+        useWebSocketRTCMock.mockReturnValue(
+            baseHookReturn({
+                start,
+                refreshAppConfig: vi.fn(),
+                appConfigLoading: false,
+                backendStatus: "reachable",
+                isCompleted: true,
+            })
+        );
+
+        render(
+            <EmbeddedVoiceTester
+                workflowId={1}
+                workflowRunId={630140}
+                accessToken="token"
+                onReset={onReset}
+            />
+        );
+
+        expect(screen.queryByRole("button", { name: /retry call/i })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: /start another test/i }));
+
+        expect(onReset).toHaveBeenCalledTimes(1);
+        expect(start).toHaveBeenCalledTimes(1); // the initial auto-start only
     });
 });

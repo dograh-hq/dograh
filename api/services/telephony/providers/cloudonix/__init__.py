@@ -644,8 +644,10 @@ async def _apply_trunk_on_save(
                 session, collection_endpoint, headers
             )
             if not trunk.enabled:
+                # A name match is safe for enabled rows that are being adopted,
+                # but it does not prove ownership for a destructive operation.
                 remote = _find_managed_outbound_trunk(
-                    remote_trunks, trunk.external_id, trunk.name
+                    remote_trunks, trunk.external_id, None
                 )
                 if remote is not None:
                     await _deactivate_outbound_trunk(
@@ -687,8 +689,10 @@ async def _remove_trunk_on_delete(
             remote_trunks = await _list_outbound_domain_trunks(
                 session, collection_endpoint, headers
             )
+            # Deleting a never-provisioned row must not deactivate an unrelated
+            # Cloudonix trunk that happens to have the same name.
             remote = _find_managed_outbound_trunk(
-                remote_trunks, trunk.external_id, trunk.name
+                remote_trunks, trunk.external_id, None
             )
             if remote is not None:
                 await _deactivate_outbound_trunk(

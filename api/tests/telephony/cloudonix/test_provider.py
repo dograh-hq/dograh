@@ -847,6 +847,35 @@ async def test_disabling_outbound_trunk_deactivates_managed_resource():
 
 
 @pytest.mark.asyncio
+async def test_disabling_unprovisioned_trunk_does_not_deactivate_name_match():
+    existing = {
+        "uuid": TRUNK_UUID,
+        "name": "dograh-carrier",
+        "direction": "public-outbound",
+        "active": True,
+    }
+    session = _TrunkSession(get_responses=[_FakeResponse(200, [existing])])
+    credentials = {
+        "bearer_token": "secret-token",
+        "domain_id": "friendly-name.cloudonix.net",
+    }
+    trunk = TrunkDesiredState(
+        name="dograh-carrier",
+        enabled=False,
+        settings={"region": "India", "sip_domain": "sip.example.com"},
+    )
+
+    with patch(
+        "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await _apply_trunk_on_save(credentials, trunk)
+
+    assert session.put_calls == []
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_renaming_a_trunk_updates_it_by_id_instead_of_creating_another():
     existing = {
         "uuid": TRUNK_UUID,
@@ -957,6 +986,34 @@ async def test_deleting_a_trunk_deactivates_it_remotely():
 
     # Deactivated, not deleted: the carrier may still be pointed at it.
     assert session.put_calls[0][1]["json"] == {"active": False}
+
+
+@pytest.mark.asyncio
+async def test_deleting_unprovisioned_trunk_does_not_deactivate_name_match():
+    existing = {
+        "uuid": TRUNK_UUID,
+        "name": "dograh-carrier",
+        "direction": "public-outbound",
+        "active": True,
+    }
+    session = _TrunkSession(get_responses=[_FakeResponse(200, [existing])])
+    credentials = {
+        "bearer_token": "secret-token",
+        "domain_id": "friendly-name.cloudonix.net",
+    }
+    trunk = TrunkDesiredState(
+        name="dograh-carrier",
+        enabled=False,
+        settings={"region": "India", "sip_domain": "sip.example.com"},
+    )
+
+    with patch(
+        "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await _remove_trunk_on_delete(credentials, trunk)
+
+    assert session.put_calls == []
 
 
 @pytest.mark.asyncio

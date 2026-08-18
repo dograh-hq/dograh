@@ -167,11 +167,8 @@ async def test_start_inbound_stream_contains_ws_url():
     body = response.body.decode() if hasattr(response, "body") else response.content
     if isinstance(body, bytes):
         body = body.decode()
-    assert "wss://example.test/api/v1/telephony/ws/7/9/42" in body
-    assert "<Stream" in body
-    assert "status-callback/42" in body
-    assert "exotel_auth=" in body
-    assert response.media_type == "application/xml"
+    assert json.loads(body) == {"url": "wss://example.test/api/v1/telephony/ws/7/9/42"}
+    assert response.media_type == "application/json"
 
 
 @pytest.mark.asyncio
@@ -337,6 +334,20 @@ def test_number_match_keys_align_e164_and_national():
 
 def test_iter_incoming_phone_entries_unwraps_nested():
     payload = {
+        "incoming_phone_numbers": [
+            {"phone_number": "07314852338"},
+            {"friendly_name": "08045680765"},
+        ]
+    }
+    entries = ExotelProvider._iter_incoming_phone_entries(payload)
+    assert [e.get("phone_number") or e.get("friendly_name") for e in entries] == [
+        "07314852338",
+        "08045680765",
+    ]
+
+
+def test_iter_incoming_phone_entries_unwraps_legacy_nested():
+    payload = {
         "IncomingPhoneNumbers": [
             {"IncomingPhoneNumber": {"PhoneNumber": "07314852338"}},
             {"PhoneNumber": "08045680765"},
@@ -353,8 +364,8 @@ async def test_validate_phone_number_matches_nested_national_format():
     response.status = 200
     response.json = AsyncMock(
         return_value={
-            "IncomingPhoneNumbers": [
-                {"IncomingPhoneNumber": {"PhoneNumber": "07314852338"}}
+            "incoming_phone_numbers": [
+                {"phone_number": "07314852338"},
             ]
         }
     )
@@ -373,7 +384,7 @@ async def test_validate_phone_number_matches_nested_national_format():
         result = await provider.validate_phone_number("+917314852338")
 
     assert result.ok is True
-    assert session.get.call_count >= 1
+    assert session.get.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -383,8 +394,8 @@ async def test_validate_phone_number_not_owned():
     response.status = 200
     response.json = AsyncMock(
         return_value={
-            "IncomingPhoneNumbers": [
-                {"IncomingPhoneNumber": {"PhoneNumber": "08011111111"}}
+            "incoming_phone_numbers": [
+                {"phone_number": "08011111111"},
             ]
         }
     )
@@ -403,9 +414,7 @@ async def test_validate_phone_number_not_owned():
         result = await provider.validate_phone_number("+917314852338")
 
     assert result.ok is False
-    # Filtered lookups + fallback full list.
-    assert session.get.call_count >= 2
-    assert any(call.kwargs.get("params") is None for call in session.get.call_args_list)
+    assert session.get.call_count == 1
 
 
 @pytest.mark.asyncio

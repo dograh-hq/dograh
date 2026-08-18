@@ -150,9 +150,14 @@ async def parse_webhook_request(request: Request) -> tuple[dict, str]:
         try:
             form_data = await request.form()
             webhook_data = dict(form_data)
-        except Exception as e:
-            logger.error(f"Failed to parse webhook data: {e}")
-            raise ValueError("Unable to parse webhook data")
+        except Exception:
+            # Some providers (for example, Exotel Voicebot dynamic endpoints)
+            # invoke webhook URLs as GET with URL query parameters.
+            query_data = dict(request.query_params)
+            if query_data:
+                webhook_data = query_data
+            else:
+                raise ValueError("Unable to parse webhook data")
 
     return webhook_data, raw_body
 

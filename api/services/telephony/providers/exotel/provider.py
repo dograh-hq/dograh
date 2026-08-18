@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
 from fastapi import HTTPException, Response
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
@@ -132,9 +133,11 @@ class ExotelProvider(TelephonyProvider):
 
     @staticmethod
     def _iter_incoming_phone_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Unwrap Exotel's nested IncomingPhoneNumber list payload."""
+        """Unwrap Exotel number-list payloads across v1 and v2_beta shapes."""
         numbers = (
-            data.get("IncomingPhoneNumbers")
+            data.get("incoming_phone_numbers")
+            or data.get("incomingPhoneNumbers")
+            or data.get("IncomingPhoneNumbers")
             or data.get("PhoneNumbers")
             or []
         )
@@ -260,7 +263,7 @@ class ExotelProvider(TelephonyProvider):
         return bool(self.account_sid and self.api_key and self.api_token)
 
     async def validate_phone_number(self, address: str) -> ProviderSyncResult:
-        """Verify ownership via Exotel IncomingPhoneNumbers (Twilio-compatible)."""
+        """Verify ExoPhone ownership via documented Exotel ExoPhones list API."""
         # Exotel India numbers are often stored as 0-prefixed national
         # (e.g. 07314852338). Hint IN so bare local forms normalize correctly.
         country_hint = "IN" if address.strip().startswith("0") else None
@@ -275,44 +278,42 @@ class ExotelProvider(TelephonyProvider):
 
         wanted = self._number_match_keys(address, country_hint)
         wanted |= self._number_match_keys(normalized.canonical, "IN")
-        # Query candidates Exotel may accept as PhoneNumber filters.
-        candidates = sorted(wanted)
         endpoint = (
-            f"{self.api_base_url}/v1/Accounts/{self.account_sid}/"
-            f"IncomingPhoneNumbers.json"
+            f"{self.api_base_url}/v2_beta/Accounts/{self.account_sid}/"
+            "IncomingPhoneNumbers"
         )
         try:
             async with aiohttp.ClientSession() as session:
-                # First try filtered lookups, then fall back to full list
-                # (Exotel filter often ignores E.164).
-                query_plans: List[Optional[Dict[str, str]]] = [
-                    {"PhoneNumber": phone} for phone in candidates
-                ]
-                query_plans.append(None)
-
-                for params in query_plans:
-                    async with session.get(
-                        endpoint, params=params, auth=self._auth()
-                    ) as response:
-                        if response.status == 404:
+                # Exotel ExoPhones list API:
+                # https://developer.exotel.com/docs/exophones/api-reference/list-numbers
+                async with session.get(endpoint, auth=self._auth()) as response:
+                    if response.status == 404:
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=(
+                                "Exotel IncomingPhoneNumbers endpoint not found for "
+                                "this account/region."
+                            ),
+                        )
+                    if response.status != 200:
+                        body = await response.text()
+                        raise ProviderPhoneNumberLookupError(
+                            f"Exotel API {response.status}: {body}"
+                        )
+                    data = await response.json()
+                    for entry in self._iter_incoming_phone_entries(data):
+                        raw = str(
+                            entry.get("PhoneNumber")
+                            or entry.get("phone_number")
+                            or entry.get("FriendlyName")
+                            or entry.get("friendly_name")
+                            or ""
+                        )
+                        if not raw:
                             continue
-                        if response.status != 200:
-                            body = await response.text()
-                            raise ProviderPhoneNumberLookupError(
-                                f"Exotel API {response.status}: {body}"
-                            )
-                        data = await response.json()
-                        for entry in self._iter_incoming_phone_entries(data):
-                            raw = str(
-                                entry.get("PhoneNumber")
-                                or entry.get("FriendlyName")
-                                or ""
-                            )
-                            if not raw:
-                                continue
-                            owned = self._number_match_keys(raw, "IN")
-                            if wanted & owned:
-                                return ProviderSyncResult(ok=True)
+                        owned = self._number_match_keys(raw, "IN")
+                        if wanted & owned:
+                            return ProviderSyncResult(ok=True)
                 return ProviderSyncResult(
                     ok=False,
                     message=(
@@ -457,10 +458,23 @@ class ExotelProvider(TelephonyProvider):
             return True
 
         account_sid = str(
-            webhook_data.get("AccountSid") or webhook_data.get("accountSid") or ""
+            webhook_data.get("AccountSid")
+            or webhook_data.get("accountSid")
+            or webhook_data.get("account_sid")
+            or webhook_data.get("accountsid")
+            or ""
         )
-        call_sid = webhook_data.get("CallSid") or webhook_data.get("callSid")
-        from_number = webhook_data.get("From") or webhook_data.get("CallFrom")
+        call_sid = (
+            webhook_data.get("CallSid")
+            or webhook_data.get("callSid")
+            or webhook_data.get("call_sid")
+            or webhook_data.get("callsid")
+        )
+        from_number = (
+            webhook_data.get("From")
+            or webhook_data.get("CallFrom")
+            or webhook_data.get("from")
+        )
         if not (account_sid and call_sid and from_number):
             return False
         # Exclude Twilio (AC…) and Cloudonix (*.cloudonix.net)
@@ -488,10 +502,17 @@ class ExotelProvider(TelephonyProvider):
         call_id = (
             webhook_data.get("CallSid")
             or webhook_data.get("callSid")
+            or webhook_data.get("call_sid")
+            or webhook_data.get("callsid")
             or webhook_data.get("Sid")
             or ""
         )
-        account_id = webhook_data.get("AccountSid") or webhook_data.get("accountSid")
+        account_id = (
+            webhook_data.get("AccountSid")
+            or webhook_data.get("accountSid")
+            or webhook_data.get("account_sid")
+            or webhook_data.get("accountsid")
+        )
         from_number = (
             webhook_data.get("From")
             or webhook_data.get("CallFrom")
@@ -606,21 +627,10 @@ class ExotelProvider(TelephonyProvider):
         normalized_data,
         backend_endpoint: str,
     ):
-        status_attr = ""
-        if workflow_run_id:
-            status_url = self.build_status_callback_url(
-                backend_endpoint, workflow_run_id
-            )
-            status_attr = f' statusCallback="{status_url}"'
-
-        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Connect>
-        <Stream url="{websocket_url}"{status_attr}></Stream>
-    </Connect>
-    <Pause length="40"/>
-</Response>"""
-        return Response(content=xml, media_type="application/xml")
+        # Exotel Voicebot/Stream applet dynamic URL mode expects JSON:
+        # {"url":"wss://..."} from an HTTPS endpoint.
+        # Ref: https://developer.exotel.com/docs/agentstream/stream-voicebot-applet
+        return JSONResponse({"url": websocket_url})
 
     @staticmethod
     def generate_validation_error_response(error_type) -> Response:

@@ -24,27 +24,10 @@ from pipecat.utils.enums import EndTaskReason
 
 from api.enums import TelephonyCallStatus
 
-# EndTaskReason values that actually reach a persisted disposition. The enum
-# also carries members used purely as control-flow signals; those are excluded
-# so the dropdown only offers codes a run can really carry.
-_PIPELINE_DISPOSITIONS: tuple[str, ...] = (
-    EndTaskReason.END_CALL_TOOL_REASON.value,
-    EndTaskReason.USER_HANGUP.value,
-    EndTaskReason.USER_QUALIFIED.value,
-    EndTaskReason.USER_DISQUALIFIED.value,
-    EndTaskReason.CALL_DURATION_EXCEEDED.value,
-    EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value,
-    # External-PBX transfer stamps CALL_TRANSFERRED; the serializer-driven
-    # transfer path ends the pipeline with TRANSFER_CALL, which becomes the
-    # disposition when nothing else was recorded first.
-    EndTaskReason.CALL_TRANSFERRED.value,
-    EndTaskReason.TRANSFER_CALL.value,
-    EndTaskReason.VOICEMAIL_DETECTED.value,
-    EndTaskReason.SYSTEM_CANCELLED.value,
-    EndTaskReason.SYSTEM_CONNECT_ERROR.value,
-    EndTaskReason.PIPELINE_ERROR.value,
-    EndTaskReason.UNEXPECTED_ERROR.value,
-    EndTaskReason.UNKNOWN.value,
+# Keep this derived directly from the enum so every pipeline disposition is
+# available to clients without maintaining a second list.
+END_TASK_REASON_DISPOSITION_CODES: tuple[str, ...] = tuple(
+    reason.value for reason in EndTaskReason
 )
 
 # Statuses written when the call never reached the pipeline.
@@ -57,5 +40,5 @@ _TELEPHONY_DISPOSITIONS: tuple[str, ...] = (
 )
 
 SYSTEM_DISPOSITION_CODES: tuple[str, ...] = (
-    _PIPELINE_DISPOSITIONS + _TELEPHONY_DISPOSITIONS
+    END_TASK_REASON_DISPOSITION_CODES + _TELEPHONY_DISPOSITIONS
 )

@@ -2002,6 +2002,12 @@ export type DispositionCodesResponse = {
      * Every code that can appear in `gathered_context.mapped_call_disposition`: the platform's built-in dispositions plus any custom mapped codes this organization's runs have produced.
      */
     codes: Array<string>;
+    /**
+     * End Task Reason Codes
+     *
+     * Disposition codes defined by Pipecat's EndTaskReason enum.
+     */
+    end_task_reason_codes: Array<string>;
 };
 
 /**

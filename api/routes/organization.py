@@ -106,7 +106,10 @@ from api.services.telephony.inbound_routing import (
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
-from api.services.workflow.disposition_codes import SYSTEM_DISPOSITION_CODES
+from api.services.workflow.disposition_codes import (
+    END_TASK_REASON_DISPOSITION_CODES,
+    SYSTEM_DISPOSITION_CODES,
+)
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -565,6 +568,9 @@ class DispositionCodesResponse(BaseModel):
             "produced."
         )
     )
+    end_task_reason_codes: List[str] = Field(
+        description="Disposition codes defined by Pipecat's EndTaskReason enum."
+    )
 
 
 @router.get("/disposition-codes", response_model=DispositionCodesResponse)
@@ -585,7 +591,8 @@ async def get_disposition_codes(
         codes=[
             *SYSTEM_DISPOSITION_CODES,
             *sorted(code for code in custom_codes if code not in known),
-        ]
+        ],
+        end_task_reason_codes=list(END_TASK_REASON_DISPOSITION_CODES),
     )
 
 

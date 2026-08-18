@@ -13,58 +13,46 @@ import { useAuth } from "@/lib/auth";
  * any custom mapped codes the org's runs have produced. Hardcoding it here
  * meant the list silently fell behind every new disposition the backend
  * learned to write.
- *
- * Cached at module scope: several run-listing screens mount this hook and the
- * catalog only changes when a run records a code we haven't seen before.
  */
-let cachedCodes: string[] | null = null;
-let inFlight: Promise<string[]> | null = null;
-
-const loadDispositionCodes = (): Promise<string[]> => {
-    if (cachedCodes) return Promise.resolve(cachedCodes);
-    if (inFlight) return inFlight;
-
-    inFlight = (async () => {
-        const response = await getDispositionCodesApiV1OrganizationsDispositionCodesGet();
-        if (response.error) {
-            throw new Error(detailFromError(response.error, "Failed to load disposition codes"));
-        }
-        cachedCodes = response.data?.codes ?? [];
-        return cachedCodes;
-    })();
-
-    // A failed fetch must not poison the cache — the next mount should retry.
-    inFlight.catch(() => { inFlight = null; });
-
-    return inFlight;
-};
-
-export function useDispositionCodes(): { codes: string[]; isLoading: boolean } {
-    const { isAuthenticated } = useAuth();
-    const [codes, setCodes] = useState<string[]>(() => cachedCodes ?? []);
-    const [isLoading, setIsLoading] = useState(() => !cachedCodes);
+export function useDispositionCodes(): {
+    codes: string[];
+    endTaskReasonCodes: string[];
+    isLoading: boolean;
+} {
+    const { user, loading: authLoading } = useAuth();
+    const [codes, setCodes] = useState<string[]>([]);
+    const [endTaskReasonCodes, setEndTaskReasonCodes] = useState<string[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        if (!isAuthenticated || cachedCodes) return;
+        if (authLoading || !user) return;
 
         let active = true;
         setIsLoading(true);
 
-        loadDispositionCodes()
-            .then(loaded => {
-                if (active) setCodes(loaded);
-            })
-            .catch(error => {
+        const loadDispositionCodes = async () => {
+            try {
+                const response = await getDispositionCodesApiV1OrganizationsDispositionCodesGet();
+                if (response.error) {
+                    throw new Error(detailFromError(response.error, "Failed to load disposition codes"));
+                }
+                if (active) {
+                    setCodes(response.data?.codes ?? []);
+                    setEndTaskReasonCodes(response.data?.end_task_reason_codes ?? []);
+                }
+            } catch (error) {
                 console.error("Failed to fetch disposition codes:", error);
-            })
-            .finally(() => {
+            } finally {
                 if (active) setIsLoading(false);
-            });
+            }
+        };
+
+        void loadDispositionCodes();
 
         return () => {
             active = false;
         };
-    }, [isAuthenticated]);
+    }, [authLoading, user]);
 
-    return { codes, isLoading };
+    return { codes, endTaskReasonCodes, isLoading };
 }

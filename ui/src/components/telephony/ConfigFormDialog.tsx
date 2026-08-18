@@ -126,8 +126,13 @@ export function ConfigFormDialog({
       // filtering out of the generic credentials dialog.
       currentProvider?.fields.filter(
         (field) =>
-          !field.visible_when ||
-          values[field.visible_when.field] === field.visible_when.equals,
+          // A readonly field reports a value the server assigned. Before the
+          // configuration exists there is nothing to report, and announcing a
+          // field that is not there yet reads as something the user forgot to
+          // fill in — so it appears only once it has a value.
+          !(field.type === "readonly" && !values[field.name]) &&
+          (!field.visible_when ||
+            values[field.visible_when.field] === field.visible_when.equals),
       ) ?? [],
     [currentProvider, values],
   );
@@ -335,7 +340,7 @@ export function ConfigFormDialog({
                   )}
                   <Label htmlFor={`cfg-field-${field.name}`}>
                     {field.label}
-                    {!field.required && (
+                    {!field.required && field.type !== "readonly" && (
                       <span className="ml-1 text-xs text-muted-foreground">
                         (optional)
                       </span>
@@ -391,6 +396,28 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
     field.placeholder ??
     (field.sensitive && isEdit ? "Leave masked to keep existing" : "");
 
+  // Server-generated and not editable. Shown because the customer has to copy
+  // it into configuration we do not control, so it cannot be hidden the way
+  // other server-managed fields are. Only rendered once a value exists —
+  // visibleFields drops it otherwise.
+  if (field.type === "readonly") {
+    const generated = String(value ?? "");
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          copyTextToClipboard(generated)
+            .then(() => toast.success(`${field.label} copied`))
+            .catch(() => toast.error("Failed to copy"));
+        }}
+        title="Click to copy"
+        className="group flex w-full items-center gap-2 rounded-md border bg-muted/20 p-2 text-left font-mono text-xs transition-colors hover:bg-muted/40"
+      >
+        <code className="flex-1 truncate">{generated}</code>
+        <Copy className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+      </button>
+    );
+  }
   if (field.type === "textarea") {
     return (
       <Textarea

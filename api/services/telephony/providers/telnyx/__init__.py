@@ -32,7 +32,10 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _ensure_connection_id(credentials: Dict[str, Any]) -> Dict[str, Any]:
+async def _ensure_connection_id(
+    credentials: Dict[str, Any],
+    existing_credentials: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     """Auto-create a Telnyx Call Control Application if one wasn't supplied.
 
     The application is created with our inbound dispatcher URL pre-set on

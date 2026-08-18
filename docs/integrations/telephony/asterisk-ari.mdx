@@ -23,9 +23,22 @@ Before setting up the ARI integration, ensure you have:
 If you compiled Asterisk from source, ensure both `chan_websocket` and `res_websocket_client` are included during the build. These modules are required for external media streaming between Asterisk and Dograh. Refer to the [Asterisk build system documentation](https://docs.asterisk.org/) for details on enabling modules.
 </Note>
 
-## Asterisk Configuration
+## How setup fits together
 
-The following Asterisk configuration files need to be set up to work with Dograh. These are minimal examples focused on the Dograh integration -- refer to the [Asterisk documentation](https://docs.asterisk.org/) for full configuration details.
+Setup crosses between the two systems, so the order matters:
+
+| | Where | What |
+|---|---|---|
+| **1** | Asterisk | Create the ARI user, enable the HTTP server, and add the external-media WebSocket client — the values Dograh asks for |
+| **2** | Dograh | Enter those values and save. Dograh generates a **Stasis App Name** unique to this configuration |
+| **3** | Asterisk | Put that generated name in your dialplan as `Stasis(<name>)` and reload |
+| **4** | Dograh | Register the extensions that should reach an agent, then place a test call |
+
+The dialplan comes last because the Stasis application name does not exist until the configuration is saved. Everything else can be set up in advance.
+
+## Part 1: Asterisk connection settings
+
+These are minimal examples focused on the Dograh integration -- refer to the [Asterisk documentation](https://docs.asterisk.org/) for full configuration details.
 
 ### Enable ARI (`ari.conf`)
 
@@ -42,7 +55,7 @@ password = your_secure_password
 ```
 
 <Note>
-The username (section name, e.g., `dograh`) and password here must match the **Stasis App Name** and **App Password** you configure in Dograh.
+The username (section name, e.g., `dograh`) and password here are the **ARI Username** and **App Password** you enter in Dograh. This name authenticates to Asterisk — it is *not* the Stasis application name, which Dograh generates for you in [Part 2](#part-2-create-the-configuration-in-dograh).
 </Note>
 
 ### Enable the HTTP Server (`http.conf`)
@@ -55,19 +68,6 @@ enabled = yes
 bindaddr = 0.0.0.0
 bindport = 8088
 ```
-
-### Configure the Stasis Dialplan (`extensions.conf`)
-
-Route incoming calls to your Stasis application so Dograh can handle them:
-
-```ini
-[from-external]
-exten => _X.,1,NoOp(Incoming call to ${EXTEN})
- same => n,Stasis(dograh)
- same => n,Hangup()
-```
-
-Replace `dograh` with the app name you configured in `ari.conf` and in Dograh.
 
 ### Configure External Media Streaming (`websocket_client.conf`)
 
@@ -85,7 +85,7 @@ Dograh uses Asterisk's external media streaming to send and receive audio over W
     ```
 
     <Note>
-    `tls_enabled = yes` is required even though the URI scheme is `wss://` — without it Asterisk will not negotiate TLS and the connection will fail. The ARI credentials (**Stasis App Name** and **App Password**) must match what you configure in the Dograh dashboard under Telephony Settings.
+    `tls_enabled = yes` is required even though the URI scheme is `wss://` — without it Asterisk will not negotiate TLS and the connection will fail. The ARI credentials (**ARI Username** and **App Password**) must match what you configure in the Dograh dashboard under Telephony Settings.
     </Note>
   </Tab>
   <Tab title="Self-hosted">
@@ -118,17 +118,16 @@ Refer to the [Asterisk WebSocket documentation](https://docs.asterisk.org/) for 
 
 ### Apply the configuration changes
 
-After editing any of the files above, reload the affected Asterisk modules from the Asterisk CLI (`asterisk -rvvv`):
+Reload the affected Asterisk modules from the Asterisk CLI (`asterisk -rvvv`):
 
 ```bash
-ari reload                                 # picks up ari.conf changes
-dialplan reload                            # picks up extensions.conf changes
+module reload res_ari.so                   # picks up ari.conf changes
 module reload res_websocket_client.so      # picks up websocket_client.conf changes
 ```
 
-Changes to `http.conf` require a full Asterisk reload (`core reload`) or a service restart.
+Changes to `http.conf` require a full Asterisk reload (`core reload`) or a service restart. `core reload` also covers both commands above if you would rather reload everything at once.
 
-## Configuration in Dograh
+## Part 2: Create the configuration in Dograh
 
 ### Step 1: Navigate to Telephony Settings
 
@@ -142,16 +141,48 @@ Configure the following fields:
 | Field | Description | Example |
 |-------|-------------|---------|
 | **ARI Endpoint URL** | HTTP base URL of your Asterisk ARI server | `http://asterisk.example.com:8088` |
-| **Stasis App Name** | The ARI username configured in `ari.conf` | `dograh` |
+| **ARI Username** | The ARI username configured in `ari.conf` | `dograh` |
 | **App Password** | The ARI password configured in `ari.conf` | `your_secure_password` |
 | **WebSocket Client Name** | The connection name from `websocket_client.conf` | `dograh` |
 | **From Extensions** | Optional SIP extensions or trunk numbers for outbound calls | `PJSIP/6001` or `6001` |
 
-### Step 3: Save and Add Extensions
+**Stasis App Name** is not something you enter — Dograh generates it when you save and displays it on the configuration for you to copy.
 
-1. Click **Save Configuration**
-2. Open the configuration you just created and add each SIP extension that should be reachable as a **phone number** (e.g. `8000`). For inbound, you'll assign a workflow to each extension separately — see [Inbound Calling](#inbound-calling) below.
-3. Create a test workflow and initiate a test call to verify the connection.
+### Step 3: Save and copy the Stasis App Name
+
+Click **Save Configuration**. Dograh assigns a **Stasis App Name** to this configuration — something like `dograh_a1b2c3d4e5f6` — and shows it on the configuration page. Copy it; you need it for [Part 3](#part-3-route-calls-into-the-stasis-application).
+
+<Note>
+The Stasis App Name is generated, not chosen. Asterisk gives a Stasis application to whichever ARI connection registered for it most recently and stops delivering events to the previous one, with no error on either side. If two configurations named the same application on one Asterisk, one would silently stop receiving calls while the other received calls that were not its own. Generating the name is what prevents that.
+</Note>
+
+## Part 3: Route calls into the Stasis application
+
+### Configure the Stasis Dialplan (`extensions.conf`)
+
+Route incoming calls into the Stasis application Dograh generated for your configuration:
+
+```ini
+[from-external]
+exten => _X.,1,NoOp(Incoming call to ${EXTEN})
+ same => n,Stasis(dograh_a1b2c3d4e5f6)
+ same => n,Hangup()
+```
+
+Replace `dograh_a1b2c3d4e5f6` with the **Stasis App Name** from your configuration, then reload the dialplan:
+
+```bash
+dialplan reload
+```
+
+<Warning>
+Until the dialplan names the generated application, calls reach Asterisk but never arrive at Dograh. This is the most common reason a correctly configured ARI integration receives no calls.
+</Warning>
+
+## Part 4: Add extensions and test
+
+1. Add each SIP extension that should be reachable as a **phone number** (e.g. `8000`). For inbound, you'll assign a workflow to each extension separately — see [Inbound Calling](#inbound-calling) below.
+2. Create a test workflow and initiate a test call to verify the connection.
 
 ## Inbound Calling
 
@@ -159,7 +190,7 @@ Unlike other telephony providers that use HTTP webhooks for inbound calls, ARI d
 
 ### How It Works
 
-1. An external call arrives at Asterisk and the dialplan routes it to `Stasis(dograh)`
+1. An external call arrives at Asterisk and the dialplan routes it into your configuration's Stasis application
 2. Asterisk fires a StasisStart event over the ARI WebSocket with the channel in `Ring` state and the dialed extension in the dialplan context
 3. Dograh looks up the called extension in your telephony configuration's phone numbers, finds the assigned workflow, validates quota, and creates a workflow run
 4. The call is answered, bridged to an external media channel, and your voice agent workflow begins
@@ -170,12 +201,12 @@ Workflow assignment is **per extension**, so different extensions on the same As
 
 **Step 1: Configure the Asterisk dialplan**
 
-Ensure your dialplan routes the extensions you care about into the Stasis application. Either route a specific extension:
+Ensure your dialplan routes the extensions you care about into the Stasis application you configured in [Part 3](#part-3-route-calls-into-the-stasis-application). Either route a specific extension:
 
 ```ini
 [from-external]
 exten => 8000,1,NoOp(Incoming call to 8000)
- same => n,Stasis(dograh)
+ same => n,Stasis(dograh_a1b2c3d4e5f6)
  same => n,Hangup()
 ```
 
@@ -184,11 +215,11 @@ exten => 8000,1,NoOp(Incoming call to 8000)
 ```ini
 [from-external]
 exten => _X.,1,NoOp(Incoming call to ${EXTEN})
- same => n,Stasis(dograh)
+ same => n,Stasis(dograh_a1b2c3d4e5f6)
  same => n,Hangup()
 ```
 
-Replace `dograh` with the app name you configured in `ari.conf` and in Dograh.
+Replace `dograh_a1b2c3d4e5f6` with the **Stasis App Name** shown on your Dograh configuration.
 
 **Step 2: Add the extension as a phone number in Dograh**
 
@@ -232,7 +263,7 @@ When an inbound call activates a workflow, the following context is available to
   </Accordion>
 
   <Accordion title="Authentication failed">
-    - Verify the Stasis App Name matches the ARI user section name in `ari.conf`
+    - Verify the ARI Username matches the ARI user section name in `ari.conf`
     - Check the App Password matches the password in `ari.conf`
     - Ensure there are no extra spaces in the credentials
   </Accordion>
@@ -245,8 +276,9 @@ When an inbound call activates a workflow, the following context is available to
   </Accordion>
 
   <Accordion title="Calls not reaching Dograh">
-    - Ensure the dialplan routes calls to `Stasis(your_app_name)`
-    - Verify the app name in the dialplan matches the ARI user in `ari.conf`
+    - Ensure the dialplan routes calls to `Stasis(...)` using the **Stasis App Name** from your Dograh configuration, not the ARI username
+    - Confirm you ran `dialplan reload` after editing `extensions.conf`
+    - If two Dograh configurations point at this Asterisk, check that they do not name the same Stasis application — the one that connected most recently takes the application over and the other stops receiving calls entirely
     - Check Asterisk CLI for errors: `asterisk -rvvv`
     - Confirm the ARI WebSocket connection is active
   </Accordion>

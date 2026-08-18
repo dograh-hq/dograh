@@ -81,7 +81,7 @@ export type AriConfigurationRequest = {
     /**
      * App Name
      *
-     * Stasis application name registered in Asterisk
+     * ARI username, matching the ari.conf section name
      */
     app_name: string;
     /**

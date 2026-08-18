@@ -83,6 +83,13 @@ export default function TelephonyConfigurationDetailPage() {
   const organizationTimezone = useOrganizationTimezone();
   const inboundWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}${INBOUND_WEBHOOK_PATH}`;
   const [config, setConfig] = useState<TelephonyConfigurationDetail | null>(null);
+  // ARI only: Dograh generates the Stasis application name, so the dialplan
+  // line cannot be written until the configuration has been saved.
+  const stasisAppName =
+    typeof config?.credentials?.stasis_app_name === "string"
+      ? config.credentials.stasis_app_name
+      : "";
+  const stasisDialplanLine = `same => n,Stasis(${stasisAppName})`;
   const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumberResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [editConfigOpen, setEditConfigOpen] = useState(false);
@@ -323,6 +330,7 @@ export default function TelephonyConfigurationDetailPage() {
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {})
               .filter(([key]) => key !== "external_pbx" || externalPbxIntegrationsEnabled)
+              .filter(([key]) => key !== "stasis_app_name")
               .map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-3">
                   <dt className="text-muted-foreground">{k}</dt>
@@ -332,6 +340,29 @@ export default function TelephonyConfigurationDetailPage() {
                 </div>
               ))}
           </dl>
+          {stasisAppName && (
+            <div className="space-y-1 rounded-md border border-dashed p-3">
+              <p className="text-sm font-medium">Route calls into this Stasis application</p>
+              <p className="text-xs text-muted-foreground">
+                Add this line to your Asterisk <code>extensions.conf</code>, then run{" "}
+                <code>dialplan reload</code>. Until you do, calls reach Asterisk but never
+                arrive at Dograh.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  copyTextToClipboard(stasisDialplanLine)
+                    .then(() => toast.success("Dialplan line copied"))
+                    .catch(() => toast.error("Failed to copy"));
+                }}
+                title="Click to copy"
+                className="group mt-1 flex w-full items-center gap-2 rounded-md border bg-muted/20 p-2 text-left font-mono text-xs transition-colors hover:bg-muted/40"
+              >
+                <code className="flex-1 truncate">{stasisDialplanLine}</code>
+                <Copy className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+              </button>
+            </div>
+          )}
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Inbound webhook URL</p>
             <button

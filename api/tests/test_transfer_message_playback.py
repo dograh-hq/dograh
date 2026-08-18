@@ -354,7 +354,9 @@ class TestTransferDispositionRace:
 
         workflow_run = SimpleNamespace(
             mode=WorkflowRunMode.ARI.value,
-            initial_context={"external_pbx_call": {"type": "vicidial", "lead_id": "42"}},
+            initial_context={
+                "external_pbx_call": {"type": "vicidial", "lead_id": "42"}
+            },
             gathered_context={"call_id": "1786379595.10"},
         )
 

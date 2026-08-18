@@ -104,12 +104,18 @@ class ARIConnection:
         app_password: str,
         ws_client_name: str = "",
         external_pbx_config: Optional[dict] = None,
+        stasis_app_name: str = "",
     ):
         self.organization_id = organization_id
         self.telephony_configuration_id = telephony_configuration_id
         self.ari_endpoint = ari_endpoint.rstrip("/")
         self.app_name = app_name
         self.app_password = app_password
+        # The ARI username and the Stasis application are separate namespaces in
+        # Asterisk; Dograh generates the latter so no two configurations can
+        # claim the same application. Rows written before the split carry only
+        # app_name and legitimately use it for both.
+        self.stasis_app_name = stasis_app_name or app_name
         self.ws_client_name = ws_client_name
         self.external_pbx_config = external_pbx_config
         self.external_pbx_adapter = create_adapter(external_pbx_config)
@@ -229,7 +235,7 @@ class ARIConnection:
         return (
             f"{ws_scheme}://{parsed.netloc}/ari/events"
             f"?api_key={self.app_name}:{self.app_password}"
-            f"&app={self.app_name}"
+            f"&app={self.stasis_app_name}"
             f"&subscribeAll=true"
         )
 
@@ -735,7 +741,7 @@ class ARIConnection:
         transport_data = f"v({vparams})"
 
         params = {
-            "app": self.app_name,
+            "app": self.stasis_app_name,
             "external_host": self.ws_client_name,
             "format": "ulaw",
             "transport": "websocket",
@@ -1443,6 +1449,7 @@ class ARIManager:
             ari_endpoint = config["ari_endpoint"]
             app_name = config["app_name"]
             app_password = config["app_password"]
+            stasis_app_name = config["stasis_app_name"]
             ws_client_name = config["ws_client_name"]
             external_pbx_config = config.get("external_pbx")
 
@@ -1454,6 +1461,7 @@ class ARIManager:
                 app_password,
                 ws_client_name,
                 external_pbx_config,
+                stasis_app_name,
             )
             key = conn.connection_key
 
@@ -1477,6 +1485,7 @@ class ARIManager:
                     existing.ari_endpoint != conn.ari_endpoint
                     or existing.app_name != app_name
                     or existing.app_password != app_password
+                    or existing.stasis_app_name != conn.stasis_app_name
                     or existing.ws_client_name != ws_client_name
                     or existing.external_pbx_config != external_pbx_config
                 ):
@@ -1566,6 +1575,9 @@ class ARIManager:
             ari_endpoint = credentials.get("ari_endpoint")
             app_name = credentials.get("app_name")
             app_password = credentials.get("app_password")
+            # Pre-split rows have no stasis_app_name and keep running on
+            # app_name, which is what their dialplan already routes into.
+            stasis_app_name = credentials.get("stasis_app_name") or app_name
             ws_client_name = credentials.get("ws_client_name", "")
             external_pbx = credentials.get("external_pbx")
             if external_pbx and not await external_pbx_integrations_enabled(
@@ -1619,6 +1631,7 @@ class ARIManager:
                     "ari_endpoint": ari_endpoint,
                     "app_name": app_name,
                     "app_password": app_password,
+                    "stasis_app_name": stasis_app_name,
                     "ws_client_name": ws_client_name,
                     "external_pbx": external_pbx,
                 }

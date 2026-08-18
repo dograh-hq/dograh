@@ -1,5 +1,6 @@
 """ARI (Asterisk REST Interface) telephony provider package."""
 
+import secrets
 from typing import Any, Dict
 
 from api.services.telephony.registry import (
@@ -15,6 +16,53 @@ from .config import ARIConfigurationRequest
 from .provider import ARIProvider
 from .transport import create_transport
 
+# Prefix keeps the generated name recognisable in a customer's dialplan; the
+# random half is what makes it unique.
+_STASIS_APP_NAME_PREFIX = "dograh_"
+
+
+def _generate_stasis_app_name() -> str:
+    """Mint a Stasis application name no other configuration will pick.
+
+    Asterisk hands a Stasis application to whichever ARI WebSocket registered
+    for it most recently and silently stops delivering events to the previous
+    holder. Two configurations naming the same application on the same PBX
+    therefore do not both work — one goes deaf, with no error on either side,
+    and the survivor receives calls belonging to the other.
+
+    Uniqueness cannot be validated into a customer-chosen string: the colliding
+    party may be another tenant, a self-hosted install, or another deployment
+    entirely, and nothing in our database sees them. So we do not ask. The name
+    is generated here and the customer mirrors it into their extensions.conf.
+    """
+    return f"{_STASIS_APP_NAME_PREFIX}{secrets.token_hex(6)}"
+
+
+async def _preprocess_credentials_on_save(
+    credentials: Dict[str, Any],
+    existing_credentials: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Own the Stasis application name: minted on create, carried on update.
+
+    The value is always written from here and never read from the request, so a
+    client cannot choose or overwrite it. Saving replaces the stored credentials
+    wholesale, which is why an update has to restate it.
+
+    An update never mints one. A configuration saved before the Stasis name was
+    split off ``app_name`` keeps running on ``app_name`` (see
+    ``_config_loader``); generating one here would point Dograh at an
+    application the customer's dialplan never routes calls into, silently
+    breaking a working setup on an unrelated edit.
+    """
+    credentials = dict(credentials)
+    if existing_credentials is None:
+        credentials["stasis_app_name"] = _generate_stasis_app_name()
+    elif existing_credentials.get("stasis_app_name"):
+        credentials["stasis_app_name"] = existing_credentials["stasis_app_name"]
+    else:
+        credentials.pop("stasis_app_name", None)
+    return credentials
+
 
 def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -22,6 +70,9 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "ari_endpoint": value.get("ari_endpoint"),
         "app_name": value.get("app_name"),
         "app_password": value.get("app_password"),
+        # Pre-split configurations have no stasis_app_name and still run on
+        # app_name, which is what they told Asterisk to use.
+        "stasis_app_name": value.get("stasis_app_name") or value.get("app_name"),
         "external_pbx": value.get("external_pbx"),
         "from_numbers": value.get("from_numbers", []),
     }
@@ -39,9 +90,9 @@ _UI_METADATA = ProviderUIMetadata(
         ),
         ProviderUIField(
             name="app_name",
-            label="Stasis App Name",
+            label="ARI Username",
             type="text",
-            description="Stasis application name registered in Asterisk",
+            description="ARI username, matching the section name in ari.conf",
         ),
         ProviderUIField(
             name="app_password",
@@ -54,6 +105,16 @@ _UI_METADATA = ProviderUIMetadata(
             label="websocket_client.conf Name",
             type="text",
             description="websocket_client.conf connection name for externalMedia",
+        ),
+        ProviderUIField(
+            name="stasis_app_name",
+            label="Stasis App Name",
+            type="readonly",
+            required=False,
+            description=(
+                "Generated for you, and unique to this configuration. Route "
+                "calls into it from extensions.conf with Stasis(<this name>)."
+            ),
         ),
         ProviderUIField(
             name="from_numbers",
@@ -164,6 +225,11 @@ SPEC = ProviderSpec(
     # Origination sets ``callerId`` only when one is configured — a PBX
     # dialling an internal extension needs no number at all.
     requires_caller_id=False,
+    # Assigns stasis_app_name. Deliberately not listed in
+    # server_managed_credential_fields: those are dropped from the
+    # configuration response, and this one has to stay readable so the customer
+    # can paste it into their own extensions.conf.
+    preprocess_credentials_on_save=_preprocess_credentials_on_save,
 )
 
 

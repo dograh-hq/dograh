@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     TTSSpeakFrame,
 )
+from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory, WorkflowRunMode
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -120,6 +121,9 @@ class RecordingEngine:
 
     async def flush_variable_extraction(self):
         return None
+
+    def record_call_disposition(self, disposition):
+        self.events.append(("disposition", disposition))
 
     async def end_call_with_reason(self, reason, abort_immediately=False):
         self.events.append(("end_call", reason))
@@ -278,3 +282,134 @@ async def test_external_pbx_transfer_without_message_does_not_wait():
 
     assert "wait_for_playback" not in engine.events
     assert "pbx_transfer" in engine.events
+
+
+class TestTransferDispositionRace:
+    """The PBX drops our media leg ~100ms after its transfer API returns.
+
+    ``on_client_disconnected`` therefore fires while the transfer handler is
+    still waiting out ``_TRANSFER_POST_HANDOFF_DELAY_SECS``, and whichever path
+    reaches ``end_call_with_reason`` first wins the disposition -- the other is
+    a no-op. Every transferred call was being recorded as ``user_hangup``
+    because of it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_recorded_disposition_survives_a_later_hangup(self):
+        """A disconnect after the stamp must not relabel the call."""
+        engine = make_engine()
+        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+
+        engine.record_call_disposition(EndTaskReason.CALL_TRANSFERRED.value)
+
+        with (
+            patch.object(
+                PipecatEngine, "perform_final_variable_extraction", AsyncMock()
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine.db_client.update_workflow_run",
+                AsyncMock(),
+            ),
+        ):
+            await engine.end_call_with_reason(
+                EndTaskReason.USER_HANGUP.value, abort_immediately=True
+            )
+
+        context = await engine.get_gathered_context()
+        assert context["call_disposition"] == EndTaskReason.CALL_TRANSFERRED.value
+        assert context["mapped_call_disposition"] == (
+            EndTaskReason.CALL_TRANSFERRED.value
+        )
+        assert EndTaskReason.USER_HANGUP.value not in context["call_tags"]
+
+    @pytest.mark.asyncio
+    async def test_an_untransferred_disconnect_is_still_a_user_hangup(self):
+        """The fallback must stay intact for calls the caller really drops."""
+        engine = make_engine()
+        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+
+        with (
+            patch.object(
+                PipecatEngine, "perform_final_variable_extraction", AsyncMock()
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine.db_client.update_workflow_run",
+                AsyncMock(),
+            ),
+        ):
+            await engine.end_call_with_reason(
+                EndTaskReason.USER_HANGUP.value, abort_immediately=True
+            )
+
+        context = await engine.get_gathered_context()
+        assert context["call_disposition"] == EndTaskReason.USER_HANGUP.value
+
+    @pytest.mark.asyncio
+    async def test_transfer_stamps_disposition_before_the_settle_delay(self):
+        """Stamping after the delay loses the race with the disconnect."""
+        engine = RecordingEngine()
+        manager = CustomToolManager(engine)
+        tool = TransferToolModel()
+        handler = manager._create_transfer_call_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.ARI.value,
+            initial_context={"external_pbx_call": {"type": "vicidial", "lead_id": "42"}},
+            gathered_context={"call_id": "1786379595.10"},
+        )
+
+        async def fake_transfer_external_pbx_call(**_kwargs):
+            engine.events.append("pbx_transfer")
+            return {"status": "success", "action": "external_pbx_transfer"}
+
+        provider = SimpleNamespace(
+            transfer_external_pbx_call=fake_transfer_external_pbx_call,
+            supports_transfers=lambda: True,
+            validate_config=lambda: True,
+        )
+        params = SimpleNamespace(arguments={}, result_callback=AsyncMock())
+
+        async def recording_sleep(_seconds):
+            engine.events.append("settle_delay")
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_configurations",
+                AsyncMock(return_value={"external_pbx_field_mappings": []}),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.update_workflow_run",
+                AsyncMock(),
+            ) as update_run,
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_telephony_provider_for_run",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.resolve_transfer_config",
+                AsyncMock(
+                    return_value=ResolvedTransferConfig(
+                        destination="Florida",
+                        timeout_seconds=30,
+                        source="context_mapping",
+                    )
+                ),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.asyncio.sleep",
+                recording_sleep,
+            ),
+        ):
+            await handler(params)
+
+        assert engine.events.index(("disposition", "call_transferred")) < (
+            engine.events.index("settle_delay")
+        ), f"disposition must be stamped before the delay: {engine.events}"
+        # It also has to reach the DB, since integrations read the run row.
+        persisted = update_run.await_args.kwargs["gathered_context"]
+        assert persisted["call_disposition"] == "call_transferred"
+        assert persisted["mapped_call_disposition"] == "call_transferred"

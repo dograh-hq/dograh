@@ -804,6 +804,24 @@ class PipecatEngine:
         # Setup LLM context with prompts and functions.
         await self._setup_llm_context(node)
 
+    def record_call_disposition(self, disposition: str) -> None:
+        """Fix the call's disposition ahead of teardown.
+
+        ``end_call_with_reason`` falls back to its own ``reason`` only when no
+        disposition has been recorded, so an outcome already known to be final
+        before the pipeline winds down has to be stamped here.
+
+        An external-PBX transfer is the case that needs it. The PBX pulls the
+        customer off our media leg within ~100ms of its transfer API returning,
+        so ``on_client_disconnected`` fires while the transfer handler is still
+        waiting out its post-handoff settle delay. Whichever path reaches
+        ``end_call_with_reason`` first wins the disposition and the other is a
+        no-op, so without this the completed transfer is recorded as a user
+        hangup.
+        """
+        self._gathered_context["call_disposition"] = disposition
+        self._gathered_context["mapped_call_disposition"] = disposition
+
     async def end_call_with_reason(
         self,
         reason: str,

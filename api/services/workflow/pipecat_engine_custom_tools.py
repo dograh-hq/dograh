@@ -737,9 +737,22 @@ class CustomToolManager:
                             self._engine._gathered_context[
                                 "external_pbx_transferred"
                             ] = True
+                            # The PBX drops our media leg within ~100ms of the
+                            # transfer API returning, so on_client_disconnected
+                            # reaches end_call_with_reason long before the settle
+                            # delay below is over. Stamp the disposition now, or
+                            # that handler records this completed transfer as a
+                            # user hangup.
+                            self._engine.record_call_disposition(
+                                EndTaskReason.CALL_TRANSFERRED.value
+                            )
                             await db_client.update_workflow_run(
                                 run_id=self._engine._workflow_run_id,
-                                gathered_context={"external_pbx_transferred": True},
+                                gathered_context={
+                                    "external_pbx_transferred": True,
+                                    "call_disposition": EndTaskReason.CALL_TRANSFERRED.value,
+                                    "mapped_call_disposition": EndTaskReason.CALL_TRANSFERRED.value,
+                                },
                             )
                             await function_call_params.result_callback(
                                 external_result, properties=properties

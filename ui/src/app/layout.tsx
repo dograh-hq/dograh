@@ -65,9 +65,9 @@ export default function RootLayout({
           }}
         />
       </head>
-      {gtmId ? <GoogleTagManager gtmId={gtmId} /> : null}
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        {gtmId ? <GoogleTagManager gtmId={gtmId} /> : null}
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <SentryErrorBoundary>
             <AuthProvider>

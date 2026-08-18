@@ -74,7 +74,7 @@ class ARIConfigurationRequest(BaseModel):
         ..., description="ARI base URL (e.g., http://asterisk.example.com:8088)"
     )
     app_name: str = Field(
-        ..., description="Stasis application name registered in Asterisk"
+        ..., description="ARI username, matching the ari.conf section name"
     )
     app_password: str = Field(..., description="ARI user password")
     ws_client_name: str = Field(

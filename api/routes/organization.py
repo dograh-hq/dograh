@@ -654,7 +654,9 @@ async def _run_preprocess_hook(
             credentials[field] = existing_credentials[field]
 
     if spec.preprocess_credentials_on_save:
-        return await spec.preprocess_credentials_on_save(credentials)
+        return await spec.preprocess_credentials_on_save(
+            credentials, existing_credentials
+        )
     return credentials
 
 

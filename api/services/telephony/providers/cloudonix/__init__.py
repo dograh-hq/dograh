@@ -708,6 +708,7 @@ async def _remove_trunk_on_delete(
 
 async def _preprocess_credentials_on_save(
     credentials: dict[str, Any],
+    existing_credentials: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     credentials = await _fetch_domain_uuid(credentials)
     return await _ensure_application_name(credentials)

@@ -61,6 +61,9 @@ class ProviderUIField:
     name: str  # Must match the Pydantic field name on config_request_cls
     label: str
     # "text" | "password" | "textarea" | "string-array" | "number" | "boolean"
+    # | "select" | "readonly". "readonly" reports a server-assigned value for
+    # the customer to copy and collects no input; the form hides it until the
+    # value exists, so it never reads as a blank the customer has to fill in.
     type: str
     required: bool = True
     sensitive: bool = False  # If true, mask when displaying stored value
@@ -199,11 +202,19 @@ TransportFactory = Callable[..., Awaitable[Any]]
 ConfigLoader = Callable[[Dict[str, Any]], Dict[str, Any]]
 
 # Optional async hook invoked at create/update time. Receives the credentials
-# dict the route is about to persist and returns a (possibly modified) dict.
-# Use for provider-side I/O that mutates credentials before save (e.g. an
-# external resource that must exist by the time the row lands). I/O is
-# allowed; ``config_loader`` is reserved for pure dict reshaping.
-CredentialsPreprocessor = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
+# dict the route is about to persist plus the stored credentials being replaced
+# (``None`` on create), and returns a (possibly modified) dict. Use for
+# provider-side I/O that mutates credentials before save (e.g. an external
+# resource that must exist by the time the row lands). I/O is allowed;
+# ``config_loader`` is reserved for pure dict reshaping.
+#
+# The second argument is what lets a hook tell create from update. That matters
+# for any value the customer mirrors into a system we do not control: minting
+# one on create is setup, minting one on update silently invalidates whatever
+# they configured on their side.
+CredentialsPreprocessor = Callable[
+    [Dict[str, Any], Dict[str, Any] | None], Awaitable[Dict[str, Any]]
+]
 
 
 @dataclass(frozen=True)

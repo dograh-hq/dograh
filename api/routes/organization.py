@@ -106,6 +106,10 @@ from api.services.telephony.inbound_routing import (
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
+from api.services.workflow.disposition_codes import (
+    END_TASK_REASON_DISPOSITION_CODES,
+    SYSTEM_DISPOSITION_CODES,
+)
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -550,6 +554,45 @@ async def migrate_model_configuration_v2(
     return await _model_configuration_v2_response(
         user=user,
         configuration=configuration,
+    )
+
+
+class DispositionCodesResponse(BaseModel):
+    """Disposition codes selectable in org-wide run filters."""
+
+    codes: List[str] = Field(
+        description=(
+            "Every code that can appear in `gathered_context."
+            "mapped_call_disposition`: the platform's built-in dispositions "
+            "plus any custom mapped codes this organization's runs have "
+            "produced."
+        )
+    )
+    end_task_reason_codes: List[str] = Field(
+        description="Disposition codes defined by Pipecat's EndTaskReason enum."
+    )
+
+
+@router.get("/disposition-codes", response_model=DispositionCodesResponse)
+async def get_disposition_codes(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Serve the disposition catalog so clients never hardcode the list.
+
+    Built-in codes come from the enums that write the field; custom codes are
+    whatever this organization's finished runs have actually recorded, so an
+    org with a disposition mapping still gets a usable filter.
+    """
+    custom_codes = await db_client.get_organization_disposition_codes(
+        user.selected_organization_id
+    )
+    known = set(SYSTEM_DISPOSITION_CODES)
+    return DispositionCodesResponse(
+        codes=[
+            *SYSTEM_DISPOSITION_CODES,
+            *sorted(code for code in custom_codes if code not in known),
+        ],
+        end_task_reason_codes=list(END_TASK_REASON_DISPOSITION_CODES),
     )
 
 

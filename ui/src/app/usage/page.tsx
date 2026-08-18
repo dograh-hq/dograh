@@ -24,18 +24,20 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { useUserConfig } from '@/context/UserConfigContext';
+import { useDispositionCodes } from '@/hooks/useDispositionCodes';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, getLocalTimezone } from '@/lib/dateTime';
-import { usageFilterAttributes } from '@/lib/filterAttributes';
+import { usageFilterAttributes, withDispositionCodeOptions } from '@/lib/filterAttributes';
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import type { ActiveFilter, DateRangeValue, FilterAttribute, NumberFilterOption } from '@/types/filters';
 
-const buildAgentFilterAttributes = (
+const buildUsageFilterAttributes = (
     agentOptions: NumberFilterOption[] | null,
-    isLoadingAgentOptions: boolean
+    isLoadingAgentOptions: boolean,
+    dispositionCodes: string[]
 ): FilterAttribute[] => {
-    return usageFilterAttributes.map(attribute => {
+    return withDispositionCodeOptions(usageFilterAttributes, dispositionCodes).map(attribute => {
         if (attribute.id !== 'workflowId') {
             return attribute;
         }
@@ -85,9 +87,10 @@ export default function UsagePage() {
     const [isDownloadingReport, setIsDownloadingReport] = useState(false);
     const [agentFilterOptions, setAgentFilterOptions] = useState<NumberFilterOption[] | null>(null);
     const [isLoadingAgentFilterOptions, setIsLoadingAgentFilterOptions] = useState(false);
+    const { codes: dispositionCodes } = useDispositionCodes();
     const availableUsageFilterAttributes = useMemo(
-        () => buildAgentFilterAttributes(agentFilterOptions, isLoadingAgentFilterOptions),
-        [agentFilterOptions, isLoadingAgentFilterOptions]
+        () => buildUsageFilterAttributes(agentFilterOptions, isLoadingAgentFilterOptions, dispositionCodes),
+        [agentFilterOptions, isLoadingAgentFilterOptions, dispositionCodes]
     );
 
     // Daily usage breakdown state (only for paid orgs)

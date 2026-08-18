@@ -137,27 +137,31 @@ def generic_hangup_response():
 
 
 async def parse_webhook_request(request: Request) -> tuple[dict, str]:
-    """Parse webhook request data from either JSON or form.
+    """Parse webhook request data from JSON, form, or query string.
 
     Returns ``(webhook_data, raw_body)`` where ``raw_body`` is the
     request body decoded as UTF-8 — kept around for providers (e.g.
     Vobiz) whose signature is computed over the raw bytes.
+
+    Some providers (Exotel Voicebot dynamic URL) call the webhook as GET
+    with call context in query parameters. Starlette's ``request.form()``
+    returns an empty ``FormData`` for non-form content types instead of
+    raising, so query params must be applied whenever JSON/form parsing
+    yields no fields — not only in the ``except`` path.
     """
     raw_body = (await request.body()).decode("utf-8", errors="replace")
     try:
         webhook_data = await request.json()
     except Exception:
         try:
-            form_data = await request.form()
-            webhook_data = dict(form_data)
+            webhook_data = dict(await request.form())
         except Exception:
-            # Some providers (for example, Exotel Voicebot dynamic endpoints)
-            # invoke webhook URLs as GET with URL query parameters.
-            query_data = dict(request.query_params)
-            if query_data:
-                webhook_data = query_data
-            else:
-                raise ValueError("Unable to parse webhook data")
+            webhook_data = {}
+
+    if not webhook_data:
+        webhook_data = dict(request.query_params)
+    if not webhook_data:
+        raise ValueError("Unable to parse webhook data")
 
     return webhook_data, raw_body
 

@@ -18,6 +18,8 @@ class SpeechifyOwnedSessionTTSService(SpeechifyHttpTTSService):
         self._owned_session = aiohttp_session
 
     async def cleanup(self):
-        await super().cleanup()
-        if not self._owned_session.closed:
-            await self._owned_session.close()
+        try:
+            await super().cleanup()
+        finally:
+            if not self._owned_session.closed:
+                await self._owned_session.close()

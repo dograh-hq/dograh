@@ -750,6 +750,67 @@ class TestProcessBatchCancellation:
                 [101, 102, 103]
             )
 
+    @pytest.mark.asyncio
+    async def test_readiness_failure_returns_claimed_runs_without_workflows(self):
+        from api.services.telephony.outbound_readiness import (
+            OutboundSetupIncompleteError,
+        )
+
+        dispatcher = CampaignCallDispatcher()
+        campaign = MagicMock()
+        campaign.id = 42
+        campaign.state = "running"
+        campaign.organization_id = 7
+        campaign.rate_limit_per_second = 1
+        campaign.telephony_configuration_id = 170
+
+        queued_runs = [MagicMock(id=101), MagicMock(id=102)]
+        provider = MagicMock()
+        provider.from_numbers = []
+        readiness_error = OutboundSetupIncompleteError(
+            170,
+            "Twilio campaign",
+            "Add a caller ID before placing calls.",
+        )
+
+        with (
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.db_client"
+            ) as mock_db,
+            patch.object(
+                dispatcher,
+                "get_provider_for_campaign",
+                AsyncMock(return_value=provider),
+            ),
+            patch.object(dispatcher, "apply_rate_limit", AsyncMock()),
+            patch.object(
+                dispatcher,
+                "acquire_concurrent_slot",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch.object(
+                dispatcher,
+                "dispatch_call",
+                AsyncMock(side_effect=readiness_error),
+            ),
+        ):
+            mock_db.get_campaign_by_id = AsyncMock(return_value=campaign)
+            mock_db.claim_queued_runs_for_processing = AsyncMock(
+                return_value=queued_runs
+            )
+            mock_db.return_processing_queued_runs_without_workflow = AsyncMock(
+                return_value=2
+            )
+            mock_db.update_queued_run = AsyncMock()
+
+            with pytest.raises(OutboundSetupIncompleteError):
+                await dispatcher.process_batch(campaign_id=42, batch_size=2)
+
+        mock_db.return_processing_queued_runs_without_workflow.assert_awaited_once_with(
+            [101, 102]
+        )
+        mock_db.update_queued_run.assert_not_awaited()
+
 
 class TestProcessBatchEdgeCases:
     """Edge case tests for process_batch."""

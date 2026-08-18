@@ -24,13 +24,3 @@ class VobizConfigurationRequest(BaseModel):
         default_factory=list,
         description="List of Vobiz phone numbers (E.164 without + prefix)",
     )
-
-
-class VobizConfigurationResponse(BaseModel):
-    """Response schema for Vobiz configuration with masked sensitive fields."""
-
-    provider: Literal["vobiz"] = Field(default="vobiz")
-    auth_id: str  # Masked
-    auth_token: str  # Masked
-    application_id: Optional[str] = None
-    from_numbers: List[str]

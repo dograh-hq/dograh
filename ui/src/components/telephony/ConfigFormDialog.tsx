@@ -45,6 +45,13 @@ interface ConfigFormDialogProps {
   onOpenChange: (open: boolean) => void;
   // When provided, the dialog is in edit mode.
   existing?: TelephonyConfigurationDetail | null;
+  /**
+   * Pre-check "set as default for outbound" because the organization has no
+   * default yet. Nothing picks a default on the customer's behalf, so this is
+   * how the common single-configuration case gets one: as a visible, editable
+   * choice in the form rather than a write they never saw.
+   */
+  suggestDefaultOutbound?: boolean;
   onSaved: () => void;
 }
 
@@ -94,6 +101,7 @@ export function ConfigFormDialog({
   open,
   onOpenChange,
   existing,
+  suggestDefaultOutbound = false,
   onSaved,
 }: ConfigFormDialogProps) {
   const { user, getAccessToken } = useAuth();
@@ -113,18 +121,13 @@ export function ConfigFormDialog({
   );
   const visibleFields = useMemo(
     () =>
+      // Trunks are their own resource, edited alongside the SIP endpoints on
+      // the configuration detail page, so nothing provider-specific needs
+      // filtering out of the generic credentials dialog.
       currentProvider?.fields.filter(
         (field) =>
-          // Cloudonix outbound routing is edited alongside the inbound SIP
-          // endpoints on the configuration detail page. Keep its metadata for
-          // validation and sensitive-field masking, but do not duplicate those
-          // controls in the generic credentials dialog.
-          !(
-            currentProvider.provider === "cloudonix" &&
-            field.name.startsWith("outbound_trunk.")
-          ) &&
-          (!field.visible_when ||
-            values[field.visible_when.field] === field.visible_when.equals),
+          !field.visible_when ||
+          values[field.visible_when.field] === field.visible_when.equals,
       ) ?? [],
     [currentProvider, values],
   );
@@ -146,9 +149,12 @@ export function ConfigFormDialog({
         setName(existing.name);
         setIsDefault(existing.is_default_outbound);
         setValues(flattenValues(existing.credentials ?? {}));
-      } else if (list.length > 0 && !providerName) {
-        setProviderName(list[0].provider);
-        setValues({});
+      } else {
+        setIsDefault(suggestDefaultOutbound);
+        if (list.length > 0 && !providerName) {
+          setProviderName(list[0].provider);
+          setValues({});
+        }
       }
     })();
     return () => {
@@ -309,6 +315,9 @@ export function ConfigFormDialog({
                 <Label className="text-sm">Set as default for outbound calls</Label>
                 <p className="text-xs text-muted-foreground">
                   Used by test calls and campaigns when no specific config is selected.
+                  {suggestDefaultOutbound
+                    ? " Your organization has no default yet."
+                    : ""}
                 </p>
               </div>
               <Switch checked={isDefault} onCheckedChange={setIsDefault} />

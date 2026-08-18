@@ -23,13 +23,3 @@ class TwilioConfigurationRequest(BaseModel):
             "Twilio may bill AMD as an additional per-call feature."
         ),
     )
-
-
-class TwilioConfigurationResponse(BaseModel):
-    """Response schema for Twilio configuration with masked sensitive fields."""
-
-    provider: Literal["twilio"] = Field(default="twilio")
-    account_sid: str  # Masked (e.g., "****************def0")
-    auth_token: str  # Masked (e.g., "****************abc1")
-    from_numbers: List[str]
-    amd_enabled: bool = False

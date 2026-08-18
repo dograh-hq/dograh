@@ -12,13 +12,18 @@ from api.services.telephony.registry import (
     ProviderSpec,
     ProviderUIField,
     ProviderUIMetadata,
+    TrunkDesiredState,
     register,
 )
 from api.utils.common import get_backend_endpoints
 
-from .config import CloudonixConfigurationRequest, CloudonixConfigurationResponse
+from .config import (
+    CloudonixConfigurationRequest,
+    CloudonixTrunkSettings,
+)
 from .provider import CLOUDONIX_API_BASE_URL, CloudonixProvider
 from .regions import CLOUDONIX_REGION_NAMES, get_cloudonix_region
+from .setup import resolve_setup_checklist
 from .transport import create_transport
 
 
@@ -32,8 +37,6 @@ def _config_loader(value: dict[str, Any]) -> dict[str, Any]:
         "application_name": value.get("application_name"),
         "application_id": value.get("application_id"),
         "application_uuid": value.get("application_uuid"),
-        "outbound_trunks": value.get("outbound_trunks") or [],
-        "outbound_trunk_uuids": value.get("outbound_trunk_uuids") or {},
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -580,86 +583,76 @@ async def _apply_outbound_trunk(
     return created_uuid
 
 
-async def _ensure_outbound_trunks(credentials: dict[str, Any]) -> dict[str, Any]:
-    """Reconcile every configured outbound trunk against Cloudonix.
+def _trunk_endpoint(
+    credentials: dict[str, Any],
+) -> tuple[str, dict[str, str]] | None:
+    """Collection URL and auth headers for this domain's trunks.
 
-    ``outbound_trunks`` is the desired state and ``outbound_trunk_uuids`` maps
-    each Dograh trunk id to the Cloudonix UUID it provisioned. Keeping the map
-    keyed by our own id — rather than matching on trunk name — means a rename
-    updates the existing Cloudonix trunk instead of orphaning it. A trunk that
-    is disabled or dropped from the list is deactivated remotely.
+    None when the configuration has no usable credentials yet — a trunk row can
+    exist before the Cloudonix domain does, and that is not an error.
     """
-    configurations = credentials.get("outbound_trunks")
-    configurations = configurations if isinstance(configurations, list) else []
-    stored_uuids = credentials.get("outbound_trunk_uuids")
-    stored_uuids = dict(stored_uuids) if isinstance(stored_uuids, dict) else {}
-
-    if not configurations and not stored_uuids:
-        return credentials
-
     bearer_token = credentials.get("bearer_token")
     domain_id = credentials.get("domain_id")
     if not bearer_token or not domain_id:
-        return credentials
+        return None
 
     encoded_domain_id = quote(str(domain_id), safe="")
-    collection_endpoint = f"{CLOUDONIX_API_BASE_URL}/domains/{encoded_domain_id}/trunks"
-    headers = {
-        "Authorization": f"Bearer {bearer_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
+    return (
+        f"{CLOUDONIX_API_BASE_URL}/domains/{encoded_domain_id}/trunks",
+        {
+            "Authorization": f"Bearer {bearer_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+
+
+def _trunk_configuration(trunk: TrunkDesiredState) -> dict[str, Any]:
+    """Flatten a trunk row into the shape the payload builders read."""
+    settings = trunk.settings or {}
+    return {
+        "name": trunk.name,
+        "region": settings.get("region"),
+        "sip_domain": settings.get("sip_domain"),
     }
+
+
+async def _apply_trunk_on_save(
+    credentials: dict[str, Any], trunk: TrunkDesiredState
+) -> str | None:
+    """Reconcile one trunk row against Cloudonix, returning its Cloudonix UUID.
+
+    A disabled trunk is deactivated remotely but keeps its UUID, so re-enabling
+    reuses the same Cloudonix trunk even if the operator renamed it in between.
+    """
+    target = _trunk_endpoint(credentials)
+    if target is None:
+        return trunk.external_id
+    collection_endpoint, headers = target
 
     try:
         async with aiohttp.ClientSession() as session:
             remote_trunks = await _list_outbound_domain_trunks(
                 session, collection_endpoint, headers
             )
-
-            provisioned: dict[str, str] = {}
-            for configuration in configurations:
-                if not isinstance(configuration, dict):
-                    continue
-                trunk_id = configuration.get("id")
-                if not isinstance(trunk_id, str) or not trunk_id:
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Outbound trunk is missing its Dograh identifier",
-                    )
-                if not configuration.get("enabled"):
-                    continue
-                provisioned[trunk_id] = await _apply_outbound_trunk(
-                    session,
-                    collection_endpoint,
-                    headers,
-                    remote_trunks,
-                    configuration,
-                    stored_uuids.get(trunk_id),
+            if not trunk.enabled:
+                remote = _find_managed_outbound_trunk(
+                    remote_trunks, trunk.external_id, trunk.name
                 )
-
-            # Anything previously provisioned that is now disabled or removed.
-            listed_ids = {
-                configuration.get("id")
-                for configuration in configurations
-                if isinstance(configuration, dict)
-            }
-            resolved = dict(provisioned)
-            for stale_id, stale_uuid in stored_uuids.items():
-                if stale_id in provisioned:
-                    continue
-                remote = _find_managed_outbound_trunk(remote_trunks, stale_uuid, None)
                 if remote is not None:
                     await _deactivate_outbound_trunk(
                         session, collection_endpoint, headers, remote
                     )
-                # A trunk still on the config is only switched off: keep its
-                # UUID so re-enabling reuses the Cloudonix trunk even if the
-                # operator renamed it while it was disabled. A trunk dropped
-                # from the config is forgotten.
-                if stale_id in listed_ids:
-                    resolved[stale_id] = stale_uuid
+                return trunk.external_id
 
-            return {**credentials, "outbound_trunk_uuids": resolved}
+            return await _apply_outbound_trunk(
+                session,
+                collection_endpoint,
+                headers,
+                remote_trunks,
+                _trunk_configuration(trunk),
+                trunk.external_id,
+            )
     except aiohttp.ClientError as e:
         logger.error(f"[Cloudonix] outbound trunk transport error: {e}")
         raise HTTPException(
@@ -668,27 +661,44 @@ async def _ensure_outbound_trunks(credentials: dict[str, Any]) -> dict[str, Any]
         ) from e
 
 
-def _assign_outbound_trunk_ids(credentials: dict[str, Any]) -> dict[str, Any]:
-    """Mint a Dograh id for any trunk saved without one."""
-    configurations = credentials.get("outbound_trunks")
-    if not isinstance(configurations, list) or not configurations:
-        return credentials
+async def _remove_trunk_on_delete(
+    credentials: dict[str, Any], trunk: TrunkDesiredState
+) -> None:
+    """Deactivate the Cloudonix trunk behind a row that is being deleted.
 
-    stamped = []
-    for configuration in configurations:
-        if isinstance(configuration, dict) and not configuration.get("id"):
-            configuration = {**configuration, "id": str(uuid.uuid4())}
-        stamped.append(configuration)
-    return {**credentials, "outbound_trunks": stamped}
+    Deactivation rather than deletion: the operator may have carrier-side
+    routing pointed at it, and Cloudonix keeps the trunk's call history.
+    """
+    target = _trunk_endpoint(credentials)
+    if target is None:
+        return
+    collection_endpoint, headers = target
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            remote_trunks = await _list_outbound_domain_trunks(
+                session, collection_endpoint, headers
+            )
+            remote = _find_managed_outbound_trunk(
+                remote_trunks, trunk.external_id, trunk.name
+            )
+            if remote is not None:
+                await _deactivate_outbound_trunk(
+                    session, collection_endpoint, headers, remote
+                )
+    except aiohttp.ClientError as e:
+        logger.error(f"[Cloudonix] outbound trunk transport error on delete: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to reach Cloudonix to remove outbound trunk: {e}",
+        ) from e
 
 
 async def _preprocess_credentials_on_save(
     credentials: dict[str, Any],
 ) -> dict[str, Any]:
     credentials = await _fetch_domain_uuid(credentials)
-    credentials = await _ensure_application_name(credentials)
-    credentials = _assign_outbound_trunk_ids(credentials)
-    return await _ensure_outbound_trunks(credentials)
+    return await _ensure_application_name(credentials)
 
 
 _UI_METADATA = ProviderUIMetadata(
@@ -739,7 +749,6 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=CloudonixConfigurationRequest,
     ui_metadata=_UI_METADATA,
-    config_response_cls=CloudonixConfigurationResponse,
     account_id_credential_field="domain_id",
     server_managed_credential_fields=(
         "domain_uuid",
@@ -747,15 +756,18 @@ SPEC = ProviderSpec(
         "application_uuid",
         "managed_by",
         "provisioning_id",
-        "outbound_trunk_uuids",
     ),
     account_scoped_server_managed_credential_fields=(
         "domain_uuid",
         "application_id",
         "application_uuid",
-        "outbound_trunk_uuids",
     ),
     preprocess_credentials_on_save=_preprocess_credentials_on_save,
+    setup_checklist_resolver=resolve_setup_checklist,
+    connectivity="sip",
+    trunk_settings_cls=CloudonixTrunkSettings,
+    apply_trunk_on_save=_apply_trunk_on_save,
+    remove_trunk_on_delete=_remove_trunk_on_delete,
 )
 
 
@@ -765,7 +777,6 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "CloudonixConfigurationRequest",
-    "CloudonixConfigurationResponse",
     "CloudonixProvider",
     "create_transport",
 ]

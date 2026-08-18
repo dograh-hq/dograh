@@ -11,10 +11,11 @@ from api.db.telephony_configuration_client import (
 from api.services.mps_service_key_client import mps_service_key_client
 
 from . import _preprocess_credentials_on_save
-from .config import normalize_cloudonix_domain
-
-MANAGED_CONFIGURATION_NAME = "Dograh Cloudonix SIP"
-MANAGED_BY = "dograh-mps"
+from .config import (
+    MANAGED_BY,
+    MANAGED_CONFIGURATION_NAME,
+    normalize_cloudonix_domain,
+)
 
 
 def _managed_configuration(rows: list[Any]):
@@ -84,6 +85,10 @@ async def ensure_managed_cloudonix_configuration(
             name=MANAGED_CONFIGURATION_NAME,
             provider="cloudonix",
             credentials=credentials,
+            # Dograh provisions this row; the customer did not ask for it and
+            # it cannot carry a call until they connect their own carrier.
+            # Making it the org default would point campaigns and API triggers
+            # at the one configuration guaranteed not to work.
             is_default_outbound=False,
         )
     except TelephonyConfigurationConflictError:

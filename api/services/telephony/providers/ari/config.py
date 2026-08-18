@@ -89,15 +89,3 @@ class ARIConfigurationRequest(BaseModel):
         default_factory=list,
         description="List of SIP extensions/numbers for outbound calls (optional)",
     )
-
-
-class ARIConfigurationResponse(BaseModel):
-    """Response schema for ARI configuration with masked sensitive fields."""
-
-    provider: Literal["ari"] = Field(default="ari")
-    ari_endpoint: str
-    app_name: str
-    app_password: str  # Masked
-    ws_client_name: str = ""
-    external_pbx: Optional[VicidialExternalPBXConfiguration] = None
-    from_numbers: List[str]

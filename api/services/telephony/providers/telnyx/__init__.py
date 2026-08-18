@@ -15,7 +15,7 @@ from api.services.telephony.registry import (
 )
 from api.utils.common import get_backend_endpoints
 
-from .config import TelnyxConfigurationRequest, TelnyxConfigurationResponse
+from .config import TelnyxConfigurationRequest
 from .provider import TelnyxProvider
 from .transport import create_transport
 
@@ -155,7 +155,6 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=TelnyxConfigurationRequest,
     ui_metadata=_UI_METADATA,
-    config_response_cls=TelnyxConfigurationResponse,
     account_id_credential_field="connection_id",
     preprocess_credentials_on_save=_ensure_connection_id,
 )
@@ -167,7 +166,6 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "TelnyxConfigurationRequest",
-    "TelnyxConfigurationResponse",
     "TelnyxProvider",
     "create_transport",
 ]

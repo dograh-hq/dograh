@@ -36,6 +36,25 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return list(result.scalars().all())
 
+    async def list_outbound_telephony_configuration_candidates(
+        self, organization_id: int
+    ) -> List[TelephonyConfigurationModel]:
+        """Active outbound candidates, with an explicit default considered first."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyConfigurationModel)
+                .where(
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                    TelephonyConfigurationModel.inactive.is_(False),
+                )
+                .order_by(
+                    TelephonyConfigurationModel.is_default_outbound.desc(),
+                    TelephonyConfigurationModel.created_at,
+                    TelephonyConfigurationModel.id,
+                )
+            )
+            return list(result.scalars().all())
+
     async def get_telephony_configuration(
         self, config_id: int
     ) -> Optional[TelephonyConfigurationModel]:
@@ -212,16 +231,17 @@ class TelephonyConfigurationClient(BaseDBClient):
         is_default_outbound: bool = False,
     ) -> TelephonyConfigurationModel:
         """Create a new config row. Duplicate-account guarding is the caller's
-        responsibility; this method does not enforce it."""
+        responsibility; this method does not enforce it.
+
+        Which configuration is the default outbound is the customer's choice,
+        so this stores exactly what the caller passed. The only write beyond
+        the new row is demoting the previous default when this one claims it —
+        part of honouring ``is_default_outbound=True``, since two defaults in
+        one organization would make ``get_default_telephony_configuration``
+        return an arbitrary row.
+        """
         async with self.async_session() as session:
-            existing_count = await session.scalar(
-                select(func.count(TelephonyConfigurationModel.id)).where(
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                )
-            )
-            if existing_count == 0:
-                is_default_outbound = True
-            elif is_default_outbound:
+            if is_default_outbound:
                 await self._clear_default_outbound(session, organization_id)
 
             row = TelephonyConfigurationModel(

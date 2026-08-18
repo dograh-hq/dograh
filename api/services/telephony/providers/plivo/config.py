@@ -23,13 +23,3 @@ class PlivoConfigurationRequest(BaseModel):
     from_numbers: List[str] = Field(
         default_factory=list, description="List of Plivo phone numbers"
     )
-
-
-class PlivoConfigurationResponse(BaseModel):
-    """Response schema for Plivo configuration with masked sensitive fields."""
-
-    provider: Literal["plivo"] = Field(default="plivo")
-    auth_id: str  # Masked
-    auth_token: str  # Masked
-    application_id: Optional[str] = None
-    from_numbers: List[str]

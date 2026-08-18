@@ -21,14 +21,18 @@ from api.services.telephony.providers.cloudonix import (
     CLOUDONIX_API_BASE_URL,
     SPEC,
     CloudonixProvider,
-    _ensure_outbound_trunks,
+    _apply_trunk_on_save,
     _preprocess_credentials_on_save,
     _redact_outbound_trunk_payload,
+    _remove_trunk_on_delete,
 )
 from api.services.telephony.providers.cloudonix.config import (
     CloudonixConfigurationRequest,
+    CloudonixTrunkSettings,
+    validate_cloudonix_trunk_name,
 )
 from api.services.telephony.providers.twilio.provider import TwilioProvider
+from api.services.telephony.registry import TrunkDesiredState
 
 DOMAIN_UUID = "24f9423e-6902-4a48-b1f2-d5953106d4ae"
 TRUNK_UUID = "c8d11212-8ec0-49b8-b4e2-083de6e4b74a"
@@ -367,7 +371,6 @@ async def test_update_refetches_server_managed_fields_when_domain_changes():
         "application_uuid": "stored-app-uuid",
         "managed_by": "dograh-mps",
         "provisioning_id": "22222222-2222-4222-8222-222222222222",
-        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
     }
 
     with patch(
@@ -406,7 +409,6 @@ async def test_create_configuration_persists_fetched_domain_uuid():
         "bearer_token": "secret-token",
         "domain_id": "friendly-name.cloudonix.net",
         "application_name": "existing-app",
-        "outbound_trunks": [],
         "domain_uuid": DOMAIN_UUID,
     }
     row = SimpleNamespace(
@@ -443,6 +445,8 @@ async def test_create_configuration_persists_fetched_domain_uuid():
         patch("api.routes.organization.capture_event"),
     ):
         db_client.create_telephony_configuration = AsyncMock(return_value=row)
+        db_client.list_phone_numbers_for_config = AsyncMock(return_value=[])
+        db_client.list_trunks_for_config = AsyncMock(return_value=[])
         response = await create_telephony_configuration(
             request,
             SimpleNamespace(selected_organization_id=7, provider_id="user-123"),
@@ -513,58 +517,45 @@ async def test_preprocess_propagates_domain_get_http_error():
     assert exc_info.value.detail == ("Failed to fetch Cloudonix domain UUID: HTTP 401")
 
 
-def _trunk_request(**trunk):
-    return CloudonixConfigurationRequest.model_validate(
+def test_trunk_settings_require_a_region_and_sip_domain():
+    with pytest.raises(ValidationError):
+        CloudonixTrunkSettings.model_validate({})
+
+    with pytest.raises(ValidationError):
+        CloudonixTrunkSettings.model_validate({"region": "India"})
+
+
+def test_trunk_settings_region_must_be_known_and_normalizes_case():
+    with pytest.raises(ValidationError, match="Unknown Cloudonix region 'Mars'"):
+        CloudonixTrunkSettings.model_validate(
+            {"region": "Mars", "sip_domain": "sip.example.com"}
+        )
+
+    normalized = CloudonixTrunkSettings.model_validate(
+        {"region": "india", "sip_domain": "sip.example.com"}
+    )
+    assert normalized.region == "India"
+
+
+def test_trunk_name_rejects_spaces_and_keeps_hyphens():
+    with pytest.raises(ValueError, match="letters, digits and hyphens"):
+        validate_cloudonix_trunk_name("dograh carrier")
+
+    assert validate_cloudonix_trunk_name(" dograh-carrier-01 ") == "dograh-carrier-01"
+
+
+def test_trunks_are_not_part_of_the_configuration_payload():
+    """They are rows with their own endpoints, so a config save cannot carry
+    them in and quietly replace what the operator has."""
+    request = CloudonixConfigurationRequest.model_validate(
         {
             "bearer_token": "secret-token",
             "domain_id": "friendly-name",
-            "outbound_trunks": [trunk],
+            "outbound_trunks": [{"name": "smuggled", "enabled": True}],
         }
     )
 
-
-def test_outbound_trunk_configuration_requires_name_region_and_sip_domain():
-    with pytest.raises(ValidationError, match="name, region and SIP domain"):
-        _trunk_request(enabled=True)
-
-    with pytest.raises(ValidationError, match="name, region and SIP domain"):
-        _trunk_request(enabled=True, name="dograh-carrier", region="India")
-
-
-def test_outbound_trunk_name_rejects_spaces_and_keeps_hyphens():
-    with pytest.raises(ValidationError, match="letters, digits and hyphens"):
-        _trunk_request(
-            enabled=True,
-            name="dograh carrier",
-            region="India",
-            sip_domain="sip.example.com",
-        )
-
-    accepted = _trunk_request(
-        enabled=True,
-        name="dograh-carrier-01",
-        region="India",
-        sip_domain="sip.example.com",
-    )
-    assert accepted.outbound_trunks[0].name == "dograh-carrier-01"
-
-
-def test_outbound_trunk_region_must_be_known_and_normalizes_case():
-    with pytest.raises(ValidationError, match="Unknown Cloudonix region 'Mars'"):
-        _trunk_request(
-            enabled=True,
-            name="dograh-carrier",
-            region="Mars",
-            sip_domain="sip.example.com",
-        )
-
-    normalized = _trunk_request(
-        enabled=True,
-        name="dograh-carrier",
-        region="india",
-        sip_domain="sip.example.com",
-    )
-    assert normalized.outbound_trunks[0].region == "India"
+    assert not hasattr(request, "outbound_trunks")
 
 
 def test_cloudonix_domain_normalization_qualifies_short_names():
@@ -622,13 +613,11 @@ def test_cloudonix_metadata_leaves_outbound_trunks_to_the_dedicated_form():
         "application_uuid",
         "managed_by",
         "provisioning_id",
-        "outbound_trunk_uuids",
     )
     assert SPEC.account_scoped_server_managed_credential_fields == (
         "domain_uuid",
         "application_id",
         "application_uuid",
-        "outbound_trunk_uuids",
     )
 
 
@@ -642,7 +631,6 @@ def test_display_credentials_drop_server_managed_fields_and_mask_the_token():
         "application_uuid": "app-uuid",
         "managed_by": "dograh-mps",
         "provisioning_id": "11111111-1111-4111-8111-111111111111",
-        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
     }
 
     displayed = _credentials_for_display("cloudonix", stored)
@@ -662,16 +650,12 @@ async def test_outbound_trunk_create_uses_cloudonix_voice_trunk_schema():
     credentials = {
         "bearer_token": "secret-token",
         "domain_id": "friendly-name.cloudonix.net",
-        "outbound_trunks": [
-            {
-                "id": "trunk-1",
-                "enabled": True,
-                "name": "dograh-carrier",
-                "region": "India",
-                "sip_domain": "sip.example.com",
-            }
-        ],
     }
+    trunk = TrunkDesiredState(
+        name="dograh-carrier",
+        enabled=True,
+        settings={"region": "India", "sip_domain": "sip.example.com"},
+    )
 
     with (
         patch(
@@ -680,7 +664,7 @@ async def test_outbound_trunk_create_uses_cloudonix_voice_trunk_schema():
         ),
         patch("api.services.telephony.providers.cloudonix.logger.info") as log_info,
     ):
-        result = await _ensure_outbound_trunks(credentials)
+        result = await _apply_trunk_on_save(credentials, trunk)
 
     endpoint = f"{CLOUDONIX_API_BASE_URL}/domains/{credentials['domain_id']}/trunks"
     headers = {
@@ -705,10 +689,7 @@ async def test_outbound_trunk_create_uses_cloudonix_voice_trunk_schema():
     assert session.post_calls == [
         (endpoint, {"json": expected_payload, "headers": headers})
     ]
-    assert result == {
-        **credentials,
-        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
-    }
+    assert result == TRUNK_UUID
 
     log_output = "\n".join(str(call.args[0]) for call in log_info.call_args_list)
     assert "secret-token" not in log_output
@@ -736,26 +717,22 @@ async def test_outbound_trunk_reuses_matching_name_without_an_update():
     credentials = {
         "bearer_token": "secret-token",
         "domain_id": "friendly-name.cloudonix.net",
-        "outbound_trunks": [
-            {
-                "id": "trunk-1",
-                "enabled": True,
-                "name": "dograh-carrier",
-                "region": "Global",
-                "sip_domain": "sip.example.com",
-            }
-        ],
     }
+    trunk = TrunkDesiredState(
+        name="dograh-carrier",
+        enabled=True,
+        settings={"region": "Global", "sip_domain": "sip.example.com"},
+    )
 
     with patch(
         "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
         return_value=session,
     ):
-        result = await _ensure_outbound_trunks(credentials)
+        result = await _apply_trunk_on_save(credentials, trunk)
 
     assert session.post_calls == []
     assert session.put_calls == []
-    assert result["outbound_trunk_uuids"] == {"trunk-1": TRUNK_UUID}
+    assert result == TRUNK_UUID
 
 
 @pytest.mark.asyncio
@@ -786,23 +763,19 @@ async def test_outbound_trunk_updates_by_uuid_and_preserves_unknown_profile_fiel
     credentials = {
         "bearer_token": "secret-token",
         "domain_id": "friendly-name.cloudonix.net",
-        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
-        "outbound_trunks": [
-            {
-                "id": "trunk-1",
-                "enabled": True,
-                "name": "new-name",
-                "region": "UAE",
-                "sip_domain": "routing.example.com",
-            }
-        ],
     }
+    trunk = TrunkDesiredState(
+        name="new-name",
+        enabled=True,
+        settings={"region": "UAE", "sip_domain": "routing.example.com"},
+        external_id=TRUNK_UUID,
+    )
 
     with patch(
         "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
         return_value=session,
     ):
-        result = await _ensure_outbound_trunks(credentials)
+        result = await _apply_trunk_on_save(credentials, trunk)
 
     collection_endpoint = (
         f"{CLOUDONIX_API_BASE_URL}/domains/{credentials['domain_id']}/trunks"
@@ -835,7 +808,7 @@ async def test_outbound_trunk_updates_by_uuid_and_preserves_unknown_profile_fiel
             },
         )
     ]
-    assert result == credentials
+    assert result == TRUNK_UUID
 
 
 @pytest.mark.asyncio
@@ -853,19 +826,24 @@ async def test_disabling_outbound_trunk_deactivates_managed_resource():
     credentials = {
         "bearer_token": "secret-token",
         "domain_id": "friendly-name.cloudonix.net",
-        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
-        "outbound_trunks": [{"id": "trunk-1", "enabled": False}],
     }
+    trunk = TrunkDesiredState(
+        name="dograh-carrier",
+        enabled=False,
+        settings={"region": "India", "sip_domain": "sip.example.com"},
+        external_id=TRUNK_UUID,
+    )
 
     with patch(
         "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
         return_value=session,
     ):
-        result = await _ensure_outbound_trunks(credentials)
+        result = await _apply_trunk_on_save(credentials, trunk)
 
     assert len(session.put_calls) == 1
     assert session.put_calls[0][1]["json"] == {"active": False}
-    assert result == credentials
+    # The UUID survives so re-enabling reuses the same Cloudonix trunk.
+    assert result == TRUNK_UUID
 
 
 @pytest.mark.asyncio
@@ -888,31 +866,29 @@ async def test_renaming_a_trunk_updates_it_by_id_instead_of_creating_another():
     credentials = {
         "bearer_token": "secret-token",
         "domain_id": "friendly-name.cloudonix.net",
-        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
-        "outbound_trunks": [
-            {
-                "id": "trunk-1",
-                "enabled": True,
-                "name": "renamed-trunk",
-                "region": "India",
-                "sip_domain": "sip.example.com",
-            }
-        ],
     }
+    trunk = TrunkDesiredState(
+        name="renamed-trunk",
+        enabled=True,
+        settings={"region": "India", "sip_domain": "sip.example.com"},
+        external_id=TRUNK_UUID,
+    )
 
     with patch(
         "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
         return_value=session,
     ):
-        result = await _ensure_outbound_trunks(credentials)
+        result = await _apply_trunk_on_save(credentials, trunk)
 
     assert session.post_calls == []
     assert session.put_calls[0][1]["json"]["name"] == "renamed-trunk"
-    assert result["outbound_trunk_uuids"] == {"trunk-1": TRUNK_UUID}
+    assert result == TRUNK_UUID
 
 
 @pytest.mark.asyncio
-async def test_multiple_trunks_are_reconciled_and_dropped_ones_deactivated():
+async def test_a_second_trunk_is_created_without_touching_the_first():
+    """Each trunk is its own row, so saving one leaves the others alone. The
+    old blob reconciler rewrote the whole list on every save."""
     second_uuid = "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
     kept = {
         "uuid": TRUNK_UUID,
@@ -925,53 +901,75 @@ async def test_multiple_trunks_are_reconciled_and_dropped_ones_deactivated():
         "profile": {"domain": "sip.example.com", "ruri-domain": "sip.example.com"},
         "active": True,
     }
-    removed = {
-        "uuid": second_uuid,
-        "name": "removed-trunk",
-        "direction": "public-outbound",
-        "active": True,
-    }
     session = _TrunkSession(
-        get_responses=[_FakeResponse(200, [kept, removed])],
+        get_responses=[_FakeResponse(200, [kept])],
         post_response=_FakeResponse(200, {"uuid": second_uuid}),
-        put_response=_FakeResponse(200, {}),
     )
     credentials = {
         "bearer_token": "secret-token",
         "domain_id": "friendly-name.cloudonix.net",
-        "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID, "trunk-2": second_uuid},
-        "outbound_trunks": [
-            {
-                "id": "trunk-1",
-                "enabled": True,
-                "name": "kept-trunk",
-                "region": "India",
-                "sip_domain": "sip.example.com",
-            },
-            {
-                "id": "trunk-3",
-                "enabled": True,
-                "name": "new-trunk",
-                "region": "UAE",
-                "sip_domain": "other.example.com",
-            },
-        ],
     }
+    trunk = TrunkDesiredState(
+        name="new-trunk",
+        enabled=True,
+        settings={"region": "UAE", "sip_domain": "other.example.com"},
+    )
 
     with patch(
         "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
         return_value=session,
     ):
-        result = await _ensure_outbound_trunks(credentials)
+        result = await _apply_trunk_on_save(credentials, trunk)
 
-    # kept-trunk already matches, new-trunk is created, removed-trunk is
-    # deactivated because its id is gone from the configuration.
     assert [call[1]["json"]["name"] for call in session.post_calls] == ["new-trunk"]
-    assert session.put_calls[0][1]["json"] == {"active": False}
-    assert result["outbound_trunk_uuids"] == {
-        "trunk-1": TRUNK_UUID,
-        "trunk-3": second_uuid,
+    assert session.put_calls == []
+    assert result == second_uuid
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_trunk_deactivates_it_remotely():
+    existing = {
+        "uuid": TRUNK_UUID,
+        "name": "dograh-carrier",
+        "direction": "public-outbound",
+        "active": True,
     }
+    session = _TrunkSession(
+        get_responses=[_FakeResponse(200, [existing])],
+        put_response=_FakeResponse(200, existing),
+    )
+    credentials = {
+        "bearer_token": "secret-token",
+        "domain_id": "friendly-name.cloudonix.net",
+    }
+    trunk = TrunkDesiredState(
+        name="dograh-carrier",
+        enabled=True,
+        settings={"region": "India", "sip_domain": "sip.example.com"},
+        external_id=TRUNK_UUID,
+    )
+
+    with patch(
+        "api.services.telephony.providers.cloudonix.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await _remove_trunk_on_delete(credentials, trunk)
+
+    # Deactivated, not deleted: the carrier may still be pointed at it.
+    assert session.put_calls[0][1]["json"] == {"active": False}
+
+
+@pytest.mark.asyncio
+async def test_trunk_hooks_are_a_no_op_before_credentials_exist():
+    trunk = TrunkDesiredState(
+        name="dograh-carrier",
+        enabled=True,
+        settings={"region": "India", "sip_domain": "sip.example.com"},
+        external_id=TRUNK_UUID,
+    )
+
+    assert await _apply_trunk_on_save({}, trunk) == TRUNK_UUID
+    assert await _remove_trunk_on_delete({}, trunk) is None
 
 
 def test_outbound_trunk_log_redaction_does_not_mutate_request_payload():
@@ -996,10 +994,8 @@ async def test_outbound_calls_are_pinned_to_the_managed_trunk_name():
         {
             "bearer_token": "secret-token",
             "domain_id": "friendly-name.cloudonix.net",
-            "outbound_trunks": [
-                {"id": "trunk-1", "enabled": True, "name": "  dograh-carrier  "}
-            ],
-            "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
+            "trunks": [{"id": 1, "enabled": True, "name": "  dograh-carrier  "}],
+            "trunk_id_by_number": {"+15551230001": 1},
             "from_numbers": ["+15551230001"],
         }
     )
@@ -1042,10 +1038,8 @@ async def test_transfer_calls_are_pinned_to_the_managed_trunk_name():
         {
             "bearer_token": "secret-token",
             "domain_id": "friendly-name.cloudonix.net",
-            "outbound_trunks": [
-                {"id": "trunk-1", "enabled": True, "name": "dograh-carrier"}
-            ],
-            "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
+            "trunks": [{"id": 1, "enabled": True, "name": "dograh-carrier"}],
+            "trunk_id_by_number": {"+15551230001": 1},
             "from_numbers": ["+15551230001"],
         }
     )
@@ -1083,10 +1077,8 @@ async def test_disabled_outbound_trunk_is_not_sent_with_outbound_calls():
         {
             "bearer_token": "secret-token",
             "domain_id": "friendly-name.cloudonix.net",
-            "outbound_trunks": [
-                {"id": "trunk-1", "enabled": False, "name": "dograh-carrier"}
-            ],
-            "outbound_trunk_uuids": {"trunk-1": TRUNK_UUID},
+            "trunks": [{"id": 1, "enabled": False, "name": "dograh-carrier"}],
+            "trunk_id_by_number": {"+15551230001": 1},
             "from_numbers": ["+15551230001"],
         }
     )
@@ -1119,7 +1111,7 @@ async def test_disabled_outbound_trunk_is_not_sent_with_outbound_calls():
             trunk=TRUNK_UUID,
         )
 
-    assert provider.outbound_trunk_name is None
+    assert provider.select_trunk("+15551230001") is None
     assert "trunk" not in session.post_calls[0][1]["json"]
 
 

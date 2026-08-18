@@ -922,6 +922,11 @@ def create_tts_service(
             )
             from pipecat.services.speechify.tts import SpeechifyTTSSettings
         except ModuleNotFoundError as e:
+            missing = e.name or ""
+            if missing != "pipecat.services.speechify" and not missing.startswith(
+                "pipecat.services.speechify."
+            ):
+                raise
             raise HTTPException(
                 status_code=400,
                 detail=(

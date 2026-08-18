@@ -36,6 +36,9 @@ If you find yourself editing anything else, re-read the registry plumbing first:
 | Form rendered by the telephony-config UI         | `ProviderSpec.ui_metadata` (`ProviderUIField` list)                                                                                                   |
 | Which credential masks on read                   | `ui_metadata.fields[*].sensitive=True` (no separate list)                                                                                             |
 | Inbound webhook → config row matching            | `ProviderSpec.account_id_credential_field`                                                                                                            |
+| "Can this config actually dial out yet?"         | `ProviderSpec.requires_caller_id`, or `setup_checklist_resolver` for richer rules (see below)                                                          |
+| Carrier account vs bring-your-own-SIP framing    | `ProviderSpec.connectivity` (see *Connectivity* below)                                                                                                |
+| Carrier paths a number can dial out over         | `ProviderSpec.trunk_settings_cls` (see *Trunks* below)                                                                                                |
 | HTTP routes (answer URL, status callbacks)       | `providers/<name>/routes.py` (auto-mounted via `importlib`)                                                                                           |
 
 ## ProviderSpec — minimum viable shape
@@ -92,6 +95,91 @@ It runs over `TelephonyConfigurationModel.credentials` (the JSONB column). Don't
 ### Sensitive fields
 
 Mark every credential field `sensitive=True` in `ProviderUIMetadata`. The org routes derive masking from `ui_metadata`, not from a separate hardcoded list. If you re-submit a masked value, `preserve_masked_fields` restores the original — relying on this means you should never write `sensitive=False` on a real secret to "make the form simpler."
+
+### Connectivity (`connectivity`)
+
+Declares how the customer gets phone service through this provider:
+
+- `"api"` (default) — the provider **is** the carrier. Sign up there, paste
+  credentials, rent their numbers. Twilio, Plivo, Telnyx, Vonage, Vobiz.
+- `"sip"` — the customer brings their own carrier or PBX and connects it to a
+  SIP endpoint. Credentials alone carry no calls. Cloudonix, ARI.
+
+Nothing at runtime branches on this. It exists so the UI can offer "connect a
+provider account" and "bring your own SIP" as two routes without a hardcoded
+provider list of its own — Cloudonix is the first SIP connector, not the last.
+Surfaced on `GET /telephony-providers/metadata` and on every configuration row.
+
+### Caller ID (`requires_caller_id`)
+
+Defaults to `True`, because every carrier rejects an outbound call with no
+caller ID — and each provider's own `validate_config` already refuses to run
+without `from_numbers`. Leaving the default means a new provider reports
+readiness honestly for free: a credentials-only configuration gets the shared
+one-step checklist ("add a phone number") instead of claiming it can dial.
+
+Set `False` only when the provider can genuinely originate without a number —
+ARI dialling a PBX extension is the one case today. Ignored when the provider
+supplies its own `setup_checklist_resolver`, which is expected to cover the
+caller-ID rule itself.
+
+### Trunks (`trunk_settings_cls`)
+
+A trunk is one carrier path on a configuration. Declaring `trunk_settings_cls`
+is what says this provider has them; it is a Pydantic model for the trunk's
+provider-specific settings (region and SIP domain for Cloudonix), validated on
+write and stored in `telephony_trunks.settings`.
+
+Trunks are rows, not credentials. They live under
+`/telephony-configs/{id}/trunks` and never travel inside a configuration save —
+that is what lets a trunk reference a configuration that already exists, and
+what keeps a failed carrier provisioning from rolling back a credentials
+change.
+
+The point of the table is the edge `telephony_phone_numbers.telephony_trunk_id`.
+A carrier rejects — or declines to attest — a caller ID it does not own, so
+`TelephonyProvider.select_trunk` derives the route from the number the call
+presents rather than picking from a separate pool. A number with no trunk falls
+back to the sole enabled one; with several there is no honest answer, so the
+call goes out unpinned and the checklist asks the operator to assign it.
+
+When trunks also exist on the provider's side, pair the schema with
+`apply_trunk_on_save` (create/update/deactivate remotely, returning the id to
+store in `external_id`) and `remove_trunk_on_delete`. Both receive the stored
+credentials and a `TrunkDesiredState`. Integrations that route through the
+provider account itself leave all three unset and their numbers carry a null
+trunk — that is a property of how Dograh drives the provider, not of the
+vendor. Twilio, Plivo and Telnyx all sell SIP trunking with per-number trunk
+assignment; we simply don't use it, because these integrations dial through
+their call-control APIs.
+
+The configuration detail response carries `supports_trunks` alongside `trunks`,
+because an empty list means "none added yet" on one provider and "not a thing
+here" on another. On the UI side everything except the settings fields is
+generic; those are looked up by provider name in
+`ui/src/components/telephony/trunkProviders.tsx`. A provider with no entry there
+still gets a working trunk card with a name and an on/off switch — add one only
+when its `trunk_settings_cls` has fields the customer must fill in.
+
+### Setup checklist (`setup_checklist_resolver`)
+
+Optional, and only worth writing when the provider needs *more* than a caller
+ID — the customer must connect their own carrier first, an application has to
+be bound, and so on. If a number is the only outstanding requirement, leave
+`requires_caller_id` at its default and write nothing.
+
+The resolver is pure and synchronous: it receives the raw credentials dict plus
+a `ConfigurationSetupState` (phone-number counts the caller already loaded) and
+returns steps. It runs on read paths including list endpoints, so it must not
+do I/O. Build the result with `ProviderSetupChecklist.from_steps` — readiness is
+derived from the steps, so a provider can't report ready while a
+`blocks_outbound` step is incomplete.
+
+Mark a step `blocks_outbound=True` only when an outbound call genuinely fails
+without it. Inbound-only steps still belong on the checklist; they just don't
+gate the Phone Call button. Step descriptions are shown verbatim to customers
+and the first blocking one becomes the error text on a rejected call, so write
+them as instructions, not diagnostics.
 
 ### Inbound webhook routing
 

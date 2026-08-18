@@ -1,6 +1,6 @@
 """Vobiz telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,17 +20,3 @@ class VobizConfigurationRequest(BaseModel):
             "is stored on the configuration."
         ),
     )
-    from_numbers: List[str] = Field(
-        default_factory=list,
-        description="List of Vobiz phone numbers (E.164 without + prefix)",
-    )
-
-
-class VobizConfigurationResponse(BaseModel):
-    """Response schema for Vobiz configuration with masked sensitive fields."""
-
-    provider: Literal["vobiz"] = Field(default="vobiz")
-    auth_id: str  # Masked
-    auth_token: str  # Masked
-    application_id: Optional[str] = None
-    from_numbers: List[str]

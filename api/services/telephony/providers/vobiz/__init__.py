@@ -15,7 +15,7 @@ from api.services.telephony.registry import (
 )
 from api.utils.common import get_backend_endpoints
 
-from .config import VobizConfigurationRequest, VobizConfigurationResponse
+from .config import VobizConfigurationRequest
 from .provider import VobizProvider
 from .transport import create_transport
 
@@ -146,7 +146,6 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=VobizConfigurationRequest,
     ui_metadata=_UI_METADATA,
-    config_response_cls=VobizConfigurationResponse,
     account_id_credential_field="auth_id",
     preprocess_credentials_on_save=_ensure_application_id,
 )
@@ -158,7 +157,6 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "VobizConfigurationRequest",
-    "VobizConfigurationResponse",
     "VobizProvider",
     "create_transport",
 ]

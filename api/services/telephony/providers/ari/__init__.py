@@ -11,7 +11,7 @@ from api.services.telephony.registry import (
     register,
 )
 
-from .config import ARIConfigurationRequest, ARIConfigurationResponse
+from .config import ARIConfigurationRequest
 from .provider import ARIProvider
 from .transport import create_transport
 
@@ -159,7 +159,11 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=ARIConfigurationRequest,
     ui_metadata=_UI_METADATA,
-    config_response_cls=ARIConfigurationResponse,
+    # The customer's own Asterisk carries the calls; Dograh only rides it.
+    connectivity="sip",
+    # Origination sets ``callerId`` only when one is configured — a PBX
+    # dialling an internal extension needs no number at all.
+    requires_caller_id=False,
 )
 
 
@@ -169,7 +173,6 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "ARIConfigurationRequest",
-    "ARIConfigurationResponse",
     "ARIProvider",
     "create_transport",
 ]

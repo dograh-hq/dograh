@@ -1,6 +1,6 @@
 """ARI (Asterisk REST Interface) telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -85,19 +85,3 @@ class ARIConfigurationRequest(BaseModel):
         default=None,
         description="Optional external PBX connected through this Asterisk instance",
     )
-    from_numbers: List[str] = Field(
-        default_factory=list,
-        description="List of SIP extensions/numbers for outbound calls (optional)",
-    )
-
-
-class ARIConfigurationResponse(BaseModel):
-    """Response schema for ARI configuration with masked sensitive fields."""
-
-    provider: Literal["ari"] = Field(default="ari")
-    ari_endpoint: str
-    app_name: str
-    app_password: str  # Masked
-    ws_client_name: str = ""
-    external_pbx: Optional[VicidialExternalPBXConfiguration] = None
-    from_numbers: List[str]

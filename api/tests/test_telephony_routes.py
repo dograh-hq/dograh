@@ -36,6 +36,29 @@ def _workflow(*, workflow_id: int = 33, user_id: int = 99):
     )
 
 
+def _stub_outbound_setup_lookup(mock_db, *, provider: str = "twilio"):
+    """Satisfy the pre-flight setup-checklist read on ``/initiate-call``.
+
+    A configuration with an active number passes the caller-ID requirement, so
+    the guard is a no-op — these tests are about everything downstream of it.
+    """
+    row = SimpleNamespace(id=55, name="Test config", provider=provider, credentials={})
+    mock_db.get_telephony_configuration_for_org = AsyncMock(return_value=row)
+    mock_db.list_outbound_telephony_configuration_candidates = AsyncMock(
+        return_value=[row]
+    )
+    mock_db.list_phone_numbers_for_config = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                is_active=True, inbound_workflow_id=None, telephony_trunk_id=None
+            )
+        ]
+    )
+    # Twilio has no trunks; the guard skips the query, but a stub keeps the
+    # helper usable for SIP providers too.
+    mock_db.list_trunks_for_config = AsyncMock(return_value=[])
+
+
 def _provider():
     return SimpleNamespace(
         PROVIDER_NAME="twilio",
@@ -48,6 +71,57 @@ def _provider():
             )
         ),
     )
+
+
+def test_initiate_call_rejects_incomplete_setup_before_run_creation():
+    app = _make_test_app()
+    client = TestClient(app)
+    provider = _provider()
+
+    with (
+        patch("api.routes.telephony.db_client") as mock_db,
+        patch(
+            "api.routes.telephony.get_telephony_provider_by_id",
+            new=AsyncMock(return_value=provider),
+        ),
+        patch(
+            "api.services.organization_preferences.get_organization_preferences",
+            new=AsyncMock(return_value=SimpleNamespace(test_phone_number=None)),
+        ),
+    ):
+        mock_db.get_default_telephony_configuration = AsyncMock(
+            return_value=SimpleNamespace(id=55)
+        )
+        mock_db.get_telephony_configuration_for_org = AsyncMock(
+            return_value=SimpleNamespace(
+                id=55,
+                name="Twilio production",
+                provider="twilio",
+                credentials={},
+            )
+        )
+        mock_db.list_outbound_telephony_configuration_candidates = AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    id=55,
+                    name="Twilio production",
+                    provider="twilio",
+                    credentials={},
+                )
+            ]
+        )
+        mock_db.list_phone_numbers_for_config = AsyncMock(return_value=[])
+        mock_db.create_workflow_run = AsyncMock()
+
+        response = client.post(
+            "/telephony/initiate-call",
+            json={"workflow_id": 33, "phone_number": "+15551234567"},
+        )
+
+    assert response.status_code == 400
+    assert "Twilio production" in response.json()["detail"]
+    mock_db.create_workflow_run.assert_not_awaited()
+    provider.initiate_call.assert_not_awaited()
 
 
 def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
@@ -68,7 +142,7 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
             new=quota_mock,
         ),
         patch(
-            "api.routes.telephony.get_default_telephony_provider",
+            "api.routes.telephony.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -88,6 +162,7 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
         mock_db.get_default_telephony_configuration = AsyncMock(
             return_value=SimpleNamespace(id=55)
         )
+        _stub_outbound_setup_lookup(mock_db)
         mock_db.get_workflow = AsyncMock(return_value=workflow)
         mock_db.get_draft_version = AsyncMock(return_value=None)
         mock_db.create_workflow_run = AsyncMock(
@@ -121,6 +196,7 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
     assert create_kwargs["organization_id"] == workflow.organization_id
     assert create_kwargs["definition_id"] == 77
     assert create_kwargs["initial_context"]["template_key"] == "template-value"
+    assert create_kwargs["initial_context"]["telephony_configuration_id"] == 55
     mock_concurrency.acquire_org_slot.assert_awaited_once_with(
         workflow.organization_id,
         source="telephony_outbound",
@@ -166,7 +242,7 @@ def test_initiate_call_uses_draft_template_context_with_provider_overrides():
             new=quota_mock,
         ),
         patch(
-            "api.routes.telephony.get_default_telephony_provider",
+            "api.routes.telephony.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -186,6 +262,7 @@ def test_initiate_call_uses_draft_template_context_with_provider_overrides():
         mock_db.get_default_telephony_configuration = AsyncMock(
             return_value=SimpleNamespace(id=55)
         )
+        _stub_outbound_setup_lookup(mock_db)
         mock_db.get_workflow = AsyncMock(return_value=workflow)
         mock_db.get_draft_version = AsyncMock(return_value=draft)
         mock_db.create_workflow_run = AsyncMock(
@@ -230,7 +307,7 @@ def test_initiate_call_uses_organization_preference_phone_number():
             new=quota_mock,
         ),
         patch(
-            "api.routes.telephony.get_default_telephony_provider",
+            "api.routes.telephony.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -252,6 +329,7 @@ def test_initiate_call_uses_organization_preference_phone_number():
         mock_db.get_default_telephony_configuration = AsyncMock(
             return_value=SimpleNamespace(id=55)
         )
+        _stub_outbound_setup_lookup(mock_db)
         mock_db.get_workflow = AsyncMock(return_value=workflow)
         mock_db.get_draft_version = AsyncMock(return_value=None)
         mock_db.create_workflow_run = AsyncMock(
@@ -291,7 +369,7 @@ def test_initiate_call_rejects_existing_run_for_different_workflow():
             new=quota_mock,
         ),
         patch(
-            "api.routes.telephony.get_default_telephony_provider",
+            "api.routes.telephony.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
     ):
@@ -306,6 +384,7 @@ def test_initiate_call_rejects_existing_run_for_different_workflow():
         mock_db.get_default_telephony_configuration = AsyncMock(
             return_value=SimpleNamespace(id=55)
         )
+        _stub_outbound_setup_lookup(mock_db)
         mock_db.get_workflow = AsyncMock(return_value=workflow)
         mock_db.get_workflow_run = AsyncMock(
             return_value=SimpleNamespace(
@@ -344,7 +423,7 @@ def test_initiate_call_rejects_when_concurrency_limit_reached():
         patch("api.routes.telephony.db_client") as mock_db,
         patch("api.routes.telephony.call_concurrency") as mock_concurrency,
         patch(
-            "api.routes.telephony.get_default_telephony_provider",
+            "api.routes.telephony.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
     ):
@@ -359,6 +438,7 @@ def test_initiate_call_rejects_when_concurrency_limit_reached():
         mock_db.get_default_telephony_configuration = AsyncMock(
             return_value=SimpleNamespace(id=55)
         )
+        _stub_outbound_setup_lookup(mock_db)
         mock_db.get_workflow = AsyncMock(return_value=workflow)
         mock_db.create_workflow_run = AsyncMock()
 
@@ -391,8 +471,13 @@ async def test_inbound_run_rejects_when_concurrency_limit_reached():
         call_id="call-1",
         raw_data={},
     )
-    config = SimpleNamespace(id=55, organization_id=11)
-    phone_row = SimpleNamespace(id=77, inbound_workflow_id=33)
+    config = SimpleNamespace(
+        id=55,
+        organization_id=11,
+        name="Twilio",
+        credentials={"account_sid": "AC123"},
+    )
+    phone_row = SimpleNamespace(id=77, address="+15551230000", inbound_workflow_id=33)
     workflow = SimpleNamespace(id=33, user_id=99)
     provider_instance = SimpleNamespace(
         verify_inbound_signature=AsyncMock(return_value=True)

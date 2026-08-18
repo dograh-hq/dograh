@@ -1,3 +1,4 @@
+import importlib.util
 import sys
 import types
 from types import SimpleNamespace
@@ -23,9 +24,21 @@ from api.services.pipecat.service_factory import create_tts_service
 def speechify_pipecat_stub(monkeypatch):
     """Provide pipecat.services.speechify.tts for the factory's lazy import.
 
-    The pinned pipecat checkout predates upstream's SpeechifyHttpTTSService, so
-    the module the factory imports at call time is stubbed here.
+    Stubs the module only when the pinned pipecat checkout predates upstream's
+    SpeechifyHttpTTSService. Once the submodule includes the real module, the
+    tests run against the real classes so signature drift fails loudly.
     """
+    try:
+        real_module_present = (
+            importlib.util.find_spec("pipecat.services.speechify.tts") is not None
+        )
+    except ModuleNotFoundError:
+        real_module_present = False
+    if real_module_present:
+        sys.modules.pop("api.services.pipecat.speechify_tts", None)
+        yield
+        sys.modules.pop("api.services.pipecat.speechify_tts", None)
+        return
 
     class StubSpeechifyHttpTTSService:
         def __init__(self, *args, **kwargs):

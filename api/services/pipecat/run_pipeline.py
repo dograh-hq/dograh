@@ -386,6 +386,7 @@ async def _run_pipeline_telephony_impl(
             workflow_run=workflow_run,
             resolved_user_config=user_config,
             organization_id=organization_id,
+            provider_call_id=call_id,
         )
     except Exception as e:
         # Closest layer to the failure and the only one with the traceback, so
@@ -557,6 +558,7 @@ async def _run_pipeline_impl(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    provider_call_id: str | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -599,6 +601,12 @@ async def _run_pipeline_impl(
         merged_call_context_vars = merge_external_initial_context(
             merged_call_context_vars, call_context_vars
         )
+
+    # Only telephony passes an authenticated provider call identifier. Make it
+    # available to workflow prompts and tools, overriding any stale or
+    # externally supplied value persisted on the workflow run.
+    if provider_call_id is not None:
+        merged_call_context_vars["call_id"] = provider_call_id
 
     # Get workflow for metadata (name, organization_id, call_disposition_codes)
     workflow = await db_client.get_workflow(workflow_id, **workflow_scope)

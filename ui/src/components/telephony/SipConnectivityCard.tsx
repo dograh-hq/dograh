@@ -4,11 +4,7 @@ import { ChevronDown, Copy } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import type {
-  SipConnectivityDetails,
-  TelephonyConfigurationDetail,
-} from "@/client/types.gen";
-import { CloudonixOutboundTrunkForm } from "@/components/telephony/CloudonixOutboundTrunkForm";
+import type { SipConnectivityDetails } from "@/client/types.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,18 +30,20 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface SipConnectivityCardProps {
   details: SipConnectivityDetails;
-  configuration: TelephonyConfigurationDetail;
-  onSaved: (
-    configuration: TelephonyConfigurationDetail,
-  ) => void | Promise<void>;
+  /** Start expanded — used when the setup checklist points the user in here. */
+  defaultOpen?: boolean;
 }
 
+/**
+ * The endpoints a customer hands to their carrier: where to send calls in, and
+ * which IP calls leave from. Read-only reference material, hence the fold —
+ * the trunks that use it are edited in their own card, always visible.
+ */
 export function SipConnectivityCard({
   details,
-  configuration,
-  onSaved,
+  defaultOpen = false,
 }: SipConnectivityCardProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [selectedRegion, setSelectedRegion] = useState<string>();
   const defaultRegion =
     details.regions.find(
@@ -83,7 +81,8 @@ export function SipConnectivityCard({
           <div className="space-y-1">
             <CardTitle>SIP connectivity</CardTitle>
             <CardDescription>
-              Configure how SIP calls enter and leave Dograh through this provider.
+              The endpoints to give your SIP carrier or PBX. Pick a region to see
+              the addresses that region uses.
             </CardDescription>
           </div>
           <CollapsibleTrigger asChild>
@@ -169,7 +168,7 @@ export function SipConnectivityCard({
                   carrier or PBX.
                 </p>
               </div>
-              <div className="space-y-5 p-4">
+              <div className="space-y-3 p-4">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-muted/30 px-3 py-2 text-sm">
                   <span className="text-muted-foreground">Origin IP address</span>
                   <button
@@ -185,14 +184,6 @@ export function SipConnectivityCard({
                     <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
                 </div>
-
-                {configuration.provider === "cloudonix" ? (
-                  <CloudonixOutboundTrunkForm
-                    configuration={configuration}
-                    region={region.region}
-                    onSaved={onSaved}
-                  />
-                ) : null}
               </div>
             </section>
           </CardContent>

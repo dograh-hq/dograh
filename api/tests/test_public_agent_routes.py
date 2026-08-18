@@ -1,11 +1,33 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from api.routes.public_agent import router
+from api.routes.public_agent import (
+    ResolvedAgentTarget,
+    TriggerCallRequest,
+    _execute_resolved_target,
+    router,
+)
 from api.services.call_concurrency import CallConcurrencyLimitError
+from api.services.telephony.outbound_readiness import OutboundSetupIncompleteError
+
+
+@pytest.fixture(autouse=True)
+def outbound_configuration_is_ready():
+    """Keep route tests focused unless they explicitly exercise readiness."""
+    guard = AsyncMock(
+        side_effect=lambda telephony_configuration_id, _organization_id, **_kwargs: (
+            telephony_configuration_id or 55
+        )
+    )
+    with patch(
+        "api.routes.public_agent.resolve_outbound_configuration_id",
+        new=guard,
+    ):
+        yield guard
 
 
 def _make_test_app() -> FastAPI:
@@ -56,6 +78,50 @@ def _provider():
     )
 
 
+@pytest.mark.asyncio
+async def test_public_agent_rejects_incomplete_outbound_setup_before_run_creation(
+    outbound_configuration_is_ready,
+):
+    provider = _provider()
+    outbound_configuration_is_ready.side_effect = OutboundSetupIncompleteError(
+        55,
+        "Twilio production",
+        "Add a caller ID before placing calls.",
+    )
+    target = ResolvedAgentTarget(
+        workflow=_active_workflow(),
+        organization_id=11,
+        identifier_type="workflow_uuid",
+        identifier_value="workflow-uuid-123",
+    )
+
+    with (
+        patch("api.routes.public_agent.db_client") as mock_db,
+        patch(
+            "api.routes.public_agent.get_telephony_provider_by_id",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        mock_db.get_default_telephony_configuration = AsyncMock(
+            return_value=SimpleNamespace(id=55)
+        )
+        mock_db.create_workflow_run = AsyncMock()
+
+        with pytest.raises(HTTPException) as excinfo:
+            await _execute_resolved_target(
+                target,
+                TriggerCallRequest(phone_number="+15551234567"),
+                use_draft=False,
+                api_key_id=None,
+                api_key_created_by=None,
+            )
+
+    assert excinfo.value.status_code == 400
+    assert "Twilio production" in excinfo.value.detail
+    mock_db.create_workflow_run.assert_not_awaited()
+    provider.initiate_call.assert_not_awaited()
+
+
 def test_trigger_route_executes_as_workflow_owner():
     app = _make_test_app()
     client = TestClient(app)
@@ -74,7 +140,7 @@ def test_trigger_route_executes_as_workflow_owner():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -136,6 +202,7 @@ def test_trigger_route_executes_as_workflow_owner():
     assert create_kwargs["initial_context"]["api_key_id"] == 7
     assert create_kwargs["initial_context"]["api_key_created_by"] == 22
     assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
+    assert create_kwargs["initial_context"]["telephony_configuration_id"] == 55
     assert create_kwargs["definition_id"] == 77
     assert "name" not in create_kwargs["initial_context"]
     assert not mock_db.get_draft_version.called
@@ -286,7 +353,7 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -377,7 +444,7 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -475,7 +542,7 @@ def test_workflow_uuid_test_route_uses_draft_and_template_context():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -550,7 +617,7 @@ def test_trigger_route_still_returns_success_when_metadata_persistence_fails():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -604,7 +671,7 @@ def test_trigger_route_rejects_when_concurrency_limit_reached():
         patch("api.routes.public_agent.db_client") as mock_db,
         patch("api.routes.public_agent.call_concurrency") as mock_concurrency,
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
     ):
@@ -666,7 +733,7 @@ def test_trigger_route_releases_concurrency_slot_when_quota_fails():
             new=mark_failed_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
     ):

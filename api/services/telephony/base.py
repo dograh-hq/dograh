@@ -127,6 +127,34 @@ class TelephonyProvider(ABC):
     # Populated by provider constructors from the factory-normalized config.
     from_numbers: List[str] = []
     default_from_number: Optional[str] = None
+    # Carrier paths on this configuration, and the trunk each active number is
+    # authorized on. Empty unless the provider's integration models trunks.
+    trunks: List[Dict[str, Any]] = []
+    trunk_id_by_number: Dict[str, Optional[int]] = {}
+
+    def select_trunk(self, from_number: Optional[str]) -> Optional[Dict[str, Any]]:
+        """The carrier path a call presenting ``from_number`` must take.
+
+        The number's own trunk wins, because a carrier rejects — or declines to
+        attest — a caller ID it does not own. A number with no trunk falls back
+        to the sole enabled one, which is unambiguous; with several there is no
+        honest answer, so the call goes out unpinned rather than down a carrier
+        picked at random. The setup checklist asks the operator to assign the
+        number rather than leaving that to chance.
+
+        Returns None when the resolved trunk is disabled: the operator switched
+        it off, so routing the call over a different one would present exactly
+        the mismatched caller ID this method exists to avoid.
+        """
+        enabled = [trunk for trunk in self.trunks if trunk.get("enabled")]
+
+        trunk_id = self.trunk_id_by_number.get(from_number) if from_number else None
+        if trunk_id is not None:
+            return next(
+                (trunk for trunk in enabled if trunk.get("id") == trunk_id), None
+            )
+
+        return enabled[0] if len(enabled) == 1 else None
 
     def select_from_number(self, from_number: Optional[str] = None) -> Optional[str]:
         """Resolve the caller ID for a one-off outbound call.

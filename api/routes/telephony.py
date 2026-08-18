@@ -783,7 +783,7 @@ async def _handle_telephony_websocket(
             pass
 
 
-@router.post("/inbound/run")
+@router.api_route("/inbound/run", methods=["GET", "POST"])
 async def handle_inbound_run(request: Request):
     """Workflow-agnostic inbound dispatcher.
 

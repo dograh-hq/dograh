@@ -1,15 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getWorkflowApiV1WorkflowFetchWorkflowIdGet, getWorkflowRunsApiV1WorkflowWorkflowIdRunsGet } from "@/client/sdk.gen";
+import { getWorkflowRunsApiV1WorkflowWorkflowIdRunsGet } from "@/client/sdk.gen";
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
 import { WorkflowRunsTable } from "@/components/workflow-runs";
 import { useDispositionCodes } from "@/hooks/useDispositionCodes";
 import { useAuth } from '@/lib/auth';
+import { withDispositionCodeOptions } from "@/lib/filterAttributes";
 import { decodeFiltersFromURL, encodeFiltersToURL } from "@/lib/filters";
-import { ActiveFilter, availableAttributes, FilterAttribute } from "@/types/filters";
+import { ActiveFilter, availableAttributes } from "@/types/filters";
 
 interface WorkflowExecutionsProps {
     workflowId: number;
@@ -28,8 +29,6 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     const [totalPages, setTotalPages] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
-    const [configuredAttributes, setConfiguredAttributes] = useState<FilterAttribute[]>(availableAttributes);
-
     // Sort state (initialized from URL)
     const [sortBy, setSortBy] = useState<string | null>(() => {
         return searchParams.get('sort_by') || null;
@@ -41,6 +40,10 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
 
     const { isAuthenticated } = useAuth();
     const { codes: dispositionCodes } = useDispositionCodes();
+    const configuredAttributes = useMemo(
+        () => withDispositionCodeOptions(availableAttributes, dispositionCodes),
+        [dispositionCodes]
+    );
 
     // Initialize filters from URL
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
@@ -51,46 +54,6 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
         return decodeFiltersFromURL(searchParams, availableAttributes);
     });
-
-    // Load disposition codes from workflow configuration
-    const loadDispositionCodes = useCallback(async () => {
-        if (!isAuthenticated) return;
-        try {
-            const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({
-                path: { workflow_id: Number(workflowId) },
-            });
-
-            const workflow = response.data;
-            // Codes this workflow has actually recorded come first; the rest of
-            // the org-wide catalog (served by the backend) fills in dispositions
-            // this workflow simply hasn't hit yet.
-            const codes = workflow?.call_disposition_codes?.disposition_codes ?? [];
-            const options = [
-                ...codes,
-                ...dispositionCodes.filter(code => !codes.includes(code)),
-            ];
-            if (options.length > 0) {
-                setConfiguredAttributes(prev => prev.map(attr => {
-                    if (attr.id === 'dispositionCode') {
-                        return {
-                            ...attr,
-                            config: {
-                                ...attr.config,
-                                options,
-                            }
-                        };
-                    }
-                    return attr;
-                }));
-            }
-        } catch (err) {
-            console.error("Failed to load disposition codes:", err);
-        }
-    }, [workflowId, isAuthenticated, dispositionCodes]);
-
-    useEffect(() => {
-        loadDispositionCodes();
-    }, [loadDispositionCodes]);
 
     const fetchWorkflowRuns = useCallback(async (
         page: number,

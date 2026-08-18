@@ -19,7 +19,6 @@ export const baseFilterAttributes: Record<string, Omit<FilterAttribute, "id">> =
       // copy of the list.
       options: [],
       searchable: true,
-      maxSelections: 10,
       showSelectAll: true,
     },
   },
@@ -165,6 +164,23 @@ export function createFilterAttributes(
   });
 }
 
+export function withDispositionCodeOptions(
+  attributes: FilterAttribute[],
+  options: string[]
+): FilterAttribute[] {
+  return attributes.map(attribute => (
+    attribute.id === "dispositionCode"
+      ? {
+          ...attribute,
+          config: {
+            ...attribute.config,
+            options,
+          },
+        }
+      : attribute
+  ));
+}
+
 // Default workflow filter attributes
 export const workflowFilterAttributes = createFilterAttributes([
   "dateRange",
@@ -220,7 +236,6 @@ export const usageFilterAttributes = createFilterAttributes(
       label: "Disposition",
       config: {
         searchable: true,
-        maxSelections: 10,
         showSelectAll: true,
       },
     },

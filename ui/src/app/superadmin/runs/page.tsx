@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useDispositionCodes } from '@/hooks/useDispositionCodes';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime } from '@/lib/dateTime';
-import { superadminFilterAttributes } from "@/lib/filterAttributes";
+import { superadminFilterAttributes, withDispositionCodeOptions } from "@/lib/filterAttributes";
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import { impersonateAsSuperadmin } from '@/lib/utils';
 import { ActiveFilter } from '@/types/filters';
@@ -97,17 +97,7 @@ export default function RunsPage() {
     const auth = useAuth();
     const { endTaskReasonCodes } = useDispositionCodes();
     const availableSuperadminFilterAttributes = useMemo(
-        () => superadminFilterAttributes.map(attribute => (
-            attribute.id === 'dispositionCode'
-                ? {
-                    ...attribute,
-                    config: {
-                        ...attribute.config,
-                        options: endTaskReasonCodes,
-                    },
-                }
-                : attribute
-        )),
+        () => withDispositionCodeOptions(superadminFilterAttributes, endTaskReasonCodes),
         [endTaskReasonCodes]
     );
 

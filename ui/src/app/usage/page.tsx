@@ -28,7 +28,7 @@ import { useDispositionCodes } from '@/hooks/useDispositionCodes';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, getLocalTimezone } from '@/lib/dateTime';
-import { usageFilterAttributes } from '@/lib/filterAttributes';
+import { usageFilterAttributes, withDispositionCodeOptions } from '@/lib/filterAttributes';
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import type { ActiveFilter, DateRangeValue, FilterAttribute, NumberFilterOption } from '@/types/filters';
 
@@ -37,19 +37,7 @@ const buildUsageFilterAttributes = (
     isLoadingAgentOptions: boolean,
     dispositionCodes: string[]
 ): FilterAttribute[] => {
-    return usageFilterAttributes.map(attribute => {
-        // The disposition catalog is served by the backend so this list can't
-        // drift behind the dispositions the pipeline actually records.
-        if (attribute.id === 'dispositionCode') {
-            return {
-                ...attribute,
-                config: {
-                    ...attribute.config,
-                    options: dispositionCodes,
-                },
-            } satisfies FilterAttribute;
-        }
-
+    return withDispositionCodeOptions(usageFilterAttributes, dispositionCodes).map(attribute => {
         if (attribute.id !== 'workflowId') {
             return attribute;
         }

@@ -24,6 +24,20 @@ export const getDefaultValue = (type: FilterAttribute["type"]): FilterValue => {
   }
 };
 
+// URL-decoded filters retain the attribute object used during initialization.
+// Resolve it again so asynchronously loaded options are immediately visible.
+export const resolveFilterAttributes = (
+  filters: ActiveFilter[],
+  availableAttributes: FilterAttribute[]
+): ActiveFilter[] => filters.map(filter => {
+  const currentAttribute = availableAttributes.find(
+    attribute => attribute.id === filter.attribute.id
+  );
+  return currentAttribute && currentAttribute !== filter.attribute
+    ? { ...filter, attribute: currentAttribute }
+    : filter;
+});
+
 // Validate filter based on attribute type
 export const validateFilter = (filter: ActiveFilter): string | null => {
   switch (filter.attribute.type) {

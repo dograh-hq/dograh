@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getWorkflowApiV1WorkflowFetchWorkflowIdGet, getWorkflowRunsApiV1WorkflowWorkflowIdRunsGet } from "@/client/sdk.gen";
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
 import { WorkflowRunsTable } from "@/components/workflow-runs";
+import { useDispositionCodes } from "@/hooks/useDispositionCodes";
 import { useAuth } from '@/lib/auth';
 import { decodeFiltersFromURL, encodeFiltersToURL } from "@/lib/filters";
 import { ActiveFilter, availableAttributes, FilterAttribute } from "@/types/filters";
@@ -39,6 +40,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     });
 
     const { isAuthenticated } = useAuth();
+    const { codes: dispositionCodes } = useDispositionCodes();
 
     // Initialize filters from URL
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
@@ -59,15 +61,22 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
             });
 
             const workflow = response.data;
-            const codes = workflow?.call_disposition_codes?.disposition_codes;
-            if (codes && codes.length > 0) {
+            // Codes this workflow has actually recorded come first; the rest of
+            // the org-wide catalog (served by the backend) fills in dispositions
+            // this workflow simply hasn't hit yet.
+            const codes = workflow?.call_disposition_codes?.disposition_codes ?? [];
+            const options = [
+                ...codes,
+                ...dispositionCodes.filter(code => !codes.includes(code)),
+            ];
+            if (options.length > 0) {
                 setConfiguredAttributes(prev => prev.map(attr => {
                     if (attr.id === 'dispositionCode') {
                         return {
                             ...attr,
                             config: {
                                 ...attr.config,
-                                options: codes,
+                                options,
                             }
                         };
                     }
@@ -77,7 +86,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
         } catch (err) {
             console.error("Failed to load disposition codes:", err);
         }
-    }, [workflowId, isAuthenticated]);
+    }, [workflowId, isAuthenticated, dispositionCodes]);
 
     useEffect(() => {
         loadDispositionCodes();

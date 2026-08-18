@@ -1,4 +1,3 @@
-import { DISPOSITION_CODES } from "@/constants/dispositionCodes";
 import { FilterAttribute } from "@/types/filters";
 
 // Shared filter attribute definitions
@@ -15,7 +14,10 @@ export const baseFilterAttributes: Record<string, Omit<FilterAttribute, "id">> =
     type: "multiSelect",
     label: "Disposition Code",
     config: {
-      options: [...DISPOSITION_CODES], // Use centralized disposition codes
+      // Populated at runtime from the backend catalog — see
+      // useDispositionCodes. Left empty here so no screen can ship a stale
+      // copy of the list.
+      options: [],
       searchable: true,
       maxSelections: 10,
       showSelectAll: true,
@@ -173,23 +175,18 @@ export const workflowFilterAttributes = createFilterAttributes([
 ]);
 
 // Superadmin filter attributes (includes additional fields)
-export const superadminFilterAttributes = createFilterAttributes(
-  [
-    "dateRange",
-    "runId",
-    "workflowId",
-    "callerNumber",
-    "calledNumber",
-    "dispositionCode",
-    "status",
-    "duration",
-    "tokenUsage",
-    "callTags",
-  ],
-  {
-    // dispositionCode uses the default DISPOSITION_CODES from baseFilterAttributes
-  }
-);
+export const superadminFilterAttributes = createFilterAttributes([
+  "dateRange",
+  "runId",
+  "workflowId",
+  "callerNumber",
+  "calledNumber",
+  "dispositionCode",
+  "status",
+  "duration",
+  "tokenUsage",
+  "callTags",
+]);
 
 // Usage page filter attributes (simplified for regular users)
 export const usageFilterAttributes = createFilterAttributes(
@@ -222,10 +219,9 @@ export const usageFilterAttributes = createFilterAttributes(
     dispositionCode: {
       label: "Disposition",
       config: {
-        options: [...DISPOSITION_CODES], // Use centralized disposition codes
-        searchable: false,
-        maxSelections: 5,  // Allow multiple selections
-        showSelectAll: true,  // Show select all option
+        searchable: true,
+        maxSelections: 10,
+        showSelectAll: true,
       },
     },
     duration: {

@@ -187,9 +187,20 @@ def register_event_handlers(
         # Stop recordings
         await audio_buffer.stop_recording()
 
-        await engine.end_call_with_reason(
-            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+        # A disconnect right after a handoff is the external PBX taking the
+        # customer leg, not the caller hanging up. The reason stays distinct
+        # from EndTaskReason.TRANSFER_CALL on purpose: that value drives the
+        # serializer's ARI bridge-transfer strategy, whereas an external-PBX
+        # transfer still wants the ordinary hangup strategy to tear down our
+        # own legs.
+        gathered_context = await engine.get_gathered_context()
+        reason = (
+            EndTaskReason.CALL_TRANSFERRED.value
+            if gathered_context.get("external_pbx_transferred")
+            else EndTaskReason.USER_HANGUP.value
         )
+
+        await engine.end_call_with_reason(reason, abort_immediately=True)
 
     @task.event_handler("on_pipeline_started")
     async def on_pipeline_started(_task: PipelineWorker, _frame: Frame):

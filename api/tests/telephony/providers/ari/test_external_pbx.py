@@ -145,6 +145,44 @@ async def test_vicidial_adapter_ignores_duplicate_and_invalid_lead_fields():
 
 
 @pytest.mark.asyncio
+async def test_vicidial_lead_header_log_separates_empty_from_never_requested():
+    """A blank header and an unconfigured one both vanish from ``lead``.
+
+    They need opposite fixes — one is PBX/lead data, the other a workflow
+    setting — so the log has to tell them apart.
+    """
+    adapter = create_adapter(_vicidial_config())
+    headers = {
+        "X-VICIDIAL-callerid": "M123",
+        "X-VICIDIAL-first_name": "Ada",
+        # state is configured but the PBX sends it blank
+        "X-VICIDIAL-state": "",
+    }
+    read_header, _ = _header_access(headers)
+
+    with (
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.info"
+        ) as log_info,
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+        ) as log_warning,
+    ):
+        await adapter.capture_call_identity(
+            read_header, ["first_name", "state", "bad name)"]
+        )
+
+    messages = " ".join(call.args[0] for call in log_info.call_args_list)
+    assert "requested=['first_name', 'state']" in messages
+    assert "populated=['first_name']" in messages
+    assert "empty=['state']" in messages
+    # Header values are customer PII; only names belong in the log.
+    assert "Ada" not in messages and "M123" not in messages
+    # An unusable configured name is a misconfiguration, not a PBX problem.
+    assert "bad name)" in " ".join(call.args[0] for call in log_warning.call_args_list)
+
+
+@pytest.mark.asyncio
 async def test_vicidial_adapter_returns_none_without_callerid():
     adapter = create_adapter(_vicidial_config())
     read_header, _ = _header_access({"X-VICIDIAL-first_name": "Ada"})
@@ -261,6 +299,219 @@ async def test_vicidial_update_lead_log_redacts_rejection_body():
         "private note",
     ):
         assert sensitive_value not in messages
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_asks_for_custom_fields():
+    """Without custom_fields=Y, VICIdial ignores every custom-field parameter.
+
+    No update, no error — just an empty body. Which destination fields a
+    deployment defined as custom is not knowable here, so the flag always goes.
+    """
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await adapter.update_fields({"lead_id": "42"}, {"Medicaid": "yes"})
+
+    _, kwargs = session.requests[0]
+    assert kwargs["params"]["custom_fields"] == "Y"
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_never_puts_a_mapped_field_first():
+    """VICIdial's custom-field parser ignores the first query-string parameter.
+
+    A mapped field placed there is dropped silently — no error, no update — so
+    the control parameters must lead and the mapped fields follow.
+    """
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await adapter.update_fields(
+            {"lead_id": "42"}, {"Medicaid": "yes", "MedSupp": "no"}
+        )
+
+    keys = list(session.requests[0][1]["params"])
+    assert keys[0] not in ("Medicaid", "MedSupp")
+    # Every mapped field must sit after every control parameter.
+    assert min(keys.index("Medicaid"), keys.index("MedSupp")) > keys.index(
+        "custom_fields"
+    )
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_rejects_fields_shadowing_control_params():
+    """Mapped fields are appended last, so a collision would hijack the call."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await adapter.update_fields(
+            {"lead_id": "42"},
+            {"format": "json", "custom_fields": "N", "function": "add_lead"},
+        )
+
+    assert not session.requests, "a request with only reserved names must not be sent"
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_accepts_a_custom_fields_only_notice():
+    """A custom-fields-only write never emits a SUCCESS line, only a NOTICE."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(
+            200, "NOTICE: update_lead CUSTOM FIELDS VALUES UPDATED - |42|499|499|499|1"
+        )
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields({"lead_id": "42"}, {"Medicaid": "yes"})
+
+    assert result.ok
+    assert result.message == "VICIdial lead updated"
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_accepts_mixed_standard_and_custom_response():
+    """Standard and custom writes each announce themselves on their own line."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(
+            200,
+            "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||\n"
+            "NOTICE: update_lead CUSTOM FIELDS VALUES UPDATED - |42|499|499|499|1",
+        )
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields(
+            {"lead_id": "42"}, {"comments": "note", "Medicaid": "yes"}
+        )
+
+    assert result.ok
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_still_rejects_an_unrelated_notice():
+    """Only the custom-field notice counts — not NOTICE lines in general."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "NOTICE: update_lead NOTHING TO UPDATE - |42|")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields({"lead_id": "42"}, {"Medicaid": "yes"})
+
+    assert not result.ok
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_rejection_names_fields_and_reason():
+    """A rejection has to say which fields were sent and why VICIdial refused.
+
+    ``response_code=empty`` alone cannot separate "VICIdial does not know this
+    field" from a missing lead or a revoked permission.
+    """
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(_StubResponse(200, ""))
+
+    with (
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+        ) as log_warning,
+    ):
+        result = await adapter.update_fields(
+            {"lead_id": "42"}, {"Medicaid": "yes", "MedSupp": "no"}
+        )
+
+    assert not result.ok
+    messages = " ".join(call.args[0] for call in log_warning.call_args_list)
+    assert "Medicaid" in messages and "MedSupp" in messages
+    assert "<empty body>" in messages
+    # Destination field names are workflow config; their values are lead data.
+    assert "yes" not in messages and "no" not in messages
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_rejection_reason_drops_echoed_parameters():
+    adapter = create_adapter(_vicidial_config())
+    # VICIdial appends the API user and search values after "|" or " - ".
+    session = _StubSession(
+        _StubResponse(
+            200,
+            "ERROR: update_lead NO MATCHES FOUND IN THE SYSTEM: |lead-api-user|42||",
+        )
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+        ) as log_warning,
+    ):
+        await adapter.update_fields({"lead_id": "42"}, {"comments": "private note"})
+
+    messages = " ".join(call.args[0] for call in log_warning.call_args_list)
+    assert "NO MATCHES FOUND IN THE SYSTEM" in messages
+    for echoed in ("lead-api-user", "private note"):
+        assert echoed not in messages
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_skips_are_not_silent():
+    """Every early return ends the write; none may leave the log blank."""
+    adapter = create_adapter(_vicidial_config())
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.logger.info"
+    ) as log_info:
+        result = await adapter.update_fields({"lead_id": "42"}, {})
+    assert result.ok
+    assert "no field mappings resolved" in " ".join(
+        call.args[0] for call in log_info.call_args_list
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+    ) as log_warning:
+        result = await adapter.update_fields({}, {"comments": "hello"})
+    assert not result.ok
+    assert "no lead_id was captured" in " ".join(
+        call.args[0] for call in log_warning.call_args_list
+    )
 
 
 def _ari_connection(monkeypatch, variables: dict[str, str]):

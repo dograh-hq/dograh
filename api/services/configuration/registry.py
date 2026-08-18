@@ -98,6 +98,7 @@ class ServiceProviders(str, Enum):
     SMALLEST = "smallest"
     XAI = "xai"
     LMNT = "lmnt"
+    SPEECHIFY = "speechify"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -131,6 +132,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
+        ServiceProviders.SPEECHIFY,
     ]
     api_key: str | list[str]
 
@@ -315,6 +317,10 @@ ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
 XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
 LMNT_PROVIDER_MODEL_CONFIG = provider_model_config("LMNT")
+SPEECHIFY_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Speechify",
+    provider_docs_url="https://docs.speechify.ai",
+)
 INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Inworld",
     description=(
@@ -1459,6 +1465,99 @@ class LmntTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+SPEECHIFY_TTS_MODELS = [
+    "simba-3.2",
+    "simba-3.0",
+    "simba-english",
+    "simba-multilingual",
+]
+SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
+# The API rejects voices outside a model's allow-list (HTTP 400): simba-3.2
+# only accepts voices that list it in GET /v1/voices, currently its dedicated
+# "_32" voices. The other models accept the general shared catalog.
+SPEECHIFY_TTS_VOICES_BY_MODEL = {
+    "simba-3.2": ["beatrice_32", "geffen_32"],
+    "simba-3.0": SPEECHIFY_TTS_VOICES,
+    "simba-english": SPEECHIFY_TTS_VOICES,
+    "simba-multilingual": SPEECHIFY_TTS_VOICES,
+}
+# Documented languages per model, used to filter the language dropdown. The
+# API accepts other codes (synthesis succeeds), so this steers rather than
+# hard-blocks: allow_custom_input still permits manual entry.
+SPEECHIFY_TTS_LANGUAGES_BY_MODEL = {
+    "simba-3.2": ["en"],
+    "simba-3.0": ["en", "de", "es", "fr", "it", "pt-BR"],
+    "simba-english": ["en"],
+    "simba-multilingual": [
+        "en",
+        "ar",
+        "bn",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "gu",
+        "hi",
+        "it",
+        "ja",
+        "ko",
+        "mr",
+        "nb",
+        "nl",
+        "pt-BR",
+        "pt-PT",
+        "ru",
+        "sv",
+        "ta",
+        "te",
+        "tr",
+        "ur",
+        "yue",
+    ],
+}
+
+
+@register_tts
+class SpeechifyTTSConfiguration(BaseTTSConfiguration):
+    model_config = SPEECHIFY_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SPEECHIFY] = ServiceProviders.SPEECHIFY
+    model: str = Field(
+        default="simba-3.2",
+        description=(
+            "Speechify TTS model. 'simba-3.2' is the streaming-native English "
+            "model with the lowest latency; 'simba-3.0' adds German, Spanish, "
+            "French, Italian, and Portuguese."
+        ),
+        json_schema_extra={"examples": SPEECHIFY_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="beatrice_32",
+        description=(
+            "Speechify voice ID. Options are filtered to voices available for "
+            "the selected model; a custom or cloned voice ID must support the "
+            "selected model (see GET /v1/voices), or synthesis fails."
+        ),
+        json_schema_extra={
+            "examples": SPEECHIFY_TTS_VOICES,
+            "allow_custom_input": True,
+            "model_options": SPEECHIFY_TTS_VOICES_BY_MODEL,
+        },
+    )
+    language: str = Field(
+        default="en",
+        description=(
+            "Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', "
+            "'pt-BR'). Options are filtered to the selected model's documented "
+            "languages; simba-3.2 is documented as English-only."
+        ),
+        json_schema_extra={
+            "examples": SPEECHIFY_TTS_LANGUAGES_BY_MODEL["simba-3.0"],
+            "allow_custom_input": True,
+            "model_options": SPEECHIFY_TTS_LANGUAGES_BY_MODEL,
+        },
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1477,6 +1576,7 @@ TTSConfig = Annotated[
         SmallestAITTSConfiguration,
         XAITTSConfiguration,
         LmntTTSConfiguration,
+        SpeechifyTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]

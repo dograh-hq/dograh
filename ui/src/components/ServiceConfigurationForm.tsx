@@ -410,6 +410,20 @@ export function ServiceConfigurationForm({
         }
     }, [ttsModel, serviceProviders.tts, setValue, getValues, schemas, isCustomInput.tts_voice]);
 
+    // Reset language when TTS model changes if the provider has model-dependent language options
+    useEffect(() => {
+        const languageSchema = schemas?.tts?.[serviceProviders.tts]?.properties?.language;
+        const modelOptions = languageSchema?.model_options;
+        if (!modelOptions || !ttsModel) return;
+
+        const validLanguages = modelOptions[ttsModel as string];
+        const currentLanguage = getValues("tts_language") as string;
+        const isCustomLanguage = !!isCustomInput.tts_language;
+        if (validLanguages && currentLanguage && !validLanguages.includes(currentLanguage) && !isCustomLanguage) {
+            setValue("tts_language", validLanguages[0], { shouldDirty: true });
+        }
+    }, [ttsModel, serviceProviders.tts, setValue, getValues, schemas, isCustomInput.tts_language]);
+
     // Reset language when STT model changes if the provider has model-dependent language options
     const sttModel = watch("stt_model");
     useEffect(() => {

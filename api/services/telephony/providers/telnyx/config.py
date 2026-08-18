@@ -1,6 +1,6 @@
 """Telnyx telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,9 +25,4 @@ class TelnyxConfigurationRequest(BaseModel):
             "Credentials → Public Key. Used to verify Telnyx webhook "
             "signatures."
         ),
-    )
-    # Phone numbers are managed via the dedicated phone-numbers endpoints; the
-    # legacy /telephony-config POST shim still accepts them inline.
-    from_numbers: List[str] = Field(
-        default_factory=list, description="List of Telnyx phone numbers"
     )

@@ -5,7 +5,7 @@ owned by a telephony configuration. They power both outbound caller-ID
 selection and inbound call routing.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from loguru import logger
 from sqlalchemy import update
@@ -190,18 +190,18 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 )
                 return None
 
-            # The (provider, account_id, address_normalized) tuple is meant to
-            # be globally unique — see ``find_inbound_routing_conflict``. When
-            # it isn't, the call silently lands in whichever org Postgres
-            # returned first, so name every candidate rather than only the
-            # winner.
+            # The (provider, account_id, address_normalized) tuple is meant
+            # to be globally unique; the write paths that keep it so live in
+            # ``api.services.telephony.inbound_routing``. When it isn't, the
+            # call silently lands in whichever org Postgres returned first, so
+            # name every candidate rather than only the winner.
             if len(rows) > 1:
                 candidates = ", ".join(
                     f"config={cfg.id}/org={cfg.organization_id}/name={cfg.name!r}"
                     f"/phone={phone.id}"
                     for cfg, phone in rows
                 )
-                logger.warning(
+                logger.error(
                     f"Ambiguous inbound route — provider={provider} "
                     f"{account_id_field}={account_id!r} "
                     f"canonical={normalized.canonical!r} matched {len(rows)} "
@@ -221,28 +221,29 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             )
             return config, phone_number
 
-    async def find_inbound_routing_conflict(
+    async def find_inbound_routing_conflicts(
         self,
         provider: str,
         account_id_field: str,
         account_id: str,
-        address: str,
-        country_hint: Optional[str] = None,
-    ) -> Optional[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
-        """Inbound dispatch keys on (provider, credentials[account_id_field],
+        addresses_normalized: Sequence[str],
+        exclude_configuration_id: Optional[int] = None,
+    ) -> List[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
+        """Rows that already hold one of these inbound routing keys.
+
+        Inbound dispatch keys on (provider, credentials[account_id_field],
         address_normalized) — see ``find_inbound_route_by_account``. That tuple
-        must be globally unique or two orgs would race for the same call.
+        must be globally unique or two orgs race for the same call. The rule and
+        the decision of when to apply it live in
+        ``api.services.telephony.inbound_routing``; this is only its query.
 
-        Returns the conflicting (config, phone_number) — possibly in another
-        org — when inserting a row with this combination would break that
-        invariant, or None when the row is safe to insert. Returns None for
-        providers that don't carry an account_id (e.g. ARI), which use a
-        different inbound path.
+        Returns every conflicting (config, phone_number) pair, possibly owned by
+        other organizations. ``exclude_configuration_id`` drops the configuration
+        being updated so it cannot conflict with itself. Addresses are matched as
+        already-canonical ``address_normalized`` values — callers normalize.
         """
-        if not (provider and account_id_field and account_id):
-            return None
-
-        normalized = normalize_telephony_address(address, country_hint=country_hint)
+        if not (provider and account_id_field and account_id and addresses_normalized):
+            return []
 
         async with self.async_session() as session:
             stmt = (
@@ -256,13 +257,17 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     TelephonyConfigurationModel.provider == provider,
                     TelephonyConfigurationModel.credentials.op("->>")(account_id_field)
                     == account_id,
-                    TelephonyPhoneNumberModel.address_normalized
-                    == normalized.canonical,
+                    TelephonyPhoneNumberModel.address_normalized.in_(
+                        list(addresses_normalized)
+                    ),
                 )
             )
+            if exclude_configuration_id is not None:
+                stmt = stmt.where(
+                    TelephonyConfigurationModel.id != exclude_configuration_id
+                )
             result = await session.execute(stmt)
-            row = result.first()
-            return (row[0], row[1]) if row else None
+            return [(row[0], row[1]) for row in result.all()]
 
     async def create_phone_number(
         self,

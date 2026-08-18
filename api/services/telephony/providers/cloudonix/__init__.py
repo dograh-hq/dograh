@@ -336,11 +336,14 @@ async def _list_outbound_domain_trunks(
     headers: dict[str, str],
 ) -> list[dict[str, Any]]:
     async with session.get(endpoint, headers=headers) as response:
-        await response.text()
+        response_text = await response.text()
         if response.status == 404:
             return []
         if response.status != 200:
-            logger.error(f"[Cloudonix] trunksList failed: HTTP {response.status}")
+            logger.error(
+                f"[Cloudonix] trunksList failed: HTTP {response.status} "
+                f"body={response_text}"
+            )
             raise HTTPException(
                 status_code=response.status,
                 detail=f"Failed to list Cloudonix voice trunks: HTTP {response.status}",
@@ -460,10 +463,11 @@ async def _deactivate_outbound_trunk(
         f"Headers: {_redact_headers(headers)}\nPayload: {body}"
     )
     async with session.put(endpoint, json=body, headers=headers) as response:
-        await response.text()
+        response_text = await response.text()
         if response.status not in (200, 204):
             logger.error(
-                f"[Cloudonix] trunkUpdate deactivation failed: HTTP {response.status}"
+                f"[Cloudonix] trunkUpdate deactivation failed: "
+                f"HTTP {response.status} body={response_text}"
             )
             raise HTTPException(
                 status_code=response.status,
@@ -525,10 +529,11 @@ async def _apply_outbound_trunk(
             async with session.put(
                 endpoint, json=update_payload, headers=headers
             ) as response:
-                await response.text()
+                response_text = await response.text()
                 if response.status not in (200, 204):
                     logger.error(
-                        f"[Cloudonix] trunkUpdate failed: HTTP {response.status}"
+                        f"[Cloudonix] trunkUpdate failed: HTTP {response.status} "
+                        f"body={response_text}"
                     )
                     raise HTTPException(
                         status_code=response.status,
@@ -548,9 +553,12 @@ async def _apply_outbound_trunk(
     async with session.post(
         collection_endpoint, json=desired, headers=headers
     ) as response:
-        await response.text()
+        response_text = await response.text()
         if response.status not in (200, 201):
-            logger.error(f"[Cloudonix] trunkCreate failed: HTTP {response.status}")
+            logger.error(
+                f"[Cloudonix] trunkCreate failed: HTTP {response.status} "
+                f"body={response_text}"
+            )
             raise HTTPException(
                 status_code=response.status,
                 detail=(

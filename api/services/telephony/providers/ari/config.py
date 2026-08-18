@@ -1,6 +1,6 @@
 """ARI (Asterisk REST Interface) telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -84,8 +84,4 @@ class ARIConfigurationRequest(BaseModel):
     external_pbx: Optional[VicidialExternalPBXConfiguration] = Field(
         default=None,
         description="Optional external PBX connected through this Asterisk instance",
-    )
-    from_numbers: List[str] = Field(
-        default_factory=list,
-        description="List of SIP extensions/numbers for outbound calls (optional)",
     )

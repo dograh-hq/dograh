@@ -1,6 +1,6 @@
 """Vobiz telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,8 +19,4 @@ class VobizConfigurationRequest(BaseModel):
             "If omitted, an application is auto-created on save and its id "
             "is stored on the configuration."
         ),
-    )
-    from_numbers: List[str] = Field(
-        default_factory=list,
-        description="List of Vobiz phone numbers (E.164 without + prefix)",
     )

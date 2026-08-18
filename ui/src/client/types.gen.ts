@@ -100,12 +100,6 @@ export type AriConfigurationRequest = {
      * Optional external PBX connected through this Asterisk instance
      */
     external_pbx?: VicidialExternalPbxConfiguration | null;
-    /**
-     * From Numbers
-     *
-     * List of SIP extensions/numbers for outbound calls (optional)
-     */
-    from_numbers?: Array<string>;
 };
 
 /**
@@ -1317,12 +1311,6 @@ export type CloudonixConfigurationRequest = {
      * Cloudonix Voice Application name. The application's url is updated when inbound workflows are attached to numbers on this domain. If omitted, an application is auto-created on save and its name is stored on the configuration.
      */
     application_name?: string | null;
-    /**
-     * From Numbers
-     *
-     * List of Cloudonix phone numbers (optional)
-     */
-    from_numbers?: Array<string>;
 };
 
 /**
@@ -4572,12 +4560,6 @@ export type PlivoConfigurationRequest = {
      * Plivo Application ID. The application's answer_url is updated when inbound workflows are attached to numbers on this account. If omitted, an application is auto-created on save and its id is stored on the configuration.
      */
     application_id?: string | null;
-    /**
-     * From Numbers
-     *
-     * List of Plivo phone numbers
-     */
-    from_numbers?: Array<string>;
 };
 
 /**
@@ -6216,12 +6198,6 @@ export type TelnyxConfigurationRequest = {
      * Webhook public key from Mission Control Portal → Keys & Credentials → Public Key. Used to verify Telnyx webhook signatures.
      */
     webhook_public_key?: string | null;
-    /**
-     * From Numbers
-     *
-     * List of Telnyx phone numbers
-     */
-    from_numbers?: Array<string>;
 };
 
 /**
@@ -6718,12 +6694,6 @@ export type TwilioConfigurationRequest = {
      */
     auth_token: string;
     /**
-     * From Numbers
-     *
-     * List of Twilio phone numbers
-     */
-    from_numbers?: Array<string>;
-    /**
      * Amd Enabled
      *
      * Detect whether outbound calls are answered by a person or machine. Twilio may bill AMD as an additional per-call feature.
@@ -7148,12 +7118,6 @@ export type VobizConfigurationRequest = {
      * Vobiz Application ID. The application's answer_url is updated when inbound workflows are attached to numbers on this account. If omitted, an application is auto-created on save and its id is stored on the configuration.
      */
     application_id?: string | null;
-    /**
-     * From Numbers
-     *
-     * List of Vobiz phone numbers (E.164 without + prefix)
-     */
-    from_numbers?: Array<string>;
 };
 
 /**
@@ -7265,12 +7229,6 @@ export type VonageConfigurationRequest = {
      * Vonage signature secret used to verify signed webhooks
      */
     signature_secret?: string | null;
-    /**
-     * From Numbers
-     *
-     * List of Vonage phone numbers (without + prefix)
-     */
-    from_numbers?: Array<string>;
 };
 
 /**

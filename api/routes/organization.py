@@ -98,6 +98,11 @@ from api.services.telephony.factory import (
     get_sip_connectivity_details,
     get_telephony_provider_by_id,
 )
+from api.services.telephony.inbound_routing import (
+    InboundRoutingConflictError,
+    assert_no_inbound_routing_conflict,
+    canonical_address,
+)
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
@@ -897,6 +902,24 @@ async def update_telephony_configuration(
             existing.credentials or {},
         )
 
+        # The account id is one component of the routing key of every phone
+        # number on this configuration, so changing it moves all of them at
+        # once — hence the check spans the whole set rather than one address.
+        # It no-ops when the account id is unchanged, so a rename or a secret
+        # rotation is never blocked by a collision already present in the data.
+        existing_numbers = await db_client.list_phone_numbers_for_config(config_id)
+        try:
+            await assert_no_inbound_routing_conflict(
+                provider=existing.provider,
+                credentials=credentials,
+                addresses=[n.address_normalized for n in existing_numbers],
+                organization_id=user.selected_organization_id,
+                previous_credentials=existing.credentials or {},
+                exclude_configuration_id=config_id,
+            )
+        except InboundRoutingConflictError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
     row = await db_client.update_telephony_configuration(
         config_id=config_id,
         organization_id=user.selected_organization_id,
@@ -1316,41 +1339,19 @@ async def create_phone_number(
     if request.telephony_trunk_id is not None:
         await _ensure_trunk_belongs_to_config(request.telephony_trunk_id, config_id)
 
-    # Inbound dispatch (find_inbound_route_by_account) keys on (provider,
-    # credentials[account_id_field], address_normalized) without the org, so
-    # that tuple has to be globally unique. Reject up front if another config —
-    # in this org or any other — already owns the same combination.
-    spec = telephony_registry.get_optional(cfg.provider)
-    account_field = spec.account_id_credential_field if spec else ""
-    account_id = (cfg.credentials or {}).get(account_field) if account_field else None
-    if account_id:
-        try:
-            conflict = await db_client.find_inbound_routing_conflict(
-                provider=cfg.provider,
-                account_id_field=account_field,
-                account_id=account_id,
-                address=request.address,
-                country_hint=request.country_code,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        if conflict:
-            existing_cfg, existing_phone = conflict
-            same_org = existing_cfg.organization_id == user.selected_organization_id
-            scope = (
-                f"telephony configuration '{existing_cfg.name}'"
-                if same_org
-                else "another organization using the same provider account"
-            )
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Phone number {existing_phone.address} is already registered "
-                    f"under {scope}. Inbound calls cannot be uniquely routed when "
-                    f"the same number is configured against the same provider "
-                    f"account in more than one place."
-                ),
-            )
+    # The inbound routing key must stay unambiguous across every org — the rule,
+    # and every path that has to honour it, live in services/telephony/inbound_routing.
+    try:
+        await assert_no_inbound_routing_conflict(
+            provider=cfg.provider,
+            credentials=cfg.credentials,
+            addresses=[canonical_address(request.address, request.country_code)],
+            organization_id=user.selected_organization_id,
+        )
+    except InboundRoutingConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     await _ensure_provider_phone_number(
         config_id,

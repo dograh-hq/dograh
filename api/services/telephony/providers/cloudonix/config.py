@@ -102,6 +102,3 @@ class CloudonixConfigurationRequest(BaseModel):
             "save and its name is stored on the configuration."
         ),
     )
-    from_numbers: list[str] = Field(
-        default_factory=list, description="List of Cloudonix phone numbers (optional)"
-    )

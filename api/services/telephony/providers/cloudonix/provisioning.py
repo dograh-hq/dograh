@@ -72,6 +72,24 @@ async def ensure_managed_cloudonix_configuration(
 
     if existing is not None:
         if existing.credentials != credentials:
+            # Imported here, not at module scope: this module is loaded while
+            # api.services.telephony's __init__ is still registering providers.
+            from api.services.telephony.inbound_routing import (
+                assert_no_inbound_routing_conflict,
+            )
+
+            # MPS issues one domain per organization, so a conflict here means
+            # a provisioning bug rather than user input — but this still changes
+            # an existing configuration's account id, so it honours the rule.
+            numbers = await db_client.list_phone_numbers_for_config(existing.id)
+            await assert_no_inbound_routing_conflict(
+                provider="cloudonix",
+                credentials=credentials,
+                addresses=[n.address_normalized for n in numbers],
+                organization_id=organization_id,
+                previous_credentials=existing.credentials or {},
+                exclude_configuration_id=existing.id,
+            )
             return await db_client.update_telephony_configuration(
                 config_id=existing.id,
                 organization_id=organization_id,

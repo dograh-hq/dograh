@@ -918,17 +918,21 @@ def create_tts_service(
         voice = getattr(user_config.tts, "voice", None) or "beatrice_32"
         model = getattr(user_config.tts, "model", None) or "simba-3.2"
         language_code = getattr(user_config.tts, "language", None) or "en"
+        language: Language | str
         try:
-            pipecat_language = Language(language_code)
+            language = Language(language_code)
         except ValueError:
-            pipecat_language = Language.EN
+            # The config allows custom language codes; codes the pipecat enum
+            # doesn't model (e.g. "en-ZA") are sent to Speechify verbatim
+            # rather than silently replaced with English.
+            language = language_code
         return SpeechifyTTSService(
             api_key=user_config.tts.api_key,
             sample_rate=audio_config.transport_out_sample_rate,
             settings=SpeechifyTTSSettings(
                 voice=voice,
                 model=model,
-                language=pipecat_language,
+                language=language,
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],

@@ -95,14 +95,17 @@ def test_create_speechify_tts_service_converts_language():
     assert kwargs["settings"].language == Language.PT_BR
 
 
-def test_create_speechify_tts_service_falls_back_to_english_for_unknown_language():
+def test_create_speechify_tts_service_passes_custom_language_through():
+    # The config allows custom language codes; ones the pipecat Language enum
+    # doesn't model must reach the provider verbatim, not be replaced with
+    # English.
     user_config = SimpleNamespace(
         tts=SimpleNamespace(
             provider=ServiceProviders.SPEECHIFY.value,
             api_key="test-key",
             model="simba-3.2",
             voice="beatrice_32",
-            language="not-a-language",
+            language="en-ZA",
         )
     )
     audio_config = SimpleNamespace(
@@ -116,7 +119,7 @@ def test_create_speechify_tts_service_falls_back_to_english_for_unknown_language
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
-    assert kwargs["settings"].language == Language.EN
+    assert kwargs["settings"].language == "en-ZA"
 
 
 def test_speechify_is_registered_for_key_validation():

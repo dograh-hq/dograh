@@ -600,11 +600,7 @@ class ARIConnection:
             )
 
         else:
-            # Debug, not trace: ApplicationReplaced arrives here, and it is the
-            # only notice Asterisk gives that another WebSocket has taken over
-            # this Stasis application. Losing it to an unshipped log level is
-            # how a silently deaf connection stays undiagnosed.
-            logger.debug(
+            logger.trace(
                 f"[ARI org={self.organization_id}] Event: {event_type} "
                 f"channel={channel_id}"
             )

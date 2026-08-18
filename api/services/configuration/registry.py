@@ -1465,21 +1465,20 @@ class LmntTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+# Only the streaming-native Simba models: pipecat's SpeechifyHttpTTSService
+# uses the /v1/audio/stream/with-timestamps endpoint, which rejects the legacy
+# simba-english/simba-multilingual models.
 SPEECHIFY_TTS_MODELS = [
     "simba-3.2",
     "simba-3.0",
-    "simba-english",
-    "simba-multilingual",
 ]
 SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
 # The API rejects voices outside a model's allow-list (HTTP 400): simba-3.2
 # only accepts voices that list it in GET /v1/voices, currently its dedicated
-# "_32" voices. The other models accept the general shared catalog.
+# "_32" voices. simba-3.0 accepts the general shared catalog.
 SPEECHIFY_TTS_VOICES_BY_MODEL = {
     "simba-3.2": ["beatrice_32", "geffen_32"],
     "simba-3.0": SPEECHIFY_TTS_VOICES,
-    "simba-english": SPEECHIFY_TTS_VOICES,
-    "simba-multilingual": SPEECHIFY_TTS_VOICES,
 }
 # Documented languages per model, used to filter the language dropdown. The
 # API accepts other codes (synthesis succeeds), so this steers rather than
@@ -1487,33 +1486,6 @@ SPEECHIFY_TTS_VOICES_BY_MODEL = {
 SPEECHIFY_TTS_LANGUAGES_BY_MODEL = {
     "simba-3.2": ["en"],
     "simba-3.0": ["en", "de", "es", "fr", "it", "pt-BR"],
-    "simba-english": ["en"],
-    "simba-multilingual": [
-        "en",
-        "ar",
-        "bn",
-        "da",
-        "de",
-        "es",
-        "fr",
-        "gu",
-        "hi",
-        "it",
-        "ja",
-        "ko",
-        "mr",
-        "nb",
-        "nl",
-        "pt-BR",
-        "pt-PT",
-        "ru",
-        "sv",
-        "ta",
-        "te",
-        "tr",
-        "ur",
-        "yue",
-    ],
 }
 
 

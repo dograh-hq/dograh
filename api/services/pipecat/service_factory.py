@@ -90,7 +90,6 @@ from pipecat.services.smallest.tts import SmallestTTSService, SmallestTTSSetting
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
-from pipecat.services.speechify.tts import SpeechifyTTSService, SpeechifyTTSSettings
 from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
@@ -915,6 +914,11 @@ def create_tts_service(
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.SPEECHIFY.value:
+        # SpeechifyHttpTTSService ships in upstream pipecat; imported lazily so
+        # this module keeps loading on pipecat checkouts that predate it.
+        from api.services.pipecat.speechify_tts import SpeechifyOwnedSessionTTSService
+        from pipecat.services.speechify.tts import SpeechifyTTSSettings
+
         voice = getattr(user_config.tts, "voice", None) or "beatrice_32"
         model = getattr(user_config.tts, "model", None) or "simba-3.2"
         language_code = getattr(user_config.tts, "language", None) or "en"
@@ -926,8 +930,10 @@ def create_tts_service(
             # doesn't model (e.g. "en-ZA") are sent to Speechify verbatim
             # rather than silently replaced with English.
             language = language_code
-        return SpeechifyTTSService(
+        session = aiohttp.ClientSession()
+        return SpeechifyOwnedSessionTTSService(
             api_key=user_config.tts.api_key,
+            aiohttp_session=session,
             sample_rate=audio_config.transport_out_sample_rate,
             settings=SpeechifyTTSSettings(
                 voice=voice,

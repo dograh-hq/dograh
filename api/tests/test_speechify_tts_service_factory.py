@@ -1,3 +1,5 @@
+import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -15,6 +17,40 @@ from api.services.configuration.registry import (
     SpeechifyTTSConfiguration,
 )
 from api.services.pipecat.service_factory import create_tts_service
+
+
+@pytest.fixture
+def speechify_pipecat_stub(monkeypatch):
+    """Provide pipecat.services.speechify.tts for the factory's lazy import.
+
+    The pinned pipecat checkout predates upstream's SpeechifyHttpTTSService, so
+    the module the factory imports at call time is stubbed here.
+    """
+
+    class StubSpeechifyHttpTTSService:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def cleanup(self):
+            pass
+
+    class StubSpeechifyTTSSettings:
+        def __init__(self, voice=None, model=None, language=None):
+            self.voice = voice
+            self.model = model
+            self.language = language
+
+    tts_mod = types.ModuleType("pipecat.services.speechify.tts")
+    tts_mod.SpeechifyHttpTTSService = StubSpeechifyHttpTTSService
+    tts_mod.SpeechifyTTSSettings = StubSpeechifyTTSSettings
+    pkg = types.ModuleType("pipecat.services.speechify")
+    pkg.tts = tts_mod
+    monkeypatch.setitem(sys.modules, "pipecat.services.speechify", pkg)
+    monkeypatch.setitem(sys.modules, "pipecat.services.speechify.tts", tts_mod)
+    # Force the wrapper module to rebind against this stub.
+    sys.modules.pop("api.services.pipecat.speechify_tts", None)
+    yield
+    sys.modules.pop("api.services.pipecat.speechify_tts", None)
 
 
 def test_speechify_tts_configuration_defaults():
@@ -41,6 +77,7 @@ def test_speechify_language_options_cover_every_model():
 
 @pytest.mark.parametrize("transport_out_sample_rate", [8000, 16000, 24000])
 def test_create_speechify_tts_service_uses_transport_sample_rate(
+    speechify_pipecat_stub,
     transport_out_sample_rate,
 ):
     user_config = SimpleNamespace(
@@ -57,21 +94,25 @@ def test_create_speechify_tts_service_uses_transport_sample_rate(
         transport_in_sample_rate=16000,
     )
 
-    with patch(
-        "api.services.pipecat.service_factory.SpeechifyTTSService"
-    ) as mock_service:
+    with (
+        patch(
+            "api.services.pipecat.speechify_tts.SpeechifyOwnedSessionTTSService"
+        ) as mock_service,
+        patch("api.services.pipecat.service_factory.aiohttp.ClientSession"),
+    ):
         create_tts_service(user_config, audio_config)
 
     assert mock_service.call_count == 1
     kwargs = mock_service.call_args.kwargs
     assert kwargs["api_key"] == "test-key"
+    assert kwargs["aiohttp_session"] is not None
     assert kwargs["sample_rate"] == transport_out_sample_rate
     assert kwargs["settings"].voice == "geffen_32"
     assert kwargs["settings"].model == "simba-3.2"
     assert kwargs["settings"].language == Language.EN
 
 
-def test_create_speechify_tts_service_converts_language():
+def test_create_speechify_tts_service_converts_language(speechify_pipecat_stub):
     user_config = SimpleNamespace(
         tts=SimpleNamespace(
             provider=ServiceProviders.SPEECHIFY.value,
@@ -86,16 +127,21 @@ def test_create_speechify_tts_service_converts_language():
         transport_in_sample_rate=16000,
     )
 
-    with patch(
-        "api.services.pipecat.service_factory.SpeechifyTTSService"
-    ) as mock_service:
+    with (
+        patch(
+            "api.services.pipecat.speechify_tts.SpeechifyOwnedSessionTTSService"
+        ) as mock_service,
+        patch("api.services.pipecat.service_factory.aiohttp.ClientSession"),
+    ):
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
     assert kwargs["settings"].language == Language.PT_BR
 
 
-def test_create_speechify_tts_service_passes_custom_language_through():
+def test_create_speechify_tts_service_passes_custom_language_through(
+    speechify_pipecat_stub,
+):
     # The config allows custom language codes; ones the pipecat Language enum
     # doesn't model must reach the provider verbatim, not be replaced with
     # English.
@@ -113,9 +159,12 @@ def test_create_speechify_tts_service_passes_custom_language_through():
         transport_in_sample_rate=16000,
     )
 
-    with patch(
-        "api.services.pipecat.service_factory.SpeechifyTTSService"
-    ) as mock_service:
+    with (
+        patch(
+            "api.services.pipecat.speechify_tts.SpeechifyOwnedSessionTTSService"
+        ) as mock_service,
+        patch("api.services.pipecat.service_factory.aiohttp.ClientSession"),
+    ):
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs

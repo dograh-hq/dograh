@@ -1472,6 +1472,15 @@ SPEECHIFY_TTS_MODELS = [
     "simba-multilingual",
 ]
 SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
+# The API rejects voices outside a model's allow-list (HTTP 400): simba-3.2
+# only accepts voices that list it in GET /v1/voices, currently its dedicated
+# "_32" voices. The other models accept the general shared catalog.
+SPEECHIFY_TTS_VOICES_BY_MODEL = {
+    "simba-3.2": ["beatrice_32", "geffen_32"],
+    "simba-3.0": SPEECHIFY_TTS_VOICES,
+    "simba-english": SPEECHIFY_TTS_VOICES,
+    "simba-multilingual": SPEECHIFY_TTS_VOICES,
+}
 # Documented languages per model, used to filter the language dropdown. The
 # API accepts other codes (synthesis succeeds), so this steers rather than
 # hard-blocks: allow_custom_input still permits manual entry.
@@ -1524,12 +1533,14 @@ class SpeechifyTTSConfiguration(BaseTTSConfiguration):
     voice: str = Field(
         default="beatrice_32",
         description=(
-            "Speechify voice ID. Use a shared voice from the Speechify catalog "
-            "or a cloned voice ID from your account."
+            "Speechify voice ID. Options are filtered to voices available for "
+            "the selected model; a custom or cloned voice ID must support the "
+            "selected model (see GET /v1/voices), or synthesis fails."
         ),
         json_schema_extra={
             "examples": SPEECHIFY_TTS_VOICES,
             "allow_custom_input": True,
+            "model_options": SPEECHIFY_TTS_VOICES_BY_MODEL,
         },
     )
     language: str = Field(

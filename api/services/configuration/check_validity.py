@@ -463,6 +463,13 @@ class UserConfigurationValidator:
                 "Please check that your API key is correct and active. "
                 "You can find your key at https://platform.speechify.ai."
             )
+        if response.status_code == 403:
+            raise ValueError(
+                "Speechify API authorization failed: the key was recognized but is "
+                "not allowed to access the TTS API (expired plan, revoked key, or "
+                "missing scope). Check your key and plan at "
+                "https://platform.speechify.ai."
+            )
         return True
 
     def _check_ultravox_realtime_api_key(self, model: str, api_key: str) -> bool:

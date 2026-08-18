@@ -5815,7 +5815,7 @@ export type SpeechifyTtsConfiguration = {
     /**
      * Voice
      *
-     * Speechify voice ID. Use a shared voice from the Speechify catalog or a cloned voice ID from your account.
+     * Speechify voice ID. Options are filtered to voices available for the selected model; a custom or cloned voice ID must support the selected model (see GET /v1/voices), or synthesis fails.
      */
     voice?: string;
     /**

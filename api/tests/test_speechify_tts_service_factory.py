@@ -10,6 +10,7 @@ from api.services.configuration.registry import (
     SPEECHIFY_TTS_LANGUAGES_BY_MODEL,
     SPEECHIFY_TTS_MODELS,
     SPEECHIFY_TTS_VOICES,
+    SPEECHIFY_TTS_VOICES_BY_MODEL,
     ServiceProviders,
     SpeechifyTTSConfiguration,
 )
@@ -154,3 +155,23 @@ def test_speechify_key_validation_rejects_bad_key():
         mock_get.return_value.status_code = 401
         with pytest.raises(ValueError):
             validator._check_speechify_api_key("simba-3.2", "bad-key")
+
+
+def test_speechify_key_validation_rejects_unauthorized_key():
+    validator = UserConfigurationValidator()
+    with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
+        mock_get.return_value.status_code = 403
+        with pytest.raises(ValueError, match="authorization failed"):
+            validator._check_speechify_api_key("simba-3.2", "unauthorized-key")
+
+
+def test_speechify_voice_options_cover_every_model():
+    # The voice dropdown is filtered per model via model_options; the API
+    # rejects voices outside a model's allow-list with HTTP 400.
+    assert set(SPEECHIFY_TTS_VOICES_BY_MODEL) == set(SPEECHIFY_TTS_MODELS)
+    assert SPEECHIFY_TTS_VOICES_BY_MODEL["simba-3.2"] == ["beatrice_32", "geffen_32"]
+    voice_extra = SpeechifyTTSConfiguration.model_fields["voice"].json_schema_extra
+    assert voice_extra["model_options"] is SPEECHIFY_TTS_VOICES_BY_MODEL
+    # The default voice must be valid for the default model.
+    default_config = SpeechifyTTSConfiguration(api_key="test-key")
+    assert default_config.voice in SPEECHIFY_TTS_VOICES_BY_MODEL[default_config.model]

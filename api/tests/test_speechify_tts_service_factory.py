@@ -20,6 +20,13 @@ from api.services.configuration.registry import (
 from api.services.pipecat.service_factory import create_tts_service
 
 
+def _speechify_pipecat_module_present() -> bool:
+    try:
+        return importlib.util.find_spec("pipecat.services.speechify.tts") is not None
+    except ModuleNotFoundError:
+        return False
+
+
 @pytest.fixture
 def speechify_pipecat_stub(monkeypatch):
     """Provide pipecat.services.speechify.tts for the factory's lazy import.
@@ -28,13 +35,7 @@ def speechify_pipecat_stub(monkeypatch):
     SpeechifyHttpTTSService. Once the submodule includes the real module, the
     tests run against the real classes so signature drift fails loudly.
     """
-    try:
-        real_module_present = (
-            importlib.util.find_spec("pipecat.services.speechify.tts") is not None
-        )
-    except ModuleNotFoundError:
-        real_module_present = False
-    if real_module_present:
+    if _speechify_pipecat_module_present():
         sys.modules.pop("api.services.pipecat.speechify_tts", None)
         yield
         sys.modules.pop("api.services.pipecat.speechify_tts", None)
@@ -182,6 +183,34 @@ def test_create_speechify_tts_service_passes_custom_language_through(
 
     kwargs = mock_service.call_args.kwargs
     assert kwargs["settings"].language == "en-ZA"
+
+
+@pytest.mark.skipif(
+    _speechify_pipecat_module_present(),
+    reason="pinned pipecat ships the Speechify module",
+)
+def test_create_speechify_tts_service_reports_missing_pipecat_module():
+    # Selecting Speechify on a pipecat checkout without the service must fail
+    # with an explicit configuration error, not a bare ModuleNotFoundError.
+    from fastapi import HTTPException
+
+    user_config = SimpleNamespace(
+        tts=SimpleNamespace(
+            provider=ServiceProviders.SPEECHIFY.value,
+            api_key="test-key",
+            model="simba-3.2",
+            voice="beatrice_32",
+            language="en",
+        )
+    )
+    audio_config = SimpleNamespace(
+        transport_out_sample_rate=16000,
+        transport_in_sample_rate=16000,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        create_tts_service(user_config, audio_config)
+    assert "pipecat build" in exc_info.value.detail
 
 
 def test_speechify_is_registered_for_key_validation():

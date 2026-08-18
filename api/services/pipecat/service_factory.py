@@ -916,8 +916,19 @@ def create_tts_service(
     elif user_config.tts.provider == ServiceProviders.SPEECHIFY.value:
         # SpeechifyHttpTTSService ships in upstream pipecat; imported lazily so
         # this module keeps loading on pipecat checkouts that predate it.
-        from api.services.pipecat.speechify_tts import SpeechifyOwnedSessionTTSService
-        from pipecat.services.speechify.tts import SpeechifyTTSSettings
+        try:
+            from api.services.pipecat.speechify_tts import (
+                SpeechifyOwnedSessionTTSService,
+            )
+            from pipecat.services.speechify.tts import SpeechifyTTSSettings
+        except ModuleNotFoundError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Speechify TTS requires a pipecat build that includes "
+                    "pipecat.services.speechify; the installed pipecat does not."
+                ),
+            ) from e
 
         voice = getattr(user_config.tts, "voice", None) or "beatrice_32"
         model = getattr(user_config.tts, "model", None) or "simba-3.2"

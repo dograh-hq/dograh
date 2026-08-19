@@ -7,6 +7,7 @@ during workflow execution.
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -104,6 +105,20 @@ class CustomToolManager:
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
 
+    @staticmethod
+    def _pick_message_variant(message: str) -> str:
+        """Support multiple '|'-separated message variants; pick one at random.
+
+        A plain message without '|' is returned unchanged, preserving existing
+        behaviour. Empty variants (e.g. trailing '|') are ignored.
+        """
+        if "|" not in message:
+            return message
+        variants = [part.strip() for part in message.split("|") if part.strip()]
+        if not variants:
+            return message
+        return random.choice(variants)
+
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
     ) -> bool:
@@ -137,6 +152,7 @@ class CustomToolManager:
         if message_type == "custom":
             custom_message = config.get("customMessage", "")
             if custom_message:
+                custom_message = self._pick_message_variant(custom_message)
                 await self._engine.task.queue_frame(
                     TTSSpeakFrame(
                         custom_message,
@@ -437,6 +453,7 @@ class CustomToolManager:
                                 persist_to_logs=True,
                             )
                 elif custom_message:
+                    custom_message = self._pick_message_variant(custom_message)
                     logger.info(
                         f"Playing custom message before HTTP tool: {custom_message}"
                     )

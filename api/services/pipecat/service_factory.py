@@ -630,9 +630,9 @@ def create_tts_service(
             settings=ElevenLabsTTSSettings(
                 voice=voice_id,
                 model=user_config.tts.model,
-                stability=0.8,
+                stability=getattr(user_config.tts, "stability", 0.8),
                 speed=user_config.tts.speed,
-                similarity_boost=0.75,
+                similarity_boost=getattr(user_config.tts, "similarity_boost", 0.75),
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],

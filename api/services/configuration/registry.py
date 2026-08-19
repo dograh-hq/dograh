@@ -989,6 +989,25 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
             "regional compliance."
         ),
     )
+    stability: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Voice stability. Higher values (0.6-0.9) give consistent, steady "
+            "delivery; lower values (0.3-0.5) give more expressive, dynamic "
+            "delivery with wider emotional range."
+        ),
+    )
+    similarity_boost: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "How closely the output adheres to the original voice. Higher "
+            "boosts clarity and consistency; very high values may distort."
+        ),
+    )
 
 
 @register_tts

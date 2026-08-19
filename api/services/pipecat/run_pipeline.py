@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Optional
 
 from fastapi import HTTPException
@@ -882,8 +883,18 @@ async def _run_pipeline_impl(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
+    # The initial-greeting mute keeps noisy channels from interrupting the very
+    # first bot utterance, but it also makes the greeting impossible to barge
+    # into. Deployments that want a fully interruptible greeting can disable it.
+    _greeting_mute_disabled = (
+        os.getenv("DISABLE_INITIAL_GREETING_MUTE", "false").lower() == "true"
+    )
     user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
+        *(
+            []
+            if _greeting_mute_disabled
+            else [MuteUntilFirstBotCompleteUserMuteStrategy()]
+        ),
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]

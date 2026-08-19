@@ -235,7 +235,7 @@ services:
       # LANGFUSE_PROJECT_ID: ""
       # Traces are private by default. Set to "true" to make them readable by
       # anyone holding the trace URL, with no Langfuse login.
-      # LANGFUSE_TRACES_PUBLIC: "false"
+      LANGFUSE_TRACES_PUBLIC: "${LANGFUSE_TRACES_PUBLIC:-false}"
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1).

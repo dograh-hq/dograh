@@ -11,6 +11,7 @@ from api.services.configuration.registry import (
     ServiceProviders,
     ServiceType,
 )
+from api.services.pipecat.murf_tts import MurfTTSService
 from api.services.pipecat.service_factory import (
     MURF_DEFAULT_BASE_URL,
     _murf_websocket_url,
@@ -75,6 +76,10 @@ def test_create_murf_tts_service_uses_pipeline_compatible_audio_format(
     )
 
     with patch("api.services.pipecat.service_factory.MurfTTSService") as mock_service:
+        # Keep the real nested Pydantic model; patching the class otherwise
+        # turns InputParams into a MagicMock and these assertions never see
+        # the values the factory actually passed.
+        mock_service.InputParams = MurfTTSService.InputParams
         create_tts_service(user_config, audio_config)
 
     assert mock_service.call_count == 1
@@ -109,6 +114,7 @@ def test_create_murf_tts_service_defaults_locale_and_host():
     )
 
     with patch("api.services.pipecat.service_factory.MurfTTSService") as mock_service:
+        mock_service.InputParams = MurfTTSService.InputParams
         create_tts_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs

@@ -1,4 +1,5 @@
 from api.services.integrations.base import (
+    IntegrationCallCapabilities,
     IntegrationCompletionContext,
     IntegrationNodeRegistration,
     IntegrationPackageSpec,
@@ -9,6 +10,7 @@ from api.services.integrations.registry import (
     all_node_specs,
     all_packages,
     all_routers,
+    create_call_capabilities,
     create_runtime_sessions,
     get_node_data_model,
     get_node_registration,
@@ -20,6 +22,7 @@ from api.services.integrations.registry import (
 )
 
 __all__ = [
+    "IntegrationCallCapabilities",
     "IntegrationCompletionContext",
     "IntegrationNodeRegistration",
     "IntegrationPackageSpec",
@@ -28,6 +31,7 @@ __all__ = [
     "all_node_specs",
     "all_packages",
     "all_routers",
+    "create_call_capabilities",
     "create_runtime_sessions",
     "get_node_data_model",
     "get_node_registration",

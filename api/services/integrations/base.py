@@ -33,6 +33,15 @@ class IntegrationRuntimeContext:
 
 
 @dataclass(frozen=True)
+class IntegrationCallCapabilities:
+    # What an integration contributes to a call, rather than collects from it.
+    # Both fields are optional. See AGENTS.md "Pre-Call Path".
+    name: str
+    run_pre_call: Callable[[], Awaitable[dict[str, Any]]] | None = None
+    prompt_addendum: Callable[[dict[str, Any]], str | None] | None = None
+
+
+@dataclass(frozen=True)
 class IntegrationCompletionContext:
     workflow_run_id: int
     workflow_run: Any
@@ -45,6 +54,10 @@ class IntegrationCompletionContext:
 RuntimeFactory = Callable[
     [IntegrationRuntimeContext],
     list[IntegrationRuntimeSession],
+]
+CallCapabilitiesFactory = Callable[
+    [IntegrationRuntimeContext],
+    IntegrationCallCapabilities | None,
 ]
 CompletionHandler = Callable[
     [list[dict[str, Any]], IntegrationCompletionContext],
@@ -67,3 +80,6 @@ class IntegrationPackageSpec:
     routers: tuple[APIRouter, ...] = ()
     create_runtime_sessions: RuntimeFactory | None = None
     run_completion: CompletionHandler | None = None
+    # Appended last on purpose: inserting it earlier would shift the meaning of
+    # every positional argument after it for packages already constructing this.
+    create_call_capabilities: CallCapabilitiesFactory | None = None

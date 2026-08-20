@@ -288,6 +288,11 @@ def create_stt_service(
         # Other models than flux
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
+        kwargs = {}
+        base_url = getattr(user_config.stt, "base_url", None)
+        if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
+            kwargs["base_url"] = base_url
         return DeepgramSTTService(
             api_key=user_config.stt.api_key,
             settings=DeepgramSTTSettings(
@@ -299,6 +304,7 @@ def create_stt_service(
             ),
             should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
             sample_rate=audio_config.transport_in_sample_rate,
+            **kwargs,
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         kwargs = {}
@@ -566,12 +572,18 @@ def create_tts_service(
     # Create function call filter to prevent TTS from speaking function call tags
     xml_function_tag_filter = XMLFunctionTagFilter()
     if user_config.tts.provider == ServiceProviders.DEEPGRAM.value:
+        kwargs = {}
+        base_url = getattr(user_config.tts, "base_url", None)
+        if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
+            kwargs["base_url"] = base_url
         return DeepgramTTSService(
             api_key=user_config.tts.api_key,
             settings=DeepgramTTSSettings(voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
+            **kwargs,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
         kwargs = {}

@@ -1,7 +1,10 @@
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from pipecat.frames.frames import TTSStoppedFrame
+from websockets.protocol import State
 
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
@@ -145,3 +148,97 @@ def test_murf_key_validation_rejects_bad_key():
         mock_get.return_value.status_code = 401
         with pytest.raises(ValueError):
             validator._check_murf_api_key("falcon-2", "bad-key")
+
+
+def _drain_queue(queue: asyncio.Queue) -> list:
+    items = []
+    while not queue.empty():
+        items.append(queue.get_nowait())
+    return items
+
+
+@pytest.mark.asyncio
+async def test_murf_provider_error_closes_audio_context():
+    service = MurfTTSService(api_key="test-key")
+    context_id = "ctx-1"
+    queue = asyncio.Queue()
+    service._audio_contexts[context_id] = queue
+    service.push_error = AsyncMock()
+    service.stop_all_metrics = AsyncMock()
+    service.push_frame = AsyncMock()
+
+    await service._process_json_message(
+        {"context_id": context_id, "error": "voice not found"}
+    )
+
+    items = _drain_queue(queue)
+    assert any(isinstance(item, TTSStoppedFrame) for item in items)
+    assert items[-1] is None
+    service.stop_all_metrics.assert_awaited_once()
+    service.push_error.assert_awaited_once()
+    service.push_frame.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_murf_connect_restarts_completed_receiver():
+    service = MurfTTSService(api_key="test-key")
+
+    async def fake_connect_websocket():
+        service._websocket = SimpleNamespace(state=State.OPEN)
+
+    service._connect_websocket = fake_connect_websocket
+
+    async def _noop():
+        return None
+
+    done_task = asyncio.create_task(_noop())
+    await done_task
+    service._receive_task = done_task
+
+    created = []
+
+    def fake_create_task(coro, name=None, context=None):
+        coro.close()
+        task = SimpleNamespace(done=lambda: False)
+        created.append(task)
+        return task
+
+    service.create_task = fake_create_task
+
+    await service._connect()
+
+    assert len(created) == 1
+    assert service._receive_task is created[0]
+
+
+@pytest.mark.asyncio
+async def test_murf_connect_keeps_running_receiver():
+    service = MurfTTSService(api_key="test-key")
+
+    async def fake_connect_websocket():
+        service._websocket = SimpleNamespace(state=State.OPEN)
+
+    service._connect_websocket = fake_connect_websocket
+
+    async def _hang():
+        await asyncio.Event().wait()
+
+    running = asyncio.create_task(_hang())
+    service._receive_task = running
+    created = []
+
+    def fake_create_task(coro, name=None, context=None):
+        coro.close()
+        created.append(object())
+        return created[-1]
+
+    service.create_task = fake_create_task
+
+    try:
+        await service._connect()
+        assert created == []
+        assert service._receive_task is running
+    finally:
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running

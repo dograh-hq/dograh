@@ -220,7 +220,9 @@ class MurfTTSService(WebsocketTTSService):
 
         await self._connect_websocket()
 
-        if self._websocket and not self._receive_task:
+        if self._websocket and (
+            self._receive_task is None or self._receive_task.done()
+        ):
             self._receive_task = self.create_task(
                 self._receive_task_handler(self._report_error)
             )
@@ -357,10 +359,12 @@ class MurfTTSService(WebsocketTTSService):
         if "error" in data:
             error_msg = f"{self} error: {data['error']}"
             logger.error(error_msg)
-            await self.push_frame(TTSStoppedFrame(context_id=received_ctx_id))
             await self.stop_all_metrics()
+            await self.append_to_audio_context(
+                received_ctx_id, TTSStoppedFrame(context_id=received_ctx_id)
+            )
+            await self.remove_audio_context(received_ctx_id)
             await self.push_error(error_msg=error_msg)
-            self.reset_active_audio_context()
             return
 
         if "audio" in data:

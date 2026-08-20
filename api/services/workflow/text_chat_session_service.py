@@ -274,6 +274,25 @@ async def execute_pending_text_chat_turn(
             f"Failed to execute text chat assistant turn: {e}"
         ) from e
 
+    # A user-message turn that produced no assistant text and did not complete
+    # the call is dead air: the turn used to be finalized as "completed" with a
+    # null assistant_message, leaving the visitor staring at silence with no
+    # error and no retry. Surface it as a failed turn instead.
+    pending_turn = session_data["turns"][-1]
+    if (
+        pending_turn.get("user_message") is not None
+        and not execution.assistant_text
+        and not execution.is_completed
+    ):
+        await _mark_pending_turn_failed(
+            run_id=run_id,
+            text_session=text_session,
+            error_message="Assistant produced no response for this turn",
+        )
+        raise TextChatSessionExecutionError(
+            "Failed to execute text chat assistant turn: "
+            "the model returned an empty response"
+        )
     completed_session_data = normalize_text_chat_session_data(text_session.session_data)
     completed_turns = list(completed_session_data.get("turns") or [])
     if not completed_turns or completed_turns[-1].get("status") != "pending":

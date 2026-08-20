@@ -203,6 +203,157 @@ async def test_completed_pending_turn_enqueues_workflow_completion(monkeypatch):
     upload_transcript.assert_awaited_once()
     enqueue_completion.assert_awaited_once_with(42)
 
+@pytest.mark.asyncio
+async def test_user_message_turn_with_empty_reply_fails_loudly(monkeypatch):
+    """A user-message turn whose model output is empty must not be finalized
+    as "completed" with a null assistant_message — that is silent dead air."""
+    session = SimpleNamespace(
+        revision=3,
+        created_at=datetime.now(UTC),
+        session_data={
+            "status": "pending_assistant_turn",
+            "turns": [
+                {
+                    "id": "turn-1",
+                    "status": "pending",
+                    "created_at": "2026-08-05T00:00:00+00:00",
+                    "user_message": {
+                        "text": "10am works",
+                        "created_at": "2026-08-05T00:00:00+00:00",
+                    },
+                    "assistant_message": None,
+                    "events": [],
+                    "usage": {},
+                }
+            ],
+        },
+        checkpoint={},
+        workflow_run=SimpleNamespace(
+            usage_info={},
+            is_completed=False,
+            created_at=datetime.now(UTC),
+        ),
+    )
+    execution = SimpleNamespace(
+        assistant_text=None,
+        assistant_created_at="2026-08-05T00:00:01+00:00",
+        events=[],
+        usage={},
+        checkpoint={},
+        initial_context={},
+        gathered_context={},
+        state="running",
+        is_completed=False,
+    )
+    mark_failed = AsyncMock()
+
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "execute_text_chat_pending_turn",
+        AsyncMock(return_value=execution),
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_mark_pending_turn_failed",
+        mark_failed,
+    )
+
+    with pytest.raises(TextChatSessionExecutionError, match="empty response"):
+        await execute_pending_text_chat_turn(
+            workflow_id=2,
+            run_id=42,
+            text_session=session,
+        )
+
+    mark_failed.assert_awaited_once()
+    assert (
+        mark_failed.await_args.kwargs["error_message"]
+        == "Assistant produced no response for this turn"
+    )
+
+
+@pytest.mark.asyncio
+async def test_opening_turn_without_llm_text_still_completes(monkeypatch):
+    """Opening turns (user_message=None) may legitimately produce no text —
+    e.g. a node with no greeting and generate_if_no_greeting=False. Those
+    must keep finalizing normally, not fail."""
+    session = SimpleNamespace(
+        revision=3,
+        created_at=datetime.now(UTC),
+        session_data={
+            "status": "pending_assistant_turn",
+            "turns": [
+                {
+                    "id": "turn-1",
+                    "status": "pending",
+                    "created_at": "2026-08-05T00:00:00+00:00",
+                    "user_message": None,
+                    "assistant_message": None,
+                    "events": [],
+                    "usage": {},
+                }
+            ],
+        },
+        checkpoint={},
+        workflow_run=SimpleNamespace(
+            usage_info={},
+            is_completed=False,
+            created_at=datetime.now(UTC),
+        ),
+    )
+    execution = SimpleNamespace(
+        assistant_text=None,
+        assistant_created_at="2026-08-05T00:00:01+00:00",
+        events=[],
+        usage={"call_duration_seconds": 1},
+        checkpoint={"current_node_id": "1"},
+        initial_context={},
+        gathered_context={},
+        state="running",
+        is_completed=False,
+    )
+    update_text_session = AsyncMock()
+    update_run = AsyncMock()
+    reloaded = SimpleNamespace(workflow_run=SimpleNamespace(is_completed=False))
+
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "execute_text_chat_pending_turn",
+        AsyncMock(return_value=execution),
+    )
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run_text_session",
+        update_text_session,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service.db_client,
+        "update_workflow_run",
+        update_run,
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_reload_text_chat_session",
+        AsyncMock(return_value=reloaded),
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_mark_pending_turn_failed",
+        AsyncMock(),
+    )
+
+    result = await execute_pending_text_chat_turn(
+        workflow_id=2,
+        run_id=42,
+        text_session=session,
+    )
+
+    assert result is reloaded
+    persisted_session = update_text_session.await_args.kwargs["session_data"]
+    assert persisted_session["turns"][-1]["status"] == "completed"
+    assert persisted_session["turns"][-1]["assistant_message"] is None
+    assert persisted_session["status"] == "idle"
+
 
 @pytest.mark.asyncio
 async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(monkeypatch):

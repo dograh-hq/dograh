@@ -5,31 +5,71 @@ description: "Configure Exotel for voice communication in Dograh AI"
 
 # Exotel Integration
 
-Exotel Connect Voice AI places and receives calls with bidirectional media streaming into Dograh agents.
+Exotel places and receives calls with bidirectional AgentStream media streaming into Dograh agents.
+
+## Walkthrough video
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/aJDCw4RTl14"
+  title="Exotel x Dograh setup walkthrough"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+The walkthrough covers, in order:
+
+1. ExoPhone provisioning
+2. Dograh telephony configuration
+3. Outbound call from a workflow
+4. Inbound call landing on a workflow
 
 ## Prerequisites
 
 - An [Exotel](https://my.exotel.com/) account with AgentStream / Connect Voice AI enabled
+- **KYC verification completed** — mandatory for all Indian accounts post-signup before ExoPhones can carry live voice traffic. Follow [KYC Verification — Indian Accounts](https://docs.exotel.com/business-phone-system/kyc-verification-indian-accounts) (typically < 30 minutes online).
 - Account SID, API Key, and API Token (Dashboard -> Settings -> API Settings)
 - A Dograh instance reachable over HTTPS and WSS
-- At least one ExoPhone assigned to your account (see provisioning below)
+- At least one ExoPhone assigned to your account (see provisioning below — don't assume one already exists)
+
+## Supported Exotel front-doors
+
+Per [AgentStream: what to use when](https://docs.exotel.com/exotel-agentstream/agentstream-what-to-use-when), Exotel exposes five entry points to AgentStream (Connect Voice AI, Connect + Flow, ExoML outbound, Flow-Based inbound, ExoML inbound). Dograh's Exotel provider supports **exactly two** of these today:
+
+- **Outbound: Connect Voice AI API** — `POST /v1/Accounts/{sid}/Calls/connect.json` with `StreamUrl` in the API body. No App Bazaar flow involved.
+- **Inbound: Flow-Based via Voicebot Applet** — ExoPhone → App Bazaar flow → Voicebot Applet with an HTTPS dynamic-URL pointing at Dograh.
+
+Together these cover the "answer → bot" use case without requiring a gRPC control plane.
+
+### Not currently supported
+
+- **Connect Voice AI with Flow API** (outbound + App Bazaar journey). Dograh's `initiate_call` has no path for dialing with `Url=<app_bazaar_flow_url>`, and `transfer_call` raises `NotImplementedError`, so the Connect-applet agent-handoff pattern isn't wired. Operators who need IVR/greeting/DTMF/agent-handoff journeys can trigger Connect + Flow calls directly against Exotel's API from outside Dograh; the flow's Voicebot Applet can still terminate into Dograh's inbound dynamic-URL endpoint.
+- **ExoML / Programmable Voice APIs** (gRPC leg events + leg actions), for both outbound and inbound. Would require a gRPC endpoint on Dograh's side and code-owned per-leg control, which is not implemented today.
 
 ## ExoPhone provisioning and activation
 
-Provision ExoPhones before configuring Dograh:
+Provision ExoPhones before configuring Dograh. All calls use HTTP Basic Auth with your API Key / API Token.
 
 1. **List available numbers**
    - `GET /v2_beta/Accounts/{account_sid}/AvailablePhoneNumbers/{country}/{type}`
+   - `{type}` is one of `Landline`, `Mobile`, or `TollFree`.
+   - Optional filters: `IncomingSMS`, `InRegion`, `Contains`.
+   - Response fields include `phone_number`, `capabilities`, `country`, `region`, `rental_price`.
    - Docs: [Available numbers](https://developer.exotel.com/docs/exophones/api-reference/available-numbers)
 2. **Purchase a number**
    - `POST /v2_beta/Accounts/{account_sid}/IncomingPhoneNumbers`
+   - Request body: `PhoneNumber` (required); `VoiceUrl`, `SMSUrl`, `FriendlyName` (all optional).
+   - Response fields include `sid`, `phone_number`, `friendly_name`, `capabilities`, `country`, `rental_price`, `currency`.
    - Docs: [Purchase number](https://developer.exotel.com/docs/exophones/api-reference/purchase-number)
-3. **Verify purchased numbers and metadata**
-   - `GET /v2_beta/Accounts/{account_sid}/IncomingPhoneNumbers`
-   - Docs: [List numbers](https://developer.exotel.com/docs/exophones/api-reference/list-numbers)
-4. **Assign inbound routing in Exotel** (Flow/Applet path described below).
+3. **Verify a purchased number**
+   - `GET /v2_beta/Accounts/{account_sid}/IncomingPhoneNumbers/{exophone_sid}`
+   - Returns `sid`, `phone_number`, `friendly_name`, `capabilities`, `country`, `region`, `voice_url`, `sms_url`.
+   - Docs: [Number details](https://developer.exotel.com/docs/exophones/api-reference/number-details)
+4. **Assign the number to a Flow**
+   - In the Exotel dashboard, attach the ExoPhone's Voice URL to an App Bazaar flow (see [Inbound](#inbound) below for the Voicebot Applet wiring).
+   - **Required before the number can carry inbound traffic**, and part of the setup the reviewer's checklist expects.
 
-Exotel account/regulatory checks (KYC) are managed in the Exotel dashboard. Complete required KYC before expecting purchased numbers to become fully active for voice traffic.
+> **KYC (mandatory for Indian accounts):** Complete KYC in the Exotel dashboard before expecting purchased numbers to become fully active for voice traffic. A purchased ExoPhone can appear in the API but silently fail on real calls until KYC clears. See [KYC Verification — Indian Accounts](https://docs.exotel.com/business-phone-system/kyc-verification-indian-accounts) for the three-step flow (PAN confirmation → business details → authorised signatory) and the "help me verify" escape hatch if automated checks fail.
 
 ## Dograh telephony configuration
 
@@ -42,61 +82,118 @@ Exotel account/regulatory checks (KYC) are managed in the Exotel dashboard. Comp
 4. Save, then add your ExoPhone under **Phone numbers** in [E.164](https://en.wikipedia.org/wiki/E.164) format (e.g. `+9180XXXXXXXX`)
 5. Set an **Inbound workflow** on that phone number in Dograh.
 
+### Programmatic configuration
+
+When wiring Exotel via API or environment rather than the UI, the provider config accepts:
+
+| Field | Purpose |
+| --- | --- |
+| `account_sid` | Exotel Account SID |
+| `api_key` | Exotel API Key (HTTP Basic username) |
+| `api_token` | Exotel API Token (HTTP Basic password) |
+| `api_base_url` | `https://api.in.exotel.com` (default) or `https://api.exotel.com`; any other origin is rejected |
+| `from_numbers` | List of ExoPhones (E.164) available as `CallerId` |
+| `default_from_number` | Default `CallerId` when a workflow does not specify one |
+
 ## Outbound
 
-Dograh dials using Exotel Connect Voice AI:
+Dograh dials using Exotel Connect Voice AI (the "simplest outbound" pattern — bot is the whole experience, no App Bazaar flow):
 
 `POST {api_base}/v1/Accounts/{AccountSid}/Calls/connect.json`
 
-Request fields include:
+Request fields:
 
-- `From` (callee)
-- `CallerId` (ExoPhone)
-- `StreamUrl` (Dograh WSS endpoint)
+- `From` — the recipient (callee)
+- `CallerId` — the ExoPhone
+- `StreamUrl` — Dograh's tokenized WSS endpoint (fixed per call, minted by `ws_auth.build_media_ws_url`)
 - `StreamType=bidirectional`
-- Optional `StatusCallback` + `StatusCallbackEvents[]=terminal`
+- `StatusCallback` and `StatusCallbackEvents[]=terminal` — **only attached when a `workflow_run_id` is present**
+
+For Indian numbers, Dograh's `_exotel_dial_number()` helper maps E.164 to Exotel's 0-prefixed national form for both `From` and `CallerId` (Exotel's Connect examples use `07314852338`, not `+917314852338`). Example: `+917314852338` → `07314852338`. Non-India numbers pass through unchanged.
 
 Test from a workflow **Call** button. Confirm two-way audio and that hangup marks the run completed.
 
-## Inbound (Exotel Voicebot dynamic URL mode)
+Per-call *dynamic* StreamUrl or dashboard-flow-driven outbound would require Connect + Flow or ExoML respectively — see [Supported Exotel front-doors](#supported-exotel-front-doors) for why those aren't implemented here.
 
-Dograh supports Exotel's documented Voicebot dynamic endpoint behavior for inbound:
+## Inbound
 
-- Configure the Exotel Voicebot/Stream applet URL to:
+Dograh implements **Flow-Based Inbound via the Voicebot Applet's dynamic-URL contract**. Exotel's [Stream and Voicebot Applet reference](https://developer.exotel.com/docs/agentstream/stream-voicebot-applet) explicitly documents the applet's URL parameter as "a WebSocket URL … **or an HTTPS endpoint that dynamically returns the WSS URL**" — that is the contract Dograh implements.
 
-  `https://<dograh-host>/api/v1/telephony/inbound/run`
+### Wiring
 
-- Exotel calls this endpoint with inbound call context.
-- Dograh validates auth and route mapping, creates a workflow run, then responds with JSON:
+1. In Exotel, open or create an **App Bazaar flow**.
+2. Drop a **Voicebot Applet** into the flow.
+3. Configure the applet:
+   - **URL** = `https://<dograh-host>/api/v1/telephony/inbound/run`
+   - **Authentication** = HTTP Basic; username = your Exotel API Key, password = your Exotel API Token (Dograh verifies this in `verify_inbound_signature`).
+   - **Sample Rate** = `8000` (default), or append `?sample-rate=16000` / `?sample-rate=24000` for enhanced/HD.
+4. Assign the ExoPhone's Voice URL to this flow in Exotel.
+5. In Dograh, assign the matching **inbound workflow** to the number.
 
-  `{ "url": "wss://<dograh-host>/api/v1/telephony/ws/..." }`
+### Response contract
 
-This matches Exotel's dynamic URL expectation for Voicebot/Stream applets.
-Reference: [Working with Stream and Voicebot Applet](https://developer.exotel.com/docs/agentstream/stream-voicebot-applet)
+On invocation, Dograh validates auth and route mapping, creates a workflow run, and returns JSON:
+
+```json
+{ "url": "wss://<dograh-host>/api/v1/telephony/ws/..." }
+```
+
+Exotel's Voicebot Applet then opens the bidirectional WebSocket to that URL.
+
+### Voicebot Applet operational limits
+
+Drawn from Exotel's [applet documentation](https://developer.exotel.com/docs/agentstream/stream-voicebot-applet):
+
+- **Audio format**: raw/slin — 16-bit PCM little-endian, mono, base64-encoded.
+- **Sample rates**: `8000` (default, PSTN), `16000`, or `24000` (HD). Pass via `?sample-rate=…` on the applet URL.
+- **Chunk size**: min 3.2 KB (100 ms of audio), max 100 KB, must be a multiple of 320 bytes. Smaller chunks risk audio distortion; larger cause timeouts.
+- **Custom parameters**: up to 3 key-value pairs appended to the URL (`?param1=value1&param2=value2`, 256 chars total).
 
 ## Status callbacks
 
-Outbound (and inbound when a run id is present) register:
+Outbound registers a per-run status callback URL:
 
 `/api/v1/telephony/exotel/status-callback/{workflow_run_id}?exotel_auth=...`
 
-The `exotel_auth` token is minted from your API token so Exotel's POST does not need an Authorization header. The handler also rejects CallSid values that do not match the run's stored call id.
+The `exotel_auth` token is an HMAC minted from your API token so Exotel's POST does not need an `Authorization` header. The handler also rejects `CallSid` values that do not match the run's stored call id.
 
-Terminal events update workflow run status.
+Terminal events update the workflow run status.
+
+> **Inbound status callbacks:** the inbound dynamic-URL path currently returns the WSS URL without registering a per-run `StatusCallback` on the Exotel side. If you rely on Exotel-driven terminal events to close inbound runs, be aware that this is a known open item on the PR.
 
 ## Phone ownership validation
 
-Dograh validates phone ownership by listing ExoPhones from:
+Exotel does not publish a purpose-built "verify ownership" endpoint. The closest documented mechanism is [Number Details](https://developer.exotel.com/docs/exophones/api-reference/number-details) — but it assumes the number is already on the account and only returns its configuration; it does not confirm ownership by itself.
 
-`GET /v2_beta/Accounts/{account_sid}/IncomingPhoneNumbers`
+Dograh therefore validates ownership as a **list + membership check**:
 
-and checking the configured number against returned `phone_number` values (with E.164/national normalization for India).
-Reference: [List all ExoPhones](https://developer.exotel.com/docs/exophones/api-reference/list-numbers)
+1. Normalize the configured number and generate match-key variants (E.164, national, with/without leading `+`). For Indian numbers stored as `0`-prefixed national forms, an `IN` country hint is applied.
+2. Query [`GET /v2_beta/Accounts/{account_sid}/IncomingPhoneNumbers`](https://developer.exotel.com/docs/exophones/api-reference/list-numbers) and iterate the returned ExoPhones.
+3. Set-intersect the wanted variants against each entry's `phone_number` / `PhoneNumber` / `FriendlyName` (also India-normalized).
+4. Raise `ProviderPhoneNumberLookupError` if no variant matches, with a message pointing the operator back to the Exotel dashboard.
+
+This is the documented workaround given Exotel's public API surface — there is no dedicated ownership-check endpoint to switch to.
 
 ## Troubleshooting
 
-- **Connect fails** — verify Account SID, API key/token, base URL region (`api.in.exotel.com` or `api.exotel.com` only), and AgentStream entitlement
-- **No inbound agent** — confirm the ExoPhone has an inbound workflow in Dograh and the Exotel applet points to `/api/v1/telephony/inbound/run`
-- **Auth failed on inbound** — ensure Exotel sends expected auth and the stored API credentials are correct
-- **One-way audio** — confirm public WSS reachability and firewall/IP rules for Exotel egress
-- **Status callback 401** — ensure Dograh minted the StatusCallback URL (includes `exotel_auth`) and query string is preserved
+- **Connect fails** — verify Account SID, API key/token, base URL region (`api.in.exotel.com` or `api.exotel.com` only), and AgentStream entitlement.
+- **No inbound agent** — confirm the ExoPhone has an inbound workflow in Dograh and the Exotel Voicebot Applet points to `/api/v1/telephony/inbound/run`.
+- **Auth failed on inbound** — ensure the Voicebot Applet is configured with HTTP Basic (username = API Key, password = API Token) matching the credentials stored in Dograh.
+- **`ProviderPhoneNumberLookupError` at config save** — the ExoPhone is not on the Exotel account, the wrong `api_base_url` region is selected, or the number was purchased but has not cleared [KYC](https://docs.exotel.com/business-phone-system/kyc-verification-indian-accounts) yet.
+- **One-way audio** — confirm public WSS reachability and firewall/IP rules for Exotel egress; also check the sample rate on the applet matches what your bot pipeline expects.
+- **Choppy or dropped audio** — the outgoing chunk size may be out of range; keep chunks ≥ 3.2 KB and ≤ 100 KB, in multiples of 320 bytes. See Exotel's [WSS errors and handling](https://docs.exotel.com/exotel-agentstream/agentstream-wss-errors-and-handling).
+- **Status callback 401** — ensure Dograh minted the StatusCallback URL (includes `exotel_auth`) and that the query string is preserved by any intervening proxy.
+
+## References
+
+- [KYC Verification — Indian Accounts](https://docs.exotel.com/business-phone-system/kyc-verification-indian-accounts) (mandatory post-signup step for Indian accounts)
+- [ExoPhone — Available numbers](https://developer.exotel.com/docs/exophones/api-reference/available-numbers)
+- [ExoPhone — Purchase number](https://developer.exotel.com/docs/exophones/api-reference/purchase-number)
+- [ExoPhone — Number details](https://developer.exotel.com/docs/exophones/api-reference/number-details)
+- [AgentStream — What to use when](https://docs.exotel.com/exotel-agentstream/agentstream-what-to-use-when) (context for why Dograh uses these two front-doors and not ExoML)
+- [AgentStream — Overview & Quickstart](https://docs.exotel.com/exotel-agentstream/overview-and-quickstart)
+- [AgentStream — WSS errors and handling](https://docs.exotel.com/exotel-agentstream/agentstream-wss-errors-and-handling)
+- [Working with the Stream and Voicebot Applet](https://developer.exotel.com/docs/agentstream/stream-voicebot-applet)
+- [Connect Voice AI API](https://docs.exotel.com/exotel-agentstream/connect-voice-ai-api)
+- [Exotel Agent-Stream reference implementation](https://github.com/exotel/Agent-Stream)
+- [Exotel Agent-Stream echobot](https://github.com/exotel/Agent-Stream-echobot)

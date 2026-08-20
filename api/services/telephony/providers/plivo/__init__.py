@@ -15,7 +15,7 @@ from api.services.telephony.registry import (
 )
 from api.utils.common import get_backend_endpoints
 
-from .config import PlivoConfigurationRequest, PlivoConfigurationResponse
+from .config import PlivoConfigurationRequest
 from .provider import PlivoProvider
 from .transport import create_transport
 
@@ -32,7 +32,10 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _ensure_application_id(credentials: Dict[str, Any]) -> Dict[str, Any]:
+async def _ensure_application_id(
+    credentials: Dict[str, Any],
+    existing_credentials: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     """Auto-create a Plivo Application if one wasn't supplied.
 
     The application is created with our inbound dispatcher URL pre-set — the
@@ -136,7 +139,6 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=PlivoConfigurationRequest,
     ui_metadata=_UI_METADATA,
-    config_response_cls=PlivoConfigurationResponse,
     account_id_credential_field="auth_id",
     preprocess_credentials_on_save=_ensure_application_id,
 )
@@ -148,7 +150,6 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "PlivoConfigurationRequest",
-    "PlivoConfigurationResponse",
     "PlivoProvider",
     "create_transport",
 ]

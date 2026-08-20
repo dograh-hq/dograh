@@ -180,7 +180,9 @@ def _config_row() -> SimpleNamespace:
 
 
 def _normalize_patches(addresses, default_row):
-    fake_spec = SimpleNamespace(config_loader=lambda raw: dict(raw))
+    fake_spec = SimpleNamespace(
+        config_loader=lambda raw: dict(raw), supports_trunks=False
+    )
     return (
         patch(
             "api.services.telephony.factory.registry.get",

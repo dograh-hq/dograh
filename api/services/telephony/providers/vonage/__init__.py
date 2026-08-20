@@ -9,7 +9,7 @@ from api.services.telephony.registry import (
     register,
 )
 
-from .config import VonageConfigurationRequest, VonageConfigurationResponse
+from .config import VonageConfigurationRequest
 from .provider import VonageProvider
 from .transport import create_transport
 
@@ -75,7 +75,6 @@ SPEC = ProviderSpec(
     transport_sample_rate=16000,
     config_request_cls=VonageConfigurationRequest,
     ui_metadata=_UI_METADATA,
-    config_response_cls=VonageConfigurationResponse,
     account_id_credential_field="api_key",
 )
 
@@ -86,7 +85,6 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "VonageConfigurationRequest",
-    "VonageConfigurationResponse",
     "VonageProvider",
     "create_transport",
 ]

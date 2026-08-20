@@ -30,7 +30,9 @@ import type {
 } from "@/client/types.gen";
 import { ConfigFormDialog } from "@/components/telephony/ConfigFormDialog";
 import { PhoneNumberDialog } from "@/components/telephony/PhoneNumberDialog";
+import { SetupChecklistCard } from "@/components/telephony/SetupChecklistCard";
 import { SipConnectivityCard } from "@/components/telephony/SipConnectivityCard";
+import { TrunkCard } from "@/components/telephony/TrunkCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,10 +72,6 @@ import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 const INBOUND_WEBHOOK_PATH = "/api/v1/telephony/inbound/run";
 
-// Rendered by its own form below, so it would only show up here as "Configured".
-// Server-managed bookkeeping keys are already stripped by the backend.
-const HIDDEN_CREDENTIAL_KEYS = new Set(["outbound_trunk"]);
-
 export default function TelephonyConfigurationDetailPage() {
   const router = useRouter();
   const params = useParams<{ configId: string }>();
@@ -85,6 +83,13 @@ export default function TelephonyConfigurationDetailPage() {
   const organizationTimezone = useOrganizationTimezone();
   const inboundWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}${INBOUND_WEBHOOK_PATH}`;
   const [config, setConfig] = useState<TelephonyConfigurationDetail | null>(null);
+  // ARI only: Dograh generates the Stasis application name, so the dialplan
+  // line cannot be written until the configuration has been saved.
+  const stasisAppName =
+    typeof config?.credentials?.stasis_app_name === "string"
+      ? config.credentials.stasis_app_name
+      : "";
+  const stasisDialplanLine = `same => n,Stasis(${stasisAppName})`;
   const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumberResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [editConfigOpen, setEditConfigOpen] = useState(false);
@@ -95,6 +100,17 @@ export default function TelephonyConfigurationDetailPage() {
   );
   const [phoneDeleteTarget, setPhoneDeleteTarget] = useState<PhoneNumberResponse | null>(
     null,
+  );
+  // Set when the dialog is opened from a trunk, so the number lands on it.
+  const [phoneDefaultTrunkId, setPhoneDefaultTrunkId] = useState<number | null>(null);
+
+  const openPhoneDialog = useCallback(
+    (target: PhoneNumberResponse | null, trunkId: number | null = null) => {
+      setPhoneEditTarget(target);
+      setPhoneDefaultTrunkId(trunkId);
+      setPhoneDialogOpen(true);
+    },
+    [],
   );
 
   const fetchAll = useCallback(async () => {
@@ -313,8 +329,8 @@ export default function TelephonyConfigurationDetailPage() {
           )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {})
-              .filter(([key]) => !HIDDEN_CREDENTIAL_KEYS.has(key))
               .filter(([key]) => key !== "external_pbx" || externalPbxIntegrationsEnabled)
+              .filter(([key]) => key !== "stasis_app_name")
               .map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-3">
                   <dt className="text-muted-foreground">{k}</dt>
@@ -324,6 +340,29 @@ export default function TelephonyConfigurationDetailPage() {
                 </div>
               ))}
           </dl>
+          {stasisAppName && (
+            <div className="space-y-1 rounded-md border border-dashed p-3">
+              <p className="text-sm font-medium">Route calls into this Stasis application</p>
+              <p className="text-xs text-muted-foreground">
+                Add this line to your Asterisk <code>extensions.conf</code>, then run{" "}
+                <code>dialplan reload</code>. Until you do, calls reach Asterisk but never
+                arrive at Dograh.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  copyTextToClipboard(stasisDialplanLine)
+                    .then(() => toast.success("Dialplan line copied"))
+                    .catch(() => toast.error("Failed to copy"));
+                }}
+                title="Click to copy"
+                className="group mt-1 flex w-full items-center gap-2 rounded-md border bg-muted/20 p-2 text-left font-mono text-xs transition-colors hover:bg-muted/40"
+              >
+                <code className="flex-1 truncate">{stasisDialplanLine}</code>
+                <Copy className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+              </button>
+            </div>
+          )}
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Inbound webhook URL</p>
             <button
@@ -345,11 +384,29 @@ export default function TelephonyConfigurationDetailPage() {
         </CardContent>
       </Card>
 
+      {config.setup_checklist ? (
+        <SetupChecklistCard
+          checklist={config.setup_checklist}
+          connectivity={config.connectivity}
+        />
+      ) : null}
+
       {config.sip_connectivity?.regions.length ? (
         <SipConnectivityCard
           details={config.sip_connectivity}
+          // The checklist sends the user in here for the endpoints to hand
+          // their carrier, so don't make them find the toggle first.
+          defaultOpen={config.setup_checklist?.ready_for_outbound === false}
+        />
+      ) : null}
+
+      {config.supports_trunks ? (
+        <TrunkCard
           configuration={config}
-          onSaved={setConfig}
+          phoneNumbers={phoneNumbers}
+          onChanged={fetchAll}
+          onAddPhoneNumber={(trunk) => openPhoneDialog(null, trunk.id)}
+          onEditPhoneNumber={(number) => openPhoneDialog(number)}
         />
       ) : null}
 
@@ -370,13 +427,7 @@ export default function TelephonyConfigurationDetailPage() {
               </a>
             </CardDescription>
           </div>
-          <Button
-            size="sm"
-            onClick={() => {
-              setPhoneEditTarget(null);
-              setPhoneDialogOpen(true);
-            }}
-          >
+          <Button size="sm" onClick={() => openPhoneDialog(null)}>
             <Plus className="h-4 w-4 mr-2" /> Add phone number
           </Button>
         </CardHeader>
@@ -395,6 +446,9 @@ export default function TelephonyConfigurationDetailPage() {
                   <TableHead>Label</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Inbound workflow</TableHead>
+                  {(config.trunks?.length ?? 0) > 0 && (
+                    <TableHead>Outbound trunk</TableHead>
+                  )}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -444,6 +498,26 @@ export default function TelephonyConfigurationDetailPage() {
                         "-"
                       )}
                     </TableCell>
+                    {(config.trunks?.length ?? 0) > 0 && (
+                      <TableCell className="text-muted-foreground">
+                        {/* Unassigned is only ambiguous once there are
+                            several trunks; with one the call path falls
+                            back to it. */}
+                        {config.trunks?.find(
+                          (t) => t.id === n.telephony_trunk_id,
+                        )?.name ?? (
+                          <span
+                            className={
+                              (config.trunks?.length ?? 0) > 1
+                                ? "text-amber-600 dark:text-amber-500"
+                                : undefined
+                            }
+                          >
+                            Unassigned
+                          </span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {!n.is_default_caller_id && n.is_active && (
@@ -459,10 +533,7 @@ export default function TelephonyConfigurationDetailPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            setPhoneEditTarget(n);
-                            setPhoneDialogOpen(true);
-                          }}
+                          onClick={() => openPhoneDialog(n)}
                           title="Edit"
                         >
                           <Pencil className="h-4 w-4" />
@@ -496,6 +567,8 @@ export default function TelephonyConfigurationDetailPage() {
         open={phoneDialogOpen}
         onOpenChange={setPhoneDialogOpen}
         configId={configId}
+        trunks={config?.trunks}
+        defaultTrunkId={phoneDefaultTrunkId}
         existing={phoneEditTarget}
         onSaved={fetchAll}
       />

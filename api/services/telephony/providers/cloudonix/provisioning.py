@@ -11,10 +11,11 @@ from api.db.telephony_configuration_client import (
 from api.services.mps_service_key_client import mps_service_key_client
 
 from . import _preprocess_credentials_on_save
-from .config import normalize_cloudonix_domain
-
-MANAGED_CONFIGURATION_NAME = "Dograh Cloudonix SIP"
-MANAGED_BY = "dograh-mps"
+from .config import (
+    MANAGED_BY,
+    MANAGED_CONFIGURATION_NAME,
+    normalize_cloudonix_domain,
+)
 
 
 def _managed_configuration(rows: list[Any]):
@@ -71,6 +72,24 @@ async def ensure_managed_cloudonix_configuration(
 
     if existing is not None:
         if existing.credentials != credentials:
+            # Imported here, not at module scope: this module is loaded while
+            # api.services.telephony's __init__ is still registering providers.
+            from api.services.telephony.inbound_routing import (
+                assert_no_inbound_routing_conflict,
+            )
+
+            # MPS issues one domain per organization, so a conflict here means
+            # a provisioning bug rather than user input — but this still changes
+            # an existing configuration's account id, so it honours the rule.
+            numbers = await db_client.list_phone_numbers_for_config(existing.id)
+            await assert_no_inbound_routing_conflict(
+                provider="cloudonix",
+                credentials=credentials,
+                addresses=[n.address_normalized for n in numbers],
+                organization_id=organization_id,
+                previous_credentials=existing.credentials or {},
+                exclude_configuration_id=existing.id,
+            )
             return await db_client.update_telephony_configuration(
                 config_id=existing.id,
                 organization_id=organization_id,
@@ -84,6 +103,10 @@ async def ensure_managed_cloudonix_configuration(
             name=MANAGED_CONFIGURATION_NAME,
             provider="cloudonix",
             credentials=credentials,
+            # Dograh provisions this row; the customer did not ask for it and
+            # it cannot carry a call until they connect their own carrier.
+            # Making it the org default would point campaigns and API triggers
+            # at the one configuration guaranteed not to work.
             is_default_outbound=False,
         )
     except TelephonyConfigurationConflictError:

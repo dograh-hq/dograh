@@ -1,0 +1,157 @@
+---
+title: "Dograh Managed SIP"
+description: "Connect your own SIP carrier or PBX to the SIP domain Dograh provisions for your organization"
+---
+
+## What you get, and what you bring
+
+Every Dograh organization is provisioned with a telephony configuration named
+**Dograh Cloudonix SIP**. It gives you a SIP domain that is already connected
+to the Dograh voice pipeline — you do not need a Cloudonix account, and there
+is nothing to pay for or set up on the Cloudonix side.
+
+What it does **not** include is phone service. Dograh does not sell or resell
+phone numbers, and no calls flow until you connect a carrier:
+
+| Dograh provides                                     | You provide                                    |
+| --------------------------------------------------- | ---------------------------------------------- |
+| A SIP domain and its inbound SIP endpoint            | A SIP trunk from your carrier, or your own PBX |
+| A fixed outbound origin IP to allow on your side     | Phone numbers (DIDs) on that trunk             |
+| The voice agent runtime on both call directions      | Any per-minute charges your carrier bills      |
+
+<Note>
+  Until you finish the steps below, **Dograh Cloudonix SIP** cannot place a
+  call. The configuration page shows a setup checklist that tracks exactly
+  which of these steps are still outstanding.
+</Note>
+
+<Tip>
+  **Don't have a SIP trunk or PBX?** This page is not the shortest path. Open an
+  account with a telephony provider instead — see
+  [Telephony Integration](/integrations/telephony/overview) for the list — and
+  you can be calling in a few minutes with no SIP configuration at all.
+</Tip>
+
+If you would rather bring your own Cloudonix account instead of using the
+provisioned domain, follow [Cloudonix Integration](/integrations/telephony/cloudonix)
+and add a separate configuration. Self-hosted deployments can also connect their
+own Asterisk via [Asterisk ARI](/integrations/telephony/asterisk-ari).
+
+## Prerequisites
+
+- A SIP trunk from a carrier (or a PBX such as Asterisk or FreeSWITCH) that can
+  accept calls from a fixed IP address and send calls to a hostname
+- At least one phone number (DID) on that trunk
+- Permission to change the trunk's IP allowlist and routing on the carrier side
+
+## Step 1: Read your SIP endpoints from Dograh
+
+1. Go to **Telephony configurations** and open **Dograh Cloudonix SIP**
+2. Expand **SIP connectivity**
+3. Choose the **region** closest to your carrier — `Global`, `India`, or `UAE`.
+   Every value on the panel is region-specific, so set this first
+4. Note the two values you will need on the carrier side:
+   - **Inbound hostname** and **ports** — where your carrier sends calls *to* Dograh
+   - **Outbound origin IP address** — the address Dograh's calls arrive *from*
+
+## Step 2: Point your carrier at Dograh (inbound)
+
+On your carrier or PBX, route your DIDs to the inbound hostname and port shown
+in **SIP connectivity**. UDP and TCP share one port; TLS uses a separate one.
+
+This is the direction that makes your agent answer calls.
+
+## Step 3: Create the outbound trunk (outbound)
+
+Dograh needs to know where to send calls when your agent dials out.
+
+1. On your carrier, allow the **origin IP address** from Step 1 to send SIP
+   traffic to your trunk. Calls from Dograh are unauthenticated and identified
+   by source IP, so this step is required
+2. Back in Dograh, under **Outbound trunks**, choose **Add trunk** and fill in:
+   - **Name** — any name you choose. Letters, digits and hyphens only
+   - **SIP domain** — the hostname of your carrier or PBX, for example
+     `sip.example.com`. Dograh puts this in both the SIP `To` header and the
+     Request-URI
+   - **Region** — the edge Dograh dials your carrier from. The dialog shows
+     the origin IP that region uses, which is the one to allowlist above
+3. Leave **Enabled** on and choose **Save trunk**
+
+You can add more than one trunk — a second carrier, or a failover. Each keeps
+its own region, and each lists the numbers that dial out over it.
+
+<Note>
+  Without an enabled outbound trunk, outbound calls have nowhere to go. This is
+  the most common reason a test call from the agent editor fails.
+</Note>
+
+## Step 4: Add your phone numbers
+
+Cloudonix requires a caller ID on **every** outbound call and rejects the call
+without one, so this step is required even if you only care about inbound.
+
+1. Choose **Add number** on the trunk whose carrier gave you the number — the
+   trunk is then filled in for you. (**Add phone number** further down works
+   too; there you pick the **Outbound trunk** yourself, or leave it unset for a
+   number that belongs to no trunk.)
+2. Enter a number your carrier delivers to you, in
+   [E.164](https://en.wikipedia.org/wiki/E.164) format — `+`, country code,
+   then the number, with no spaces or dashes, for example `+14155550123`
+3. Mark the number you want outbound calls to present as the **default caller ID**
+
+Add every DID you intend to use. A number your carrier does not own will be
+rejected by the carrier even though Dograh accepts it — which is why the trunk
+assignment matters as soon as you have more than one carrier. With a single
+trunk, Dograh uses it for every number and the field can be left alone.
+
+## Step 5: Route inbound calls to an agent
+
+Only needed if you want to receive calls.
+
+1. In the **Phone numbers** section, edit the number that should be answered
+2. Set its **Inbound workflow** to the agent that should pick up
+3. Save
+
+Dograh pushes the inbound webhook URL to the Voice Application on the
+provisioned domain automatically. You still need the DID bound to that
+application — see
+[Step 2 of the Cloudonix inbound setup](/integrations/telephony/cloudonix#step-2-create-the-voice-application-and-link-dnids).
+
+## Step 6: Place a test call
+
+1. Open an agent, and make sure it is saved with no validation errors
+2. Choose **Phone Call**
+3. Select **Dograh Cloudonix SIP**, pick your caller ID, enter a destination
+   number, and start the call
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="'Not ready for outbound calls' when starting a call">
+    The setup checklist on the configuration page names the missing step. The
+    two blocking ones are an enabled trunk (Step 3) and at least one phone
+    number (Step 4).
+  </Accordion>
+
+  <Accordion title="Outbound calls fail immediately at the carrier">
+    - Confirm the origin IP from **SIP connectivity** is allowed on your trunk
+    - Confirm the **SIP domain** on the trunk resolves and accepts SIP on the
+      port your carrier expects
+    - Confirm the caller ID you are dialing from is a number your carrier
+      actually owns — many carriers reject unowned caller IDs
+  </Accordion>
+
+  <Accordion title="Inbound calls never reach the agent">
+    - Confirm your carrier is sending to the **inbound hostname and port** for
+      the region selected on the panel, not another region's
+    - Confirm the called number exists in the **Phone numbers** list and has an
+      **Inbound workflow** assigned
+    - Confirm the DID is bound to the Voice Application on the domain
+  </Accordion>
+
+  <Accordion title="You changed regions after setup">
+    The inbound hostname, ports, and outbound origin IP all change with the
+    region. Each trunk carries its own **Region**, so edit the trunk to move it,
+    then update your carrier with the new values.
+  </Accordion>
+</AccordionGroup>

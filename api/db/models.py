@@ -253,6 +253,11 @@ class TelephonyConfigurationModel(Base):
         back_populates="configuration",
         cascade="all, delete-orphan",
     )
+    trunks = relationship(
+        "TelephonyTrunkModel",
+        back_populates="configuration",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -268,6 +273,66 @@ class TelephonyConfigurationModel(Base):
     )
 
 
+class TelephonyTrunkModel(Base):
+    """One carrier path on a telephony configuration.
+
+    A configuration holds the credentials for a provider account; a trunk is a
+    single route through that account — a primary carrier, a failover, a second
+    region.
+
+    Only providers whose Dograh integration declares ``trunk_settings_cls`` get
+    rows here. That is a statement about our integration, not about the vendor:
+    Twilio, Plivo and Telnyx all sell SIP trunking and let you assign numbers to
+    a trunk in their own consoles, but Dograh drives them through their
+    call-control APIs, where the account itself is the only route. Their numbers
+    carry a null trunk.
+
+    Phone numbers point at the trunk they are authorised on because a carrier
+    rejects, or declines to attest, a caller ID it does not own. Picking the
+    caller ID and the trunk from separate pools is the failure this table
+    exists to prevent.
+
+    Trunks are reached through their configuration, so there is no
+    ``organization_id`` here to drift out of sync with the parent row.
+    """
+
+    __tablename__ = "telephony_trunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    telephony_configuration_id = Column(
+        Integer,
+        ForeignKey("telephony_configurations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(String(64), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    # Provider-specific payload, validated by the provider's trunk settings
+    # schema: region and sip_domain for Cloudonix, endpoint details for ARI.
+    settings = Column(JSON, nullable=False, default=dict)
+    # The provider's own identifier for this trunk, recorded when Dograh
+    # provisions it remotely. Kept out of ``settings`` because it is Dograh's
+    # bookkeeping rather than operator input, and is stripped from responses.
+    external_id = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    configuration = relationship("TelephonyConfigurationModel", back_populates="trunks")
+    phone_numbers = relationship("TelephonyPhoneNumberModel", back_populates="trunk")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "telephony_configuration_id",
+            "name",
+            name="uq_telephony_trunks_config_name",
+        ),
+        Index("ix_telephony_trunks_config", "telephony_configuration_id"),
+    )
+
+
 class TelephonyPhoneNumberModel(Base):
     __tablename__ = "telephony_phone_numbers"
 
@@ -279,6 +344,19 @@ class TelephonyPhoneNumberModel(Base):
         Integer,
         ForeignKey("telephony_configurations.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    # The carrier path this number dials out over. Null on providers with no
+    # trunk concept, and on SIP numbers whose trunk has not been chosen yet.
+    #
+    # SET NULL rather than RESTRICT: deleting a configuration cascades to both
+    # its trunks and its numbers, and a RESTRICT here could fire against rows
+    # that same cascade is about to remove. Deleting a trunk that numbers still
+    # use is refused in the route layer instead, where the message can name
+    # them.
+    telephony_trunk_id = Column(
+        Integer,
+        ForeignKey("telephony_trunks.id", ondelete="SET NULL"),
+        nullable=True,
     )
     address = Column(String(255), nullable=False)
     address_normalized = Column(String(255), nullable=False)
@@ -309,6 +387,7 @@ class TelephonyPhoneNumberModel(Base):
     configuration = relationship(
         "TelephonyConfigurationModel", back_populates="phone_numbers"
     )
+    trunk = relationship("TelephonyTrunkModel", back_populates="phone_numbers")
     inbound_workflow = relationship("WorkflowModel")
 
     __table_args__ = (

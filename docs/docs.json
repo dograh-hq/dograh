@@ -109,6 +109,7 @@
             "pages": [
               "integrations/telephony/overview",
               "integrations/telephony/inbound",
+              "integrations/telephony/dograh-sip",
               "integrations/telephony/twilio",
               "integrations/telephony/vonage",
               "integrations/telephony/plivo",

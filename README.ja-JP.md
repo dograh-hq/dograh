@@ -15,7 +15,7 @@
     <img src="https://img.shields.io/badge/⚡_60秒でセルフホスト-コマンド1つ-111827?style=for-the-badge" alt="60秒でセルフホスト">
   </a>
   &nbsp;
-  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">
+  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ">
     <img src="https://img.shields.io/badge/💬_Slackに参加-コミュニティ-4A154B?style=for-the-badge&logo=slack" alt="Slackに参加">
   </a>
 </p>
@@ -174,7 +174,7 @@ Codex、Claude Code、Cursor、または任意の MCP クライアントを接�
 - **GitHub Discussions** -- ユースケースを共有し、質問し、ワークフローのレシピを交換できます。
 - **GitHub Issues** -- バグ報告や機能リクエストに利用してください。
 
-👉 参加はこちら → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g)
+👉 参加はこちら → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ)
 
 ## 🙌 コントリビューション
 
@@ -206,5 +206,5 @@ Dograh AI は [BSD 2-Clause License](LICENSE) のもとで公開されていま�
   <p align="center">
     <a href="https://github.com/dograh-hq/dograh">⭐ GitHub で Star する</a> |
     <a href="https://app.dograh.com">☁️ クラウド版を試す</a> |
-    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">💬 Slack に参加</a>
+    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ">💬 Slack に参加</a>
   </p>

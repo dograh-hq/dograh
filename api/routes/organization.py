@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from api.constants import (
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
@@ -17,6 +17,7 @@ from api.db.telephony_configuration_client import (
     TelephonyConfigurationInUseError,
 )
 from api.db.telephony_phone_number_client import TelephonyPhoneNumberConflictError
+from api.db.telephony_trunk_client import TelephonyTrunkConflictError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.errors.mps import MPSUnavailableError
@@ -37,8 +38,11 @@ from api.schemas.telephony_config import (
     TelephonyConfigurationDetail,
     TelephonyConfigurationListItem,
     TelephonyConfigurationListResponse,
-    TelephonyConfigurationResponse,
     TelephonyConfigurationUpdateRequest,
+    TrunkCreateRequest,
+    TrunkListResponse,
+    TrunkResponse,
+    TrunkUpdateRequest,
 )
 from api.schemas.telephony_phone_number import (
     PhoneNumberCreateRequest,
@@ -89,11 +93,23 @@ from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.base import ProviderPhoneNumberLookupError
 from api.services.telephony.factory import (
+    get_provider_connectivity,
+    get_setup_checklist,
     get_sip_connectivity_details,
     get_telephony_provider_by_id,
 )
+from api.services.telephony.inbound_routing import (
+    InboundRoutingConflictError,
+    assert_no_inbound_routing_conflict,
+    canonical_address,
+)
+from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
+from api.services.workflow.disposition_codes import (
+    END_TASK_REASON_DISPOSITION_CODES,
+    SYSTEM_DISPOSITION_CODES,
+)
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -163,6 +179,10 @@ class TelephonyProviderMetadata(BaseModel):
 
     provider: str
     display_name: str
+    # "api" (buy service from this provider) vs "sip" (bring your own carrier).
+    # Lets the UI present the two ways to get calls flowing without naming any
+    # provider itself.
+    connectivity: ProviderConnectivity = "api"
     fields: List[TelephonyProviderUIField]
     docs_url: Optional[str] = None
 
@@ -232,6 +252,7 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
             TelephonyProviderMetadata(
                 provider=spec.name,
                 display_name=spec.ui_metadata.display_name,
+                connectivity=spec.connectivity,
                 fields=[
                     TelephonyProviderUIField(
                         name=f.name,
@@ -536,6 +557,45 @@ async def migrate_model_configuration_v2(
     )
 
 
+class DispositionCodesResponse(BaseModel):
+    """Disposition codes selectable in org-wide run filters."""
+
+    codes: List[str] = Field(
+        description=(
+            "Every code that can appear in `gathered_context."
+            "mapped_call_disposition`: the platform's built-in dispositions "
+            "plus any custom mapped codes this organization's runs have "
+            "produced."
+        )
+    )
+    end_task_reason_codes: List[str] = Field(
+        description="Disposition codes defined by Pipecat's EndTaskReason enum."
+    )
+
+
+@router.get("/disposition-codes", response_model=DispositionCodesResponse)
+async def get_disposition_codes(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Serve the disposition catalog so clients never hardcode the list.
+
+    Built-in codes come from the enums that write the field; custom codes are
+    whatever this organization's finished runs have actually recorded, so an
+    org with a disposition mapping still gets a usable filter.
+    """
+    custom_codes = await db_client.get_organization_disposition_codes(
+        user.selected_organization_id
+    )
+    known = set(SYSTEM_DISPOSITION_CODES)
+    return DispositionCodesResponse(
+        codes=[
+            *SYSTEM_DISPOSITION_CODES,
+            *sorted(code for code in custom_codes if code not in known),
+        ],
+        end_task_reason_codes=list(END_TASK_REASON_DISPOSITION_CODES),
+    )
+
+
 @router.get("/preferences", response_model=OrganizationPreferences)
 async def get_preferences(
     user: UserModel = Depends(get_user_with_selected_organization),
@@ -637,7 +697,9 @@ async def _run_preprocess_hook(
             credentials[field] = existing_credentials[field]
 
     if spec.preprocess_credentials_on_save:
-        return await spec.preprocess_credentials_on_save(credentials)
+        return await spec.preprocess_credentials_on_save(
+            credentials, existing_credentials
+        )
     return credentials
 
 
@@ -760,16 +822,37 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
     items: List[TelephonyConfigurationListItem] = []
     for row in rows:
         numbers = await db_client.list_phone_numbers_for_config(row.id)
+        active = [n for n in numbers if n.is_active]
+        trunks = await _list_trunks_if_supported(row.provider, row.id)
+        checklist = get_setup_checklist(
+            row.provider,
+            row.credentials or {},
+            active_phone_number_count=len(active),
+            inbound_routed_phone_number_count=len(
+                [n for n in active if n.inbound_workflow_id]
+            ),
+            enabled_trunk_count=len([t for t in trunks if t.enabled]),
+            unassigned_active_phone_number_count=len(
+                [n for n in active if n.telephony_trunk_id is None]
+            ),
+        )
         items.append(
             TelephonyConfigurationListItem(
                 id=row.id,
                 name=row.name,
                 provider=row.provider,
+                connectivity=get_provider_connectivity(row.provider),
                 is_default_outbound=row.is_default_outbound,
                 inactive=row.inactive,
                 inactive_since=row.inactive_since,
                 inactive_reason=row.inactive_reason,
-                phone_number_count=len([n for n in numbers if n.is_active]),
+                phone_number_count=len(active),
+                is_ready_for_outbound=(
+                    checklist.ready_for_outbound if checklist else True
+                ),
+                outbound_blocked_reason=(
+                    checklist.outbound_blocked_reason if checklist else None
+                ),
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )
@@ -821,7 +904,7 @@ async def create_telephony_configuration(
         },
     )
 
-    return _detail_response(row)
+    return await _detail_response(row)
 
 
 @router.get(
@@ -838,7 +921,7 @@ async def get_telephony_configuration_by_id(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
-    return _detail_response(row)
+    return await _detail_response(row)
 
 
 @router.put(
@@ -875,6 +958,24 @@ async def update_telephony_configuration(
             existing.credentials or {},
         )
 
+        # The account id is one component of the routing key of every phone
+        # number on this configuration, so changing it moves all of them at
+        # once — hence the check spans the whole set rather than one address.
+        # It no-ops when the account id is unchanged, so a rename or a secret
+        # rotation is never blocked by a collision already present in the data.
+        existing_numbers = await db_client.list_phone_numbers_for_config(config_id)
+        try:
+            await assert_no_inbound_routing_conflict(
+                provider=existing.provider,
+                credentials=credentials,
+                addresses=[n.address_normalized for n in existing_numbers],
+                organization_id=user.selected_organization_id,
+                previous_credentials=existing.credentials or {},
+                exclude_configuration_id=config_id,
+            )
+        except InboundRoutingConflictError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
     row = await db_client.update_telephony_configuration(
         config_id=config_id,
         organization_id=user.selected_organization_id,
@@ -882,7 +983,7 @@ async def update_telephony_configuration(
         credentials=credentials,
     )
 
-    return _detail_response(row)
+    return await _detail_response(row)
 
 
 @router.post(
@@ -898,7 +999,7 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
     )
     if not row:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
-    return _detail_response(row)
+    return await _detail_response(row)
 
 
 @router.post(
@@ -928,7 +1029,7 @@ async def reactivate_telephony_configuration(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
-    return _detail_response(row)
+    return await _detail_response(row)
 
 
 @router.delete("/telephony-configs/{config_id}")
@@ -950,12 +1051,22 @@ async def delete_telephony_configuration(
     return {"message": "Telephony configuration deleted"}
 
 
-def _detail_response(row) -> TelephonyConfigurationDetail:
+async def _detail_response(row) -> TelephonyConfigurationDetail:
     masked = _credentials_for_display(row.provider, row.credentials or {})
+    numbers = await db_client.list_phone_numbers_for_config(row.id)
+    active = [n for n in numbers if n.is_active]
+    trunks = await _list_trunks_if_supported(row.provider, row.id)
+    numbers_per_trunk: dict[int, int] = {}
+    for number in numbers:
+        if number.telephony_trunk_id is not None:
+            numbers_per_trunk[number.telephony_trunk_id] = (
+                numbers_per_trunk.get(number.telephony_trunk_id, 0) + 1
+            )
     return TelephonyConfigurationDetail(
         id=row.id,
         name=row.name,
         provider=row.provider,
+        connectivity=get_provider_connectivity(row.provider),
         is_default_outbound=row.is_default_outbound,
         inactive=row.inactive,
         inactive_since=row.inactive_since,
@@ -964,9 +1075,254 @@ def _detail_response(row) -> TelephonyConfigurationDetail:
         sip_connectivity=get_sip_connectivity_details(
             row.provider, row.credentials or {}
         ),
+        # Built from the stored (unmasked) credentials: the checklist reports
+        # whether a field is set, never what it is.
+        setup_checklist=get_setup_checklist(
+            row.provider,
+            row.credentials or {},
+            active_phone_number_count=len(active),
+            inbound_routed_phone_number_count=len(
+                [n for n in active if n.inbound_workflow_id]
+            ),
+            enabled_trunk_count=len([t for t in trunks if t.enabled]),
+            unassigned_active_phone_number_count=len(
+                [n for n in active if n.telephony_trunk_id is None]
+            ),
+        ),
+        supports_trunks=_provider_supports_trunks(row.provider),
+        trunks=[
+            _trunk_to_response(trunk, numbers_per_trunk.get(trunk.id, 0))
+            for trunk in trunks
+        ],
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Trunks (nested under a config)
+# ---------------------------------------------------------------------------
+
+
+def _provider_supports_trunks(provider: str) -> bool:
+    spec = telephony_registry.get_optional(provider)
+    return bool(spec and spec.supports_trunks)
+
+
+async def _list_trunks_if_supported(provider: str, config_id: int):
+    """Trunk rows for a provider that has them, and nothing for one that
+    doesn't — so a Twilio detail response never pays for the query."""
+    if not _provider_supports_trunks(provider):
+        return []
+    return await db_client.list_trunks_for_config(config_id)
+
+
+def _trunk_to_response(trunk, phone_number_count: int = 0) -> TrunkResponse:
+    return TrunkResponse(
+        id=trunk.id,
+        name=trunk.name,
+        enabled=trunk.enabled,
+        settings=dict(trunk.settings or {}),
+        phone_number_count=phone_number_count,
+        created_at=trunk.created_at,
+        updated_at=trunk.updated_at,
+    )
+
+
+def _require_trunk_support(provider: str):
+    spec = telephony_registry.get_optional(provider)
+    if not spec or not spec.supports_trunks:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Dograh does not model trunks on {provider} configurations — "
+                f"calls route through the provider account itself. Numbers on "
+                f"this configuration need no trunk."
+            ),
+        )
+    return spec
+
+
+def _validated_trunk_settings(spec, settings: dict) -> dict:
+    """Run the provider's trunk schema over the operator-supplied settings."""
+    try:
+        return spec.trunk_settings_cls(**(settings or {})).model_dump()
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors()) from e
+
+
+async def _reject_duplicate_trunk_name(
+    config_id: int, name: str, *, exclude_trunk_id: int | None = None
+) -> None:
+    """Name collisions are reported before anything is provisioned remotely,
+    so a rejected save leaves no trunk behind on the provider's side."""
+    for existing in await db_client.list_trunks_for_config(config_id):
+        if existing.id != exclude_trunk_id and existing.name == name:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A trunk named '{name}' already exists on this configuration.",
+            )
+
+
+@router.get("/telephony-configs/{config_id}/trunks", response_model=TrunkListResponse)
+async def list_telephony_trunks(config_id: int, user: UserModel = Depends(get_user)):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+    trunks = await _list_trunks_if_supported(cfg.provider, config_id)
+    numbers = await db_client.list_phone_numbers_for_config(config_id)
+    counts: dict[int, int] = {}
+    for number in numbers:
+        if number.telephony_trunk_id is not None:
+            counts[number.telephony_trunk_id] = (
+                counts.get(number.telephony_trunk_id, 0) + 1
+            )
+    return TrunkListResponse(
+        trunks=[_trunk_to_response(t, counts.get(t.id, 0)) for t in trunks]
+    )
+
+
+@router.post("/telephony-configs/{config_id}/trunks", response_model=TrunkResponse)
+async def create_telephony_trunk(
+    config_id: int,
+    request: TrunkCreateRequest,
+    user: UserModel = Depends(get_user),
+):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+    spec = _require_trunk_support(cfg.provider)
+    settings = _validated_trunk_settings(spec, request.settings)
+    name = request.name.strip()
+    await _reject_duplicate_trunk_name(config_id, name)
+
+    # Provision remotely first: a provider that refuses the trunk should leave
+    # no row claiming it exists.
+    external_id = None
+    if spec.apply_trunk_on_save:
+        external_id = await spec.apply_trunk_on_save(
+            cfg.credentials or {},
+            TrunkDesiredState(name=name, enabled=request.enabled, settings=settings),
+        )
+
+    try:
+        trunk = await db_client.create_trunk(
+            telephony_configuration_id=config_id,
+            name=name,
+            enabled=request.enabled,
+            settings=settings,
+            external_id=external_id,
+        )
+    except TelephonyTrunkConflictError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A trunk named '{name}' already exists on this configuration.",
+        )
+    return _trunk_to_response(trunk)
+
+
+@router.put(
+    "/telephony-configs/{config_id}/trunks/{trunk_id}", response_model=TrunkResponse
+)
+async def update_telephony_trunk(
+    config_id: int,
+    trunk_id: int,
+    request: TrunkUpdateRequest,
+    user: UserModel = Depends(get_user),
+):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+    spec = _require_trunk_support(cfg.provider)
+    existing = await db_client.get_trunk_for_config(trunk_id, config_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Trunk not found")
+
+    name = request.name.strip() if request.name is not None else existing.name
+    enabled = request.enabled if request.enabled is not None else existing.enabled
+    settings = (
+        _validated_trunk_settings(spec, request.settings)
+        if request.settings is not None
+        else dict(existing.settings or {})
+    )
+    if name != existing.name:
+        await _reject_duplicate_trunk_name(config_id, name, exclude_trunk_id=trunk_id)
+
+    external_id = existing.external_id
+    if spec.apply_trunk_on_save:
+        external_id = await spec.apply_trunk_on_save(
+            cfg.credentials or {},
+            TrunkDesiredState(
+                name=name,
+                enabled=enabled,
+                settings=settings,
+                external_id=existing.external_id,
+            ),
+        )
+
+    try:
+        trunk = await db_client.update_trunk(
+            trunk_id=trunk_id,
+            telephony_configuration_id=config_id,
+            name=name,
+            enabled=enabled,
+            settings=settings,
+            # Empty string clears; None would mean "leave alone", which would
+            # strand the row if the provider stopped reporting an id.
+            external_id=external_id or "",
+        )
+    except TelephonyTrunkConflictError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A trunk named '{name}' already exists on this configuration.",
+        )
+    if not trunk:
+        raise HTTPException(status_code=404, detail="Trunk not found")
+    return _trunk_to_response(trunk)
+
+
+@router.delete("/telephony-configs/{config_id}/trunks/{trunk_id}")
+async def delete_telephony_trunk(
+    config_id: int, trunk_id: int, user: UserModel = Depends(get_user)
+):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+    spec = _require_trunk_support(cfg.provider)
+    existing = await db_client.get_trunk_for_config(trunk_id, config_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Trunk not found")
+
+    # The FK would quietly null these out. Silently unassigning a number's
+    # carrier is the mismatch this model exists to prevent, so make it a
+    # decision the operator has to take.
+    attached = await db_client.count_phone_numbers_for_trunk(trunk_id)
+    if attached:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{attached} phone number(s) dial out over '{existing.name}'. "
+                f"Move them to another trunk before deleting it."
+            ),
+        )
+
+    if spec.remove_trunk_on_delete:
+        await spec.remove_trunk_on_delete(
+            cfg.credentials or {},
+            TrunkDesiredState(
+                name=existing.name,
+                enabled=existing.enabled,
+                settings=dict(existing.settings or {}),
+                external_id=existing.external_id,
+            ),
+        )
+
+    await db_client.delete_trunk(trunk_id, config_id)
+    return {"success": True}
 
 
 # ---------------------------------------------------------------------------
@@ -981,6 +1337,17 @@ async def _ensure_config_belongs_to_org(config_id: int, organization_id: int):
     if not cfg:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
     return cfg
+
+
+async def _ensure_trunk_belongs_to_config(trunk_id: int, config_id: int):
+    """A number can only be authorised on a trunk of its own configuration —
+    the FK alone would happily accept another organization's trunk id."""
+    trunk = await db_client.get_trunk_for_config(trunk_id, config_id)
+    if not trunk:
+        raise HTTPException(
+            status_code=404, detail="Trunk not found on this telephony configuration"
+        )
+    return trunk
 
 
 async def _ensure_workflow_belongs_to_org(workflow_id: int, organization_id: int):
@@ -1025,41 +1392,22 @@ async def create_phone_number(
             request.inbound_workflow_id, user.selected_organization_id
         )
 
-    # Inbound dispatch (find_inbound_route_by_account) keys on (provider,
-    # credentials[account_id_field], address_normalized) without the org, so
-    # that tuple has to be globally unique. Reject up front if another config —
-    # in this org or any other — already owns the same combination.
-    spec = telephony_registry.get_optional(cfg.provider)
-    account_field = spec.account_id_credential_field if spec else ""
-    account_id = (cfg.credentials or {}).get(account_field) if account_field else None
-    if account_id:
-        try:
-            conflict = await db_client.find_inbound_routing_conflict(
-                provider=cfg.provider,
-                account_id_field=account_field,
-                account_id=account_id,
-                address=request.address,
-                country_hint=request.country_code,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        if conflict:
-            existing_cfg, existing_phone = conflict
-            same_org = existing_cfg.organization_id == user.selected_organization_id
-            scope = (
-                f"telephony configuration '{existing_cfg.name}'"
-                if same_org
-                else "another organization using the same provider account"
-            )
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Phone number {existing_phone.address} is already registered "
-                    f"under {scope}. Inbound calls cannot be uniquely routed when "
-                    f"the same number is configured against the same provider "
-                    f"account in more than one place."
-                ),
-            )
+    if request.telephony_trunk_id is not None:
+        await _ensure_trunk_belongs_to_config(request.telephony_trunk_id, config_id)
+
+    # The inbound routing key must stay unambiguous across every org — the rule,
+    # and every path that has to honour it, live in services/telephony/inbound_routing.
+    try:
+        await assert_no_inbound_routing_conflict(
+            provider=cfg.provider,
+            credentials=cfg.credentials,
+            addresses=[canonical_address(request.address, request.country_code)],
+            organization_id=user.selected_organization_id,
+        )
+    except InboundRoutingConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     await _ensure_provider_phone_number(
         config_id,
@@ -1076,6 +1424,7 @@ async def create_phone_number(
             country_code=request.country_code,
             label=request.label,
             inbound_workflow_id=request.inbound_workflow_id,
+            telephony_trunk_id=request.telephony_trunk_id,
             is_active=request.is_active,
             is_default_caller_id=request.is_default_caller_id,
             extra_metadata=request.extra_metadata,
@@ -1141,15 +1490,20 @@ async def update_phone_number(
             request.inbound_workflow_id, user.selected_organization_id
         )
 
+    if request.telephony_trunk_id is not None:
+        await _ensure_trunk_belongs_to_config(request.telephony_trunk_id, config_id)
+
     row = await db_client.update_phone_number(
         phone_number_id=phone_number_id,
         telephony_configuration_id=config_id,
         label=request.label,
         inbound_workflow_id=request.inbound_workflow_id,
+        telephony_trunk_id=request.telephony_trunk_id,
         is_active=request.is_active,
         country_code=request.country_code,
         extra_metadata=request.extra_metadata,
         clear_inbound_workflow=request.clear_inbound_workflow,
+        clear_trunk=request.clear_trunk,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Phone number not found")
@@ -1223,125 +1577,6 @@ async def delete_phone_number(
         "message": "Phone number deleted",
         "provider_sync": provider_sync.model_dump(),
     }
-
-
-# ---------------------------------------------------------------------------
-# Legacy single-config shim
-# ---------------------------------------------------------------------------
-
-
-@router.get("/telephony-config", response_model=TelephonyConfigurationResponse)
-async def get_telephony_configuration(user: UserModel = Depends(get_user)):
-    """Legacy: returns the org's default config in the original per-provider
-    response shape so the existing single-form UI keeps working. Prefer the
-    multi-config endpoints (``/telephony-configs``) for new clients.
-    """
-    if not user.selected_organization_id:
-        raise HTTPException(status_code=400, detail="No organization selected")
-
-    cfg = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id, active_only=False
-    )
-    if not cfg:
-        return TelephonyConfigurationResponse()
-
-    spec = telephony_registry.get_optional(cfg.provider)
-    if spec is None:
-        return TelephonyConfigurationResponse()
-
-    addresses = await db_client.list_active_normalized_addresses_for_config(cfg.id)
-    masked = _credentials_for_display(cfg.provider, cfg.credentials or {})
-    payload = {**masked, "provider": cfg.provider, "from_numbers": addresses}
-    response_obj = spec.config_response_cls.model_validate(payload)
-    return TelephonyConfigurationResponse(**{cfg.provider: response_obj})
-
-
-@router.post("/telephony-config")
-async def save_telephony_configuration(
-    request: TelephonyConfigRequest,
-    user: UserModel = Depends(get_user),
-):
-    """Legacy: upserts the org's default config (and its phone numbers) in the
-    original payload shape so existing UI clients keep working. Prefer the
-    multi-config + phone-number endpoints for new clients.
-    """
-    if not user.selected_organization_id:
-        raise HTTPException(status_code=400, detail="No organization selected")
-
-    payload = request.model_dump()
-    new_addresses = payload.pop("from_numbers", []) or []
-    payload.pop("provider", None)
-
-    default = await db_client.get_default_telephony_configuration(
-        user.selected_organization_id, active_only=False
-    )
-
-    if default and default.provider == request.provider:
-        preserve_masked_fields(request.provider, payload, default.credentials or {})
-
-    existing_credentials = None
-    if default and default.provider == request.provider:
-        existing_credentials = default.credentials or {}
-    payload = await _run_preprocess_hook(
-        request.provider,
-        payload,
-        existing_credentials,
-    )
-
-    if default and default.provider == request.provider:
-        row = await db_client.update_telephony_configuration(
-            config_id=default.id,
-            organization_id=user.selected_organization_id,
-            credentials=payload,
-        )
-    else:
-        row = await db_client.create_telephony_configuration(
-            organization_id=user.selected_organization_id,
-            name=f"{request.provider.title()} Default",
-            provider=request.provider,
-            credentials=payload,
-            is_default_outbound=True,
-        )
-
-    # Replace the phone-number set with the inline payload.
-    existing_numbers = await db_client.list_phone_numbers_for_config(row.id)
-    existing_by_address = {n.address: n for n in existing_numbers}
-    incoming_set = set(new_addresses)
-    for addr in new_addresses:
-        if addr not in existing_by_address:
-            await _ensure_provider_phone_number(
-                row.id, user.selected_organization_id, addr
-            )
-    for addr in new_addresses:
-        if addr in existing_by_address:
-            continue
-        try:
-            await db_client.create_phone_number(
-                organization_id=user.selected_organization_id,
-                telephony_configuration_id=row.id,
-                address=addr,
-            )
-        except TelephonyPhoneNumberConflictError:
-            logger.warning(
-                f"Skipping duplicate phone number {addr!r} for config {row.id}"
-            )
-        except ValueError as e:
-            logger.warning(f"Skipping invalid phone number {addr!r}: {e}")
-    for n in existing_numbers:
-        if n.address not in incoming_set:
-            await db_client.delete_phone_number(n.id, row.id)
-
-    capture_event(
-        distinct_id=str(user.provider_id),
-        event=PostHogEvent.TELEPHONY_CONFIGURED,
-        properties={
-            "provider": request.provider,
-            "phone_number_count": len(new_addresses),
-            "organization_id": user.selected_organization_id,
-        },
-    )
-
-    return {"message": "Telephony configuration saved successfully"}
 
 
 class LangfuseCredentialsRequest(BaseModel):

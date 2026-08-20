@@ -45,13 +45,21 @@ class ARIProvider(TelephonyProvider):
         Args:
             config: Dictionary containing:
                 - ari_endpoint: ARI base URL (e.g., http://asterisk:8088)
-                - app_name: Stasis application name
+                - app_name: ARI username (ari.conf section name)
                 - app_password: ARI user password
+                - stasis_app_name: Stasis application to originate into
                 - from_numbers: List of SIP extensions/numbers (optional)
+
+        ``app_name`` authenticates to Asterisk; ``stasis_app_name`` names the
+        dialplan application calls are placed into. Asterisk treats these as
+        unrelated namespaces, and Dograh generates the second one so two
+        configurations can never claim the same application. Configurations
+        written before the split have only ``app_name`` and use it for both.
         """
         self.ari_endpoint = config.get("ari_endpoint", "").rstrip("/")
         self.app_name = config.get("app_name", "")
         self.app_password = config.get("app_password", "")
+        self.stasis_app_name = config.get("stasis_app_name") or self.app_name
         self.from_numbers = config.get("from_numbers", [])
         self.default_from_number = config.get("default_from_number")
         self.external_pbx_adapter = create_adapter(config.get("external_pbx"))
@@ -96,7 +104,7 @@ class ARIProvider(TelephonyProvider):
         # Prepare channel creation data
         params = {
             "endpoint": sip_endpoint,
-            "app": self.app_name,
+            "app": self.stasis_app_name,
             "appArgs": ",".join(
                 filter(
                     None,
@@ -116,7 +124,7 @@ class ARIProvider(TelephonyProvider):
 
         logger.info(
             f"[ARI] Initiating call to {sip_endpoint} "
-            f"via app={self.app_name}, workflow_run_id={workflow_run_id}"
+            f"via app={self.stasis_app_name}, workflow_run_id={workflow_run_id}"
         )
 
         async with aiohttp.ClientSession() as session:
@@ -478,7 +486,7 @@ class ARIProvider(TelephonyProvider):
             endpoint = f"{self.base_url}/channels"
             params = {
                 "endpoint": sip_endpoint,
-                "app": self.app_name,
+                "app": self.stasis_app_name,
                 "appArgs": app_args,
                 "timeout": timeout,  # Keep timeout for transfer calls
             }
@@ -583,6 +591,6 @@ class ARIProvider(TelephonyProvider):
         return (
             f"{ws_scheme}://{parsed.netloc}/ari/events"
             f"?api_key={self.app_name}:{self.app_password}"
-            f"&app={self.app_name}"
+            f"&app={self.stasis_app_name}"
             f"&subscribeAll=true"
         )

@@ -17,6 +17,8 @@ description: "Connect Dograh to Tuner — the observability, simulation, and tes
 
 The Tuner integration node automatically sends your completed call data (transcript, metadata, and call outcomes) to Tuner after each call finishes. This lets you monitor agent performance, run evaluations, and track quality trends without any custom code.
 
+Once the node is configured, you can also let Tuner **call your agent** with generated caller scenarios and score how it handles them — see [Simulations](#simulations) below.
+
 ## Prerequisites
 
 - A [Tuner account](https://app.usetuner.ai) with an active workspace
@@ -106,6 +108,109 @@ Click **Save**, then **Publish** your workflow.
 
 Make a test call through your agent. Once the call completes, check the **Call Logs** tab in your Tuner agent dashboard. The call should appear within a few moments.
 
+## Simulations
+
+Everything above sends *real* calls to Tuner. Simulations run the other direction: Tuner places a call **into** your agent over SIP, plays the part of a caller following a generated scenario, and scores the result. Your agent answers exactly as it would for a customer.
+
+Dograh does not speak SIP itself — Cloudonix does it on Dograh's behalf. So the address Tuner dials belongs to Cloudonix, and what you set up below is a route through it to one specific agent.
+
+<Note>
+  Simulations use the **inbound** path, which runs on the Cloudonix SIP domain
+  Dograh provisions for every organization. You do not need a SIP carrier or a
+  phone number — unlike outbound calling, which requires your own trunk. See
+  [Dograh Managed SIP](/integrations/telephony/dograh-sip).
+</Note>
+
+### Before you start
+
+- The Tuner node configured and enabled on your workflow, as set up above
+- In Tuner, the same agent with its **Call Direction** set to **Inbound**
+- An agent that already works — test it from the agent editor first
+
+<Warning>
+  An inbound simulation only attaches to its scenario when the Tuner agent's
+  call direction is **Inbound**. Set to Outbound, Tuner matches the returned
+  call on a different field and files it as ordinary traffic instead.
+</Warning>
+
+### 1. Add an extension for simulations
+
+Go to **Telephony configurations** and open **Dograh Cloudonix SIP**. Under **Phone numbers**, choose **Add phone number** and enter a short extension such as `9001`.
+
+You do not need a real phone number. That field accepts SIP URIs and plain extensions alongside PSTN numbers, and an extension is the simplest thing to point a simulation at. Dograh registers it with Cloudonix for you.
+
+### 2. Point the extension at your agent
+
+Edit the extension you just added, set its **Inbound workflow** to the agent that should answer, and save. This is the step that tells Cloudonix where to route calls for that extension.
+
+### 3. Publish the workflow
+
+In the workflow editor, choose **Save**, then **Publish**.
+
+<Warning>
+  Inbound calls always run the **published** version of a workflow, never the
+  draft. If the Tuner node is only in your draft, calls will connect and the
+  conversation will happen normally — but nothing will ever reach Tuner, and
+  no error appears anywhere.
+</Warning>
+
+### 4. Build the SIP URI
+
+Expand **SIP connectivity** on the configuration page, choose your **region**, and copy the **inbound hostname**. Combine it with the extension from step 1:
+
+```
+sip:9001@a1b2c3d4-0000-0000-0000-9f8e7d6c5b4a.sip.cloudonix.net
+    └─┬─┘ └──────────────────────┬───────────────────────────┘
+   extension              inbound hostname
+```
+
+| Part | Where to get it | Notes |
+|---|---|---|
+| **Extension** | Phone numbers — the entry from step 1 | Must match exactly. This decides which agent answers. |
+| **Inbound hostname** | SIP connectivity → Hostname | Unique to your organization, and changes with the region. |
+| **Port** | SIP connectivity → Ports | Omit only when it is `5060`; otherwise required. |
+
+Set the region **before** copying anything — every value on the panel is region-specific, and the port changes with it:
+
+| Region | Hostname ends with | Port | Include the port? |
+|---|---|---|---|
+| Global | `.sip.cloudonix.net` | `5060` | Optional — it is the default |
+| India | `.in.dimi.tel` | `9060` | Required |
+| UAE | `.uae.dimi.tel` | `9081` | Required |
+
+<Warning>
+  On India or UAE, leaving the port off sends the call to port 5060, where
+  nothing is listening — and the failure looks like an unreachable agent
+  rather than a wrong address. Add `:9060` or `:9081` to the URI.
+</Warning>
+
+<Note>
+  Your inbound hostname accepts calls without a password — being unguessable is
+  what protects it. Treat it as sensitive and share it only with systems that
+  need to call your agents.
+</Note>
+
+### 5. Save the URI in Tuner
+
+In Tuner, open **Agent Settings → SIP Settings**, paste the address into **SIP URI**, and choose **Verify & Save**. Tuner immediately places a short test call, so this single action checks the whole path.
+
+Leave **Username** and **Password** empty — Dograh's inbound endpoint does not use SIP authentication.
+
+<Note>
+  **Known issue in Tuner.** With both auth fields blank, verification currently
+  fails with "endpoint did not answer". Entering any non-empty values — for
+  example `tuner` and `tuner` — works around it. Dograh never checks them, so
+  the values are irrelevant. Clear both fields once Tuner ships the fix.
+</Note>
+
+### 6. Run a simulation
+
+Start a run from Tuner's **Simulations** tab. Each scenario becomes a real call into your agent, and completed calls appear in that table with transcript, latency, and evaluation results.
+
+### How calls are matched to scenarios
+
+Nothing to configure — this is automatic. Cloudonix reports the caller's SIP call id to Dograh, and Dograh includes it when it exports the finished call. Tuner uses it to attach the call to the scenario that placed it. Without it, the call would still be ingested, just filed as ordinary production traffic.
+
 ## Disabling the integration
 
 To temporarily stop exporting calls to Tuner, open the Tuner node configuration and toggle **Enabled** off. Your credentials are preserved — toggle it back on anytime to resume.
@@ -118,6 +223,27 @@ To temporarily stop exporting calls to Tuner, open the Tuner node configuration 
 | Node shows "Not configured" | Open the node and fill in Agent ID, Workspace ID, and API Key |
 | Workflow not sending data | Make sure the workflow is published, not just saved as a draft |
 | Wrong agent in Tuner | Confirm the Tuner agent's Provider is set to **Dograh** |
+
+### Simulation issues
+
+| Issue | Solution |
+|---|---|
+| `603 Declined` | Cloudonix found the route but could not fetch call instructions from Dograh. On a self-hosted deployment, check that your backend is publicly reachable — see below |
+| "Endpoint did not answer" on Verify & Save | With blank auth fields this is the [known Tuner issue](#5-save-the-uri-in-tuner). Otherwise confirm the extension exists, has an inbound workflow assigned, and that the region's port is in the URI |
+| Agent answers but nothing reaches Tuner | The Tuner node is not in the **published** version of the workflow. Publish and try again |
+| Calls land in Call Logs instead of Simulations | Confirm the Tuner agent's **Call Direction** is **Inbound** |
+| A `422` logged after Verify & Save | Harmless. The verification call lasts about a second with no conversation, so there is no transcript for Tuner to accept |
+
+### Self-hosted deployments
+
+Cloudonix must reach your backend over the public internet twice per call: once for the webhook when the call arrives, and again for the audio stream. A backend on `localhost` receives neither.
+
+The address is recorded by Cloudonix when you save the inbound workflow, so whenever your public address changes you must do **both** of these:
+
+- Update `BACKEND_API_ENDPOINT` and restart the backend
+- **Re-save the inbound workflow on the extension**, which pushes the new URL to Cloudonix
+
+Skipping the second step leaves Cloudonix calling the old address, and every call fails with `603`. A tunnel with a fixed hostname avoids it entirely.
 
 ## Learn more
 

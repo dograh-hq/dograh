@@ -11,7 +11,7 @@ from api.services.pipecat.audio_mixer import build_audio_out_mixer
 from api.services.pipecat.transport_params import realtime_param_overrides
 from api.services.telephony.factory import load_credentials_for_transport
 
-from .serializers import PapiVoipFrameSerializer
+from .serializers import PAPI_FRAME_BYTES, PapiVoipFrameSerializer
 from .strategies import PapiVoipHangupStrategy
 
 
@@ -66,6 +66,7 @@ async def create_transport(
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
             audio_out_mixer=mixer,
             serializer=serializer,
+            fixed_audio_packet_size=PAPI_FRAME_BYTES,
             **realtime_param_overrides(is_realtime),
         ),
     )

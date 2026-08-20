@@ -105,14 +105,11 @@ class PapiVoipFrameSerializer(FrameSerializer):
 
     async def serialize(self, frame: Frame) -> str | bytes | None:
         if isinstance(frame, (EndFrame, CancelFrame)):
-            # Flush remaining PCM then hang up the Papi call.
+            # Flush remaining PCM frames and hang up the Papi call.
             pending = self._drain_frames(flush=True)
             await self._maybe_hangup()
             if pending:
-                # FastAPI transport sends one message per serialize() return;
-                # return the first remaining frame (rest are dropped on end —
-                # typically < 60ms). Prefer hangup correctness over micro-audio.
-                return pending[0]
+                return b"".join(pending)
             return None
 
         if isinstance(frame, AudioRawFrame):
@@ -125,12 +122,7 @@ class PapiVoipFrameSerializer(FrameSerializer):
             frames = self._drain_frames(flush=False)
             if not frames:
                 return None
-            # Return one frame; keep remainder buffered for next serialize tick.
-            if len(frames) > 1:
-                # Re-queue extras at the front of the buffer so they emit next.
-                leftover = b"".join(frames[1:])
-                self._out_buffer[0:0] = leftover
-            return frames[0]
+            return b"".join(frames)
 
         return None
 

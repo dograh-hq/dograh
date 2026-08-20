@@ -279,6 +279,21 @@ class PapiVoipProvider(TelephonyProvider):
         )
         await self._finalize_media_failure(workflow_run_id, call_id)
 
+    async def _emergency_dial_cleanup(self) -> None:
+        """Attempt emergency cancellation of active call on instance when dial returned no call ID."""
+        try:
+            endpoint = f"{self.base_url}/api/instances/{self.instance_id}/voice/calls/active"
+            headers = self._build_auth_headers()
+            async with aiohttp.ClientSession() as session:
+                async with session.delete(endpoint, headers=headers) as response:
+                    logger.info(
+                        f"Papi Voip emergency dial cleanup for instance {self.instance_id}: status={response.status}"
+                    )
+        except Exception as exc:
+            logger.warning(
+                f"Papi Voip emergency dial cleanup failed for instance {self.instance_id}: {exc}"
+            )
+
     async def initiate_call(
         self,
         to_number: str,
@@ -326,9 +341,11 @@ class PapiVoipProvider(TelephonyProvider):
 
                 call_id = self._get_call_id_from_response(response_data)
                 if not call_id:
-                    # The active-call endpoint is instance-wide. Using it here
-                    # would allow overlapping workflows to attach to or end the
-                    # wrong PAPI call.
+                    logger.error(
+                        "Papi API dial response did not include a call ID for "
+                        f"workflow_run {workflow_run_id}. Attempting emergency cancellation."
+                    )
+                    await self._emergency_dial_cleanup()
                     raise HTTPException(
                         status_code=502,
                         detail="Papi API dial response did not include a call ID",

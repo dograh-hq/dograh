@@ -157,6 +157,7 @@ async def test_initiate_call_raises_when_call_id_missing():
     provider = _provider()
     session = _FakeSession(post_response=_FakeResponse(200, {"status": "initiated"}))
     provider._schedule_media_stream_task = Mock()
+    provider._emergency_dial_cleanup = AsyncMock()
 
     with patch(
         "api.services.telephony.providers.papi_voip.provider.aiohttp.ClientSession",
@@ -174,6 +175,7 @@ async def test_initiate_call_raises_when_call_id_missing():
     assert exc_info.value.status_code == 502
     assert "call ID" in exc_info.value.detail
     provider._schedule_media_stream_task.assert_not_called()
+    provider._emergency_dial_cleanup.assert_awaited_once()
 
 
 @pytest.mark.asyncio

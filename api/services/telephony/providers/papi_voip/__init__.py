@@ -20,7 +20,6 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "api_key": value.get("api_key"),
         "instance_id": value.get("instance_id"),
         "base_url": value.get("base_url"),
-        "from_numbers": value.get("from_numbers", []),
     }
 
 

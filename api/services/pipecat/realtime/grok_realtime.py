@@ -19,6 +19,7 @@ Adds:
 """
 
 import json
+from collections import OrderedDict
 from typing import Any
 
 from loguru import logger
@@ -42,6 +43,8 @@ from pipecat.services.xai.realtime import events
 from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from pipecat.utils.time import time_now_iso8601
 
+MAX_TRACKED_CONVERSATION_ITEM_IDS = 512
+
 
 class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
     """Grok Realtime with Dograh engine integration quirks."""
@@ -53,6 +56,7 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         self._bot_is_speaking: bool = False
         self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
+        self._handled_conversation_item_ids: OrderedDict[str, None] = OrderedDict()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         if isinstance(frame, UserMuteStartedFrame):
@@ -302,6 +306,22 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
 
         except Exception as e:
             logger.error(f"Failed to process function call arguments: {e}")
+
+    async def _handle_evt_conversation_item_added(self, evt):
+        item_id = getattr(evt.item, "id", None)
+        if item_id is not None:
+            if item_id in self._handled_conversation_item_ids:
+                logger.debug(
+                    f"{self}: ignoring repeat conversation item event for {item_id}"
+                )
+                return
+            self._handled_conversation_item_ids[item_id] = None
+            while (
+                len(self._handled_conversation_item_ids)
+                > MAX_TRACKED_CONVERSATION_ITEM_IDS
+            ):
+                self._handled_conversation_item_ids.popitem(last=False)
+        await super()._handle_evt_conversation_item_added(evt)
 
     async def _handle_evt_input_audio_transcription_completed(self, evt):
         await self._call_event_handler(

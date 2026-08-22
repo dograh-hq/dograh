@@ -28,18 +28,50 @@ EMBEDDING_BATCH_SIZE = 64
 PLAIN_TEXT_EXTENSIONS = {".txt"}
 
 
-def _estimate_size(text: str) -> int:
-    """Approximate a BPE token count: ASCII ~4 chars/token, CJK ~1.
+def _size(ascii_chars: int, other_chars: int) -> int:
+    """Approximate a BPE token count: ASCII ~4 chars/token, CJK ~1."""
+    return ascii_chars // 4 + other_chars
 
-    Not a real tokenizer. Only picks chunk boundaries and fills the advisory
-    token_count column, so being off by a factor costs nothing.
+
+def _estimate_size(text: str) -> int:
+    """Approximate token count of ``text``. Not a real tokenizer.
+
+    Only picks chunk boundaries and fills the advisory token_count column,
+    so being off by a factor costs nothing.
     """
     ascii_chars = sum(char.isascii() for char in text)
-    return ascii_chars // 4 + (len(text) - ascii_chars)
+    return _size(ascii_chars, len(text) - ascii_chars)
+
+
+def _fit_pieces(line: str, budget: int):
+    """Yield consecutive slices of ``line`` that each fit inside ``budget``.
+
+    Walks the line once, counting as it goes, so a newline-free file costs
+    one pass rather than a rescan per chunk. Counting the real prefix (not
+    the line's average character density) keeps every piece inside budget
+    even where scripts are mixed.
+    """
+    if _estimate_size(line) <= budget:
+        yield line
+        return
+
+    start = index = ascii_chars = other_chars = 0
+    while index < len(line):
+        if line[index].isascii():
+            ascii_chars += 1
+        else:
+            other_chars += 1
+        index += 1
+        if _size(ascii_chars, other_chars) >= budget:
+            yield line[start:index]
+            start, ascii_chars, other_chars = index, 0, 0
+
+    if start < len(line):
+        yield line[start:]
 
 
 def _split_plain_text(text: str, budget: int) -> list[str]:
-    """Split into chunks of roughly ``budget`` estimated tokens, on line
+    """Split into chunks of at most ``budget`` estimated tokens, on line
     boundaries where possible.
 
     Invariant: ``"".join(_split_plain_text(t, n)) == t``. Silent text
@@ -47,25 +79,27 @@ def _split_plain_text(text: str, budget: int) -> list[str]:
     """
     budget = max(budget, 1)
     chunks: list[str] = []
-    buffer = ""
+    buffer: list[str] = []
+    buffered_ascii = buffered_other = 0
 
     for line in text.splitlines(keepends=True):
-        while _estimate_size(line) > budget:
-            if buffer:
-                chunks.append(buffer)
-                buffer = ""
-            # budget is in estimated tokens; scale it to characters
-            cut = max(1, budget * len(line) // _estimate_size(line))
-            chunks.append(line[:cut])
-            line = line[cut:]
+        for piece in _fit_pieces(line, budget):
+            ascii_chars = sum(char.isascii() for char in piece)
+            other_chars = len(piece) - ascii_chars
 
-        if buffer and _estimate_size(buffer) + _estimate_size(line) > budget:
-            chunks.append(buffer)
-            buffer = ""
-        buffer += line
+            if buffer and (
+                _size(buffered_ascii + ascii_chars, buffered_other + other_chars)
+                > budget
+            ):
+                chunks.append("".join(buffer))
+                buffer, buffered_ascii, buffered_other = [], 0, 0
+
+            buffer.append(piece)
+            buffered_ascii += ascii_chars
+            buffered_other += other_chars
 
     if buffer:
-        chunks.append(buffer)
+        chunks.append("".join(buffer))
     return chunks
 
 

@@ -81,12 +81,21 @@ def test_single_line_longer_than_budget_is_hard_split():
     assert len(chunks) > 1
 
 
-def test_chunks_respect_the_budget_within_one_unit():
-    text = "\n".join([JAPANESE_SAMPLE] * 50)
-
+@pytest.mark.parametrize(
+    "text",
+    [
+        "\n".join([JAPANESE_SAMPLE] * 50),  # packs whole lines
+        JAPANESE_SAMPLE * 20,  # one line, hard split
+        "x" * 5000,  # one ASCII line, hard split
+        "あ" * 1000 + "x" * 4000,  # dense head, sparse tail
+        "x" * 4000 + "あ" * 1000,  # sparse head, dense tail
+    ],
+)
+def test_no_chunk_exceeds_the_budget(text):
     chunks = _split_plain_text(text, 128)
 
-    assert all(_estimate_size(chunk) <= 128 * 2 for chunk in chunks)
+    assert "".join(chunks) == text
+    assert max(_estimate_size(chunk) for chunk in chunks) <= 128
 
 
 def test_tiny_budget_still_lossless():

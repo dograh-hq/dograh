@@ -38,7 +38,8 @@ PLACEHOLDER_DESCRIPTION_PATTERN = re.compile(
 )
 
 
-def test_start_call_migrates_legacy_pre_call_fetch_toggle():
+def test_legacy_pre_call_fetch_toggle_is_accepted_on_input():
+    """Old clients still send the pre-#638 boolean; it must not be ignored."""
     enabled = StartCallNodeData.model_validate(
         {"name": "Start", "prompt": "Open", "pre_call_fetch_enabled": True}
     )
@@ -48,6 +49,21 @@ def test_start_call_migrates_legacy_pre_call_fetch_toggle():
 
     assert enabled.pre_call_fetch_mode == PreCallFetchMode.always
     assert disabled.pre_call_fetch_mode == PreCallFetchMode.disabled
+
+
+def test_legacy_pre_call_fetch_toggle_is_not_stored():
+    """The shim translates the flag; it never persists it back out."""
+    data = StartCallNodeData.model_validate(
+        {"name": "Start", "prompt": "Open", "pre_call_fetch_enabled": True}
+    )
+
+    assert "pre_call_fetch_enabled" not in data.model_dump()
+
+
+def test_pre_call_fetch_mode_defaults_to_disabled():
+    data = StartCallNodeData.model_validate({"name": "Start", "prompt": "Open"})
+
+    assert data.pre_call_fetch_mode == PreCallFetchMode.disabled
 
 
 @pytest.mark.parametrize("direction", ["inbound", "outbound", None])

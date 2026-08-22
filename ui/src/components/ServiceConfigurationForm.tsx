@@ -36,6 +36,7 @@ interface SchemaProperty {
     format?: string;
     multiline?: boolean;
     docs_url?: string;
+    docs_label?: string;
 }
 
 export interface ProviderSchema {
@@ -679,7 +680,8 @@ export function ServiceConfigurationForm({
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-0.5 underline"
                     >
-                        Supported languages <ExternalLink className="h-3 w-3" />
+                        {actualSchema.docs_label || "Supported languages"}{" "}
+                        <ExternalLink className="h-3 w-3" />
                     </a>
                 )}
             </p>

@@ -153,6 +153,21 @@ class VariableExtractionManager:
 
         return "\n".join(lines)
 
+    def has_user_turns(self) -> bool:
+        """Whether the caller said anything the extraction could read.
+
+        A call the caller dropped during the greeting leaves a context holding
+        only our own speech. Extraction against it cannot describe what the
+        caller wanted, so the outcome is better left as the mechanism than
+        inferred from silence.
+        """
+        return any(
+            role == "user" and content
+            for role, content in (
+                self._get_role_and_content(msg) for msg in self._context.messages
+            )
+        )
+
     async def _perform_extraction(
         self,
         extraction_variables: List[ExtractionVariableDTO],

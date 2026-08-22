@@ -155,16 +155,23 @@ async def create_engine_with_tracking(
     # Track variable extraction calls
     original_perform_extraction = engine._perform_variable_extraction_if_needed
 
-    async def tracked_perform_extraction(node, run_in_background: bool = True):
+    async def tracked_perform_extraction(
+        node, run_in_background: bool = True, extract_disposition: bool = False
+    ):
         test_helper.extraction_calls.append(
             {
                 "node_id": node.id if node else None,
                 "node_name": node.name if node else None,
                 "extraction_enabled": node.extraction_enabled if node else None,
                 "run_in_background": run_in_background,
+                "extract_disposition": extract_disposition,
             }
         )
-        await original_perform_extraction(node, run_in_background=run_in_background)
+        await original_perform_extraction(
+            node,
+            run_in_background=run_in_background,
+            extract_disposition=extract_disposition,
+        )
 
     engine._perform_variable_extraction_if_needed = tracked_perform_extraction
 
@@ -1012,3 +1019,354 @@ class TestEndCallExtractionBehavior:
         assert any(test_helper.should_mute_user_calls), (
             "should_mute_user should return True after end call (even without extraction)"
         )
+
+    @pytest.mark.asyncio
+    async def test_disposition_is_recorded_before_extraction_finishes(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """The outcome must be on the engine's context before the extraction returns.
+
+        The terminal extraction is an LLM round-trip, and on a call whose socket
+        has already dropped it has been measured at 16s+. It is bounded now, and
+        in-pipeline cancellations funnel back through ``end_call_with_reason``
+        so nothing snapshots the context mid-teardown -- but the extraction can
+        still time out, be interrupted, or come back with nothing. Stamping the
+        mechanism first is what guarantees the call carries an outcome in every
+        one of those cases; ``refine_call_disposition`` upgrades it afterwards.
+        """
+        test_helper = EndCallTestHelper()
+        seen_during_extraction: List[Dict[str, Any]] = []
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        async def recording_extraction(*_args, **_kwargs):
+            # Exactly what on_pipeline_finished would snapshot if it ran now.
+            # get_gathered_context is a shallow copy, so call_tags still aliases
+            # the engine's live list -- copy it or this reads post-hoc state.
+            snapshot = await engine.get_gathered_context()
+            snapshot["call_tags"] = list(snapshot.get("call_tags") or [])
+            seen_during_extraction.append(snapshot)
+            assert not engine._final_extraction_done, (
+                "snapshot must be taken while the extraction is still running"
+            )
+            await asyncio.sleep(0.05)
+            return {"user_intent": "extracted"}
+
+        with patch(
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
+            new_callable=AsyncMock,
+            return_value=1,
+        ):
+            with patch(
+                "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+            ) as update_run:
+                with patch.object(
+                    VariableExtractionManager,
+                    "_perform_extraction",
+                    side_effect=recording_extraction,
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task,
+                        engine,
+                        transport,
+                        on_ready=end_after_response,
+                    )
+
+        assert seen_during_extraction, "the terminal extraction never ran"
+        early = seen_during_extraction[-1]
+        assert early["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert early["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert EndTaskReason.USER_HANGUP.value in early["call_tags"]
+
+        # The extraction still enriches the context afterwards, and stamping
+        # early does not duplicate the disposition into the tag list.
+        final = await engine.get_gathered_context()
+        assert final["user_intent"] == "extracted"
+        assert final["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["call_tags"].count(EndTaskReason.USER_HANGUP.value) == 1
+
+        # Teardown no longer persists the context itself. It used to, because
+        # the pipeline could be cancelled out from under it and whatever
+        # `on_pipeline_finished` wrote would be a snapshot taken too early.
+        # Terminations funnel through the engine now, so that handler runs
+        # strictly after this and its single write is the whole story.
+        context_writes = [
+            call
+            for call in update_run.await_args_list
+            if "gathered_context" in call.kwargs
+        ]
+        assert context_writes == [], (
+            f"teardown should not persist the context, got {len(context_writes)} writes"
+        )
+
+    @pytest.mark.asyncio
+    async def test_extraction_cannot_desync_the_disposition_pair(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """Extraction reaches the outcome only through the engine, never directly.
+
+        A ``call_disposition`` variable *is* how a workflow author sets the
+        call's outcome -- but it takes effect through
+        ``refine_call_disposition``, which re-applies the organization's mapping
+        so both keys move together. The merge itself must never write either
+        one: extraction variable names are author-supplied, and a raw merge
+        would leave ``mapped_call_disposition`` -- what reporting, the run
+        filters and the PBX write-back actually read -- describing a different
+        outcome than ``call_disposition``.
+
+        This call has no user speech, so refinement declines and the recorded
+        mechanism stands. The point here is the merge, not the refinement;
+        ``test_disposition_extraction.py`` covers when refinement applies.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        async def hostile_extraction(*_args, **_kwargs):
+            return {
+                "call_disposition": "extracted_impostor",
+                # Deliberately different from the line above: if either key
+                # could be merged straight in, the pair would end up disagreeing.
+                "mapped_call_disposition": "a_third_value",
+                "call_tags": ["extracted_impostor"],
+                "call_status": "extracted_impostor",
+                "state": "ME",
+            }
+
+        with patch(
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
+            new_callable=AsyncMock,
+            return_value=1,
+        ):
+            with patch("api.db:db_client.update_workflow_run", new_callable=AsyncMock):
+                with patch.object(
+                    VariableExtractionManager,
+                    "_perform_extraction",
+                    side_effect=hostile_extraction,
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task,
+                        engine,
+                        transport,
+                        on_ready=end_after_response,
+                    )
+
+        final = await engine.get_gathered_context()
+        assert final["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["call_status"] == EndTaskReason.USER_HANGUP.value
+        assert "extracted_impostor" not in final["call_tags"]
+        # Whatever the disposition ends up being, the mapped value describes
+        # that same disposition and not some third thing.
+        assert "a_third_value" not in final.values()
+
+        # Ordinary variables are untouched, and the shadowed ones are still
+        # recoverable from the extraction record.
+        assert final["state"] == "ME"
+        assert final["extracted_variables"]["call_disposition"] == "extracted_impostor"
+
+
+    @pytest.mark.asyncio
+    async def test_a_stuck_extraction_does_not_hold_the_call_open(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """The extraction is bounded, because nothing else will end the call.
+
+        In-pipeline cancellations funnel back through ``end_call_with_reason``,
+        so this coroutine is the only thing that queues a terminal frame. An
+        LLM that never answers would otherwise keep the pipeline, the telephony
+        channel and every service behind it open indefinitely -- the failed-write
+        watchdog used to cap that at ~4.5s by accident.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        async def never_returns(*_args, **_kwargs):
+            await asyncio.sleep(30)
+
+        with patch(
+            "api.services.workflow.pipecat_engine.FINAL_EXTRACTION_TIMEOUT_SECONDS",
+            0.05,
+        ):
+            with patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                with patch(
+                    "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+                ):
+                    with patch.object(
+                        VariableExtractionManager,
+                        "_perform_extraction",
+                        side_effect=never_returns,
+                    ):
+
+                        async def end_after_response():
+                            await engine.set_node(engine.workflow.start_node_id)
+                            await engine.llm.queue_frame(
+                                LLMContextFrame(engine.context)
+                            )
+                            await asyncio.sleep(0.1)
+                            await asyncio.wait_for(
+                                engine.end_call_with_reason(
+                                    EndTaskReason.USER_HANGUP.value,
+                                    abort_immediately=True,
+                                ),
+                                timeout=5,
+                            )
+
+                        await run_engine_test_pipeline(
+                            task, engine, transport, on_ready=end_after_response
+                        )
+
+        # The floor stands: there is no extracted outcome to refine it with.
+        final = await engine.get_gathered_context()
+        assert final["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["call_status"] == EndTaskReason.USER_HANGUP.value
+
+
+class TestOrganizationDispositionMapping:
+    """`mapped_call_disposition` speaks the organization's own vocabulary."""
+
+    @pytest.mark.asyncio
+    async def test_teardown_stamps_the_organizations_mapped_code(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """The mapping is applied where the disposition is written.
+
+        Every downstream consumer -- outbound webhooks, the dispositionCode run
+        filter, reports, the external-PBX lead write-back -- reads this one
+        field, so translating here is what lets all of them speak the
+        customer's vocabulary without each growing its own lookup.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine.get_disposition_mapping",
+            new_callable=AsyncMock,
+            return_value={EndTaskReason.USER_HANGUP.value: "HUNGUP"},
+        ):
+            with patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                with patch(
+                    "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task, engine, transport, on_ready=end_after_response
+                    )
+
+        final = await engine.get_gathered_context()
+        assert final["mapped_call_disposition"] == "HUNGUP"
+        # The untranslated outcome stays beside it: `call_disposition` is the
+        # record of what Dograh observed, and the call tags are Dograh's own
+        # vocabulary, which reporting reads when a mapping is not wanted.
+        assert final["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert EndTaskReason.USER_HANGUP.value in final["call_tags"]
+        assert "HUNGUP" not in final["call_tags"]
+
+    @pytest.mark.asyncio
+    async def test_an_unmapped_disposition_survives_a_failed_mapping_load(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """A mapping that cannot be read must not take the call down with it.
+
+        Recording the untranslated disposition is worse than the mapped one and
+        far better than failing the call, so the load is best-effort and leaves
+        the identity mapping in place.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine.get_disposition_mapping",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("configuration store unreachable"),
+        ):
+            with patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                with patch(
+                    "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task, engine, transport, on_ready=end_after_response
+                    )
+
+        final = await engine.get_gathered_context()
+        assert final["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value

@@ -64,6 +64,9 @@ from api.services.pipecat.service_factory import (
     create_tts_service,
     stt_uses_external_turns,
 )
+from api.services.pipecat.termination_funnel_processor import (
+    TerminationFunnelProcessor,
+)
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
@@ -953,6 +956,11 @@ async def _run_pipeline_impl(
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
 
+    # Terminations raised from inside the pipeline are handed to the engine
+    # instead of cancelling the worker directly. Its handler is registered by
+    # `register_event_handlers` once the task exists.
+    termination_funnel = TerminationFunnelProcessor()
+
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
 
@@ -1048,6 +1056,7 @@ async def _run_pipeline_impl(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
+            termination_funnel,
             voicemail_detector=voicemail_detector,
         )
     else:
@@ -1061,6 +1070,7 @@ async def _run_pipeline_impl(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
+            termination_funnel,
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
         )
@@ -1145,6 +1155,7 @@ async def _run_pipeline_impl(
         in_memory_logs_buffer=in_memory_logs_buffer,
         transcript_log_coordinator=transcript_log_coordinator,
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
+        termination_funnel=termination_funnel,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
         user_provider_id=user_provider_id,

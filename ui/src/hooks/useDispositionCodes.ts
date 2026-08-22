@@ -17,11 +17,18 @@ import { useAuth } from "@/lib/auth";
 export function useDispositionCodes(): {
     codes: string[];
     endTaskReasonCodes: string[];
+    /**
+     * Only the platform's built-in dispositions. These are what a disposition
+     * mapping translates *from*; `codes` also carries an org's mapped codes,
+     * which are a mapping's targets rather than its sources.
+     */
+    systemCodes: string[];
     isLoading: boolean;
 } {
     const { user, loading: authLoading } = useAuth();
     const [codes, setCodes] = useState<string[]>([]);
     const [endTaskReasonCodes, setEndTaskReasonCodes] = useState<string[]>([]);
+    const [systemCodes, setSystemCodes] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -39,6 +46,7 @@ export function useDispositionCodes(): {
                 if (active) {
                     setCodes(response.data?.codes ?? []);
                     setEndTaskReasonCodes(response.data?.end_task_reason_codes ?? []);
+                    setSystemCodes(response.data?.system_codes ?? []);
                 }
             } catch (error) {
                 console.error("Failed to fetch disposition codes:", error);
@@ -54,5 +62,5 @@ export function useDispositionCodes(): {
         };
     }, [authLoading, user]);
 
-    return { codes, endTaskReasonCodes, isLoading };
+    return { codes, endTaskReasonCodes, systemCodes, isLoading };
 }

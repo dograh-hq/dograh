@@ -925,9 +925,7 @@ def _patch_writeback(monkeypatch, run, mappings):
         "list_telephony_configurations_by_provider",
         AsyncMock(
             return_value=[
-                SimpleNamespace(
-                    id=1, credentials={"external_pbx": _vicidial_config()}
-                )
+                SimpleNamespace(id=1, credentials={"external_pbx": _vicidial_config()})
             ]
         ),
     )
@@ -1019,9 +1017,7 @@ async def test_transfer_records_xfer_before_handing_the_customer_over():
     adapter.update_fields = AsyncMock(
         return_value=ExternalPBXResult(True, "update_lead", "ok")
     )
-    adapter.transfer = AsyncMock(
-        return_value=ExternalPBXResult(True, "transfer", "ok")
-    )
+    adapter.transfer = AsyncMock(return_value=ExternalPBXResult(True, "transfer", "ok"))
     identity = {"type": "vicidial", "callerid": "M123", "lead_id": "42"}
 
     result = await provider.transfer_external_pbx_call(

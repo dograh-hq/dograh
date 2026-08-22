@@ -30,7 +30,8 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Overrides currently stored, keyed by Dograh disposition. */
   mapping: Record<string, string>;
-  onSave: (mapping: Record<string, string>) => void;
+  /** Persist the mapping and report whether the dialog may close. */
+  onSave: (mapping: Record<string, string>) => Promise<boolean>;
 };
 
 /**
@@ -79,6 +80,7 @@ export function DispositionMappingDialog({
 }: Props) {
   const { systemCodes, isLoading } = useDispositionCodes();
   const [rows, setRows] = useState<Row[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Reseed each time the dialog opens so a cancelled edit is discarded and a
   // newly loaded catalog is picked up.
@@ -114,13 +116,24 @@ export function DispositionMappingDialog({
     setRows((current) => current.filter((_row, position) => position !== index));
   }
 
-  function handleSave() {
-    onSave(toMapping(rows));
-    onOpenChange(false);
+  async function handleSave() {
+    if (isSaving) return;
+
+    setIsSaving(true);
+    try {
+      const saved = await onSave(toMapping(rows));
+      if (saved) onOpenChange(false);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!isSaving) onOpenChange(nextOpen);
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Configure disposition mapping</DialogTitle>
@@ -128,7 +141,7 @@ export function DispositionMappingDialog({
             Each Dograh disposition is sent as your own code wherever a call
             outcome is reported &mdash; webhooks, run filters, reports, and
             external PBX write-backs. Leave a row unchanged to send the
-            disposition as-is.
+            disposition as-is. Saving here applies the mapping immediately.
           </DialogDescription>
         </DialogHeader>
 
@@ -166,6 +179,7 @@ export function DispositionMappingDialog({
                       <Input
                         aria-label="Dograh disposition"
                         value={row.source}
+                        disabled={isSaving}
                         onChange={(event) =>
                           updateRow(index, { source: event.target.value })
                         }
@@ -177,6 +191,7 @@ export function DispositionMappingDialog({
                       id={`disposition-target-${index}`}
                       aria-label={`Code for ${row.source || "new disposition"}`}
                       value={row.target}
+                      disabled={isSaving}
                       onChange={(event) =>
                         updateRow(index, { target: event.target.value })
                       }
@@ -191,7 +206,7 @@ export function DispositionMappingDialog({
                         className="h-8 w-8"
                         // Disabled rather than hidden so the column does not
                         // reflow as rows are edited.
-                        disabled={!changed}
+                        disabled={isSaving || !changed}
                         onClick={() => updateRow(index, { target: row.source })}
                         title="Reset to the Dograh disposition"
                       >
@@ -206,6 +221,7 @@ export function DispositionMappingDialog({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
+                        disabled={isSaving}
                         onClick={() => removeRow(index)}
                         title="Remove this disposition"
                       >
@@ -225,6 +241,7 @@ export function DispositionMappingDialog({
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={isSaving}
                 onClick={addRow}
               >
                 <Plus className="mr-2 h-3.5 w-3.5" />
@@ -243,12 +260,17 @@ export function DispositionMappingDialog({
           <Button
             type="button"
             variant="outline"
+            disabled={isSaving}
             onClick={() => onOpenChange(false)}
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleSave} disabled={isLoading}>
-            Done
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={isLoading || isSaving}
+          >
+            {isSaving ? "Saving..." : "Save mapping"}
           </Button>
         </DialogFooter>
       </DialogContent>

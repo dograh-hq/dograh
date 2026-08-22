@@ -565,7 +565,9 @@ class TestProcessStatusUpdateCircuitBreaker:
     for campaign calls."""
 
     @pytest.mark.asyncio
-    async def test_failure_status_calls_record_and_evaluate(self, no_disposition_mapping):
+    async def test_failure_status_calls_record_and_evaluate(
+        self, no_disposition_mapping
+    ):
         """When a campaign call fails, record_and_evaluate should be called
         with is_failure=True."""
 
@@ -655,7 +657,9 @@ class TestProcessStatusUpdateCircuitBreaker:
             mock_cb.record_and_evaluate.assert_called_once_with(42, is_failure=False)
 
     @pytest.mark.asyncio
-    async def test_non_campaign_call_skips_circuit_breaker(self, no_disposition_mapping):
+    async def test_non_campaign_call_skips_circuit_breaker(
+        self, no_disposition_mapping
+    ):
         """Calls without campaign_id should not interact with circuit breaker."""
 
         from api.services.telephony.status_processor import (

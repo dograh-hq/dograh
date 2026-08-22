@@ -18,7 +18,6 @@ from pipecat.frames.frames import (
     TextFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.tests import run_test
 from pipecat.utils.enums import EndTaskReason
 
 from api.services.pipecat import termination_funnel_processor as funnel_module
@@ -29,6 +28,7 @@ from api.services.pipecat.pipeline_builder import (
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
 )
+from pipecat.tests import run_test
 
 
 def _recording_funnel(*, register=True):

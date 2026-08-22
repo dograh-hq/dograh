@@ -117,7 +117,11 @@ class TestVariableExtractionDuringTransitions:
         # Patch _perform_variable_extraction_if_needed to track calls
         original_perform_extraction = engine._perform_variable_extraction_if_needed
 
-        async def tracked_perform_extraction(node, run_in_background=True):
+        async def tracked_perform_extraction(
+            node,
+            run_in_background=True,
+            extract_disposition=False,
+        ):
             extraction_calls.append(
                 {
                     "node_id": node.id if node else None,
@@ -127,7 +131,11 @@ class TestVariableExtractionDuringTransitions:
                 }
             )
             # Call original to maintain behavior
-            await original_perform_extraction(node)
+            return await original_perform_extraction(
+                node,
+                run_in_background=run_in_background,
+                extract_disposition=extract_disposition,
+            )
 
         engine._perform_variable_extraction_if_needed = tracked_perform_extraction
 
@@ -214,7 +222,9 @@ async def test_transfer_flush_is_repeatable_without_consuming_final_extraction()
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
     engine._current_node = SimpleNamespace(name="transfer-node")
     engine._await_pending_extractions = AsyncMock()
-    engine._perform_variable_extraction_if_needed = AsyncMock()
+    engine._perform_variable_extraction_if_needed = AsyncMock(
+        return_value={"state": "ME"}
+    )
 
     await engine.flush_variable_extraction()
     await engine.flush_variable_extraction()
@@ -223,10 +233,11 @@ async def test_transfer_flush_is_repeatable_without_consuming_final_extraction()
     assert engine._await_pending_extractions.await_count == 2
     assert engine._perform_variable_extraction_if_needed.await_count == 2
 
-    await engine.perform_final_variable_extraction()
-    await engine.perform_final_variable_extraction()
+    first_result = await engine.perform_final_variable_extraction()
+    second_result = await engine.perform_final_variable_extraction()
 
     assert engine._final_extraction_done is True
+    assert first_result == second_result == {"state": "ME"}
     assert engine._await_pending_extractions.await_count == 3
     assert engine._perform_variable_extraction_if_needed.await_count == 3
 

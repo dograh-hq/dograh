@@ -5,17 +5,18 @@ call, and conflating them is what made every end-node call read as qualified:
 
 ``call_status``
     The *mechanism* -- how the call terminated. ``user_hangup``,
-    ``voicemail_detected``, ``no_answer``. Always known, never inferred.
+    ``end_call``, ``voicemail_detected``, ``no_answer``. Always known, never
+    inferred.
 
 ``call_disposition``
     The *outcome* -- what happened commercially. ``not_interested``,
     ``wrong_number``. This is what a dialer reads as a lead status, and it
     drives one decision: call this person again or not.
 
-The engine stamps the mechanism into both the moment teardown starts, so a run
-whose pipeline is killed still records something. This module supplies the
-variable that lets the extraction LLM *refine* the disposition afterwards, and
-the rules for when that refinement is allowed to apply.
+The engine records the status and a conservative disposition before teardown,
+so a run whose pipeline is killed still records something. This module supplies
+the variable that lets the extraction LLM *refine* the disposition afterwards,
+and the rules for when that refinement is allowed to apply.
 
 The vocabulary is deliberately not validated here. The default prompt below
 names the outcomes Dograh expects, but a workflow author can edit that prompt
@@ -36,34 +37,49 @@ from api.services.workflow.dto import ExtractionVariableDTO
 #: seed below is not injected, and their prompt decides the vocabulary.
 CALL_DISPOSITION_VARIABLE = "call_disposition"
 
-DEFAULT_DISPOSITION_PROMPT = (
-    "Why the call ended, from the caller's side. Use one of: "
-    "qualified (the call achieved its goal), "
-    "not_interested, "
-    "wrong_number, "
-    "voicemail (the call reached an answering machine rather than a person), "
-    "do_not_call (the caller asked not to be contacted again), "
-    "callback_requested. "
-    "Answer 'unknown' if the conversation does not clearly show one of these -- "
-    "do not guess."
+#: Mechanical termination fields are populated by ``end_call_with_reason``.
+#: They are facts observed by the engine, never values for an LLM to infer.
+CALL_STATUS_CONTEXT_KEY = "call_status"
+END_REASON_CONTEXT_KEY = "end_reason"
+
+_ENGINE_DERIVED_VARIABLES = frozenset(
+    {
+        CALL_STATUS_CONTEXT_KEY,
+        END_REASON_CONTEXT_KEY,
+        "mapped_call_disposition",
+        "call_tags",
+    }
 )
 
-#: Teardown reasons whose disposition is a placeholder rather than an answer,
-#: and may therefore be replaced by an extracted outcome.
-#:
-#: ``USER_QUALIFIED`` is stamped for reaching *any* end node, so it asserts
-#: success even for a wrong number. ``USER_HANGUP`` records only that the
-#: caller went away, which tells a dialer nothing it can act on.
-#:
-#: Everything absent from this set is already a real answer decided by
-#: something other than a language model -- a detector verdict
-#: (``VOICEMAIL_DETECTED``), an action Dograh took (``CALL_TRANSFERRED``), an
-#: author's declared end-call reason -- and is never second-guessed here.
-REFINABLE_REASONS = frozenset(
-    {
-        EndTaskReason.USER_QUALIFIED.value,
-        EndTaskReason.USER_HANGUP.value,
-    }
+_DEFAULT_DISPOSITION_OPTIONS: tuple[tuple[str, str | None], ...] = (
+    ("qualified", "the call achieved its goal"),
+    ("not_interested", None),
+    ("wrong_number", None),
+    (
+        EndTaskReason.VOICEMAIL_DETECTED.value,
+        "the call reached an answering machine rather than a person",
+    ),
+    ("do_not_call", "the caller asked not to be contacted again"),
+    ("callback_requested", None),
+)
+
+#: Dograh's built-in business outcomes. This is the default extraction
+#: vocabulary, not a validation allowlist: workflow authors may still supply
+#: their own values through a custom ``call_disposition`` variable.
+DEFAULT_DISPOSITION_CODES: tuple[str, ...] = tuple(
+    code for code, _description in _DEFAULT_DISPOSITION_OPTIONS
+)
+
+_DEFAULT_DISPOSITION_OPTIONS_TEXT = ", ".join(
+    f"{code} ({description})" if description else code
+    for code, description in _DEFAULT_DISPOSITION_OPTIONS
+)
+
+DEFAULT_DISPOSITION_PROMPT = (
+    "Why the call ended, from the caller's side. Use one of: "
+    f"{_DEFAULT_DISPOSITION_OPTIONS_TEXT}. "
+    "Answer 'unknown' if the conversation does not clearly show one of these -- "
+    "do not guess."
 )
 
 #: Extracted values that mean "no answer", not an answer. ``unknown`` is what
@@ -86,18 +102,31 @@ def build_disposition_variable() -> ExtractionVariableDTO:
     )
 
 
-def inject_disposition_variable(
+def prepare_extraction_variables(
     variables: Iterable[ExtractionVariableDTO],
+    *,
+    include_disposition: bool,
 ) -> list[ExtractionVariableDTO]:
-    """Append the disposition variable unless the author already declared one.
+    """Return only the variables the LLM should extract for this phase.
 
-    Author intent wins: a node carrying its own ``call_disposition`` variable
-    keeps that prompt and that vocabulary, and nothing is added.
+    ``call_status`` and its legacy ``end_reason`` alias come from pipeline
+    mechanics and are therefore always removed. ``call_disposition`` is held
+    until the terminal extraction, where the author's custom prompt is reused
+    if they supplied one; otherwise Dograh's default variable is appended.
     """
     variables = list(variables)
-    if any(v.name == CALL_DISPOSITION_VARIABLE for v in variables):
-        return variables
-    return [*variables, build_disposition_variable()]
+    author_disposition = next(
+        (v for v in variables if v.name == CALL_DISPOSITION_VARIABLE), None
+    )
+    extractable = [
+        v
+        for v in variables
+        if v.name not in _ENGINE_DERIVED_VARIABLES
+        and v.name != CALL_DISPOSITION_VARIABLE
+    ]
+    if include_disposition:
+        extractable.append(author_disposition or build_disposition_variable())
+    return extractable
 
 
 def coerce_disposition(value: object) -> str | None:

@@ -416,6 +416,7 @@ class TestTransferDispositionRace:
         assert engine.events.index(("disposition", "call_transferred")) < (
             engine.events.index("settle_delay")
         ), f"disposition must be stamped before the delay: {engine.events}"
+        assert ("end_call", "call_transferred") in engine.events
         # It also has to reach the DB, since integrations read the run row.
         persisted = update_run.await_args.kwargs["gathered_context"]
         assert persisted["call_disposition"] == "call_transferred"

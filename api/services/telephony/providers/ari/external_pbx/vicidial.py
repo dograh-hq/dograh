@@ -320,7 +320,9 @@ class VicidialAdapter(ExternalPBXAdapter):
         if not all(
             [self._non_agent_url, self._non_agent_user, self._non_agent_password]
         ):
-            logger.warning("[VICIdial] add_dnc_phone skipped: non-agent API is not configured")
+            logger.warning(
+                "[VICIdial] add_dnc_phone skipped: non-agent API is not configured"
+            )
             return ExternalPBXResult(
                 False, "add_dnc_phone", "Non-agent API is not configured"
             )
@@ -350,7 +352,9 @@ class VicidialAdapter(ExternalPBXAdapter):
             logger.error(
                 f"[VICIdial] add_dnc_phone failed error_type={type(exc).__name__}"
             )
-            return ExternalPBXResult(False, "add_dnc_phone", "VICIdial API request failed")
+            return ExternalPBXResult(
+                False, "add_dnc_phone", "VICIdial API request failed"
+            )
         # A number already on the list is the state this call exists to reach,
         # so treat it as done rather than as a failure to retry or alert on.
         already_listed = "ALREADY EXISTS" in body.upper()

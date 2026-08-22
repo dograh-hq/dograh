@@ -152,6 +152,4 @@ class TerminationFunnelProcessor(FrameProcessor):
                 f"of the call; cancelling the pipeline"
             )
 
-        await self.push_frame(
-            CancelWorkerFrame(reason=reason), FrameDirection.UPSTREAM
-        )
+        await self.push_frame(CancelWorkerFrame(reason=reason), FrameDirection.UPSTREAM)

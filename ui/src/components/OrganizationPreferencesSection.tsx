@@ -158,46 +158,64 @@ export function OrganizationPreferencesSection() {
     }
   }
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
+  async function persistPreferences(
+    nextPreferences: OrganizationPreferences,
+    successMessage: string,
+  ): Promise<boolean> {
     setSaving(true);
     try {
       const result =
         await savePreferencesApiV1OrganizationsPreferencesPut(
           {
             body: {
-              test_phone_number: preferences.test_phone_number || null,
+              test_phone_number: nextPreferences.test_phone_number || null,
               timezone: getTimezoneValue(timezone),
               external_pbx_integrations_enabled:
-                preferences.external_pbx_integrations_enabled ?? false,
+                nextPreferences.external_pbx_integrations_enabled ?? false,
               disposition_mapping_enabled:
-                preferences.disposition_mapping_enabled ?? false,
+                nextPreferences.disposition_mapping_enabled ?? false,
               // Sent even when the toggle is off: turning the mapping off
               // should stop it being applied, not discard the entries someone
               // spent time configuring.
-              disposition_mapping: preferences.disposition_mapping ?? {},
+              disposition_mapping: nextPreferences.disposition_mapping ?? {},
             },
           },
         );
 
       if (result.error) {
         toast.error(detailFromError(result.error, "Failed to save preferences"));
-        return;
+        return false;
       }
       if (!result.data) {
         toast.error("Failed to save preferences");
-        return;
+        return false;
       }
 
       setPreferences(toFormPreferences(result.data));
       setTimezone(result.data.timezone || emptyPreferences.timezone || "UTC");
       await refreshConfig();
-      toast.success("Preferences saved");
+      toast.success(successMessage);
+      return true;
     } catch {
       toast.error("Failed to save preferences");
+      return false;
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    await persistPreferences(preferences, "Preferences saved");
+  }
+
+  async function handleDispositionMappingSave(
+    dispositionMapping: Record<string, string>,
+  ): Promise<boolean> {
+    return persistPreferences(
+      { ...preferences, disposition_mapping: dispositionMapping },
+      "Disposition mapping saved",
+    );
   }
 
   if (loading) {
@@ -305,11 +323,7 @@ export function OrganizationPreferencesSection() {
         open={mappingDialogOpen}
         onOpenChange={setMappingDialogOpen}
         mapping={preferences.disposition_mapping ?? {}}
-        onSave={(disposition_mapping) =>
-          // Staged like every other field on this form: nothing reaches the
-          // backend until Save, so a mapping edit can be abandoned by leaving.
-          setPreferences((current) => ({ ...current, disposition_mapping }))
-        }
+        onSave={handleDispositionMappingSave}
       />
       <Button type="submit" disabled={saving}>
         <Save className="mr-2 h-4 w-4" />

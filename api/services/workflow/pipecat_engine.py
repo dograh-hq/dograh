@@ -53,9 +53,10 @@ from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_VARIABLE,
-    REFINABLE_REASONS,
+    CALL_STATUS_CONTEXT_KEY,
+    END_REASON_CONTEXT_KEY,
     coerce_disposition,
-    inject_disposition_variable,
+    prepare_extraction_variables,
 )
 from api.services.workflow.disposition_mapping import (
     apply_disposition_mapping,
@@ -81,7 +82,6 @@ from api.services.workflow.tools.knowledge_base import (
 )
 from api.utils.template_renderer import render_template
 
-
 # Gathered-context keys the engine records itself. Variable extraction merges
 # its results into the same dict, so these are held back from that merge.
 #
@@ -92,7 +92,13 @@ from api.utils.template_renderer import render_template
 # `mapped_call_disposition` -- what reporting, filters and the PBX write-back
 # all read -- describing the previous outcome.
 _ENGINE_OWNED_CONTEXT_KEYS = frozenset(
-    {"call_disposition", "mapped_call_disposition", "call_status", "call_tags"}
+    {
+        "call_disposition",
+        "mapped_call_disposition",
+        CALL_STATUS_CONTEXT_KEY,
+        END_REASON_CONTEXT_KEY,
+        "call_tags",
+    }
 )
 
 # How long the terminal extraction gets before the call is disposed of without
@@ -158,6 +164,7 @@ class PipecatEngine:
         # Recoverable operations such as a failed transfer use a repeatable
         # flush and must not consume this one-shot finalization state.
         self._final_extraction_done: bool = False
+        self._final_extraction_result: Optional[dict] = None
 
         # Will be set later in initialize() when we have
         # access to _context
@@ -386,9 +393,7 @@ class PipecatEngine:
 
                     # Queue EndFrame if we just transitioned to EndNode
                     if self._current_node.is_end:
-                        await self.end_call_with_reason(
-                            EndTaskReason.USER_QUALIFIED.value
-                        )
+                        await self.end_call_with_reason(EndTaskReason.END_CALL.value)
 
                 result = {"status": "done"}
 
@@ -496,7 +501,7 @@ class PipecatEngine:
         node: Optional[Node],
         run_in_background: bool = True,
         extract_disposition: bool = False,
-    ) -> None:
+    ) -> Optional[dict]:
         """Perform variable extraction if the node has extraction enabled.
 
         Args:
@@ -516,11 +521,16 @@ class PipecatEngine:
         parent_context = self._get_otel_context()
 
         extraction_prompt = self._format_prompt(node.extraction_prompt)
-        node_variables = (
-            inject_disposition_variable(node.extraction_variables)
-            if extract_disposition
-            else node.extraction_variables
+        node_variables = prepare_extraction_variables(
+            node.extraction_variables,
+            include_disposition=extract_disposition,
         )
+        if not node_variables:
+            logger.debug(
+                f"No LLM-derived variables configured for node: {node.name}; "
+                "skipping variable extraction"
+            )
+            return None
         extraction_variables = [
             v.model_copy(update={"prompt": self._format_prompt(v.prompt)})
             if v.prompt
@@ -528,7 +538,7 @@ class PipecatEngine:
             for v in node_variables
         ]
 
-        async def _do_extraction():
+        async def _do_extraction() -> Optional[dict]:
             try:
                 logger.debug(f"Starting variable extraction for node: {node.name}")
                 extracted_data = (
@@ -542,7 +552,19 @@ class PipecatEngine:
                         f"{type(extracted_data).__name__} instead of dict, "
                         f"skipping update. Data: {extracted_data}"
                     )
-                    return
+                    return None
+                requested_names = {variable.name for variable in extraction_variables}
+                unexpected_names = extracted_data.keys() - requested_names
+                if unexpected_names:
+                    logger.warning(
+                        f"Variable extraction for node {node.name} returned "
+                        f"unrequested keys {sorted(unexpected_names)}; ignoring them"
+                    )
+                extracted_data = {
+                    key: value
+                    for key, value in extracted_data.items()
+                    if key in requested_names
+                }
                 # Extraction variable names are author-supplied and nothing
                 # validates them against the keys the engine owns. Let one
                 # through and it would desynchronise the call's outcome:
@@ -563,6 +585,7 @@ class PipecatEngine:
                 logger.debug(
                     f"Variable extraction completed for node: {node.name}. Extracted: {extracted_data}"
                 )
+                return extracted_data
             except Exception as e:
                 metadata = failure_metadata_for_processor(self.variable_extraction_llm)
                 log_failure(
@@ -576,6 +599,7 @@ class PipecatEngine:
                     workflow_run_id=self._workflow_run_id,
                     node_name=node.name,
                 )
+                return None
 
         if run_in_background:
             logger.debug(
@@ -586,11 +610,12 @@ class PipecatEngine:
             )
             self._pending_extraction_tasks.add(task)
             task.add_done_callback(self._pending_extraction_tasks.discard)
+            return None
         else:
             logger.debug(
                 f"Performing synchronous variable extraction for node: {node.name}"
             )
-            await _do_extraction()
+            return await _do_extraction()
 
     async def _await_pending_extractions(self, timeout: float = 30.0) -> None:
         """Await all in-flight background extraction tasks.
@@ -630,7 +655,7 @@ class PipecatEngine:
 
     async def flush_variable_extraction(
         self, extract_disposition: bool = False
-    ) -> None:
+    ) -> Optional[dict]:
         """Refresh extracted variables without marking the call finalized.
 
         This operation is intentionally repeatable. Transfer routing and
@@ -640,13 +665,13 @@ class PipecatEngine:
         so there is no outcome to ask about yet.
         """
         await self._await_pending_extractions()
-        await self._perform_variable_extraction_if_needed(
+        return await self._perform_variable_extraction_if_needed(
             self._current_node,
             run_in_background=False,
             extract_disposition=extract_disposition,
         )
 
-    async def perform_final_variable_extraction(self) -> None:
+    async def perform_final_variable_extraction(self) -> Optional[dict]:
         """Perform the one-shot extraction used during call disposal.
 
         Awaits any background extractions still running from previous nodes,
@@ -658,9 +683,12 @@ class PipecatEngine:
         """
         if self._final_extraction_done:
             logger.debug("Final variable extraction already performed; skipping")
-            return
-        await self.flush_variable_extraction(extract_disposition=True)
+            return self._final_extraction_result
+        self._final_extraction_result = await self.flush_variable_extraction(
+            extract_disposition=True
+        )
         self._final_extraction_done = True
+        return self._final_extraction_result
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
@@ -918,14 +946,17 @@ class PipecatEngine:
             disposition
         )
 
-    def refine_call_disposition(self, reason: str) -> None:
-        """Replace a placeholder disposition with the extracted outcome.
+    def refine_call_disposition(
+        self,
+        fallback_disposition: str,
+        final_extraction: Optional[Mapping[str, object]],
+    ) -> None:
+        """Replace the mechanical fallback with the terminal extraction outcome.
 
-        ``end_call_with_reason`` stamps the teardown mechanism as the
-        disposition before running the final extraction, so a call whose
-        pipeline is killed still records something. For two of those mechanisms
-        the stamp is a placeholder rather than an answer -- see
-        ``REFINABLE_REASONS`` -- and the extraction that just ran knows better.
+        ``end_call_with_reason`` initially copies ``call_status`` into
+        ``call_disposition``. Only a result returned by the current node's final
+        extraction may refine it; earlier node extractions are deliberately not
+        consulted.
 
         Called after the extraction and before the persist, so the refined value
         is what gets written and what the external-PBX write-back later reads.
@@ -933,13 +964,7 @@ class PipecatEngine:
         answer, and on the abrupt-hangup path the extraction may well have been
         killed with the rest of the pipeline.
         """
-        if reason not in REFINABLE_REASONS:
-            return
-
-        # Only refine a disposition that is still the mechanism we stamped. An
-        # end-call tool, a transfer or a DNC request records the outcome during
-        # the call, and those decided it without a language model.
-        if self._gathered_context.get("call_disposition") != reason:
+        if self._gathered_context.get("call_disposition") != fallback_disposition:
             return
 
         # Nothing to read an outcome from. A third of abrupt hangups have no
@@ -957,12 +982,15 @@ class PipecatEngine:
             )
             return
 
-        extracted = self._gathered_context.get("extracted_variables") or {}
-        disposition = coerce_disposition(extracted.get(CALL_DISPOSITION_VARIABLE))
+        disposition = coerce_disposition(
+            (final_extraction or {}).get(CALL_DISPOSITION_VARIABLE)
+        )
         if disposition is None:
             return
 
-        logger.debug(f"Refining call disposition: {reason} -> {disposition}")
+        logger.debug(
+            f"Refining call disposition: {fallback_disposition} -> {disposition}"
+        )
         self.record_call_disposition(disposition)
         self.record_call_tags([disposition])
 
@@ -1009,8 +1037,11 @@ class PipecatEngine:
         reason: str,
         abort_immediately: bool = False,
     ):
-        """
-        Centralized method to end the call with disposition mapping
+        """End the pipeline and record its status and business outcome.
+
+        Args:
+            reason: Observable call-termination mechanism.
+            abort_immediately: Queue a cancellation instead of a graceful end.
         """
         if self._call_disposed:
             logger.debug(f"Call already Disposed: {self._call_disposed}")
@@ -1021,27 +1052,30 @@ class PipecatEngine:
         # Mute the pipeline
         self._mute_pipeline = True
 
-        # Record the call disposition: prefer one already recorded during the
-        # call -- by an end-call tool or a transfer -- and otherwise fall back
-        # to the teardown reason.
+        # The status/end reason are call mechanics. They are observed here and
+        # never generated by an LLM.
+        self._gathered_context[CALL_STATUS_CONTEXT_KEY] = reason
+        self._gathered_context[END_REASON_CONTEXT_KEY] = reason
+
+        # Prefer a business outcome already recorded during the call -- by an
+        # end-call tool or a transfer. Otherwise the mechanical status is the
+        # disposition fallback.
         #
         # Stamped before the extraction below rather than after it, so that a
         # call always carries an outcome even when that extraction times out or
         # comes back with nothing. `refine_call_disposition` upgrades it once
         # the extraction has actually landed.
-        call_disposition = self._gathered_context.get("call_disposition", "") or reason
+        recorded_disposition = self._gathered_context.get("call_disposition", "")
+        disposition_is_fallback = not bool(recorded_disposition)
+        call_disposition = (
+            recorded_disposition or self._gathered_context[CALL_STATUS_CONTEXT_KEY]
+        )
         self._gathered_context["call_disposition"] = call_disposition
         # A dict lookup against the mapping loaded in `initialize`, not a DB
         # round trip -- see `_disposition_mapping`.
         self._gathered_context["mapped_call_disposition"] = self.map_disposition(
             call_disposition
         )
-
-        # How the call ended, recorded separately from what the call achieved.
-        # Always the teardown reason and never refined: the mechanism is a fact
-        # we observed, so unlike the disposition it needs no mapping and cannot
-        # be improved on by reading the transcript.
-        self._gathered_context["call_status"] = reason
 
         # Tagged with the untranslated disposition. Tags are Dograh's own
         # vocabulary -- `user_speech`, `not_connected` -- and are what the
@@ -1055,8 +1089,9 @@ class PipecatEngine:
             # Flush in-flight + current-node extractions synchronously before
             # ending, bounded so a stuck LLM cannot hold the call open -- see
             # FINAL_EXTRACTION_TIMEOUT_SECONDS.
+            final_extraction = None
             try:
-                await asyncio.wait_for(
+                final_extraction = await asyncio.wait_for(
                     self.perform_final_variable_extraction(),
                     timeout=FINAL_EXTRACTION_TIMEOUT_SECONDS,
                 )
@@ -1066,11 +1101,11 @@ class PipecatEngine:
                     f"{FINAL_EXTRACTION_TIMEOUT_SECONDS}s; keeping the recorded "
                     f"disposition '{call_disposition}'"
                 )
-            # Upgrade the placeholder stamped above now that the extraction has
-            # actually landed. Costs no extra LLM round trip -- the disposition
-            # rides along in the request just awaited -- and is skipped
-            # entirely when that request timed out or returned nothing.
-            self.refine_call_disposition(reason)
+            # Upgrade the status fallback only from the extraction just
+            # awaited. This costs no extra LLM round trip and cannot reuse a
+            # stale result from an earlier node.
+            if disposition_is_fallback:
+                self.refine_call_disposition(call_disposition, final_extraction)
 
         frame_to_push = (
             CancelFrame(reason=reason) if abort_immediately else EndFrame(reason=reason)
@@ -1087,7 +1122,8 @@ class PipecatEngine:
         # only keys recorded at call setup or at transfer time, never the
         # terminal extraction.
         logger.debug(
-            f"Finishing run with reason: {reason}, disposition: {call_disposition} "
+            f"Finishing run with reason: {reason}, disposition: "
+            f"{self._gathered_context.get('call_disposition', call_disposition)} "
             f"queueing frame {frame_to_push}"
         )
         await self.task.queue_frame(frame_to_push)

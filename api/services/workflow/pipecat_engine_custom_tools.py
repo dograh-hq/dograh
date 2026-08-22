@@ -515,12 +515,16 @@ class CustomToolManager:
                 # Handle end call reason if enabled
                 end_call_reason_enabled = config.get("endCallReason", False)
                 if end_call_reason_enabled:
-                    reason = (
-                        function_call_params.arguments.get("reason", "")
-                        or "end_call_tool"
-                    )
-                    logger.info(f"End call reason: {reason}")
-                    self._engine._gathered_context["call_disposition"] = reason
+                    raw_reason = function_call_params.arguments.get("reason")
+                    reason = raw_reason.strip() if isinstance(raw_reason, str) else ""
+                    if reason:
+                        logger.info(f"End call reason: {reason}")
+                        self._engine.record_call_disposition(reason)
+                    else:
+                        logger.info(
+                            "No end call reason provided; using call status as "
+                            "the disposition fallback"
+                        )
                     call_tags = self._engine._gathered_context.get("call_tags", [])
                     if "end_call_tool" not in call_tags:
                         call_tags.append("end_call_tool")
@@ -536,14 +540,14 @@ class CustomToolManager:
                 if played:
                     # End the call after the message (not immediately)
                     await self._engine.end_call_with_reason(
-                        EndTaskReason.END_CALL_TOOL_REASON.value,
+                        EndTaskReason.END_CALL.value,
                         abort_immediately=False,
                     )
                 else:
                     # No message - end call immediately
                     logger.info("Ending call immediately (no goodbye message)")
                     await self._engine.end_call_with_reason(
-                        EndTaskReason.END_CALL_TOOL_REASON.value, abort_immediately=True
+                        EndTaskReason.END_CALL.value, abort_immediately=True
                     )
 
             except Exception as e:
@@ -769,7 +773,7 @@ class CustomToolManager:
                             # conference before Dograh tears down the local leg.
                             await asyncio.sleep(_TRANSFER_POST_HANDOFF_DELAY_SECS)
                             await self._engine.end_call_with_reason(
-                                EndTaskReason.END_CALL_TOOL_REASON.value,
+                                EndTaskReason.CALL_TRANSFERRED.value,
                                 abort_immediately=True,
                             )
                         else:

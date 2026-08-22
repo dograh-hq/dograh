@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from api.schemas.organization_preferences import OrganizationPreferences
 from api.services.workflow.dto import (
     AgentNodeData,
     EdgeDataDTO,
@@ -570,3 +571,20 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
         ],
     )
     return WorkflowGraph(dto)
+
+
+@pytest.fixture
+def no_disposition_mapping():
+    """Stub the organization-preferences read behind `mapped_call_disposition`.
+
+    Tests that mock `db_client` do so per module, which the disposition
+    mapping's own import of it never sees -- so without this it reaches for a
+    real database. Default preferences mean "this organization has no mapping",
+    under which every disposition passes through untranslated: the behaviour
+    these tests were written against.
+    """
+    with patch(
+        "api.services.workflow.disposition_mapping.get_organization_preferences",
+        AsyncMock(return_value=OrganizationPreferences()),
+    ) as stub:
+        yield stub

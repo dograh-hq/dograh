@@ -286,28 +286,13 @@ class ARIHangupStrategy(HangupStrategy):
                 "upstream_transferred"
             )
             if identity and not transferred and self._external_pbx_adapter:
-                from api.services.telephony.external_pbx import (
-                    resolve_external_pbx_field_mappings,
-                )
-
-                workflow_configurations = (
-                    await db_client.get_workflow_run_configurations(
-                        int(run_id), run.workflow.organization_id
-                    )
-                )
-                field_updates = resolve_external_pbx_field_mappings(
-                    run.gathered_context,
-                    workflow_configurations.get("external_pbx_field_mappings", []),
-                )
-                if field_updates:
-                    update_result = await self._external_pbx_adapter.update_fields(
-                        identity, field_updates
-                    )
-                    if not update_result.ok:
-                        logger.warning(
-                            "[ARI Hangup] External PBX field update failed; "
-                            f"continuing hangup: {update_result.message}"
-                        )
+                # The lead write-back deliberately does not happen here. This
+                # strategy only runs when Dograh ends the call; when the
+                # customer hangs up first Asterisk tears the channel down
+                # through StasisEnd and nothing below executes. Disposition and
+                # lead fields are written from the workflow completion job
+                # instead, which runs for every call -- see
+                # api/tasks/workflow_completion.py.
                 logger.info(
                     "[ARI Hangup] External PBX call "
                     f"({self._external_pbx_adapter.type}); "

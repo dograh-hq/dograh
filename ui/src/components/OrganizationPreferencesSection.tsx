@@ -1,6 +1,6 @@
 "use client";
 
-import { Save } from "lucide-react";
+import { Save, SlidersHorizontal } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import TimezoneSelect, { type ITimezoneOption } from "react-timezone-select";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import {
   savePreferencesApiV1OrganizationsPreferencesPut,
 } from "@/client/sdk.gen";
 import type { OrganizationPreferences } from "@/client/types.gen";
+import { DispositionMappingDialog } from "@/components/DispositionMappingDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +23,23 @@ const emptyPreferences: OrganizationPreferences = {
   test_phone_number: "",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   external_pbx_integrations_enabled: false,
+  disposition_mapping_enabled: false,
+  disposition_mapping: {},
 };
+
+/** Normalize a server response into the shape this form edits. */
+function toFormPreferences(
+  preferences: OrganizationPreferences,
+): OrganizationPreferences {
+  return {
+    test_phone_number: preferences.test_phone_number || "",
+    timezone: preferences.timezone || emptyPreferences.timezone,
+    external_pbx_integrations_enabled:
+      preferences.external_pbx_integrations_enabled ?? false,
+    disposition_mapping_enabled: preferences.disposition_mapping_enabled ?? false,
+    disposition_mapping: preferences.disposition_mapping ?? {},
+  };
+}
 
 const timezoneSelectStyles = {
   control: (base: Record<string, unknown>, state: { isFocused: boolean }) => ({
@@ -103,6 +120,7 @@ export function OrganizationPreferencesSection() {
   );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
 
   useEffect(() => {
     if (authLoading || !user || hasFetched.current) {
@@ -129,12 +147,7 @@ export function OrganizationPreferencesSection() {
       }
 
       const nextPreferences = result.data || emptyPreferences;
-      setPreferences({
-        test_phone_number: nextPreferences.test_phone_number || "",
-        timezone: nextPreferences.timezone || emptyPreferences.timezone,
-        external_pbx_integrations_enabled:
-          nextPreferences.external_pbx_integrations_enabled ?? false,
-      });
+      setPreferences(toFormPreferences(nextPreferences));
       setTimezone(
         nextPreferences.timezone || emptyPreferences.timezone || "UTC",
       );
@@ -157,6 +170,12 @@ export function OrganizationPreferencesSection() {
               timezone: getTimezoneValue(timezone),
               external_pbx_integrations_enabled:
                 preferences.external_pbx_integrations_enabled ?? false,
+              disposition_mapping_enabled:
+                preferences.disposition_mapping_enabled ?? false,
+              // Sent even when the toggle is off: turning the mapping off
+              // should stop it being applied, not discard the entries someone
+              // spent time configuring.
+              disposition_mapping: preferences.disposition_mapping ?? {},
             },
           },
         );
@@ -170,12 +189,7 @@ export function OrganizationPreferencesSection() {
         return;
       }
 
-      setPreferences({
-        test_phone_number: result.data.test_phone_number || "",
-        timezone: result.data.timezone || emptyPreferences.timezone,
-        external_pbx_integrations_enabled:
-          result.data.external_pbx_integrations_enabled ?? false,
-      });
+      setPreferences(toFormPreferences(result.data));
       setTimezone(result.data.timezone || emptyPreferences.timezone || "UTC");
       await refreshConfig();
       toast.success("Preferences saved");
@@ -189,6 +203,8 @@ export function OrganizationPreferencesSection() {
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading...</p>;
   }
+
+  const mappingCount = Object.keys(preferences.disposition_mapping ?? {}).length;
 
   return (
     <form onSubmit={handleSave} className="space-y-4">
@@ -242,6 +258,59 @@ export function OrganizationPreferencesSection() {
           }
         />
       </div>
+      <div className="space-y-3 rounded-lg border p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="settings-disposition-mapping">
+              Disposition mapping
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Report call outcomes using your own disposition codes instead of
+              Dograh&apos;s. Applies to webhooks, run filters, reports, and
+              external PBX write-backs. Configuration is preserved when this is
+              disabled.
+            </p>
+          </div>
+          <Switch
+            id="settings-disposition-mapping"
+            checked={preferences.disposition_mapping_enabled ?? false}
+            onCheckedChange={(checked) =>
+              setPreferences({
+                ...preferences,
+                disposition_mapping_enabled: checked,
+              })
+            }
+          />
+        </div>
+        {preferences.disposition_mapping_enabled && (
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMappingDialogOpen(true)}
+            >
+              <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />
+              Configure mapping
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {mappingCount === 0
+                ? "No overrides yet"
+                : `${mappingCount} disposition${mappingCount === 1 ? "" : "s"} mapped`}
+            </span>
+          </div>
+        )}
+      </div>
+      <DispositionMappingDialog
+        open={mappingDialogOpen}
+        onOpenChange={setMappingDialogOpen}
+        mapping={preferences.disposition_mapping ?? {}}
+        onSave={(disposition_mapping) =>
+          // Staged like every other field on this form: nothing reaches the
+          // backend until Save, so a mapping edit can be abandoned by leaving.
+          setPreferences((current) => ({ ...current, disposition_mapping }))
+        }
+      />
       <Button type="submit" disabled={saving}>
         <Save className="mr-2 h-4 w-4" />
         {saving ? "Saving..." : "Save"}

@@ -584,8 +584,14 @@ class TelephonyProvider(ABC):
         identity: Dict[str, Any],
         destination: str,
         field_updates: Optional[Dict[str, str]] = None,
+        disposition: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Handle an external-PBX-owned customer leg when one is present.
+
+        ``disposition`` is the outcome to record on the PBX's own copy of the
+        call, already translated through the organization's disposition
+        mapping. The caller resolves it because the transfer completes before
+        the disposition is stamped on the run.
 
         Providers without an external PBX return ``None`` so the ordinary
         telephony transfer path continues unchanged.

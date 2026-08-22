@@ -51,3 +51,27 @@ class ExternalPBXAdapter(ABC):
         self, identity: Mapping[str, Any], fields: Mapping[str, str]
     ) -> ExternalPBXResult:
         """Update provider-native fields associated with the call."""
+
+    async def apply_do_not_call(
+        self, identity: Mapping[str, Any], disposition: str | None
+    ) -> ExternalPBXResult | None:
+        """Suppress the customer's number if ``disposition`` is a DNC request.
+
+        Returns ``None`` when the disposition is not one, so the caller does not
+        need to know which of a PBX's dispositions carry that meaning. Recording
+        the outcome on the call is not enough on its own: a lead-level status
+        stops the current campaign redialing, while suppression has to hold
+        wherever else the number appears.
+        """
+        return None
+
+    def disposition_fields(self, disposition: str | None) -> dict[str, str]:
+        """Fields that record ``disposition`` on the PBX's own copy of the call.
+
+        Separate from the workflow's ``external_pbx_field_mappings`` because the
+        outcome of a call is not per-workflow configuration: a PBX that models
+        dispositions natively should record every call's, and one that does not
+        returns nothing here. Callers merge the workflow mappings over the top,
+        so an explicit mapping still wins.
+        """
+        return {}

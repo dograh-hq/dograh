@@ -35,6 +35,7 @@ def build_pipeline(
     assistant_context_aggregator,
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
+    termination_funnel,
     voicemail_detector=None,
     recording_router=None,
 ):
@@ -49,9 +50,15 @@ def build_pipeline(
             inserts between callback processor and TTS to route between
             pre-recorded audio playback and dynamic TTS.
     """
-    # Build processors list with optional voicemail detection
+    # Build processors list with optional voicemail detection.
+    #
+    # The termination funnel sits directly behind the input transport so every
+    # other processor's upstream frames pass through it -- that is the only
+    # position from which it can intercept a cancellation on its way to the
+    # pipeline worker.
     processors = [
         transport.input(),  # Transport user input
+        termination_funnel,
         stt,
     ]
 
@@ -102,6 +109,7 @@ def build_realtime_pipeline(
     assistant_context_aggregator,
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
+    termination_funnel,
     voicemail_detector=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
@@ -131,6 +139,7 @@ def build_realtime_pipeline(
     """
     processors = [
         transport.input(),
+        termination_funnel,
         user_context_aggregator,
         realtime_llm,
     ]

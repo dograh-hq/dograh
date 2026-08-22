@@ -731,6 +731,12 @@ class CustomToolManager:
                         identity=external_pbx_call,
                         destination=destination,
                         field_updates=field_updates,
+                        # The PBX gets the organization's own code for a
+                        # transfer, resolved through the same mapping the
+                        # engine will stamp on the run a few lines below.
+                        disposition=self._engine.map_disposition(
+                            EndTaskReason.CALL_TRANSFERRED.value
+                        ),
                     )
                     if external_result is not None:
                         if external_result.get("status") == "success":
@@ -751,7 +757,9 @@ class CustomToolManager:
                                 gathered_context={
                                     "external_pbx_transferred": True,
                                     "call_disposition": EndTaskReason.CALL_TRANSFERRED.value,
-                                    "mapped_call_disposition": EndTaskReason.CALL_TRANSFERRED.value,
+                                    "mapped_call_disposition": self._engine.map_disposition(
+                                        EndTaskReason.CALL_TRANSFERRED.value
+                                    ),
                                 },
                             )
                             await function_call_params.result_callback(

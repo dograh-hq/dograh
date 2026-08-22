@@ -20,6 +20,19 @@ from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
 
 
+def append_unique_tags(existing_tags: object, new_tags: object) -> list:
+    """Union two call-tag lists, preserving order and dropping duplicates.
+
+    Every producer of ``call_tags`` appends and none removes, so a union is
+    always the intended result of two writers meeting.
+    """
+    tags = list(existing_tags) if isinstance(existing_tags, list) else []
+    for tag in new_tags if isinstance(new_tags, list) else []:
+        if tag not in tags:
+            tags.append(tag)
+    return tags
+
+
 class WorkflowRunClient(BaseDBClient):
     async def create_workflow_run(
         self,
@@ -381,10 +394,23 @@ class WorkflowRunClient(BaseDBClient):
                 }
             if gathered_context:
                 # Lets merge the incoming gathered context keys with the existing ones
-                run.gathered_context = {
+                merged = {
                     **run.gathered_context,
                     **gathered_context,
                 }
+                # `call_tags` is a list, so the key merge above replaces it
+                # wholesale. Two writers each hold their own snapshot of a
+                # finishing run -- the engine's `_gathered_context` and the copy
+                # `on_pipeline_finished` takes via `get_gathered_context` -- and
+                # whichever lands second was dropping the other's tags. Union
+                # them so a call keeps both its disposition and `user_speech`.
+                tags = append_unique_tags(
+                    run.gathered_context.get("call_tags"),
+                    gathered_context.get("call_tags"),
+                )
+                if tags:
+                    merged["call_tags"] = tags
+                run.gathered_context = merged
             if logs:
                 # Lets merge the incoming logs key with existing ones
                 run.logs = {**run.logs, **logs}

@@ -125,6 +125,11 @@ class RecordingEngine:
     def record_call_disposition(self, disposition):
         self.events.append(("disposition", disposition))
 
+    def map_disposition(self, disposition):
+        # This stub stands in for an organization with no disposition mapping,
+        # so every disposition passes through as itself.
+        return disposition
+
     async def end_call_with_reason(self, reason, abort_immediately=False):
         self.events.append(("end_call", reason))
 

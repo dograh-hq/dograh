@@ -351,11 +351,8 @@ class StartCallNodeData(
     delayed_start_duration: Optional[float] = spec_field(
         default=None, ui_type=PropertyType.number
     )
-    # Kept in the wire model so previously published workflows remain readable.
-    # New definitions use ``pre_call_fetch_mode`` exclusively.
-    pre_call_fetch_enabled: bool = spec_field(default=False, spec_exclude=True)
-    pre_call_fetch_mode: Optional[PreCallFetchMode] = spec_field(
-        default=None, ui_type=PropertyType.options
+    pre_call_fetch_mode: PreCallFetchMode = spec_field(
+        default=PreCallFetchMode.disabled, ui_type=PropertyType.options
     )
     pre_call_fetch_url: Optional[str] = spec_field(
         default=None, ui_type=PropertyType.url
@@ -364,15 +361,32 @@ class StartCallNodeData(
         default=None, ui_type=PropertyType.credential_ref
     )
 
-    @model_validator(mode="after")
-    def migrate_legacy_pre_call_fetch_toggle(self):
-        if self.pre_call_fetch_mode is None:
-            self.pre_call_fetch_mode = (
-                PreCallFetchMode.always
-                if self.pre_call_fetch_enabled
-                else PreCallFetchMode.disabled
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_pre_call_fetch_toggle(cls, data):
+        """Deprecated input shim for the pre-#638 ``pre_call_fetch_enabled``.
+
+        Stored definitions were migrated by alembic ``f3a1c47b9e02``, so this
+        only catches writes from clients still on the old field — old SDK pins
+        and hand-rolled API callers. Without it the key would be dropped
+        silently (node data models ignore extras) and the node would fall back
+        to ``disabled``, turning off a fetch the caller asked for.
+
+        Remove once those clients are gone; the field is no longer emitted by
+        the UI, the SDKs, or the node spec.
+        """
+        if not isinstance(data, dict) or "pre_call_fetch_enabled" not in data:
+            return data
+
+        data = dict(data)
+        legacy_enabled = data.pop("pre_call_fetch_enabled")
+        # An explicit mode always wins — a caller sending both means the new
+        # field, with the legacy key left over from whatever it round-tripped.
+        if data.get("pre_call_fetch_mode") is None:
+            data["pre_call_fetch_mode"] = (
+                PreCallFetchMode.always if legacy_enabled else PreCallFetchMode.disabled
             )
-        return self
+        return data
 
 
 @node_spec(

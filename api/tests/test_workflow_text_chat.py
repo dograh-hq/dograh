@@ -353,7 +353,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
                     "add_global_prompt": False,
                     "greeting_type": "text",
                     "greeting": "Welcome {{customer_name}} ({{account_tier}}).",
-                    "pre_call_fetch_enabled": True,
+                    "pre_call_fetch_mode": "always",
                     "pre_call_fetch_url": "https://example.com/customer",
                     "pre_call_fetch_credential_uuid": "credential-uuid",
                 },

@@ -190,7 +190,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
       }}
       icon={Rocket}
       eyebrow="Welcome"
-      title="Welcome to CALMOS Studio"
+      title="Welcome to CALMOS Connect"
       description="A few quick questions so we can tailor your experience. Takes ~20 seconds."
       primary={{ label: "Get started", onClick: handleSubmit, disabled: !canSubmit, loading: submitting }}
       overlay={captchaActive ? <CaptchaChallenge onVerified={submitWithOnPrem} onCancel={() => setCaptchaActive(false)} /> : undefined}

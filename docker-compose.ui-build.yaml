@@ -1,0 +1,6 @@
+services:
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    image: sakinah-dograh-ui:calmos-connect

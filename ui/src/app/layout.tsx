@@ -30,7 +30,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "CALMOS",
-  description: "CALMOS Studio - Open Source Voice Assistant Workflow Builder",
+  description: "CALMOS Connect - Open Source Voice Assistant Workflow Builder",
 };
 
 export default function RootLayout({

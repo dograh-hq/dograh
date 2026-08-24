@@ -120,12 +120,20 @@ function resolveIntegrationSummary(
     spec: NodeSpec,
     data: FlowNodeData,
 ): string {
+    let hasSecret = false;
     for (const prop of spec.properties) {
-        if (
-            prop.name === "name" ||
-            prop.name.endsWith("enabled") ||
-            /api[_-]?key|token|secret/i.test(prop.name)
-        ) {
+        if (prop.name === "name" || prop.name.endsWith("enabled")) {
+            continue;
+        }
+        // A configured API key/token/secret is never displayed, but it does
+        // prove the node is set up. Remember that so a node whose only real
+        // config is a secret (e.g. an integration identified solely by its key)
+        // isn't mislabelled "Not configured".
+        if (/api[_-]?key|token|secret/i.test(prop.name)) {
+            const secret = data[prop.name];
+            if (typeof secret === "string" && secret.trim().length > 0) {
+                hasSecret = true;
+            }
             continue;
         }
 
@@ -137,7 +145,7 @@ function resolveIntegrationSummary(
             return String(value);
         }
     }
-    return "Not configured";
+    return hasSecret ? "Configured" : "Not configured";
 }
 
 function getBadgeForSpec(

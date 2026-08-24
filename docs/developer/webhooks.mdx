@@ -69,7 +69,7 @@ The credential picker supports these types:
 | Type | Header Dograh sends |
 |---|---|
 | `bearer_token` | `Authorization: Bearer <token>` |
-| `api_key` | The header name you choose, defaulting to `X-API-Key` |
+| `api_key` | The header name you set, conventionally `X-API-Key` |
 | `basic_auth` | `Authorization: Basic <base64(username:password)>` |
 | `custom_header` | The header name and value you choose |
 
@@ -82,6 +82,7 @@ Don't put secrets in **Custom Headers**. Header names that look like credentials
 </Warning>
 
 ---
+
 ## Receiving webhooks
 
 Your endpoint should:

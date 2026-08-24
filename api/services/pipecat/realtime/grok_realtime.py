@@ -321,7 +321,12 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
                 > MAX_TRACKED_CONVERSATION_ITEM_IDS
             ):
                 self._handled_conversation_item_ids.popitem(last=False)
-        await super()._handle_evt_conversation_item_added(evt)
+        try:
+            await super()._handle_evt_conversation_item_added(evt)
+        except Exception:
+            if item_id is not None:
+                self._handled_conversation_item_ids.pop(item_id, None)
+            raise
 
     async def _handle_evt_input_audio_transcription_completed(self, evt):
         await self._call_event_handler(

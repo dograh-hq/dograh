@@ -11,6 +11,7 @@
 import posthog from "posthog-js";
 
 import { PostHogEvent } from "@/constants/posthog-events";
+import { trackMetaLead } from "@/lib/metaPixel";
 
 import { detectCountry } from "./detectCountry";
 import type { LeadOrigin } from "./leadFieldOptions";
@@ -38,6 +39,7 @@ export async function submitOnboarding(
   email?: string,
 ): Promise<void> {
   posthog.capture(PostHogEvent.ONBOARDING_SUBMITTED, { ...answers, origin });
+  trackMetaLead({ content_name: "onboarding", origin });
   await postOnboardingToService({
     source: "onboarding",
     origin,

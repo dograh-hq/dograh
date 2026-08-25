@@ -59,7 +59,6 @@ WORKFLOW_DEFINITION: dict = {
                 "delayed_start": False,
                 "delayed_start_duration": 2,
                 "extraction_enabled": False,
-                "pre_call_fetch_enabled": False,
             },
         },
     ],

@@ -29,7 +29,7 @@ function AppHeader() {
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <a
-            href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g"
+            href="https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ"
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => posthog.capture(PostHogEvent.SLACK_COMMUNITY_CLICKED, { source: "app_header" })}

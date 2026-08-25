@@ -37,6 +37,13 @@ _SIP_HEADER_PROFILE_FIELDS: tuple[str, ...] = (
     "subscriber-sip-headers",
 )
 
+# Only correlation identifiers leave the deployment. The same field also carries
+# provider authentication, source addresses and upstream account ids
+# (``Cloudonix-Signature``, ``Cloudonix-IP``, ``Twilio-AccountSid``), none of
+# which Tuner correlates on — so forwarding the dict wholesale would disclose
+# provider and tenant metadata for no benefit.
+_EXPORTABLE_SIP_HEADER_NAMES: frozenset[str] = frozenset(_SIP_CALL_ID_HEADER_NAMES)
+
 
 def _first_str(value: Any) -> str | None:
     """First non-empty string in a list, or the value itself if it is one."""
@@ -82,8 +89,9 @@ def extract_inbound_sip_metadata(
         if not isinstance(forwarded, dict):
             continue
         for name, value in forwarded.items():
-            if value is not None:
-                headers.setdefault(str(name), str(value))
+            if value is None or str(name).lower() not in _EXPORTABLE_SIP_HEADER_NAMES:
+                continue
+            headers.setdefault(str(name), str(value))
 
     lowered = {name.lower(): value for name, value in headers.items()}
     sip_call_id = (
@@ -95,9 +103,9 @@ def extract_inbound_sip_metadata(
         )
     )
 
-    # Headers are returned even when no id was recovered: they reach Tuner as
-    # ``sip_headers`` and are what shows which headers a provider actually
-    # forwards, so an unlinked call can be diagnosed from the record itself.
+    # The surviving correlation headers are reported even when no id was
+    # recovered from them: they reach Tuner as ``sip_headers`` and show which of
+    # them the provider forwarded, so an unlinked call stays diagnosable.
     return sip_call_id, headers or None
 
 

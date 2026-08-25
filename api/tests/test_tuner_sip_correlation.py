@@ -9,6 +9,7 @@ Covers:
 - The payload shape Cloudonix actually delivers (captured from live calls)
 - All three places Cloudonix repeats the Call-ID, and their precedence
 - The correlation-header fallback, for a provider that forwards no Call-ID
+- That only correlation identifiers are exported, never provider or tenant metadata
 - Every shape carrying nothing usable, which must stay silent rather than raise
 """
 
@@ -65,10 +66,36 @@ def test_extracts_call_id_from_live_cloudonix_payload():
     sip_call_id, headers = extract_inbound_sip_metadata(_run(LIVE_SESSION_DATA))
 
     assert sip_call_id == LIVE_CALL_ID
-    # Every forwarded header is reported, not just the one that matched: they
-    # are what shows which headers a provider forwards when a call fails to
-    # link, so an unlinked call stays diagnosable from the record itself.
-    assert headers == LIVE_TRUNK_SIP_HEADERS
+    # Only correlation identifiers are reported, which is enough to show which
+    # of them the provider forwarded when a call fails to link.
+    assert headers == {"CID": LIVE_CALL_ID, "Correlation-Id": LIVE_CORRELATION_ID}
+
+
+def test_provider_and_tenant_metadata_is_never_exported():
+    """Nothing beyond correlation identifiers may leave the deployment.
+
+    ``trunk-sip-headers`` also carries provider authentication, source
+    addresses, and upstream account ids. Tuner correlates on none of them.
+    """
+    _, headers = extract_inbound_sip_metadata(
+        _run(
+            {
+                "profile": {
+                    "trunk-sip-headers": {
+                        "CID": LIVE_CALL_ID,
+                        "Cloudonix-Signature": "f1c57c099e4b90a8476a389c958001e5",
+                        "Cloudonix-IP": "161.115.178.174",
+                        "Cloudonix-Port": "9000",
+                        "Cloudonix-Timestamp": "1787188329",
+                        "Twilio-AccountSid": "AC00000000000000000000000000000000",
+                        "LiveKit-Room": "sim-6c38334d",
+                    }
+                }
+            }
+        )
+    )
+
+    assert headers == {"CID": LIVE_CALL_ID}
 
 
 def test_call_id_wins_over_the_correlation_header():
@@ -113,13 +140,11 @@ def test_reads_subscriber_origin_headers():
     assert sip_call_id == "sub-1"
 
 
-def test_forwarded_headers_without_any_identifier_are_still_reported():
-    """A call carrying nothing usable must report headers but no id."""
-    sip_call_id, headers = extract_inbound_sip_metadata(
+def test_a_call_with_no_correlation_headers_reports_nothing():
+    """Headers that are not correlation identifiers must not be reported."""
+    assert extract_inbound_sip_metadata(
         _run({"profile": {"trunk-sip-headers": {"Cloudonix-Origin": "border"}}})
-    )
-    assert sip_call_id is None
-    assert headers == {"Cloudonix-Origin": "border"}
+    ) == (None, None)
 
 
 @pytest.mark.parametrize(
@@ -158,17 +183,21 @@ def test_malformed_session_data_does_not_raise(session_data: Any):
 
 def test_identifier_reaches_the_payload_delivered_to_tuner():
     """The end of the chain: what the observer snapshots is what Tuner receives."""
+    sip_call_id, sip_headers = extract_inbound_sip_metadata(_run(LIVE_SESSION_DATA))
     observer = DeferredTunerObserver(
         workflow_run_id=42,
         call_type="phone_call",
-        sip_call_id=LIVE_CALL_ID,
-        sip_headers=LIVE_TRUNK_SIP_HEADERS,
+        sip_call_id=sip_call_id,
+        sip_headers=sip_headers,
     )
 
     payload = observer.build_payload_snapshot()
 
     assert payload["sip_call_id"] == LIVE_CALL_ID
-    assert payload["sip_headers"] == LIVE_TRUNK_SIP_HEADERS
+    assert payload["sip_headers"] == {
+        "CID": LIVE_CALL_ID,
+        "Correlation-Id": LIVE_CORRELATION_ID,
+    }
 
 
 def test_call_without_an_identifier_omits_both_fields():

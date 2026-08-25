@@ -244,6 +244,25 @@ async def test_failed_conversation_item_event_is_reprocessed_on_redelivery():
     assert "item-1" in service._handled_conversation_item_ids
 
 
+@pytest.mark.asyncio
+async def test_failure_after_assistant_turn_started_keeps_item_deduplicated():
+    service = _make_service()
+    service._call_event_handler = AsyncMock()
+    service.push_frame = AsyncMock(side_effect=RuntimeError("boom"))
+
+    item = events.ConversationItem(id="item-1", type="message", role="assistant")
+
+    with pytest.raises(RuntimeError):
+        await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+
+    assert "item-1" in service._handled_conversation_item_ids
+
+    service.push_frame = AsyncMock()
+    await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+
+    service.push_frame.assert_not_awaited()
+
+
 def test_factory_creates_dograh_grok_realtime_service():
     effective_config = EffectiveAIModelConfiguration(
         is_realtime=True,

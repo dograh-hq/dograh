@@ -316,7 +316,8 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         try:
             await super()._handle_evt_conversation_item_added(evt)
         except Exception:
-            if item_id is not None:
+            assistant_turn_started = self._current_assistant_response is evt.item
+            if item_id is not None and not assistant_turn_started:
                 self._handled_conversation_item_ids.discard(item_id)
             raise
 

@@ -306,20 +306,14 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
 
     async def _handle_evt_conversation_item_added(self, evt):
         item_id = getattr(evt.item, "id", None)
+        if item_id is not None and item_id in self._handled_conversation_item_ids:
+            logger.debug(
+                f"{self}: ignoring repeat conversation item event for {item_id}"
+            )
+            return
+        await super()._handle_evt_conversation_item_added(evt)
         if item_id is not None:
-            if item_id in self._handled_conversation_item_ids:
-                logger.debug(
-                    f"{self}: ignoring repeat conversation item event for {item_id}"
-                )
-                return
             self._handled_conversation_item_ids.add(item_id)
-        try:
-            await super()._handle_evt_conversation_item_added(evt)
-        except Exception:
-            assistant_turn_started = self._current_assistant_response is evt.item
-            if item_id is not None and not assistant_turn_started:
-                self._handled_conversation_item_ids.discard(item_id)
-            raise
 
     async def _handle_evt_input_audio_transcription_completed(self, evt):
         await self._call_event_handler(

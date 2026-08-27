@@ -442,6 +442,7 @@ export default function TelephonyConfigurationDetailPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Address</TableHead>
+                  <TableHead>Phone number ID</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Label</TableHead>
                   <TableHead>Status</TableHead>
@@ -456,6 +457,22 @@ export default function TelephonyConfigurationDetailPage() {
                 {phoneNumbers.map((n) => (
                   <TableRow key={n.id}>
                     <TableCell className="font-mono">{n.address}</TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          copyTextToClipboard(String(n.id))
+                            .then(() => toast.success("Phone number ID copied"))
+                            .catch(() => toast.error("Failed to copy ID"));
+                        }}
+                        title="Click to copy phone number ID"
+                        aria-label={`Copy phone number ID ${n.id}`}
+                        className="group inline-flex items-center gap-1 rounded font-mono text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <span>{n.id}</span>
+                        <Copy className="h-3 w-3 shrink-0" />
+                      </button>
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline">{n.address_type}</Badge>
                     </TableCell>

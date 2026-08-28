@@ -2,6 +2,7 @@ import asyncio
 
 from loguru import logger
 
+from api.constants import ENABLE_CALL_RECORDING_UPLOAD
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
@@ -414,20 +415,26 @@ def register_event_handlers(
             user_audio_wav = None
             bot_audio_wav = None
 
-            if not in_memory_audio_buffers.mixed.is_empty:
-                mixed_audio_wav = await in_memory_audio_buffers.mixed.to_wav_bytes()
+            if not ENABLE_CALL_RECORDING_UPLOAD:
+                logger.info(
+                    "Call recording upload is disabled "
+                    "(ENABLE_CALL_RECORDING_UPLOAD=false), skipping audio upload"
+                )
             else:
-                logger.debug("Audio buffer is empty, skipping upload")
+                if not in_memory_audio_buffers.mixed.is_empty:
+                    mixed_audio_wav = await in_memory_audio_buffers.mixed.to_wav_bytes()
+                else:
+                    logger.debug("Audio buffer is empty, skipping upload")
 
-            if not in_memory_audio_buffers.user.is_empty:
-                user_audio_wav = await in_memory_audio_buffers.user.to_wav_bytes()
-            else:
-                logger.debug("User audio buffer is empty, skipping upload")
+                if not in_memory_audio_buffers.user.is_empty:
+                    user_audio_wav = await in_memory_audio_buffers.user.to_wav_bytes()
+                else:
+                    logger.debug("User audio buffer is empty, skipping upload")
 
-            if not in_memory_audio_buffers.bot.is_empty:
-                bot_audio_wav = await in_memory_audio_buffers.bot.to_wav_bytes()
-            else:
-                logger.debug("Bot audio buffer is empty, skipping upload")
+                if not in_memory_audio_buffers.bot.is_empty:
+                    bot_audio_wav = await in_memory_audio_buffers.bot.to_wav_bytes()
+                else:
+                    logger.debug("Bot audio buffer is empty, skipping upload")
 
             transcript_text = in_memory_logs_buffer.generate_transcript_text(
                 include_end_timestamps=include_transcript_end_timestamps

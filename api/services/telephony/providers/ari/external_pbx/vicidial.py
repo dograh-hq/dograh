@@ -108,6 +108,15 @@ class VicidialAdapter(ExternalPBXAdapter):
         self._timeout = aiohttp.ClientTimeout(
             total=min(max(int(config.get("timeout_seconds", 8)), 1), 30)
         )
+        # ``ra_call_control stage=HANGUP`` returns SUCCESS as soon as VICIdial
+        # has queued the hangup, not once the leg is down, so the BYE arrives
+        # some way behind the response. Waiting for it is what keeps the hangup
+        # VICIdial's: it ends the call it placed, and its own logs record it
+        # that way. Bounded because a queued hangup can also be dropped -- see
+        # ARIHangupStrategy, which deletes the channel when this elapses.
+        self.hangup_bye_wait_seconds = min(
+            max(float(config.get("hangup_bye_wait_seconds", 3.0)), 0.0), 10.0
+        )
 
     async def capture_call_identity(
         self, read_header: HeaderReader, lead_fields: Sequence[str] = ()

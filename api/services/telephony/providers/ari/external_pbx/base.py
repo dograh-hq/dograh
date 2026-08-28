@@ -24,6 +24,13 @@ class ExternalPBXAdapter(ABC):
     # Enumerating it lists the fields a deployment actually sends, which is what
     # the "Lead Fields To Capture" setting is populated from.
     header_prefix: str = ""
+    # How long to give the PBX to drop the customer leg itself after it accepts
+    # a hangup, before Dograh deletes its own channel. The PBX placed the call
+    # and is still accounting for it, so it -- not Asterisk -- should send the
+    # BYE; deleting the channel first makes Dograh look like it abandoned a live
+    # call. Zero keeps the immediate teardown for a PBX whose hangup API is
+    # synchronous (or that does not hang up the leg at all).
+    hangup_bye_wait_seconds: float = 0.0
 
     @abstractmethod
     async def capture_call_identity(

@@ -830,6 +830,7 @@ async def test_hangup_strategy_ends_the_customer_leg_without_writing_the_lead(
     )
     adapter = SimpleNamespace(
         type="vicidial",
+        hangup_bye_wait_seconds=0.0,
         disposition_fields=lambda _disposition: {},
         update_fields=AsyncMock(
             return_value=ExternalPBXResult(True, "update_lead", "ok")
@@ -853,6 +854,166 @@ async def test_hangup_strategy_closes_redis_when_channel_has_no_run(monkeypatch)
     await ARIHangupStrategy()._terminate_external_pbx_if_any("missing-channel")
 
     redis.aclose.assert_awaited_once_with()
+
+
+class _ChannelResponse:
+    def __init__(self, status: int):
+        self.status = status
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def text(self):
+        return ""
+
+
+class _ARISession:
+    """ARI stub whose channel disappears after ``gone_after`` reads."""
+
+    def __init__(self, *, gone_after: int | None = None):
+        self._gone_after = gone_after
+        self.get_calls: list[str] = []
+        self.delete_calls: list[str] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def get(self, endpoint, *, auth):
+        self.get_calls.append(endpoint)
+        gone = self._gone_after is not None and len(self.get_calls) > self._gone_after
+        return _ChannelResponse(404 if gone else 200)
+
+    def delete(self, endpoint, *, auth):
+        self.delete_calls.append(endpoint)
+        return _ChannelResponse(204)
+
+
+def _external_pbx_run(**gathered) -> SimpleNamespace:
+    return SimpleNamespace(
+        initial_context={
+            "external_pbx_call": {
+                "type": "vicidial",
+                "callerid": "M123",
+                "agent_user": "agent",
+                "lead_id": "42",
+            }
+        },
+        gathered_context=gathered,
+        workflow=SimpleNamespace(organization_id=7),
+    )
+
+
+def _hangup_adapter(*, ok: bool = True, wait: float = 1.0) -> SimpleNamespace:
+    return SimpleNamespace(
+        type="vicidial",
+        hangup_bye_wait_seconds=wait,
+        hangup=AsyncMock(return_value=ExternalPBXResult(ok, "hangup", "ok")),
+    )
+
+
+def _stub_run_lookup(monkeypatch, run) -> AsyncMock:
+    redis = AsyncMock()
+    redis.get.return_value = "11"
+    monkeypatch.setattr(aioredis, "from_url", lambda *args, **kwargs: redis)
+    monkeypatch.setattr(
+        db_client, "get_workflow_run_by_id", AsyncMock(return_value=run)
+    )
+    return redis
+
+
+_HANGUP_CONTEXT = {
+    "channel_id": "channel-1",
+    "ari_endpoint": "http://asterisk.test:8088",
+    "app_name": "dograh",
+    "app_password": "secret",
+}
+
+
+@pytest.mark.asyncio
+async def test_hangup_lets_the_external_pbx_send_the_bye(monkeypatch):
+    """The PBX placed the call, so it -- not Asterisk -- ends it."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter()
+    session = _ARISession(gone_after=2)
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert len(session.get_calls) == 3
+    # Deleting the channel here is exactly what the PBX reports as Dograh
+    # dropping a live call, so the whole point is that it never happens.
+    assert session.delete_calls == []
+
+
+@pytest.mark.asyncio
+async def test_hangup_falls_back_when_the_external_pbx_never_sends_the_bye(monkeypatch):
+    """A queued hangup the PBX drops must not strand the channel."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter(wait=0.1)
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert session.get_calls
+    assert session.delete_calls == ["http://asterisk.test:8088/ari/channels/channel-1"]
+
+
+@pytest.mark.asyncio
+async def test_hangup_does_not_wait_when_the_external_pbx_rejects_it(monkeypatch):
+    """A rejected hangup leaves no BYE coming; Dograh has to end the call."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter(ok=False)
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert session.get_calls == []
+    assert len(session.delete_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_hangup_does_not_wait_for_a_call_already_transferred_away(monkeypatch):
+    """The customer leg has moved on -- we never asked the PBX to hang up."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run(external_pbx_transferred=True))
+    adapter = _hangup_adapter()
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    adapter.hangup.assert_not_awaited()
+    assert session.get_calls == []
+    assert len(session.delete_calls) == 1
+
+
+def test_vicidial_adapter_waits_for_the_bye_by_default():
+    assert create_adapter(_vicidial_config()).hangup_bye_wait_seconds == 3.0
+    assert (
+        create_adapter(
+            {**_vicidial_config(), "hangup_bye_wait_seconds": 0}
+        ).hangup_bye_wait_seconds
+        == 0.0
+    )
+    # Capped well inside pipecat's 20s CancelFrame budget, which also has to
+    # cover the agent-API round trip that precedes the wait.
+    assert (
+        create_adapter(
+            {**_vicidial_config(), "hangup_bye_wait_seconds": 90}
+        ).hangup_bye_wait_seconds
+        == 10.0
+    )
 
 
 # --------------------------------------------------------------------------

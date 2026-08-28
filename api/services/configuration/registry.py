@@ -1912,6 +1912,10 @@ class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
         description="OpenAI embedding model.",
         json_schema_extra={"examples": OPENAI_EMBEDDING_MODELS},
     )
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Override only if using an OpenAI-compatible API (e.g. Azure-OpenAI, vLLM, LocalAI).",
+    )
 
 
 OPENROUTER_EMBEDDING_MODELS = ["openai/text-embedding-3-small"]

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from api.db import db_client
 from api.services.telephony import external_pbx_writeback
 from api.tasks import workflow_completion
 
@@ -30,6 +31,9 @@ def stub_completion_steps(monkeypatch):
         workflow_completion,
         "report_completed_workflow_run_platform_usage",
         AsyncMock(),
+    )
+    monkeypatch.setattr(
+        db_client, "mark_workflow_run_completion_processed", AsyncMock()
     )
     return write_back
 
@@ -108,3 +112,40 @@ async def test_a_missing_run_is_a_silent_no_op(monkeypatch):
     await external_pbx_writeback.sync_external_pbx_call_record(11)
 
     adapter_built.assert_not_awaited()
+
+
+# --------------------------------------------------------------------------
+# A completion job exists only in Redis until it runs, so the run records that
+# it did. Nothing reads the marker; it is there for after-the-fact recovery.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_completion_stamps_the_run_when_it_finishes(
+    monkeypatch, stub_completion_steps
+):
+    stamp = AsyncMock()
+    monkeypatch.setattr(db_client, "mark_workflow_run_completion_processed", stamp)
+
+    await workflow_completion.process_workflow_completion(None, 11)
+
+    stamp.assert_awaited_once_with(11)
+
+
+@pytest.mark.asyncio
+async def test_completion_still_stamps_when_the_write_back_fails(
+    monkeypatch, stub_completion_steps
+):
+    """The marker records that the job ran, not that every step succeeded.
+
+    A step that runs and fails logs its own error and is answerable that way.
+    Withholding the marker would file the run alongside the ones whose job never
+    executed at all, which is the only thing the marker is meant to identify.
+    """
+    stub_completion_steps.side_effect = RuntimeError("VICIdial unreachable")
+    stamp = AsyncMock()
+    monkeypatch.setattr(db_client, "mark_workflow_run_completion_processed", stamp)
+
+    await workflow_completion.process_workflow_completion(None, 11)
+
+    stamp.assert_awaited_once_with(11)

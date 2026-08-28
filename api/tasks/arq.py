@@ -14,6 +14,10 @@ setup_logging()
 # Now import ARQ and task dependencies
 from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
+from redis.asyncio.retry import Retry
+from redis.backoff import ExponentialBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 parsed_url = urlparse(REDIS_URL)
 
@@ -27,11 +31,25 @@ if use_ssl:
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
+# A Redis blip must not be fatal to the worker. arq's own loop has no
+# ConnectionError handling: a dropped connection propagates out of
+# ``Worker.main()``, ``Worker.run()`` then fails again inside its
+# ``finally: close()``, and the process exits for good. That is how every arq
+# worker in the cluster died on 2026-08-26 and stayed dead until restarted by
+# hand -- nothing supervises them. Retrying inside the Redis client keeps a
+# short outage (a service restart on the Redis host) from ever reaching arq.
+# The budget below is roughly a minute of exponential backoff, which covers a
+# restart while still surfacing a genuinely unreachable Redis.
+_REDIS_RETRY = Retry(ExponentialBackoff(cap=10, base=0.1), retries=12)
+
 REDIS_SETTINGS = RedisSettings(
     host=parsed_url.hostname or "localhost",
     port=parsed_url.port or 6379,
     password=parsed_url.password,
     conn_timeout=10,
+    retry=_REDIS_RETRY,
+    retry_on_timeout=True,
+    retry_on_error=[RedisConnectionError, RedisTimeoutError],
     ssl=use_ssl,
     ssl_ca_certs=None if not use_ssl else None,
     ssl_certfile=None,

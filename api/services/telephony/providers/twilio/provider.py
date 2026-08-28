@@ -176,12 +176,17 @@ class TwilioProvider(TelephonyProvider):
             wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
         )
 
+        # <Connect> hands the call to the media stream and blocks until it
+        # closes. Twilio then continues with the next verb, so the document must
+        # end in <Hangup/> - otherwise the caller stays on a silent open line
+        # after the agent ends the call. Transfers are unaffected: they replace
+        # this document via a REST TwiML redirect before the stream closes.
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
         <Stream url="{ws_url}"></Stream>
     </Connect>
-    <Pause length="40"/>
+    <Hangup/>
 </Response>"""
         # Redacted: the stream URL carries a bearer capability token, and this
         # log line is the one place it would otherwise reach a log sink.
@@ -582,12 +587,17 @@ class TwilioProvider(TelephonyProvider):
             status_callback_url = f"{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
             status_callback_attr = f' statusCallback="{status_callback_url}"'
 
+        # <Connect> hands the call to the media stream and blocks until it
+        # closes. Twilio then continues with the next verb, so the document must
+        # end in <Hangup/> - otherwise the caller stays on a silent open line
+        # after the agent ends the call. Transfers are unaffected: they replace
+        # this document via a REST TwiML redirect before the stream closes.
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
         <Stream url="{websocket_url}"{status_callback_attr}></Stream>
     </Connect>
-    <Pause length="40"/>
+    <Hangup/>
 </Response>"""
 
         return Response(content=twiml_content, media_type="application/xml")

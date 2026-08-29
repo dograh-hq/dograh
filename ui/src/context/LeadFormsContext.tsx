@@ -21,6 +21,12 @@ interface LeadFormsContextValue {
 
 const LeadFormsContext = createContext<LeadFormsContextValue | null>(null);
 
+// CALMOS white-label: never auto-open the compulsory post-signup onboarding
+// lead form. It blocks the whole app (escape/outside-click prevented) and its
+// submit path targets Dograh cloud endpoints that are not relevant for a
+// self-hosted white-label deployment.
+const ONBOARDING_LEAD_FORM_ENABLED = false;
+
 export function LeadFormsProvider({ children }: { children: ReactNode }) {
   const [hireOpen, setHireOpen] = useState(false);
   const [enterpriseOpen, setEnterpriseOpen] = useState(false);
@@ -51,6 +57,9 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
   onboardingDoneRef.current = Boolean(onboardingCompletedAt) || onboardingSkipped;
 
   useEffect(() => {
+    if (!ONBOARDING_LEAD_FORM_ENABLED) {
+      return;
+    }
     if (authLoading || onboardingLoading || !user || onboardingCheckedRef.current) {
       return;
     }

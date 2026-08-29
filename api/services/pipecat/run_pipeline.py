@@ -73,7 +73,10 @@ from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
-from api.services.workflow.initial_context import merge_external_initial_context
+from api.services.workflow.initial_context import (
+    WORKFLOW_RUN_ID_CONTEXT_KEY,
+    merge_external_initial_context,
+)
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
@@ -599,6 +602,12 @@ async def _run_pipeline_impl(
         merged_call_context_vars = merge_external_initial_context(
             merged_call_context_vars, call_context_vars
         )
+
+    # Run-owned, so it is assigned rather than merged: it must win over any
+    # stale value persisted on the run. In-call tools render their URL, body
+    # and preset parameters from this context, so this is what lets a record
+    # written mid-call be correlated back to the run it came from.
+    merged_call_context_vars[WORKFLOW_RUN_ID_CONTEXT_KEY] = workflow_run_id
 
     # Get workflow for metadata (name, organization_id, call_disposition_codes)
     workflow = await db_client.get_workflow(workflow_id, **workflow_scope)

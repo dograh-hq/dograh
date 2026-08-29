@@ -5,10 +5,21 @@ from typing import Any
 
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 
+# The Dograh workflow run id, exposed to prompts and in-call tools so records
+# written mid-call can be correlated back to the run. Named to match the
+# top-level key post-run webhook nodes already render (see
+# api/tasks/run_integrations.py::_build_render_context).
+WORKFLOW_RUN_ID_CONTEXT_KEY = "workflow_run_id"
+
 # These values describe or authorize the run itself. External context may add
 # prompt variables, but it must never supply or replace run-owned metadata.
 RESERVED_INITIAL_CONTEXT_KEYS = frozenset(
-    {"provider", "runtime_configuration", MPS_CORRELATION_ID_CONTEXT_KEY}
+    {
+        "provider",
+        "runtime_configuration",
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        WORKFLOW_RUN_ID_CONTEXT_KEY,
+    }
 )
 
 GREETING_OVERRIDE_CONTEXT_KEY = "greeting_override"

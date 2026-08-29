@@ -41,6 +41,7 @@ class TranscriptTurn(BaseModel):
 class EndSessionRequest(BaseModel):
     turns: list[TranscriptTurn]
     ended_at: datetime | None = None
+    timings: dict[str, float] | None = None
 
 
 class EndSessionResponse(BaseModel):
@@ -106,8 +107,8 @@ async def end_session(
             organization_id=user.selected_organization_id,
             ended_at=request.ended_at or datetime.now(UTC),
             turns=[turn.model_dump(mode="json") for turn in request.turns],
+            timings=request.timings,
         )
     except (FileNotFoundError, PermissionError):
         raise HTTPException(status_code=404, detail="Session not found") from None
     return EndSessionResponse(session_id=session_id, saved=True)
-

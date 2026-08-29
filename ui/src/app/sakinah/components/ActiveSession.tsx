@@ -70,7 +70,13 @@ export function ActiveSession({ session, accessToken, onSaved }: ActiveSessionPr
             url: "/api/v1/sakinah/sessions/{session_id}/end",
             path: { session_id: session.session_id },
             headers: { Authorization: `Bearer ${accessToken}` },
-            body: { turns, ended_at: new Date().toISOString() },
+            body: {
+                turns,
+                ended_at: new Date().toISOString(),
+                timings: {
+                    duration_ms: Math.max(0, Date.now() - new Date(session.started_at).getTime()),
+                },
+            },
         });
         if (response.error) {
             savedRef.current = false;
@@ -80,7 +86,7 @@ export function ActiveSession({ session, accessToken, onSaved }: ActiveSessionPr
         }
         setEnding(false);
         onSaved(session.session_id);
-    }, [accessToken, onSaved, session.session_id, turns]);
+    }, [accessToken, onSaved, session.session_id, session.started_at, turns]);
 
     useEffect(() => {
         if (startedRef.current) return;

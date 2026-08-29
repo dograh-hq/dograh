@@ -50,7 +50,12 @@ def create_pending_session(
 
 
 def finish_session(
-    *, session_id: str, organization_id: int, ended_at: datetime, turns: list[dict]
+    *,
+    session_id: str,
+    organization_id: int,
+    ended_at: datetime,
+    turns: list[dict],
+    timings: dict[str, float] | None = None,
 ) -> Path:
     pending_path = sessions_directory() / ".pending" / f"{session_id}.json"
     if not pending_path.exists():
@@ -67,10 +72,10 @@ def finish_session(
         "workflow_run_id": session["workflow_run_id"],
         "started_at": session["started_at"],
         "ended_at": ended_at.astimezone(UTC).isoformat(),
+        "timings": timings or {},
         "turns": turns,
     }
     final_path = sessions_directory() / f"{session_id}.json"
     _write_json(final_path, final_payload)
     pending_path.unlink(missing_ok=True)
     return final_path
-

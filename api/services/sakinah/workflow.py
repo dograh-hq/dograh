@@ -51,6 +51,19 @@ SAKINAH_WORKFLOW_DEFINITION = {
 }
 
 
+def _is_broken_seed(definition: dict | None) -> bool:
+    """Detect the known-broken v1 seed (single start node, no end node).
+
+    Only that exact shape is healed automatically, so user customizations
+    of the seeded workflow are never overwritten.
+    """
+    if not isinstance(definition, dict):
+        return False
+    nodes = definition.get("nodes") or []
+    node_types = {node.get("type") for node in nodes}
+    return "endCall" not in node_types
+
+
 async def ensure_sakinah_workflow(db_client, user: UserModel):
     workflows = await db_client.get_all_workflows(
         organization_id=user.selected_organization_id
@@ -70,7 +83,20 @@ async def ensure_sakinah_workflow(db_client, user: UserModel):
     # eager-loaded; objects from get_all_workflows/create_workflow are
     # detached and lazy-loading released_definition raises
     # DetachedInstanceError in prepare_workflow_run_inputs.
-    return await db_client.get_workflow(
+    workflow = await db_client.get_workflow(
         existing.id, organization_id=user.selected_organization_id
     )
+
+    released = workflow.released_definition
+    if released is not None and _is_broken_seed(released.workflow_json):
+        await db_client.save_workflow_draft(
+            workflow_id=workflow.id,
+            workflow_definition=SAKINAH_WORKFLOW_DEFINITION,
+        )
+        await db_client.publish_workflow_draft(workflow.id)
+        workflow = await db_client.get_workflow(
+            workflow.id, organization_id=user.selected_organization_id
+        )
+
+    return workflow
 

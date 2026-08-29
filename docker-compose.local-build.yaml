@@ -1,0 +1,15 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      SAKINAH_SESSIONS_DIR: /app/data/sakinah-sessions
+    volumes:
+      - ./data/sakinah-sessions:/app/data/sakinah-sessions
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+

@@ -59,8 +59,23 @@ start() {
 ### 4) Start services (logs go to stdout for `docker logs`)
 ###############################################################################
 
-start ari_manager           python -m api.services.telephony.ari_manager
-start campaign_orchestrator python -m api.services.campaign.campaign_orchestrator
+# ari_manager and campaign_orchestrator are optional; each defaults to on and
+# can be turned off (e.g. for an API/worker-only replica) by setting the flag to
+# "false" in the container env / docker-compose .env.
+ENABLE_ARI_MANAGER=${ENABLE_ARI_MANAGER:-true}
+ENABLE_CAMPAIGN_ORCHESTRATOR=${ENABLE_CAMPAIGN_ORCHESTRATOR:-true}
+
+if [[ "$ENABLE_ARI_MANAGER" == "true" ]]; then
+  start ari_manager           python -m api.services.telephony.ari_manager
+else
+  echo "ari_manager disabled (ENABLE_ARI_MANAGER=$ENABLE_ARI_MANAGER)"
+fi
+
+if [[ "$ENABLE_CAMPAIGN_ORCHESTRATOR" == "true" ]]; then
+  start campaign_orchestrator python -m api.services.campaign.campaign_orchestrator
+else
+  echo "campaign_orchestrator disabled (ENABLE_CAMPAIGN_ORCHESTRATOR=$ENABLE_CAMPAIGN_ORCHESTRATOR)"
+fi
 
 # Spawn FASTAPI_WORKERS independent uvicorn processes on consecutive ports
 # starting at UVICORN_BASE_PORT. nginx upstream (configured in setup_remote.sh)

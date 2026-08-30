@@ -128,7 +128,8 @@
             "pages": [
               "integrations/mcp",
               "integrations/tuner",
-              "integrations/paygent"
+              "integrations/paygent",
+              "integrations/noveum"
             ]
           }
         ]

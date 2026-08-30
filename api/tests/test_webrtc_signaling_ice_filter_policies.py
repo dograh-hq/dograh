@@ -5,18 +5,11 @@ from api.routes.webrtc_signaling import (
     resolve_ice_filter_policies,
 )
 
-_PUBLIC_HOST_CANDIDATE = (
-    "candidate:1 1 udp 2122260223 1.1.1.1 45406 typ host"
-)
-_PRIVATE_HOST_CANDIDATE = (
-    "candidate:1 1 udp 2122260223 192.168.1.10 45406 typ host"
-)
-_CGNAT_HOST_CANDIDATE = (
-    "candidate:1 1 udp 2122260223 100.64.1.10 45406 typ host"
-)
+_PUBLIC_HOST_CANDIDATE = "candidate:1 1 udp 2122260223 1.1.1.1 45406 typ host"
+_PRIVATE_HOST_CANDIDATE = "candidate:1 1 udp 2122260223 192.168.1.10 45406 typ host"
+_CGNAT_HOST_CANDIDATE = "candidate:1 1 udp 2122260223 100.64.1.10 45406 typ host"
 _RELAY_CANDIDATE = (
-    "candidate:1 1 udp 2122260223 100.64.1.10 49188 typ relay "
-    "raddr 0.0.0.0 rport 0"
+    "candidate:1 1 udp 2122260223 100.64.1.10 49188 typ relay raddr 0.0.0.0 rport 0"
 )
 
 
@@ -117,9 +110,7 @@ def test_get_ice_servers_keeps_public_stun_when_not_relay_only(monkeypatch):
     monkeypatch.setattr(webrtc_signaling, "FORCE_TURN_RELAY", False)
     monkeypatch.setattr(webrtc_signaling, "ENABLE_COTURN", False)
 
-    assert _urls(webrtc_signaling.get_ice_servers()) == [
-        "stun:stun.l.google.com:19302"
-    ]
+    assert _urls(webrtc_signaling.get_ice_servers()) == ["stun:stun.l.google.com:19302"]
 
 
 def test_get_ice_servers_relay_only_without_turn_returns_no_servers(monkeypatch):

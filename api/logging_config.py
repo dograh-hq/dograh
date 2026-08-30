@@ -116,6 +116,7 @@ def setup_logging():
 
         patched.add(
             actual_log_path,
+            format=log_format,
             level=log_level,
             serialize=SERIALIZE_LOG_OUTPUT,  # Use JSON serialization for structured logs
             enqueue=True,  # Thread-safe writing

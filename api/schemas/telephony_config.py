@@ -12,6 +12,7 @@ from typing import Annotated, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.services.telephony.base import SIPConnectivityDetails
 from api.services.telephony.providers.ari.config import (
     ARIConfigurationRequest,
     ARIConfigurationResponse,
@@ -129,6 +130,7 @@ class TelephonyConfigurationDetail(BaseModel):
     inactive_since: datetime | None = None
     inactive_reason: str | None = None
     credentials: dict
+    sip_connectivity: SIPConnectivityDetails | None = None
     created_at: datetime
     updated_at: datetime
 

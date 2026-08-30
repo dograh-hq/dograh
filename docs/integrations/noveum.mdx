@@ -1,0 +1,127 @@
+---
+title: "Noveum Integration"
+description: "Connect Dograh to Noveum — full-call tracing, audio capture, and AI-powered evaluation for your voice agents"
+---
+
+<iframe
+  width="100%"
+  height="400"
+  src="https://www.youtube.com/embed/QstlZvuhyPE"
+  title="Noveum Integration Walkthrough"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+/>
+
+## Overview
+
+The Noveum integration node automatically exports every completed call to [Noveum](https://noveum.ai) as a full observability trace. Each call becomes a structured trace with per-turn spans for STT, LLM, and TTS — transcripts, prompts and completions, token usage, latency breakdowns, interruptions, and (optionally) the call audio itself, ready for playback and audio-level evaluation on the Noveum platform. No custom code required.
+
+The export is **post-call and bring-your-own-key**: while the call is live, Dograh only records data locally — nothing is sent to Noveum and no latency is added to the conversation. After the call finishes, the trace and audio are uploaded in the background using the Noveum API key you configure on the node.
+
+## Prerequisites
+
+- A [Noveum account](https://noveum.ai) with an API key
+- A Dograh voice agent workflow
+
+## Setup
+
+### 1. Get your Noveum credentials
+
+Log in to [Noveum](https://noveum.ai) and gather two values:
+
+| Credential | Where to find it |
+|---|---|
+| **API Key** | Dashboard → Settings → **API Keys** → Create New API Key |
+| **Project** | The project name your traces should land in — pick any slug (e.g. `my-voice-agent`); it is created on first export |
+
+<img
+  src="/images/noveum-api-key.png"
+  alt="Noveum dashboard — creating an API key under Settings → API Keys"
+/>
+
+Treat the API key like a password — it authorizes writes into your Noveum project.
+
+### 2. Add the Noveum node to your workflow
+
+In your Dograh workflow editor, click **Add node** and scroll to the **Integrations** section. Select **Noveum**.
+
+<img
+  src="/images/tuner-dograh-workflow-builder.png"
+  alt="Dograh voice workflow builder — click Add node"
+/>
+
+Scroll to **Integrations** and select **Noveum**:
+
+<img
+  src="/images/noveum-integrations-panel.png"
+  alt="Dograh Integrations panel showing the Noveum node"
+/>
+
+The node appears on your canvas with a **Not configured** badge. Like other integration nodes, it is standalone — it does not connect to any other node in the conversation graph, and a workflow can contain at most one Noveum node.
+
+### 3. Configure the node
+
+Click on the Noveum node and fill in the following fields:
+
+- **Noveum API Key** — Your API key from step 1
+- **Noveum Project** — The Noveum project the call traces are exported into
+- **Noveum Environment** — Environment label stamped on exported traces (defaults to `production`; use `staging`, `development`, etc. to separate environments)
+- **Record audio** — Capture per-segment STT/TTS audio plus the full-conversation recording for audio evaluation on Noveum (on by default)
+- **Enabled** — Toggle on to activate the export
+
+<img
+  src="/images/noveum-edit-modal.png"
+  alt="Dograh Edit Noveum modal with API key, project, environment, and audio fields"
+/>
+
+Click **Save**, then **Publish** your workflow.
+
+<img
+  src="/images/noveum-node-configured.png"
+  alt="Noveum node on the canvas showing configured and enabled"
+/>
+
+### 4. Verify the connection
+
+Make a test call through your agent. Once the call completes, open your project in the Noveum dashboard — the call appears as a new trace within a few moments. Open it to see the turn-by-turn timeline with STT, LLM, and TTS spans, and play back the captured audio.
+
+<img
+  src="/images/noveum-trace-detail.png"
+  alt="Noveum trace view showing a Dograh call with per-turn STT, LLM, and TTS spans"
+/>
+
+## What gets exported
+
+Each call produces one conversation trace containing:
+
+| Data | Details |
+|---|---|
+| **Turn spans** | One span per user→bot exchange, with duration, user→bot latency, and interruption (barge-in) flags |
+| **STT spans** | Final transcript, interim results, confidence, language, and speech-to-final latency |
+| **LLM spans** | Full message history, system prompt, completion, token usage, time-to-first-token, and tool/function calls |
+| **TTS spans** | Synthesized text, voice, characters, and time-to-first-byte |
+| **Latency breakdown** | Per-service TTFB (STT / LLM / TTS) and end-to-end user→bot latency per turn |
+| **Call metadata** | Workflow run ID, call disposition, agent version, run mode, and the STT/LLM/TTS model names configured on the workflow |
+| **Audio** (when **Record audio** is on) | Per-turn user and bot audio segments plus a full-conversation stereo recording (left channel = user, right channel = bot), attached to their spans for playback and audio evaluation |
+
+Once the traces are in Noveum you can inspect and replay calls, build evaluation datasets from production traffic, and run automated scorers over transcripts and audio to track agent quality over time.
+
+## Disabling the integration
+
+To temporarily stop exporting calls to Noveum, open the Noveum node configuration and toggle **Enabled** off. Your credentials are preserved — toggle it back on anytime to resume.
+
+## Troubleshooting
+
+| Issue | Solution |
+|---|---|
+| Traces not appearing in Noveum | Verify the API key and project are correct with no extra whitespace |
+| Node shows "Not configured" | Open the node and fill in the Noveum API Key and Project — both are required when the node is enabled |
+| Workflow not sending data | Make sure the workflow is published, not just saved as a draft |
+| Trace arrives but has no audio | Confirm **Record audio** is toggled on in the node configuration |
+| Calls that never connected show no trace | Expected — runs that never start a pipeline (e.g. telephony failures) produce no trace to export |
+
+## Learn more
+
+- [Noveum](https://noveum.ai) — AI observability and evaluation platform
+- [Noveum documentation](https://noveum.ai/docs) — Complete platform docs, including the [Dograh integration guide](https://noveum.ai/docs/integration-examples/dograh/overview)

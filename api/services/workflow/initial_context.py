@@ -11,6 +11,8 @@ RESERVED_INITIAL_CONTEXT_KEYS = frozenset(
     {"provider", "runtime_configuration", MPS_CORRELATION_ID_CONTEXT_KEY}
 )
 
+GREETING_OVERRIDE_CONTEXT_KEY = "greeting_override"
+
 
 def merge_external_initial_context(
     initial_context: Mapping[str, Any] | None,

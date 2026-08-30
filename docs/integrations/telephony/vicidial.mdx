@@ -13,9 +13,9 @@ operations that must affect the original customer leg:
 - Transfer the customer to a VICIdial in-group
 - Update selected VICIdial lead fields from gathered workflow context
 
-VICIdial controls are an advanced organization feature. Users who do not enable
-the feature do not see VICIdial configuration, transfer mappings, or lead field
-mappings in the UI.
+VICIdial credentials and lead-field controls are an advanced organization
+feature. Context Mapping in Transfer Call tools is generally available and can
+also route calls for telephony providers that are not connected to VICIdial.
 
 ## Prerequisites
 
@@ -35,9 +35,10 @@ Before configuring VICIdial, ensure that:
 1. Open **Platform Settings** by going to https://app.dograh.com/settings
 2. Enable **External PBX integrations**.
 
-This switch reveals the advanced settings in Asterisk telephony
-configurations, Transfer Call tools, and workflow configurations. Disabling it
-hides and disables those controls without deleting their saved values.
+This switch reveals VICIdial credentials in Asterisk telephony configurations
+and lead capture/update settings in workflow configurations. Disabling it hides
+those VICIdial-specific controls without deleting their saved values; Context
+Mapping remains available in Transfer Call tools.
 
 ## Configure VICIdial credentials
 
@@ -76,6 +77,47 @@ Hangup and transfer require the call-control identifier and remote-agent user.
 Lead updates additionally require the lead ID. The source in-group header is
 only required when a transfer mapping uses the `source` fallback.
 
+### Pass lead data in additional headers
+
+Configure VICIdial or the dialplan to attach lead fields as headers, for example
+`X-VICIDIAL-first_name`, `X-VICIDIAL-city`, or `X-VICIDIAL-vendor_lead_code`.
+Headers with empty values are ignored.
+
+Each lead field is then read individually during call setup, so Dograh captures
+only the fields you list:
+
+1. Open the workflow's **General Settings**.
+2. Under **External PBX Field Updates**, find **Lead Fields To Capture**.
+3. Add one entry per field, named **without** the `X-VICIDIAL-` prefix — enter
+   `first_name` to capture `X-VICIDIAL-first_name`.
+
+<Note>
+  Every field you add costs one extra request to Asterisk while the call is being
+  set up, which delays the agent's first response. List only the fields your
+  prompts actually use.
+</Note>
+
+#### Discover which fields your PBX sends
+
+Each inbound call logs the available field names automatically:
+
+```text
+[ARI org=7] Available vicidial lead fields on channel 1712...: ['callerid',
+'city', 'first_name', 'lead_id', 'user'] — add the ones you need under the
+workflow's Lead Fields To Capture setting
+```
+
+Listing the names costs a single request no matter how many headers are present,
+because it reads names only — never values.
+
+Captured fields are available to workflow prompts through template variables
+named after the header suffix:
+
+```text
+Hello {{external_pbx_call.lead.first_name | there}}, I see you're calling
+from {{external_pbx_call.lead.city}}.
+```
+
 ## Configure in-group transfers
 
 In-group mappings select a VICIdial destination from information gathered by
@@ -83,16 +125,22 @@ the agent during a call.
 
 1. Open or create a **Transfer Call** tool.
 2. Select **Context Mapping** as the destination source.
-3. Enter a context path, such as `qualified` or
-   `extracted_variables.qualified`.
+3. In **Rule 1**, enter a context path, such as `qualified`,
+   `gathered_context.qualified`, or `initial_context.qualified`. An unprefixed
+   path checks gathered context first and then initial context.
 4. Add one route for each expected value and its destination in-group ID.
-5. Optionally configure a fallback in-group. Enter `source` to return the
+5. Optionally select **Add routing rule** to check another context path when the
+   rule above it does not match, and use the arrows to order the rules.
+6. Optionally configure a fallback in-group. Enter `source` to return the
    caller to the original in-group captured from the SIP headers.
-6. Save the tool and attach it to the workflow.
+7. Save the tool and attach it to the workflow.
 
-The match is case-insensitive. Dograh performs final variable extraction before
-resolving the mapping. If no route or fallback matches, the transfer fails and
-the agent can recover instead of silently hanging up the caller.
+Rules are evaluated top to bottom. The first rule whose context value matches
+one of its routes wins, so put the most specific routing first; the fallback
+applies only after every rule misses. The match is case-insensitive. Dograh
+performs final variable extraction before resolving the mapping. If no rule or
+fallback matches, the transfer fails and the agent can recover instead of
+silently hanging up the caller.
 
 ## Configure lead field mappings
 

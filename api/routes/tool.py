@@ -35,7 +35,6 @@ from api.services.tool_management import (
     build_tool_response,
     create_tool_for_user,
     refresh_mcp_tool_for_user,
-    validate_external_pbx_tool_definition,
     validate_tool_credential_references,
 )
 from api.services.tool_management import (
@@ -253,13 +252,10 @@ async def test_tool(
     # matching live execution. URL variables remain in the body/query.
     resolved_arguments = {**request.preset_params, **request.llm_params}
 
-    # Mirror execute_http_tool's own branch: POST/PUT/PATCH send the
-    # resolved arguments as a JSON body; GET/DELETE send them as query
-    # params. Never both.
     request_body = None
     request_params = None
     if configured_method in ("POST", "PUT", "PATCH"):
-        request_body = resolved_arguments  # keep {} so preview matches wire request
+        request_body = result.get("request_body_preview", resolved_arguments)
     elif resolved_arguments:
         request_params = serialize_query_params(resolved_arguments)
 
@@ -375,18 +371,6 @@ async def update_tool(
     if request.definition:
         definition = request.definition.model_dump()
         try:
-            existing_tool = await db_client.get_tool_by_uuid(
-                tool_uuid,
-                user.selected_organization_id,
-                include_archived=True,
-            )
-            await validate_external_pbx_tool_definition(
-                definition,
-                organization_id=user.selected_organization_id,
-                existing_definition=(
-                    existing_tool.definition if existing_tool else None
-                ),
-            )
             await validate_tool_credential_references(
                 definition,
                 organization_id=user.selected_organization_id,

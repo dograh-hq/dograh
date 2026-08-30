@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -44,6 +45,10 @@ class _StubSession:
         self.requests: list[tuple[str, dict]] = []
 
     def get(self, url: str, **kwargs):
+        self.requests.append((url, kwargs))
+        return self.responses.pop(0)
+
+    def post(self, url: str, **kwargs):
         self.requests.append((url, kwargs))
         return self.responses.pop(0)
 
@@ -315,6 +320,217 @@ async def test_cloudonix_validation_uses_domain_dnid(status, data, expected_ok):
 
 
 @pytest.mark.asyncio
+async def test_cloudonix_provisions_missing_dnid_on_configured_application():
+    provider = CloudonixProvider(
+        {
+            "bearer_token": "secret-bearer-token",
+            "domain_id": "example.cloudonix.net",
+            "application_name": "dograh-app",
+            "from_numbers": [],
+        }
+    )
+    session = _StubSession(
+        [
+            _StubResponse(404),
+            _StubResponse(
+                200,
+                data={
+                    "id": 321,
+                    "uuid": "04de7985-ebeb-41d8-9c51-c91e48c0c96d",
+                    "name": "dograh-app",
+                },
+            ),
+            _StubResponse(204),
+        ]
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.cloudonix.provider.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.cloudonix.provider.logger.info"
+        ) as log_info,
+    ):
+        result = await provider.provision_phone_number("+15551230002")
+
+    assert result is not None and result.ok
+    assert session.requests[0][0].endswith("/domains/example.cloudonix.net/dnids")
+    assert session.requests[1][0].endswith(
+        "/domains/example.cloudonix.net/applications/dograh-app"
+    )
+    expected_dnids_endpoint = (
+        "https://api.cloudonix.io/domains/example.cloudonix.net/applications/"
+        "04de7985-ebeb-41d8-9c51-c91e48c0c96d/dnids"
+    )
+    assert session.requests[2] == (
+        expected_dnids_endpoint,
+        {
+            "json": {
+                "source": "+15551230002",
+                "prefix": False,
+                "expression": False,
+                "asteriskCompatible": False,
+            },
+            "headers": {
+                "Authorization": "Bearer secret-bearer-token",
+                "Content-Type": "application/json",
+            },
+        },
+    )
+    request_log = next(
+        call.args[0]
+        for call in log_info.call_args_list
+        if "[Cloudonix] dnidCreate request" in call.args[0]
+    )
+    assert "Method: POST" in request_log
+    assert expected_dnids_endpoint in request_log
+    assert '"Authorization": "Bearer [REDACTED]"' in request_log
+    assert '"Content-Type": "application/json"' in request_log
+    assert '"source": "+15551230002"' in request_log
+    assert '"expression": false' in request_log
+    assert '"applicationId"' not in request_log
+    assert '"dnid"' not in request_log
+    assert '"global"' not in request_log
+    assert "secret-bearer-token" not in request_log
+
+
+@pytest.mark.asyncio
+async def test_cloudonix_dnid_provisioning_is_idempotent():
+    provider = CloudonixProvider(
+        {
+            "bearer_token": "token",
+            "domain_id": "example.cloudonix.net",
+            "application_name": "dograh-app",
+            "from_numbers": [],
+        }
+    )
+    session = _StubSession([_StubResponse(200, data=[{"source": "+15551230002"}])])
+
+    with patch(
+        "api.services.telephony.providers.cloudonix.provider.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await provider.provision_phone_number("+15551230002")
+
+    assert result is not None and result.ok
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_phone_number_uses_provider_provisioning_when_supported():
+    config = SimpleNamespace(
+        provider="cloudonix",
+        credentials={"domain_id": "example.cloudonix.net"},
+    )
+    provider = SimpleNamespace(
+        provision_phone_number=AsyncMock(return_value=ProviderSyncResult(ok=True)),
+        validate_phone_number=AsyncMock(),
+    )
+    now = datetime.now(UTC)
+    row = SimpleNamespace(
+        id=9,
+        telephony_configuration_id=7,
+        address="+15551230002",
+        address_normalized="+15551230002",
+        address_type="pstn",
+        country_code=None,
+        label=None,
+        inbound_workflow_id=None,
+        is_active=True,
+        is_default_caller_id=False,
+        extra_metadata={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    with (
+        patch(
+            "api.routes.organization._ensure_config_belongs_to_org",
+            new_callable=AsyncMock,
+            return_value=config,
+        ),
+        patch(
+            "api.routes.organization.get_telephony_provider_by_id",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "api.routes.organization.db_client.create_phone_number",
+            new_callable=AsyncMock,
+            return_value=row,
+        ) as create_local,
+    ):
+        response = await create_phone_number(
+            config_id=7,
+            request=PhoneNumberCreateRequest(address="+15551230002"),
+            user=SimpleNamespace(selected_organization_id=11),
+        )
+
+    provider.provision_phone_number.assert_awaited_once_with("+15551230002")
+    provider.validate_phone_number.assert_not_awaited()
+    create_local.assert_awaited_once()
+    assert response.address == "+15551230002"
+
+
+@pytest.mark.asyncio
+async def test_create_phone_number_aborts_when_provider_provisioning_fails():
+    config = SimpleNamespace(
+        provider="cloudonix",
+        credentials={"domain_id": "example.cloudonix.net"},
+    )
+    provider = SimpleNamespace(
+        provision_phone_number=AsyncMock(
+            return_value=ProviderSyncResult(
+                ok=False,
+                message="Cloudonix dnidCreate failed with HTTP 401",
+            )
+        ),
+        validate_phone_number=AsyncMock(),
+    )
+    create_local = AsyncMock()
+
+    with (
+        patch(
+            "api.routes.organization._ensure_config_belongs_to_org",
+            new_callable=AsyncMock,
+            return_value=config,
+        ),
+        patch(
+            "api.routes.organization.get_telephony_provider_by_id",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "api.routes.organization.db_client.create_phone_number",
+            create_local,
+        ),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await create_phone_number(
+            config_id=7,
+            request=PhoneNumberCreateRequest(address="+15551230002"),
+            user=SimpleNamespace(selected_organization_id=11),
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "Cloudonix dnidCreate failed with HTTP 401"
+    provider.validate_phone_number.assert_not_awaited()
+    create_local.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_ari_validation_explicitly_accepts_pbx_managed_address():
     provider = ARIProvider(
         {
@@ -339,7 +555,7 @@ async def test_create_rejects_unowned_number_before_database_insert():
         )
     )
     create_local = AsyncMock()
-    find_conflict = AsyncMock()
+    find_conflict = AsyncMock(return_value=None)
 
     with (
         patch(
@@ -367,7 +583,7 @@ async def test_create_rejects_unowned_number_before_database_insert():
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "not owned"
-    find_conflict.assert_not_awaited()
+    find_conflict.assert_awaited_once()
     create_local.assert_not_awaited()
 
 
@@ -390,6 +606,11 @@ async def test_create_surfaces_provider_lookup_failure_as_bad_gateway():
             "api.routes.organization.get_telephony_provider_by_id",
             new_callable=AsyncMock,
             return_value=provider,
+        ),
+        patch(
+            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            new_callable=AsyncMock,
+            return_value=None,
         ),
         pytest.raises(HTTPException) as exc_info,
     ):
@@ -422,6 +643,11 @@ async def test_create_validates_country_hinted_number_in_canonical_form():
             "api.routes.organization.get_telephony_provider_by_id",
             new_callable=AsyncMock,
             return_value=provider,
+        ),
+        patch(
+            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            new_callable=AsyncMock,
+            return_value=None,
         ),
         pytest.raises(HTTPException),
     ):

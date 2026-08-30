@@ -238,9 +238,7 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     # relay-only connection — it only gathers a public IP that
     # filter_outbound_sdp() strips back out. Matches the client-side skip.
     servers: List[RTCIceServer] = (
-        []
-        if FORCE_TURN_RELAY
-        else [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+        [] if FORCE_TURN_RELAY else [RTCIceServer(urls="stun:stun.l.google.com:19302")]
     )
 
     # Check if TURN is configured. ENABLE_COTURN is the deployment's declared

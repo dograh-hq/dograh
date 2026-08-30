@@ -40,6 +40,10 @@ UVICORN_BASE_PORT=${UVICORN_BASE_PORT:-8000}
 CPU_CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 FASTAPI_WORKERS=${FASTAPI_WORKERS:-$CPU_CORES}
 ARQ_WORKERS=${ARQ_WORKERS:-1}
+UVICORN_HOST=${UVICORN_HOST:-127.0.0.1}
+MANAGE_NGINX=${MANAGE_NGINX:-true}
+ENABLE_ARI_MANAGER=${ENABLE_ARI_MANAGER:-true}
+ENABLE_CAMPAIGN_ORCHESTRATOR=${ENABLE_CAMPAIGN_ORCHESTRATOR:-true}
 
 # Tuning knobs (override via environment)
 DRAIN_TIMEOUT=${DRAIN_TIMEOUT:-300}          # seconds to wait for active calls to finish
@@ -179,6 +183,16 @@ rollback_new_workers() {
 
 log_info "=== Phase 0: Pre-flight checks ==="
 
+# The dual-band cutover depends on atomically rewriting and reloading the local
+# nginx upstream. An off-node load balancer cannot be switched by this script;
+# continuing would stop the only band it still routes to. Require operators to
+# drain/switch that node externally and use a cold restart instead.
+if [[ "$MANAGE_NGINX" != "true" ]]; then
+  log_error "rolling_update.sh requires MANAGE_NGINX=true for its local nginx cutover."
+  log_error "For off-node nginx, drain this node at the load balancer and restart it with start_services.sh."
+  exit 1
+fi
+
 # Determine current and new band
 if [[ -f "$RUN_DIR/active_band" ]]; then
   OLD_BAND=$(<"$RUN_DIR/active_band")
@@ -302,7 +316,7 @@ for ((w = 0; w < FASTAPI_WORKERS; w++)); do
   (
     cd "$BASE_DIR"
     export LOG_FILE_PATH="$LOG_DIR/${name}.log"
-    exec uvicorn api.app:app --host 127.0.0.1 --port "$port" \
+    exec uvicorn api.app:app --host "$UVICORN_HOST" --port "$port" \
       >>"$LOG_DIR/${name}.log" 2>&1
   ) &
 
@@ -515,15 +529,24 @@ fi
 
 log_info "=== Phase 6: Restarting non-HTTP services ==="
 
-# Services to restart (same as start_services.sh)
-RESTART_NAMES=(
-  "ari_manager"
-  "campaign_orchestrator"
-)
-RESTART_COMMANDS=(
-  "python -m api.services.telephony.ari_manager"
-  "python -m api.services.campaign.campaign_orchestrator"
-)
+# Services to restart (same flags and defaults as start_services.sh)
+RESTART_NAMES=()
+RESTART_COMMANDS=()
+DISABLED_NAMES=()
+
+if [[ "$ENABLE_ARI_MANAGER" == "true" ]]; then
+  RESTART_NAMES+=("ari_manager")
+  RESTART_COMMANDS+=("python -m api.services.telephony.ari_manager")
+else
+  DISABLED_NAMES+=("ari_manager")
+fi
+
+if [[ "$ENABLE_CAMPAIGN_ORCHESTRATOR" == "true" ]]; then
+  RESTART_NAMES+=("campaign_orchestrator")
+  RESTART_COMMANDS+=("python -m api.services.campaign.campaign_orchestrator")
+else
+  DISABLED_NAMES+=("campaign_orchestrator")
+fi
 
 # Add ARQ workers
 for ((i = 1; i <= ARQ_WORKERS; i++)); do
@@ -531,12 +554,11 @@ for ((i = 1; i <= ARQ_WORKERS; i++)); do
   RESTART_COMMANDS+=("python -m arq api.tasks.arq.WorkerSettings --custom-log-dict api.tasks.arq.LOG_CONFIG")
 done
 
-for i in "${!RESTART_NAMES[@]}"; do
-  name="${RESTART_NAMES[$i]}"
-  cmd="${RESTART_COMMANDS[$i]}"
-  pidfile="$RUN_DIR/${name}.pid"
+stop_managed_service() {
+  local name=$1
+  local pidfile="$RUN_DIR/${name}.pid"
+  local oldpid
 
-  # Stop old instance
   if [[ -f "$pidfile" ]]; then
     oldpid=$(<"$pidfile")
     if kill -0 "$oldpid" 2>/dev/null; then
@@ -550,6 +572,20 @@ for i in "${!RESTART_NAMES[@]}"; do
     fi
     rm -f "$pidfile"
   fi
+}
+
+# A flag may have changed since the last cold start/update. Stop a previously
+# running singleton when it is now disabled, but never restart it.
+for name in "${DISABLED_NAMES[@]}"; do
+  stop_managed_service "$name"
+  log_info "  $name disabled by configuration"
+done
+
+for i in "${!RESTART_NAMES[@]}"; do
+  name="${RESTART_NAMES[$i]}"
+  cmd="${RESTART_COMMANDS[$i]}"
+
+  stop_managed_service "$name"
 
   # Start new instance
   log_info "  Starting $name"

@@ -2,31 +2,23 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from api.services.auth import depends as auth_depends
 
 
-@pytest.mark.asyncio
-async def test_get_user_initializes_hosted_mps_billing_for_new_org(monkeypatch):
-    stack_user = {
-        "id": "stack-user-1",
-        "selected_team_id": "team-1",
-        "primary_email_verified": False,
-    }
-    user = SimpleNamespace(
-        id=7,
-        email=None,
-        provider_id="stack-user-1",
-        selected_organization_id=None,
-    )
-    organization = SimpleNamespace(id=42, provider_id="team-1")
-    existing_config = SimpleNamespace(llm=object(), tts=None, stt=None)
-
-    ensure_billing = AsyncMock(return_value={"billing_mode": "v2"})
-    group_calls = []
-    capture_calls = []
-    person_calls = []
-
+def _patch_get_user_dependencies(
+    monkeypatch,
+    *,
+    stack_user,
+    user,
+    organization,
+    org_was_created,
+    bootstrap,
+    group_calls,
+    capture_calls,
+    person_calls,
+):
     monkeypatch.setattr(auth_depends, "AUTH_PROVIDER", "stack")
     monkeypatch.setattr(
         auth_depends.stackauth,
@@ -41,7 +33,7 @@ async def test_get_user_initializes_hosted_mps_billing_for_new_org(monkeypatch):
     monkeypatch.setattr(
         auth_depends.db_client,
         "get_or_create_organization_by_provider_id",
-        AsyncMock(return_value=(organization, True)),
+        AsyncMock(return_value=(organization, org_was_created)),
     )
     monkeypatch.setattr(
         auth_depends.db_client,
@@ -54,14 +46,9 @@ async def test_get_user_initializes_hosted_mps_billing_for_new_org(monkeypatch):
         AsyncMock(),
     )
     monkeypatch.setattr(
-        auth_depends.db_client,
-        "get_user_configurations",
-        AsyncMock(return_value=existing_config),
-    )
-    monkeypatch.setattr(
         auth_depends,
-        "ensure_hosted_mps_billing_account_v2",
-        ensure_billing,
+        "ensure_organization_bootstrapped",
+        bootstrap,
     )
     monkeypatch.setattr(
         auth_depends,
@@ -79,11 +66,44 @@ async def test_get_user_initializes_hosted_mps_billing_for_new_org(monkeypatch):
         lambda *args, **kwargs: person_calls.append((args, kwargs)),
     )
 
+
+@pytest.mark.asyncio
+async def test_get_user_bootstraps_new_org(monkeypatch):
+    stack_user = {
+        "id": "stack-user-1",
+        "selected_team_id": "team-1",
+        "primary_email_verified": False,
+    }
+    user = SimpleNamespace(
+        id=7,
+        email=None,
+        provider_id="stack-user-1",
+        selected_organization_id=None,
+    )
+    organization = SimpleNamespace(id=42, provider_id="team-1")
+
+    bootstrap = AsyncMock(return_value=True)
+    group_calls = []
+    capture_calls = []
+    person_calls = []
+
+    _patch_get_user_dependencies(
+        monkeypatch,
+        stack_user=stack_user,
+        user=user,
+        organization=organization,
+        org_was_created=True,
+        bootstrap=bootstrap,
+        group_calls=group_calls,
+        capture_calls=capture_calls,
+        person_calls=person_calls,
+    )
+
     result = await auth_depends.get_user(authorization="Bearer token")
 
     assert result is user
     assert result.selected_organization_id == 42
-    ensure_billing.assert_awaited_once_with(42, created_by="stack-user-1")
+    bootstrap.assert_awaited_once_with(42, created_by="stack-user-1")
 
     assert len(group_calls) == 1
     group_args, group_kwargs = group_calls[0]
@@ -140,6 +160,154 @@ async def test_get_user_initializes_hosted_mps_billing_for_new_org(monkeypatch):
         "auth_provider": "stack",
         "organization_was_created": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_get_user_bootstraps_org_it_did_not_just_create(monkeypatch):
+    """Provisioning must not be gated on the create-time flag.
+
+    An organization whose first bootstrap attempt failed is neither newly
+    created nor a new selection on the next request. Gating on either left it
+    permanently without a model configuration.
+    """
+    stack_user = {
+        "id": "stack-user-1",
+        "selected_team_id": "team-1",
+        "primary_email_verified": False,
+    }
+    user = SimpleNamespace(
+        id=7,
+        email=None,
+        provider_id="stack-user-1",
+        selected_organization_id=42,
+    )
+    organization = SimpleNamespace(id=42, provider_id="team-1")
+    bootstrap = AsyncMock(return_value=True)
+
+    _patch_get_user_dependencies(
+        monkeypatch,
+        stack_user=stack_user,
+        user=user,
+        organization=organization,
+        org_was_created=False,
+        bootstrap=bootstrap,
+        group_calls=[],
+        capture_calls=[],
+        person_calls=[],
+    )
+
+    result = await auth_depends.get_user(authorization="Bearer token")
+
+    assert result is user
+    bootstrap.assert_awaited_once_with(42, created_by="stack-user-1")
+
+
+@pytest.mark.asyncio
+async def test_get_user_succeeds_when_bootstrap_cannot_complete(monkeypatch):
+    """An unprovisioned org must not lock a legitimate user out of the API."""
+    stack_user = {
+        "id": "stack-user-1",
+        "selected_team_id": "team-1",
+        "primary_email_verified": False,
+    }
+    user = SimpleNamespace(
+        id=7,
+        email=None,
+        provider_id="stack-user-1",
+        selected_organization_id=None,
+    )
+    organization = SimpleNamespace(id=42, provider_id="team-1")
+
+    _patch_get_user_dependencies(
+        monkeypatch,
+        stack_user=stack_user,
+        user=user,
+        organization=organization,
+        org_was_created=True,
+        bootstrap=AsyncMock(return_value=False),
+        group_calls=[],
+        capture_calls=[],
+        person_calls=[],
+    )
+
+    result = await auth_depends.get_user(authorization="Bearer token")
+
+    assert result is user
+    assert result.selected_organization_id == 42
+
+
+def _patch_oss_auth_dependencies(monkeypatch, *, user, bootstrap):
+    monkeypatch.setattr(auth_depends, "AUTH_PROVIDER", "local")
+    monkeypatch.setattr(auth_depends, "decode_jwt_token", lambda token: {"sub": "7"})
+    monkeypatch.setattr(
+        auth_depends.db_client,
+        "get_user_by_id",
+        AsyncMock(return_value=user),
+    )
+    monkeypatch.setattr(auth_depends, "ensure_organization_bootstrapped", bootstrap)
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_bootstraps_existing_organization(monkeypatch):
+    """An OSS org that predates a bootstrap step must still be provisioned.
+
+    OSS users sign up exactly once, so a deployment that upgrades to a release
+    adding managed SIP has no signup left to run. Bootstrap has to be reachable
+    from an ordinary authenticated request or those orgs never get provisioned.
+    """
+    user = SimpleNamespace(id=7, provider_id="oss-user-1", selected_organization_id=42)
+    bootstrap = AsyncMock(return_value=True)
+
+    _patch_oss_auth_dependencies(monkeypatch, user=user, bootstrap=bootstrap)
+
+    result = await auth_depends.get_user(authorization="Bearer token")
+
+    assert result is user
+    bootstrap.assert_awaited_once_with(42, created_by="oss-user-1")
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_does_not_mask_bootstrap_error_as_invalid_token(monkeypatch):
+    """A provisioning error must not surface as an expired token.
+
+    The token decoded fine; telling the user to log in again would send them
+    chasing an auth problem they do not have.
+    """
+    user = SimpleNamespace(id=7, provider_id="oss-user-1", selected_organization_id=42)
+    bootstrap = AsyncMock(side_effect=RuntimeError("database unavailable"))
+
+    _patch_oss_auth_dependencies(monkeypatch, user=user, bootstrap=bootstrap)
+
+    with pytest.raises(RuntimeError):
+        await auth_depends.get_user(authorization="Bearer token")
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_skips_bootstrap_without_organization(monkeypatch):
+    user = SimpleNamespace(
+        id=7, provider_id="oss-user-1", selected_organization_id=None
+    )
+    bootstrap = AsyncMock(return_value=True)
+
+    _patch_oss_auth_dependencies(monkeypatch, user=user, bootstrap=bootstrap)
+
+    result = await auth_depends.get_user(authorization="Bearer token")
+
+    assert result is user
+    bootstrap.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_oss_auth_rejects_unknown_user(monkeypatch):
+    bootstrap = AsyncMock(return_value=True)
+    _patch_oss_auth_dependencies(monkeypatch, user=None, bootstrap=bootstrap)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_depends.get_user(authorization="Bearer token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "User not found"
+    bootstrap.assert_not_awaited()
 
 
 def test_associate_user_with_posthog_org_supports_backfill_arguments(monkeypatch):

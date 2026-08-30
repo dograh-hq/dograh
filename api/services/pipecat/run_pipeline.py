@@ -743,13 +743,18 @@ async def _run_pipeline_impl(
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
     pre_call_fetch_task = None
     start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
+    call_direction = getattr(workflow_run, "call_type", None)
+    if hasattr(call_direction, "value"):
+        call_direction = call_direction.value
+    call_direction = call_direction or merged_call_context_vars.get("direction")
     if (
         start_node
-        and start_node.pre_call_fetch_enabled
+        and start_node.should_run_pre_call_fetch(call_direction)
         and start_node.pre_call_fetch_url
     ):
         logger.info(
-            f"Pre-call fetch enabled for workflow run {workflow_run_id}, "
+            f"Pre-call fetch enabled for {call_direction or 'unknown'} workflow "
+            f"run {workflow_run_id}, "
             f"firing request to {start_node.pre_call_fetch_url}"
         )
         pre_call_fetch_task = asyncio.create_task(

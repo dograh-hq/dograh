@@ -278,6 +278,7 @@ class CampaignCallDispatcher:
                 "source_uuid": queued_run.source_uuid,
                 "caller_number": from_number,
                 "called_number": phone_number,
+                "direction": "outbound",
                 "telephony_configuration_id": campaign.telephony_configuration_id,
             }
 

@@ -1,10 +1,17 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
+from sqlalchemy import update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.models import OrganizationConfigurationModel
+
+# Lease states stored under an organization configuration key used as a lock.
+LEASE_PENDING = "pending"
+LEASE_COMPLETED = "completed"
 
 
 class OrganizationConfigurationClient(BaseDBClient):
@@ -99,6 +106,116 @@ class OrganizationConfigurationClient(BaseDBClient):
                 raise e
             await session.refresh(config)
             return config
+
+    async def claim_configuration_lease(
+        self,
+        organization_id: int,
+        key: str,
+        stale_after: timedelta,
+    ) -> str | None:
+        """Atomically take a single-winner lease over one organization config key.
+
+        Returns a unique owner token for exactly one concurrent caller; every
+        other caller gets ``None`` and must not perform the leased work. The
+        lease survives process death: a holder that never reached
+        ``complete``/``release`` leaves the row ``pending``, and a later caller
+        takes it over once it is older than ``stale_after``. A ``completed``
+        lease is terminal and never re-taken.
+        """
+        now = datetime.now(UTC)
+        owner_token = str(uuid4())
+        pending_value = {
+            "status": LEASE_PENDING,
+            "owner_token": owner_token,
+        }
+        async with self.async_session() as session:
+            claim = (
+                insert(OrganizationConfigurationModel.__table__)
+                .values(
+                    organization_id=organization_id,
+                    key=key,
+                    value=pending_value,
+                    created_at=now,
+                    updated_at=now,
+                )
+                .on_conflict_do_nothing(constraint="_organization_key_uc")
+            )
+            try:
+                result = await session.execute(claim)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+            if result.rowcount > 0:
+                return owner_token
+
+            # A lease row already exists. Take it over only if the previous
+            # holder died mid-work and left it pending past `stale_after`;
+            # replacing the owner token fences the expired holder out of any
+            # later completion/release, while updated_at re-starts the window.
+            takeover = (
+                update(OrganizationConfigurationModel.__table__)
+                .where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key == key,
+                    OrganizationConfigurationModel.value["status"].as_string()
+                    == LEASE_PENDING,
+                    OrganizationConfigurationModel.updated_at < now - stale_after,
+                )
+                .values(value=pending_value, updated_at=now)
+            )
+            try:
+                result = await session.execute(takeover)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            return owner_token if result.rowcount > 0 else None
+
+    async def complete_configuration_lease(
+        self, organization_id: int, key: str, owner_token: str
+    ) -> None:
+        """Mark the caller's held lease terminal so the work is never repeated."""
+        async with self.async_session() as session:
+            stmt = (
+                update(OrganizationConfigurationModel.__table__)
+                .where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key == key,
+                    OrganizationConfigurationModel.value["status"].as_string()
+                    == LEASE_PENDING,
+                    OrganizationConfigurationModel.value["owner_token"].as_string()
+                    == owner_token,
+                )
+                .values(value={"status": LEASE_COMPLETED}, updated_at=datetime.now(UTC))
+            )
+            try:
+                await session.execute(stmt)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    async def release_configuration_lease(
+        self, organization_id: int, key: str, owner_token: str
+    ) -> None:
+        """Drop the caller's held lease so the next caller retries at once."""
+        async with self.async_session() as session:
+            stmt = OrganizationConfigurationModel.__table__.delete().where(
+                OrganizationConfigurationModel.organization_id == organization_id,
+                OrganizationConfigurationModel.key == key,
+                OrganizationConfigurationModel.value["status"].as_string()
+                == LEASE_PENDING,
+                OrganizationConfigurationModel.value["owner_token"].as_string()
+                == owner_token,
+            )
+            try:
+                await session.execute(stmt)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
 
     async def delete_configuration(self, organization_id: int, key: str) -> bool:
         """Delete a configuration for an organization."""

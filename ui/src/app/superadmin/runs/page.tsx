@@ -439,6 +439,19 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell className="text-sm">
                                                         <div className="flex items-center space-x-1">
+                                                            {run.initial_context && (
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Info className="h-4 w-4 text-green-600 cursor-pointer" />
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent sideOffset={4} className="max-w-sm whitespace-pre-wrap break-words">
+                                                                        <p className="font-semibold text-xs mb-1">Initial Context</p>
+                                                                        <pre className="max-w-sm whitespace-pre-wrap break-words text-xs">
+                                                                            {JSON.stringify(run.initial_context, null, 2)}
+                                                                        </pre>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            )}
                                                             {run.gathered_context && (
                                                                 <Tooltip>
                                                                     <TooltipTrigger asChild>
@@ -465,7 +478,7 @@ export default function RunsPage() {
                                                                     </TooltipContent>
                                                                 </Tooltip>
                                                             )}
-                                                            {!run.gathered_context && !run.usage_info && (
+                                                            {!run.initial_context && !run.gathered_context && !run.usage_info && (
                                                                 <span className="text-muted-foreground">-</span>
                                                             )}
                                                         </div>

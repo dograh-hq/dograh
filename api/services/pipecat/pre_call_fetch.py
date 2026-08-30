@@ -43,6 +43,8 @@ def _extract_initial_context(response_data: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("initial_context", "dynamic_variables"):
         value = container.get(key)
         if isinstance(value, dict):
+            # Pre-call fetch may enrich or override call-level context, including
+            # the greeting. Only reserved run-owned metadata is discarded.
             return merge_external_initial_context({}, value)
 
     return {}

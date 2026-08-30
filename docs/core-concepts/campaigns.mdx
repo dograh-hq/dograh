@@ -29,12 +29,14 @@ flowchart LR
 The CSV drives the campaign. Each row is one contact.
 
 ```csv
-phone_number,customer_name,account_id,plan
-+14155550100,Jane Smith,acc_001,premium
-+14155550101,Bob Jones,acc_002,basic
+phone_number,customer_name,account_id,plan,greeting_override_type,greeting_override_text
++14155550100,Jane Smith,acc_001,premium,text,Hello {{customer_name}}
++14155550101,Bob Jones,acc_002,basic,text,Welcome back {{customer_name}}
 ```
 
 Columns beyond `phone_number` are automatically passed as `initial_context` to each call, making them available as template variables in your agent's prompt — so each call can feel personalised at scale.
+
+To override the Start node greeting for a row, set `greeting_override_type` to `text` and provide `greeting_override_text`. The text can use other columns as template variables. For a recorded greeting, set the type to `audio` and provide its public ID in `greeting_override_recording_id`. Leave the override columns empty to use the greeting configured in the Start node.
 
 ## Scheduling and concurrency
 

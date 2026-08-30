@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.45.0 (2026-08-11)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(telephony): capability-token auth for the media WebSocket (#598) by @AManjunath-Voxpro in https://github.com/dograh-hq/dograh/pull/599
+* feat: hydrate error events at error source and seam by @a6kme in https://github.com/dograh-hq/dograh/pull/618
+* feat(tools): support inline URL path parameters for custom HTTP tools by @arnofrxdd in https://github.com/dograh-hq/dograh/pull/617
+* feat: add nested JSON body template support for HTTP tools by @arnofrxdd in https://github.com/dograh-hq/dograh/pull/611
+* feat(files): add support for uploading Markdown (.md) documents by @AvinashShrivastav in https://github.com/dograh-hq/dograh/pull/630
+* feat(realtime): add temperature configuration for Gemini Live and Ope… by @AvinashShrivastav in https://github.com/dograh-hq/dograh/pull/629
+* feat: add pre all fetch condition by @chewwbaka in https://github.com/dograh-hq/dograh/pull/638
+* feat: make context mapping in transfer call generally available by @a6kme in https://github.com/dograh-hq/dograh/pull/647
+* feat: provision SIP endpoints as part of org bootstrap by @a6kme in https://github.com/dograh-hq/dograh/pull/643
+### Bug Fixes
+* fix: combine OSS run authorization requests by @a6kme in https://github.com/dograh-hq/dograh/pull/608
+* fix(telephony): carry the media-WS token in the path, not the query s… by @a6kme in https://github.com/dograh-hq/dograh/pull/610
+* fix(qa): forward configured base_url to QA analysis LLM (#527) by @amaanJvd in https://github.com/dograh-hq/dograh/pull/613
+* fix: hit webhook when text widget finishes by @a6kme in https://github.com/dograh-hq/dograh/pull/623
+* fix: disable ARI telephony config after repeated connection failures by @a6kme in https://github.com/dograh-hq/dograh/pull/625
+* fix(tracing): build project-scoped Langfuse trace URLs for v4 by @a6kme in https://github.com/dograh-hq/dograh/pull/628
+* fix: fix variable extraction in chat widget by @a6kme in https://github.com/dograh-hq/dograh/pull/648
+### Other Changes
+* Fix FORCE_TURN_RELAY leaking public candidates on CGNAT/private-range deployments by @rajdeep225 in https://github.com/dograh-hq/dograh/pull/620
+* Add noveum-trace integration for dograh by @shivamgcodes in https://github.com/dograh-hq/dograh/pull/571
+
+## New Contributors
+* @AManjunath-Voxpro made their first contribution in https://github.com/dograh-hq/dograh/pull/599
+* @rajdeep225 made their first contribution in https://github.com/dograh-hq/dograh/pull/620
+* @shivamgcodes made their first contribution in https://github.com/dograh-hq/dograh/pull/571
+* @AvinashShrivastav made their first contribution in https://github.com/dograh-hq/dograh/pull/630
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.44.0...dograh-v1.45.0
+
 ## 1.44.0 (2026-08-01)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

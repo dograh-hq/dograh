@@ -153,6 +153,10 @@
       // Merge fetched configuration with defaults
       state.config = {
         ...state.config,
+        // Visitor-facing copy, resolved server-side from the agent owner's
+        // settings. api/schemas/widget_texts.py owns the defaults; this file
+        // deliberately carries none so the two can never drift.
+        texts: configData.texts || {},
         workflowId: configData.workflow_id,
         widgetType: widgetType,
         embedMode: configData.settings?.embedMode || 'floating',
@@ -246,6 +250,20 @@
       console.warn('Dograh Widget: Invalid context variables', e);
       return {};
     }
+  }
+
+  /**
+   * Look up a visitor-facing label. The server always sends the full set, so a
+   * miss means the API is older than this script — warn rather than render
+   * "undefined" into the panel.
+   */
+  function widgetText(key) {
+    const value = state.config.texts && state.config.texts[key];
+    if (typeof value !== 'string') {
+      console.warn(`Dograh Widget: no text supplied for "${key}"`);
+      return '';
+    }
+    return value;
   }
 
   /**
@@ -363,9 +381,9 @@
 
   function ctaLabelForStatus(status) {
     switch (status) {
-      case 'connecting': return 'Connecting…';
-      case 'connected':  return 'End Call';
-      case 'failed':     return 'Retry';
+      case 'connecting': return widgetText('voiceConnectingText');
+      case 'connected':  return widgetText('voiceEndCallText');
+      case 'failed':     return widgetText('voiceRetryText');
       default:           return state.config.buttonText || 'Talk to Agent';
     }
   }
@@ -494,11 +512,13 @@
         margin: 0 auto 20px;
       }
 
+      /* Inherit the host page's text color: this panel sits directly in their
+         content, so a hardcoded near-black heading disappears on a dark site. */
       .dograh-inline-status-text {
         font-size: 18px;
         font-weight: 500;
         margin: 0 0 8px;
-        color: #111827;
+        color: inherit;
       }
 
       .dograh-inline-status-subtext {
@@ -526,7 +546,11 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       }
 
+      /* Host pages commonly style button:hover, which out-specifies the color
+         above and can repaint the label to match its own background — the same
+         reason .dograh-widget-cta:hover pins its color. */
       .dograh-inline-btn:hover {
+        color: #ffffff !important;
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
       }
@@ -539,8 +563,11 @@
         background: #10b981;
       }
 
+      /* The start button carries the owner's configured color as an inline
+         style, so a fixed hover background would never apply — brighten
+         whatever color it has instead. */
       .dograh-inline-btn-start:hover {
-        background: #059669;
+        filter: brightness(1.08);
       }
 
       .dograh-inline-btn-end {
@@ -594,35 +621,27 @@
 
     // Determine display text
     const displayText = text || {
-      idle: 'Ready to Connect',
-      connecting: 'Connecting...',
-      connected: 'Call Active',
-      failed: 'Connection Failed'
+      idle: widgetText('voiceReadyTitle'),
+      connecting: widgetText('voiceConnectingText'),
+      connected: widgetText('voiceConnectedTitle'),
+      failed: widgetText('voiceConnectionFailedTitle')
     }[status];
 
     const displaySubtext = subtext || {
       idle: state.config.callToActionText,
-      connecting: 'Please wait while we establish connection',
-      connected: 'You can speak now',
-      failed: 'Please check your microphone and try again'
+      connecting: widgetText('voiceConnectingSubtext'),
+      connected: widgetText('voiceConnectedSubtext'),
+      failed: widgetText('voiceConnectionFailedSubtext')
     }[status];
 
-    // Simple button design: green to start, red to end
+    // Simple button design: green to start, red to end. Labels and colors are
+    // agent-owner configured, so they are assigned as text/style properties
+    // below rather than interpolated into this markup.
     let buttonHTML = '';
     if (status === 'idle' || status === 'failed') {
-      // Button to start with configured color
-      buttonHTML = `
-        <button class="dograh-inline-btn dograh-inline-btn-start" id="dograh-inline-start-btn" style="background: ${state.config.buttonColor};">
-          ${status === 'failed' ? 'Retry' : state.config.buttonText}
-        </button>
-      `;
+      buttonHTML = '<button class="dograh-inline-btn dograh-inline-btn-start" id="dograh-inline-start-btn"></button>';
     } else if (status === 'connecting' || status === 'connected') {
-      // Red button to end
-      buttonHTML = `
-        <button class="dograh-inline-btn dograh-inline-btn-end" id="dograh-inline-end-btn">
-          End Call
-        </button>
-      `;
+      buttonHTML = '<button class="dograh-inline-btn dograh-inline-btn-end" id="dograh-inline-end-btn"></button>';
     }
 
     // Update container content (preserve audio element)
@@ -632,13 +651,17 @@
         <div class="dograh-inline-status-icon ${status === 'connecting' ? 'dograh-inline-pulse' : ''}">
           ${getStatusIcon(status)}
         </div>
-        <p class="dograh-inline-status-text">${displayText}</p>
-        <p class="dograh-inline-status-subtext">${displaySubtext}</p>
+        <p class="dograh-inline-status-text"></p>
+        <p class="dograh-inline-status-subtext"></p>
         <div class="dograh-inline-button-container">
           ${buttonHTML}
         </div>
       </div>
     `;
+
+    // XSS boundary: configured copy only ever flows through textContent
+    container.querySelector('.dograh-inline-status-text').textContent = displayText;
+    container.querySelector('.dograh-inline-status-subtext').textContent = displaySubtext;
 
     // Re-append audio element
     if (audioElement) {
@@ -647,10 +670,17 @@
 
     // Attach event handlers
     const startBtn = document.getElementById('dograh-inline-start-btn');
-    if (startBtn) startBtn.onclick = startCall;
+    if (startBtn) {
+      startBtn.textContent = status === 'failed' ? widgetText('voiceRetryText') : state.config.buttonText;
+      startBtn.style.background = state.config.buttonColor;
+      startBtn.onclick = startCall;
+    }
 
     const endBtn = document.getElementById('dograh-inline-end-btn');
-    if (endBtn) endBtn.onclick = stopCall;
+    if (endBtn) {
+      endBtn.textContent = widgetText('voiceEndCallText');
+      endBtn.onclick = stopCall;
+    }
 
     // Trigger status change callback
     if (state.callbacks.onStatusChange) {
@@ -733,7 +763,7 @@
    */
   async function startCall() {
     state.gracefulDisconnect = false;
-    updateStatus('connecting', 'Connecting...', 'Please wait while we establish the connection');
+    updateStatus('connecting', widgetText('voiceConnectingText'), widgetText('voiceConnectingSubtext'));
 
     if (state.callbacks.onCallStart) {
       state.callbacks.onCallStart();
@@ -760,7 +790,7 @@
         state.stream = stream;
       } catch (micError) {
         // Handle specific microphone permission errors
-        let errorMessage = 'Please check your microphone and try again';
+        let errorMessage = widgetText('voiceConnectionFailedSubtext');
 
         if (micError.name === 'NotAllowedError' || micError.name === 'PermissionDeniedError') {
           errorMessage = 'Microphone permission denied. Please allow microphone access to start the call.';
@@ -809,7 +839,11 @@
         }
       }
 
-      updateStatus('failed', 'Connection failed', error.message || 'Please check your microphone and try again');
+      updateStatus(
+        'failed',
+        widgetText('voiceConnectionFailedTitle'),
+        error.message || widgetText('voiceConnectionFailedSubtext')
+      );
 
       // Trigger error callback
       if (state.callbacks.onError) {
@@ -962,7 +996,7 @@
 
     if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
       const wasAlreadyConnected = state.callStartedAt !== null;
-      updateStatus('connected', 'Connected', 'Your voice call is now active');
+      updateStatus('connected', widgetText('voiceConnectedTitle'), widgetText('voiceConnectedSubtext'));
       if (!wasAlreadyConnected) {
         state.callStartedAt = Date.now();
         if (state.callbacks.onCallConnected) {
@@ -980,8 +1014,8 @@
       stopCall({
         graceful: false,
         status: 'failed',
-        text: 'Connection lost',
-        subtext: 'The call has been disconnected'
+        text: widgetText('voiceConnectionLostTitle'),
+        subtext: widgetText('voiceConnectionLostSubtext')
       });
       return;
     }
@@ -1045,7 +1079,7 @@
         }
 
         if (state.connectionStatus === 'connected' && !state.gracefulDisconnect) {
-          updateStatus('failed', 'Connection lost', 'The call has been disconnected');
+          updateStatus('failed', widgetText('voiceConnectionLostTitle'), widgetText('voiceConnectionLostSubtext'));
         }
       };
 
@@ -1135,8 +1169,8 @@
     const graceful = options.graceful !== false;
     const closeWebSocket = options.closeWebSocket !== false;
     const status = options.status || 'idle';
-    const text = options.text || 'Call ended';
-    const subtext = options.subtext || 'Click below to start a new call';
+    const text = options.text || widgetText('voiceCallEndedTitle');
+    const subtext = options.subtext || widgetText('voiceCallEndedSubtext');
 
     state.gracefulDisconnect = graceful;
 
@@ -1195,7 +1229,7 @@
    * Retry connection
    */
   function retryCall() {
-    updateStatus('idle', 'Ready to start', 'Click below to begin your voice call');
+    updateStatus('idle', widgetText('voiceReadyTitle'), state.config.callToActionText);
     setTimeout(() => startCall(), 500);
   }
 
@@ -1472,14 +1506,23 @@
         background: #ffffff;
         flex: 0 0 auto;
       }
+      /* The input and the send button must be the same height at rest, so pin
+         every box metric the host page could otherwise decide for us:
+         box-sizing (a host content-box reset inflates the textarea) and
+         line-height (font: inherit picks up the host's, which is what makes
+         the two sides disagree). 20 + 8*2 padding + 1*2 border = 38, the
+         shared height below. */
       .dograh-chat-input {
         flex: 1;
+        box-sizing: border-box;
         resize: none;
         border: 1px solid #d1d5db;
         border-radius: 8px;
         padding: 8px 10px;
         font: inherit;
         font-size: 14px;
+        line-height: 20px;
+        min-height: 38px;
         max-height: 96px;
         outline: none;
         background: #ffffff;
@@ -1488,8 +1531,10 @@
       .dograh-chat-input:focus { border-color: #9ca3af; }
       .dograh-chat-input:disabled { background: #f9fafb; color: #9ca3af; }
       .dograh-chat-send {
-        width: 36px;
-        height: 36px;
+        box-sizing: border-box;
+        width: 38px;
+        height: 38px;
+        padding: 0;
         border: none;
         border-radius: 8px;
         color: #ffffff;
@@ -1497,6 +1542,12 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        flex: 0 0 auto;
+      }
+      .dograh-chat-send svg {
+        display: block;
+        width: 16px;
+        height: 16px;
         flex: 0 0 auto;
       }
       .dograh-chat-send:disabled { opacity: 0.5; cursor: default; }
@@ -1528,6 +1579,17 @@
         color: #ffffff;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       }
+      .dograh-chat-inline-start:hover { filter: brightness(1.08); }
+
+      /* A host page's own button:hover rule out-specifies the colors set above
+         and can repaint a label to match its background, hiding it. Pin every
+         button color we own against that. */
+      .dograh-chat-end:hover,
+      .dograh-chat-close:hover,
+      .dograh-chat-send:hover,
+      .dograh-chat-inline-start:hover { color: #ffffff !important; }
+      .dograh-chat-end-confirm-cancel:hover { color: #374151 !important; }
+      .dograh-chat-restart:hover { color: #1d4ed8 !important; }
     `;
 
     const styleSheet = document.createElement('style');
@@ -1560,7 +1622,7 @@
     const endBtn = document.createElement('button');
     endBtn.className = 'dograh-chat-end';
     endBtn.type = 'button';
-    endBtn.textContent = 'End chat';
+    endBtn.textContent = widgetText('endChatText');
     endBtn.setAttribute('aria-controls', 'dograh-chat-end-confirmation');
     endBtn.setAttribute('aria-expanded', 'false');
     endBtn.onclick = () => {
@@ -1574,7 +1636,7 @@
       const closeBtn = document.createElement('button');
       closeBtn.className = 'dograh-chat-close';
       closeBtn.type = 'button';
-      closeBtn.setAttribute('aria-label', 'Close chat');
+      closeBtn.setAttribute('aria-label', widgetText('closeChatLabel'));
       closeBtn.textContent = '×';
       closeBtn.onclick = closeChatPanel;
       headerActions.appendChild(closeBtn);
@@ -1611,7 +1673,7 @@
     const confirmEndBtn = document.createElement('button');
     confirmEndBtn.className = 'dograh-chat-end-confirm-submit';
     confirmEndBtn.type = 'button';
-    confirmEndBtn.textContent = 'End chat';
+    confirmEndBtn.textContent = widgetText('endChatText');
     confirmEndBtn.onclick = () => {
       state.chat.confirmingEnd = false;
       endChatSession();
@@ -1634,7 +1696,7 @@
     const input = document.createElement('textarea');
     input.className = 'dograh-chat-input';
     input.rows = 1;
-    input.placeholder = 'Type a message…';
+    input.placeholder = widgetText('chatInputPlaceholder');
     input.oninput = () => {
       state.chat.draft = input.value;
       autoGrowChatInput(input);
@@ -1649,7 +1711,7 @@
     sendBtn.className = 'dograh-chat-send';
     sendBtn.type = 'button';
     sendBtn.style.backgroundColor = state.config.buttonColor;
-    sendBtn.setAttribute('aria-label', 'Send message');
+    sendBtn.setAttribute('aria-label', widgetText('sendMessageLabel'));
     sendBtn.innerHTML = SEND_ICON_SVG; // static markup, never user data
     sendBtn.onclick = submitChatComposer;
     composer.appendChild(input);
@@ -1670,8 +1732,12 @@
   }
 
   function autoGrowChatInput(input) {
+    // scrollHeight covers content + padding but not borders, and the input is
+    // border-box — without adding them back the first keystroke shrinks the
+    // box by 2px and clips the text.
+    const BORDER_Y = 2; // 1px top + 1px bottom, matches .dograh-chat-input
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 96) + 'px';
+    input.style.height = Math.min(input.scrollHeight + BORDER_Y, 96) + 'px';
   }
 
   /**
@@ -1858,7 +1924,7 @@
       state.sessionToken = data.session_token;
       state.workflowRunId = data.workflow_run_id;
       const completed = applyChatSession(data.chat_session);
-      updateChatStatus(completed ? 'ended' : 'ready', completed ? 'Conversation ended.' : null);
+      updateChatStatus(completed ? 'ended' : 'ready', completed ? widgetText('conversationEndedText') : null);
     } catch (error) {
       console.error('Dograh Widget: Failed to start chat', error);
       updateChatStatus('error', 'Could not start the chat.');
@@ -1930,7 +1996,7 @@
       if (response.ok) {
         const data = await response.json();
         const completed = applyChatSession(data);
-        updateChatStatus(completed ? 'ended' : 'ready', completed ? 'Conversation ended.' : null);
+        updateChatStatus(completed ? 'ended' : 'ready', completed ? widgetText('conversationEndedText') : null);
         return state.chat.turns;
       }
 
@@ -1963,7 +2029,7 @@
       }
       if (response.status === 400) {
         // Conversation completed server-side (e.g. reached an end node).
-        updateChatStatus('ended', 'Conversation ended.');
+        updateChatStatus('ended', widgetText('conversationEndedText'));
         return null;
       }
       throw new Error(`Chat message failed: ${response.status}`);
@@ -2023,7 +2089,7 @@
         const data = await response.json();
         applyChatSession(data);
         state.chat.ending = false;
-        updateChatStatus('ended', 'Conversation ended.');
+        updateChatStatus('ended', widgetText('conversationEndedText'));
         return state.chat.turns.slice();
       }
 
@@ -2184,14 +2250,14 @@
       const restart = document.createElement('button');
       restart.type = 'button';
       restart.className = 'dograh-chat-restart';
-      restart.textContent = 'Start new chat';
+      restart.textContent = widgetText('startNewChatText');
       restart.onclick = startNewChatSession;
       banner.appendChild(restart);
     } else if (state.chat.status === 'error') {
       const retry = document.createElement('button');
       retry.type = 'button';
       retry.className = 'dograh-chat-restart';
-      retry.textContent = 'Retry';
+      retry.textContent = widgetText('chatRetryText');
       retry.onclick = () => startChatSession();
       banner.appendChild(retry);
     }
@@ -2223,7 +2289,7 @@
     );
     endBtn.style.display = hasActiveSession ? 'inline-flex' : 'none';
     endBtn.disabled = state.chat.ending || state.chat.confirmingEnd || state.chat.status !== 'ready';
-    endBtn.textContent = state.chat.ending ? 'Ending…' : 'End chat';
+    endBtn.textContent = state.chat.ending ? 'Ending…' : widgetText('endChatText');
   }
 
   // Public API

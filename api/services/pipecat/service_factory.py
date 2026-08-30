@@ -1189,6 +1189,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         }
         if language:
             settings_kwargs["language"] = language
+        temperature = getattr(realtime_config, "temperature", None)
+        if temperature is not None:
+            settings_kwargs["temperature"] = temperature
         return DograhGeminiLiveLLMService(
             api_key=api_key,
             settings=DograhGeminiLiveLLMService.Settings(**settings_kwargs),
@@ -1208,6 +1211,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         }
         if language:
             settings_kwargs["language"] = language
+        temperature = getattr(realtime_config, "temperature", None)
+        if temperature is not None:
+            settings_kwargs["temperature"] = temperature
         return DograhGeminiLiveVertexLLMService(
             credentials=credentials,
             project_id=project_id,

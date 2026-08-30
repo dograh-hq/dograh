@@ -793,6 +793,12 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
+    temperature: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature for Gemini Live (0.0 to 2.0).",
+    )
 
 
 @register_service(ServiceType.REALTIME)
@@ -824,6 +830,12 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
             "examples": GOOGLE_VERTEX_REALTIME_LANGUAGES,
             "allow_custom_input": True,
         },
+    )
+    temperature: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature for Gemini Live (0.0 to 2.0).",
     )
     project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
     location: str = Field(

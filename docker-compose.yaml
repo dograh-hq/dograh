@@ -207,6 +207,14 @@ services:
       # from this value and nginx load-balances across them with least_conn.
       FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
 
+      # Optional singleton background services started by the container CMD
+      # (scripts/start_services_docker.sh). Both default to on; set either to
+      # "false" in .env to run this container as an API/worker node only — e.g. a
+      # scale-out replica that must not also run the telephony ARI bridge
+      # (ari_manager) or the outbound campaign loop (campaign_orchestrator).
+      ENABLE_ARI_MANAGER: "${ENABLE_ARI_MANAGER:-true}"
+      ENABLE_CAMPAIGN_ORCHESTRATOR: "${ENABLE_CAMPAIGN_ORCHESTRATOR:-true}"
+
       # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
       # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches
       # uvicorn from a Docker-network IP (not loopback), but uvicorn trusts only

@@ -221,12 +221,12 @@ jobs:
       - merge
     if: always()
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Slack success
-        if: needs.merge.result == 'success'
+        if: needs.merge.result == 'success' && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         with:
           payload: |
             {
@@ -234,10 +234,8 @@ jobs:
             }
 
       - name: Slack failure
-        if: needs.merge.result != 'success'
+        if: needs.merge.result != 'success' && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         with:
           payload: |
             {

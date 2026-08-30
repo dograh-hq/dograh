@@ -22,6 +22,7 @@ import {
 import {
     NodeSpec,
     TextChatInactivityTimeoutConstraints,
+    WidgetTexts,
     WorkflowError,
 } from "@/client/types.gen";
 import { useNodeSpecs } from "@/components/flow/renderer";
@@ -125,6 +126,7 @@ export const useWorkflowState = ({
         useState<WorkflowConfigurationDefaults | null>(null);
     const [textChatInactivityTimeoutConstraints, setTextChatInactivityTimeoutConstraints] =
         useState<TextChatInactivityTimeoutConstraints | null>(null);
+    const [widgetTextDefaults, setWidgetTextDefaults] = useState<WidgetTexts | null>(null);
     const [workflowConfigurationDefaultsLoaded, setWorkflowConfigurationDefaultsLoaded] =
         useState(false);
 
@@ -180,17 +182,20 @@ export const useWorkflowState = ({
                     );
                     setWorkflowConfigurationDefaults(null);
                     setTextChatInactivityTimeoutConstraints(null);
+                    setWidgetTextDefaults(null);
                 } else {
                     setWorkflowConfigurationDefaults(response.data.workflow_configurations);
                     setTextChatInactivityTimeoutConstraints(
                         response.data.text_chat_inactivity_timeout_constraints,
                     );
+                    setWidgetTextDefaults(response.data.widget_text_defaults);
                 }
             } catch (error) {
                 if (cancelled) return;
                 logger.error(`Failed to load workflow configuration defaults: ${error}`);
                 setWorkflowConfigurationDefaults(null);
                 setTextChatInactivityTimeoutConstraints(null);
+                setWidgetTextDefaults(null);
             } finally {
                 if (!cancelled) {
                     setWorkflowConfigurationDefaultsLoaded(true);
@@ -653,6 +658,7 @@ export const useWorkflowState = ({
         templateContextVariables,
         workflowConfigurations,
         textChatInactivityTimeoutConstraints,
+        widgetTextDefaults,
         dictionary,
         setNodes,
         setEdges,

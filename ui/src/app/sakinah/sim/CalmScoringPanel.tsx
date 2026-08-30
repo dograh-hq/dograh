@@ -81,6 +81,16 @@ export function CalmScoringPanel({ analysis }: CalmScoringPanelProps) {
                     })}
                 </div>
             )}
+            {analysis?.prompt_sent_to_llm ? (
+                <details className="mt-4 rounded-lg border bg-muted/20 p-3">
+                    <summary className="cursor-pointer text-sm font-medium">
+                        Engineered prompt sent to Sakinah
+                    </summary>
+                    <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-3 text-xs leading-relaxed text-muted-foreground">
+                        {analysis.prompt_sent_to_llm}
+                    </pre>
+                </details>
+            ) : null}
         </section>
     );
 }

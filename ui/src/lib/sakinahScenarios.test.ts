@@ -6,6 +6,7 @@ import {
     duplicateScenario,
     EMPTY_SCENARIO_DRAFT,
     nextScenarioSequence,
+    parseScenarioImport,
     parseStoredScenarios,
 } from "./sakinahScenarios";
 
@@ -44,5 +45,20 @@ describe("Sakinah scenario helpers", () => {
         expect(copy).toMatchObject({ id: "copy", sequence: 2, title: "Copy of Original", createdAt: "2026-02-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z" });
         vi.unstubAllGlobals();
     });
-});
 
+    it("imports fenced JSON arrays and assigns new sequences", () => {
+        const imported = parseScenarioImport(`\`\`\`json
+[{"title":"Imported one","persona":"A cautious person.","behaviour":"Opens up slowly."},{"mode":"freestyle","title":"Imported two","prompt":"Roleplay a worried service user."}]
+\`\`\``, [], "2026-03-01T00:00:00.000Z");
+        expect(imported).toHaveLength(2);
+        expect(imported.map((scenario) => scenario.sequence)).toEqual([1, 2]);
+        expect(imported[0].mode).toBe("structured");
+        expect(imported[1].freestylePrompt).toBe("Roleplay a worried service user.");
+    });
+
+    it("imports a wrapped scenario collection and rejects invalid scenarios", () => {
+        const imported = parseScenarioImport(JSON.stringify({ scenarios: [{ title: "One", prompt: "A single scenario." }] }));
+        expect(imported[0].title).toBe("One");
+        expect(() => parseScenarioImport(JSON.stringify([{ title: "Missing behaviour", persona: "Person" }]))).toThrow("title, persona, and behaviour");
+    });
+});

@@ -42,4 +42,17 @@ describe("CalmScoringPanel", () => {
         );
         expect(screen.getByText("—")).toBeTruthy();
     });
+
+    it("renders the engineered prompt sent to Sakinah", () => {
+        render(
+            <CalmScoringPanel
+                analysis={{
+                    calm_scores: { hope: { score: 2.8, confidence: 0.91 } },
+                    prompt_sent_to_llm: "SAKINAH NEXT-TURN GENERATION CONTEXT\n\nRespond naturally as Sakinah.",
+                }}
+            />,
+        );
+        expect(screen.getByText("Engineered prompt sent to Sakinah")).toBeTruthy();
+        expect(screen.getByText(/SAKINAH NEXT-TURN GENERATION CONTEXT/)).toBeTruthy();
+    });
 });

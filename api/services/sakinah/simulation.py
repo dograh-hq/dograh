@@ -22,6 +22,7 @@ from api.services.pipecat.ws_sender_registry import (
     unregister_ws_sender,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.sakinah.calm_evaluation import CalmEvaluator, run_llm_inference
 from api.services.sakinah.calm.runtime import EXPERIMENT_MODES, CalmSimulationRuntime
 from api.services.sakinah.internal_transport import (
     InternalTransport,
@@ -102,6 +103,12 @@ class Simulation:
         # PCM chunks). Only live audio is streamed; there is no backlog.
         self.audio_subscribers: set[asyncio.Queue] = set()
         self.watchdog_task: Optional[asyncio.Task] = None
+        self.completed_turns: list[dict] = []
+        self.active_turns: dict[str, dict] = {}
+        self.evaluation_tasks: set[asyncio.Task] = set()
+        self.evaluator: CalmEvaluator | None = None
+        self._evaluation_llm: Any = None
+        self._evaluation_llm_lock = asyncio.Lock()
         self._stopping = False
         self._finalized = False
 
@@ -111,6 +118,9 @@ class Simulation:
         The feedback observer emits word/phrase-level ``rtf-bot-text`` chunks;
         consecutive chunks from the same role form one spoken turn.
         """
+        if self.completed_turns:
+            return [dict(turn) for turn in self.completed_turns]
+
         turns: list[dict] = []
         for event in self.events:
             if event.get("type") != BOT_TEXT_EVENT:
@@ -325,6 +335,10 @@ class SimulationManager:
                     or f"Workflow run authorization failed for {role}"
                 )
 
+        simulation.evaluator = CalmEvaluator(
+            self._make_evaluation_inference(simulation)
+        )
+
         create_pending_session(
             session_id=simulation_id,
             scenario=scenario,
@@ -413,14 +427,167 @@ class SimulationManager:
 
     def _make_event_sender(self, simulation: Simulation, role: str):
         async def sender(message: dict) -> None:
-            simulation.publish(
-                {
-                    "role": role,
-                    **message,
-                }
-            )
+            event = {"role": role, **message}
+            payload = dict(event.get("payload") or {})
+            event["payload"] = payload
+
+            if event.get("type") == BOT_TEXT_EVENT:
+                text = str(payload.get("text") or "").strip()
+                if text:
+                    turn = simulation.active_turns.get(role)
+                    if turn is None:
+                        turn = {
+                            "turn_id": str(uuid.uuid4()),
+                            "role": role,
+                            "text": "",
+                            "final": False,
+                            "timestamp": event.get("timestamp")
+                            or payload.get("timestamp")
+                            or datetime.now(UTC).isoformat(),
+                        }
+                        simulation.active_turns[role] = turn
+                    turn["text"] = f"{turn['text']} {text}".strip()
+                    payload["turn_id"] = turn["turn_id"]
+
+            if event.get("type") == "rtf-bot-stopped-speaking":
+                turn = simulation.active_turns.pop(role, None)
+                if turn is not None:
+                    turn["final"] = True
+                    simulation.completed_turns.append(turn)
+                    payload["turn_id"] = turn["turn_id"]
+
+            simulation.publish(event)
+
+            if event.get("type") == "rtf-bot-stopped-speaking" and payload.get(
+                "turn_id"
+            ):
+                self._schedule_evaluation(
+                    simulation,
+                    role,
+                    str(payload["turn_id"]),
+                )
 
         return sender
+
+    def _make_evaluation_inference(self, simulation: Simulation):
+        async def inference(messages: list[dict], system_prompt: str) -> str | None:
+            llm = await self._get_evaluation_llm(simulation)
+            return await run_llm_inference(llm, messages, system_prompt)
+
+        return inference
+
+    async def _get_evaluation_llm(self, simulation: Simulation):
+        if simulation._evaluation_llm is not None:
+            return simulation._evaluation_llm
+        async with simulation._evaluation_llm_lock:
+            if simulation._evaluation_llm is not None:
+                return simulation._evaluation_llm
+
+            from api.services.configuration.ai_model_configuration import (
+                get_effective_ai_model_configuration_for_workflow,
+            )
+            from api.services.managed_model_services import get_mps_correlation_id
+            from api.services.pipecat.service_factory import create_llm_service
+
+            agent = simulation.agents[SAKINAH_ROLE]
+            workflow_run = await db_client.get_workflow_run(
+                agent.workflow_run_id,
+                organization_id=simulation.organization_id,
+            )
+            if workflow_run is None:
+                raise RuntimeError("Evaluation workflow run is unavailable")
+            workflow_configurations = (
+                workflow_run.definition.workflow_configurations
+                if workflow_run.definition
+                else workflow_run.workflow.workflow_configurations
+            ) or {}
+            configuration = await get_effective_ai_model_configuration_for_workflow(
+                organization_id=simulation.organization_id,
+                workflow_configurations=workflow_configurations,
+            )
+            if configuration.llm is None:
+                raise RuntimeError("No text LLM is configured for evaluation")
+            simulation._evaluation_llm = create_llm_service(
+                configuration,
+                correlation_id=get_mps_correlation_id(workflow_run.initial_context),
+                usage_context="calm_evaluation",
+            )
+            return simulation._evaluation_llm
+
+    def _schedule_evaluation(
+        self,
+        simulation: Simulation,
+        role: str,
+        turn_id: str,
+    ) -> None:
+        simulation.publish(
+            {
+                "role": role,
+                "type": "calm-evaluation",
+                "payload": {
+                    "turn_id": turn_id,
+                    "role": role,
+                    "status": "pending",
+                    "result": None,
+                },
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        task = asyncio.create_task(
+            self._evaluate_turn(
+                simulation,
+                role,
+                turn_id,
+                list(simulation.completed_turns),
+            ),
+            name=f"calm-evaluation-{turn_id}",
+        )
+        simulation.evaluation_tasks.add(task)
+        task.add_done_callback(simulation.evaluation_tasks.discard)
+
+    async def _evaluate_turn(
+        self,
+        simulation: Simulation,
+        role: str,
+        turn_id: str,
+        turns: list[dict],
+    ) -> None:
+        try:
+            if simulation.evaluator is None:
+                raise RuntimeError("CALM evaluator is unavailable")
+            result = await simulation.evaluator.evaluate(
+                role=role,
+                turn_id=turn_id,
+                turns=turns,
+            )
+            payload = {
+                "turn_id": turn_id,
+                "role": role,
+                "status": "completed",
+                "result": result.model_dump(mode="json"),
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - evaluator failures are isolated
+            logger.warning(
+                f"Simulation {simulation.id}: CALM evaluation failed for "
+                f"turn {turn_id}: {exc}"
+            )
+            payload = {
+                "turn_id": turn_id,
+                "role": role,
+                "status": "failed",
+                "result": None,
+                "error": "Evaluation unavailable",
+            }
+        simulation.publish(
+            {
+                "role": role,
+                "type": "calm-evaluation",
+                "payload": payload,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
 
     async def _run_agent(
         self,
@@ -584,6 +751,11 @@ class SimulationManager:
         simulation._finalized = True
         simulation.ended_at = datetime.now(UTC)
         simulation.status = "failed" if simulation.error else "completed"
+
+        if simulation.evaluation_tasks:
+            await asyncio.gather(
+                *list(simulation.evaluation_tasks), return_exceptions=True
+            )
 
         for agent in simulation.agents.values():
             unregister_ws_sender(agent.workflow_run_id)

@@ -166,6 +166,87 @@ export function compileScenarioPrompt(scenario: Scenario): string {
     ].join("\n\n");
 }
 
+function importedDraft(value: unknown, index: number): ScenarioDraft {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`Scenario ${index + 1} must be a JSON object.`);
+    }
+    const candidate = value as Record<string, unknown>;
+    const stringValue = (name: string, fallback = ""): string => {
+        const raw = candidate[name];
+        if (raw === undefined || raw === null) return fallback;
+        if (typeof raw !== "string") throw new Error(`Scenario ${index + 1} field "${name}" must be a string.`);
+        return raw;
+    };
+    const freestylePrompt = candidate.freestylePrompt !== undefined
+        ? stringValue("freestylePrompt")
+        : candidate.prompt !== undefined
+            ? stringValue("prompt")
+            : stringValue("instructions");
+    const rawMode = candidate.mode;
+    const mode = rawMode === undefined
+        ? (freestylePrompt.trim() ? "freestyle" : "structured")
+        : rawMode;
+    if (mode !== "structured" && mode !== "freestyle") {
+        throw new Error(`Scenario ${index + 1} mode must be structured or freestyle.`);
+    }
+    const draft: ScenarioDraft = {
+        ...EMPTY_SCENARIO_DRAFT,
+        title: stringValue("title", freestylePrompt.trim() ? "Imported scenario" : ""),
+        mode,
+        persona: stringValue("persona"),
+        age: stringValue("age"),
+        gender: stringValue("gender", EMPTY_SCENARIO_DRAFT.gender),
+        language: stringValue("language", EMPTY_SCENARIO_DRAFT.language),
+        emotion: stringValue("emotion"),
+        communicationStyle: stringValue("communicationStyle"),
+        initialInformation: stringValue("initialInformation"),
+        hiddenInformation: stringValue("hiddenInformation"),
+        disclosure: stringValue("disclosure"),
+        behaviour: stringValue("behaviour"),
+        background: stringValue("background"),
+        additionalFactors: stringValue("additionalFactors"),
+        notes: stringValue("notes"),
+        freestylePrompt,
+    };
+    if (mode === "freestyle" && !draft.freestylePrompt.trim()) {
+        throw new Error(`Scenario ${index + 1} needs a freestylePrompt, prompt, or instructions field.`);
+    }
+    if (mode === "structured" && (!draft.title.trim() || !draft.persona.trim() || !draft.behaviour.trim())) {
+        throw new Error(`Scenario ${index + 1} needs title, persona, and behaviour fields.`);
+    }
+    return draft;
+}
+
+export function parseScenarioImport(
+    raw: string,
+    existing: readonly Scenario[] = [],
+    now = new Date().toISOString(),
+): Scenario[] {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    if (!trimmed) throw new Error("The import file is empty.");
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(trimmed);
+    } catch {
+        try {
+            parsed = trimmed.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+        } catch {
+            throw new Error("Import must contain valid JSON, a JSON array, or newline-delimited JSON objects.");
+        }
+    }
+    const candidates = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).scenarios)
+            ? (parsed as { scenarios: unknown[] }).scenarios
+            : [parsed];
+    if (!candidates.length) throw new Error("The import does not contain any scenarios.");
+    const imported: Scenario[] = [];
+    candidates.forEach((candidate, index) => {
+        imported.push(createScenario(importedDraft(candidate, index), [...existing, ...imported], now));
+    });
+    return imported;
+}
+
 export function loadScenarios(storage: ScenarioStorage): Scenario[] {
     if (storage.getItem(SCENARIO_INITIALIZED_KEY) === "true") {
         return parseStoredScenarios(storage.getItem(SCENARIO_STORAGE_KEY));
@@ -184,4 +265,3 @@ export function saveScenarios(storage: ScenarioStorage, scenarios: readonly Scen
 export function findScenario(storage: ScenarioStorage, id: string): Scenario | undefined {
     return loadScenarios(storage).find((scenario) => scenario.id === id);
 }
-

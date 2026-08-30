@@ -215,6 +215,19 @@ class SimulationManager:
         scenario: str,
         max_duration_seconds: Optional[int] = None,
     ) -> Simulation:
+        from api.constants import FASTAPI_WORKERS
+
+        if FASTAPI_WORKERS > 1:
+            # Simulation state is per-process: with multiple workers the
+            # status/stop endpoints and the events/audio WebSockets will
+            # randomly land on a worker that does not own this simulation.
+            logger.warning(
+                f"Starting simulation with FASTAPI_WORKERS={FASTAPI_WORKERS}: "
+                "simulation endpoints will intermittently fail on other "
+                "workers. Run a single worker until issue #4 (worker-sync) "
+                "is resolved."
+            )
+
         simulation_id = str(uuid.uuid4())
         max_duration = min(
             max_duration_seconds or DEFAULT_MAX_DURATION_SECONDS,

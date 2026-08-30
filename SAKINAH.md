@@ -63,9 +63,19 @@ docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml --profi
 
 ## Deployment process
 
-The local Docker stack is the current staging environment (see `ROADMAP.md`;
-AWS / `voice.calmos.io` is a later stage). Changes land on `main` through
-pull requests and are deployed as follows:
+The local Docker stack is the current staging environment (see `ROADMAP.md`);
+the AWS host serving `voice.calmos.io` runs the same compose stack with the
+`remote` profile. Changes land on `main` through pull requests and are
+deployed as follows:
+
+> **Single-worker requirement**: every deployment must run the API with
+> `FASTAPI_WORKERS=1` (the default). Simulations keep in-process state, so
+> with multiple workers behind nginx the simulation status/stop endpoints
+> and the transcript/audio WebSockets intermittently hit a worker that does
+> not own the simulation (transcript appears dead while audio works, or
+> vice versa). Tracked as
+> [issue #4](https://github.com/applied-biosciences/dograh/issues/4); do not
+> raise the worker count until it is resolved.
 
 1. **Merge to `main`** — every change goes through a PR (tests +
    review), then merge on GitHub.

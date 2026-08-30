@@ -140,6 +140,12 @@ TELEPHONY_WS_TOKEN_ENFORCE = (
 # Directory where Sakinah scenario/simulation session JSONs are written.
 SAKINAH_SESSIONS_DIR = os.getenv("SAKINAH_SESSIONS_DIR", "/app/data/sakinah-sessions")
 
+# Number of uvicorn workers the deployment runs (set by the container
+# entrypoint / compose). The Sakinah simulation keeps in-process state, so
+# values > 1 break its status/stop/WebSocket routing until issue #4
+# (worker-sync) is resolved.
+FASTAPI_WORKERS = max(1, int(os.getenv("FASTAPI_WORKERS", "1") or "1"))
+
 # Logging configuration
 LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", None)
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()

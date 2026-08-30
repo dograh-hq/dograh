@@ -27,8 +27,11 @@ from api.services.sakinah.simulation import (
     simulation_manager,
 )
 from api.services.sakinah.workflow import (
+    LEGACY_SAKINAH_START_PROMPTS,
+    SAKINAH_WORKFLOW_DEFINITION,
     SERVICE_USER_WORKFLOW_NAME,
     WORKFLOW_NAME,
+    ensure_sakinah_workflow,
 )
 
 SCENARIO = "You are Amina, a 34-year-old feeling overwhelmed at work."
@@ -284,6 +287,70 @@ async def test_manager_raises_authorization_error(
     ):
         with pytest.raises(SimulationAuthorizationError):
             await simulation_manager.start_simulation(user, SCENARIO)
+
+
+def _definition_with_start_prompt(prompt: str) -> dict:
+    import copy
+
+    definition = copy.deepcopy(SAKINAH_WORKFLOW_DEFINITION)
+    definition["nodes"][0]["data"]["prompt"] = prompt
+    return definition
+
+
+def _released_start_prompt(workflow) -> str:
+    for node in workflow.released_definition.workflow_json["nodes"]:
+        if node["type"] == "startCall":
+            return node["data"]["prompt"]
+    raise AssertionError("no startCall node")
+
+
+async def test_stale_seed_prompt_upgraded(db_session):
+    """A seed still carrying a superseded prompt is republished with the fix.
+
+    Regression for the persona inversion: the old Sakinah prompt told her to
+    'conduct the scenario', so a 'You are Amina...' scenario made Sakinah
+    adopt the service user's persona.
+    """
+    user = await _make_user(db_session, "sim_stale_seed")
+    organization_id = user.selected_organization_id
+    created = await db_session.create_workflow(
+        WORKFLOW_NAME,
+        _definition_with_start_prompt(LEGACY_SAKINAH_START_PROMPTS[0]),
+        user.id,
+        organization_id,
+    )
+    workflow_id = created.id
+
+    await ensure_sakinah_workflow(db_session, user)
+
+    # The shared transactional test session caches loaded rows
+    # (expire_on_commit=False); expire so the re-read sees the promoted
+    # definition, as fresh per-request sessions do in production. Capture
+    # plain ids first: expired ORM objects would lazy-load outside a
+    # greenlet context.
+    async with db_session.async_session() as session:
+        session.expire_all()
+    workflow = await db_session.get_workflow(
+        workflow_id, organization_id=organization_id
+    )
+    new_prompt = SAKINAH_WORKFLOW_DEFINITION["nodes"][0]["data"]["prompt"]
+    assert _released_start_prompt(workflow) == new_prompt
+
+
+async def test_customized_seed_prompt_preserved(db_session):
+    """A user-customized prompt is never overwritten by the seed upgrade."""
+    user = await _make_user(db_session, "sim_custom_seed")
+    custom_prompt = "My hand-tuned Sakinah prompt. {{scenario}}"
+    await db_session.create_workflow(
+        WORKFLOW_NAME,
+        _definition_with_start_prompt(custom_prompt),
+        user.id,
+        user.selected_organization_id,
+    )
+
+    workflow = await ensure_sakinah_workflow(db_session, user)
+
+    assert _released_start_prompt(workflow) == custom_prompt
 
 
 def _capturing_event_handler(handlers: dict):

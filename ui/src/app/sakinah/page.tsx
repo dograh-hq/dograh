@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { client } from "@/client/client.gen";
+import { createSessionApiV1SakinahSessionsPost } from "@/client";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 import { ActiveSession } from "./components/ActiveSession";
@@ -25,16 +26,16 @@ export default function SakinahPage() {
         setError(null);
         setSavedSessionId(null);
         try {
+            // The SDK's auth interceptor signs the request; the token is only
+            // needed for the WebRTC signaling WebSocket in ActiveSession.
             const token = await getAccessToken();
-            const response = await client.post<{
-                200: Omit<SakinahSession, "scenario">;
-            }>({
-                url: "/api/v1/sakinah/sessions",
-                headers: { Authorization: `Bearer ${token}` },
+            const response = await createSessionApiV1SakinahSessionsPost({
                 body: { scenario: scenario.trim() },
             });
             if (response.error || !response.data) {
-                throw new Error("Unable to create the scenario session.");
+                throw new Error(
+                    detailFromError(response.error, "Unable to create the scenario session."),
+                );
             }
             setAccessToken(token);
             setSession({ ...response.data, scenario: scenario.trim() });

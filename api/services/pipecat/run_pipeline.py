@@ -523,6 +523,8 @@ async def _run_pipeline(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    calm_prompt_callback=None,
+    calm_response_callback=None,
 ) -> None:
     """Run the pipeline with active-call drain accounting."""
     register_worker_active_call(workflow_run_id)
@@ -538,6 +540,8 @@ async def _run_pipeline(
             workflow_run=workflow_run,
             resolved_user_config=resolved_user_config,
             organization_id=organization_id,
+            calm_prompt_callback=calm_prompt_callback,
+            calm_response_callback=calm_response_callback,
         )
     finally:
         try:
@@ -557,6 +561,8 @@ async def _run_pipeline_impl(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    calm_prompt_callback=None,
+    calm_response_callback=None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -1043,6 +1049,14 @@ async def _run_pipeline_impl(
         )
 
     # Build the pipeline
+    calm_prompt_processor = None
+    if calm_prompt_callback:
+        from api.services.sakinah.calm.frame_processor import CalmPromptProcessor
+
+        async def prepare_calm_prompt(context):
+            await calm_prompt_callback(engine, context)
+
+        calm_prompt_processor = CalmPromptProcessor(prepare_calm_prompt)
     if is_realtime:
         pipeline = build_realtime_pipeline(
             transport,
@@ -1053,6 +1067,7 @@ async def _run_pipeline_impl(
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
             voicemail_detector=voicemail_detector,
+            calm_prompt_processor=calm_prompt_processor,
         )
     else:
         pipeline = build_pipeline(
@@ -1067,6 +1082,7 @@ async def _run_pipeline_impl(
             pipeline_metrics_aggregator,
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
+            calm_prompt_processor=calm_prompt_processor,
         )
 
     # Create pipeline task with audio configuration
@@ -1135,6 +1151,12 @@ async def _run_pipeline_impl(
         user_context_aggregator,
         assistant_context_aggregator,
     )
+
+    if calm_response_callback:
+
+        @assistant_context_aggregator.event_handler("on_assistant_turn_stopped")
+        async def on_calm_assistant_turn_stopped(aggregator, message):
+            await calm_response_callback(message.content)
 
     # Register event handlers — resolve provider_id for PostHog tracking
     if not user_provider_id:

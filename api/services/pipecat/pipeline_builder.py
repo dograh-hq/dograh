@@ -37,6 +37,7 @@ def build_pipeline(
     pipeline_metrics_aggregator,
     voicemail_detector=None,
     recording_router=None,
+    calm_prompt_processor=None,
 ):
     """Build the main pipeline with all components.
 
@@ -81,6 +82,7 @@ def build_pipeline(
 
     processors.extend(
         [
+            *([calm_prompt_processor] if calm_prompt_processor else []),
             llm,  # LLM
             *post_llm,
             tts,  # TTS
@@ -103,6 +105,7 @@ def build_realtime_pipeline(
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
     voicemail_detector=None,
+    calm_prompt_processor=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
@@ -132,6 +135,7 @@ def build_realtime_pipeline(
     processors = [
         transport.input(),
         user_context_aggregator,
+        *([calm_prompt_processor] if calm_prompt_processor else []),
         realtime_llm,
     ]
 

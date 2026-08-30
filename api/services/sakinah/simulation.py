@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 
 from loguru import logger
+from pipecat.utils.enums import RealtimeFeedbackType
 
 from api.db import db_client
 from api.db.models import UserModel
@@ -20,6 +21,8 @@ from api.services.pipecat.ws_sender_registry import (
     register_ws_sender,
     unregister_ws_sender,
 )
+from api.services.quota_service import authorize_workflow_run_start
+from api.services.sakinah.calm.runtime import EXPERIMENT_MODES, CalmSimulationRuntime
 from api.services.sakinah.internal_transport import (
     InternalTransport,
     create_internal_transport_pair,
@@ -29,9 +32,7 @@ from api.services.sakinah.workflow import (
     ensure_sakinah_workflow,
     ensure_service_user_workflow,
 )
-from api.services.quota_service import authorize_workflow_run_start
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
-from pipecat.utils.enums import RealtimeFeedbackType
 
 SAKINAH_ROLE = "sakinah"
 SERVICE_USER_ROLE = "service_user"
@@ -78,11 +79,17 @@ class Simulation:
         organization_id: int,
         scenario: str,
         max_duration_seconds: int,
+        experiment_mode: str = "full_calm_prompt",
     ):
         self.id = simulation_id
         self.organization_id = organization_id
         self.scenario = scenario
         self.max_duration_seconds = max_duration_seconds
+        self.experiment_mode = experiment_mode
+        self.calm_runtime = CalmSimulationRuntime(
+            mode=experiment_mode, scenario=scenario
+        )
+        self._last_calm_utterance: str | None = None
         self.status = "starting"
         self.stop_reason: Optional[str] = None
         self.error: Optional[str] = None
@@ -142,6 +149,13 @@ class Simulation:
             "started_at": self.started_at.isoformat(),
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
             "turn_count": self.turn_count,
+            "experiment_mode": self.experiment_mode,
+            "calm_scores": self.calm_runtime.turns[-1]["calm_scores"]
+            if self.calm_runtime.turns
+            else {},
+            "calm_trend": self.calm_runtime.turns[-1]["trend"]
+            if self.calm_runtime.turns
+            else {},
             "agents": {
                 role: {
                     "workflow_id": agent.workflow_id,
@@ -214,6 +228,7 @@ class SimulationManager:
         user: UserModel,
         scenario: str,
         max_duration_seconds: Optional[int] = None,
+        experiment_mode: str = "full_calm_prompt",
     ) -> Simulation:
         from api.constants import FASTAPI_WORKERS
 
@@ -229,6 +244,8 @@ class SimulationManager:
             )
 
         simulation_id = str(uuid.uuid4())
+        if experiment_mode not in EXPERIMENT_MODES:
+            raise ValueError(f"Unsupported experiment mode: {experiment_mode}")
         max_duration = min(
             max_duration_seconds or DEFAULT_MAX_DURATION_SECONDS,
             MAX_ALLOWED_DURATION_SECONDS,
@@ -238,6 +255,7 @@ class SimulationManager:
             organization_id=user.selected_organization_id,
             scenario=scenario,
             max_duration_seconds=max_duration,
+            experiment_mode=experiment_mode,
         )
 
         sakinah_workflow = await ensure_sakinah_workflow(db_client, user)
@@ -262,6 +280,7 @@ class SimulationManager:
                 "scenario": scenario,
                 "simulation_id": simulation_id,
                 "simulation_role": role,
+                "experiment_mode": experiment_mode,
                 "direction": CallType.INBOUND.value,
             }
             if role == SERVICE_USER_ROLE:
@@ -314,6 +333,7 @@ class SimulationManager:
             workflow_run_id=simulation.agents[SAKINAH_ROLE].workflow_run_id,
             organization_id=user.selected_organization_id,
             started_at=simulation.started_at,
+            experiment_mode=simulation.experiment_mode,
         )
 
         # Register transcript-event senders BEFORE the pipelines start:
@@ -342,6 +362,54 @@ class SimulationManager:
             f"{simulation.agents[SERVICE_USER_ROLE].workflow_run_id})"
         )
         return simulation
+
+    def _make_calm_prompt_callback(self, simulation: Simulation):
+        async def prepare_prompt(engine, context) -> None:
+            messages = getattr(context, "messages", [])
+            latest_utterance = None
+            for message in reversed(messages):
+                if isinstance(message, dict) and message.get("role") == "user":
+                    content = message.get("content")
+                    if isinstance(content, str) and content.strip():
+                        latest_utterance = content
+                        break
+            if (
+                not latest_utterance
+                or latest_utterance == simulation._last_calm_utterance
+            ):
+                return
+            simulation._last_calm_utterance = latest_utterance
+            conversation_context = [
+                {
+                    "role": message.get("role", "unknown"),
+                    "text": message.get("content", ""),
+                }
+                for message in messages[-6:]
+                if isinstance(message, dict)
+            ]
+            turn = simulation.calm_runtime.analyze_turn(
+                latest_utterance,
+                conversation_context=conversation_context,
+            )
+            # Analysis is applied only to Sakinah's LLM. The service-user
+            # workflow has its own context and never receives this callback.
+            await engine._update_llm_context(turn["prompt_sent_to_llm"], [])
+            simulation.publish(
+                {
+                    "role": SAKINAH_ROLE,
+                    "type": "calm-analysis",
+                    "payload": turn,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+
+        return prepare_prompt
+
+    def _make_calm_response_callback(self, simulation: Simulation):
+        async def record_response(response: str) -> None:
+            simulation.calm_runtime.record_response(response or "")
+
+        return record_response
 
     def _make_event_sender(self, simulation: Simulation, role: str):
         async def sender(message: dict) -> None:
@@ -392,14 +460,20 @@ class SimulationManager:
                 audio_config=audio_config,
                 user_provider_id=str(user.provider_id),
                 organization_id=simulation.organization_id,
+                calm_prompt_callback=(
+                    self._make_calm_prompt_callback(simulation)
+                    if agent.role == SAKINAH_ROLE
+                    else None
+                ),
+                calm_response_callback=(
+                    self._make_calm_response_callback(simulation)
+                    if agent.role == SAKINAH_ROLE
+                    else None
+                ),
             )
-            logger.info(
-                f"Simulation {simulation.id}: {agent.role} pipeline finished"
-            )
+            logger.info(f"Simulation {simulation.id}: {agent.role} pipeline finished")
         except asyncio.CancelledError:
-            logger.info(
-                f"Simulation {simulation.id}: {agent.role} pipeline cancelled"
-            )
+            logger.info(f"Simulation {simulation.id}: {agent.role} pipeline cancelled")
             raise
         except Exception as e:
             logger.error(
@@ -418,17 +492,14 @@ class SimulationManager:
         finally:
             # Whichever pipeline ends first (normally or on failure) takes the
             # other one down with it.
-            asyncio.create_task(
-                self._handle_agent_finished(simulation, agent.role)
-            )
+            asyncio.create_task(self._handle_agent_finished(simulation, agent.role))
 
     async def _handle_agent_finished(self, simulation: Simulation, role: str) -> None:
         if simulation._stopping or simulation._finalized:
             return
         reason = "peer_finished" if simulation.error is None else "peer_failed"
         logger.info(
-            f"Simulation {simulation.id}: {role} finished, stopping peer "
-            f"({reason})"
+            f"Simulation {simulation.id}: {role} finished, stopping peer ({reason})"
         )
         await self.stop_simulation(
             simulation.id, simulation.organization_id, reason=reason
@@ -524,6 +595,7 @@ class SimulationManager:
                 organization_id=simulation.organization_id,
                 ended_at=simulation.ended_at,
                 turns=turns,
+                calm_turns=simulation.calm_runtime.turns,
                 timings={
                     "duration_ms": (
                         simulation.ended_at - simulation.started_at

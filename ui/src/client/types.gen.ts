@@ -5737,6 +5737,22 @@ export type SimulationResponse = {
      */
     turn_count: number;
     /**
+     * Experiment Mode
+     */
+    experiment_mode: 'baseline' | 'scores_only' | 'scores_and_trends' | 'full_calm_prompt';
+    /**
+     * Latest CALM scores
+     */
+    calm_scores: {
+        [key: string]: unknown;
+    };
+    /**
+     * Latest CALM trend
+     */
+    calm_trend: {
+        [key: string]: unknown;
+    };
+    /**
      * Agents
      */
     agents: {
@@ -5958,6 +5974,10 @@ export type StartSimulationRequest = {
      * Max Duration Seconds
      */
     max_duration_seconds?: number | null;
+    /**
+     * Experiment Mode
+     */
+    experiment_mode?: 'baseline' | 'scores_only' | 'scores_and_trends' | 'full_calm_prompt';
 };
 
 /**

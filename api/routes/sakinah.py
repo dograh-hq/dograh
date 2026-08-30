@@ -123,6 +123,9 @@ async def end_session(
 class StartSimulationRequest(BaseModel):
     scenario: str = Field(min_length=1, max_length=20_000)
     max_duration_seconds: int | None = Field(default=None, ge=30, le=900)
+    experiment_mode: Literal[
+        "baseline", "scores_only", "scores_and_trends", "full_calm_prompt"
+    ] = "full_calm_prompt"
 
 
 class SimulationAgentInfo(BaseModel):
@@ -139,6 +142,11 @@ class SimulationResponse(BaseModel):
     started_at: str
     ended_at: str | None = None
     turn_count: int
+    experiment_mode: Literal[
+        "baseline", "scores_only", "scores_and_trends", "full_calm_prompt"
+    ]
+    calm_scores: dict[str, Any] = Field(default_factory=dict)
+    calm_trend: dict[str, Any] = Field(default_factory=dict)
     agents: dict[str, SimulationAgentInfo]
 
 
@@ -159,6 +167,7 @@ async def start_simulation(
             user,
             scenario,
             max_duration_seconds=request.max_duration_seconds,
+            experiment_mode=request.experiment_mode,
         )
     except SimulationAuthorizationError as e:
         raise HTTPException(status_code=402, detail=str(e)) from None
@@ -263,11 +272,9 @@ async def simulation_events(
         while True:
             event = await queue.get()
             await websocket.send_json(event)
-            if (
-                event.get("type") == "simulation-status"
-                and (event.get("payload") or {}).get("status")
-                in ("completed", "failed")
-            ):
+            if event.get("type") == "simulation-status" and (
+                event.get("payload") or {}
+            ).get("status") in ("completed", "failed"):
                 break
     except WebSocketDisconnect:
         pass

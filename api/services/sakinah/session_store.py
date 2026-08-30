@@ -33,6 +33,7 @@ def create_pending_session(
     workflow_run_id: int,
     organization_id: int,
     started_at: datetime,
+    experiment_mode: str | None = None,
 ) -> None:
     _write_json(
         sessions_directory() / ".pending" / f"{session_id}.json",
@@ -44,6 +45,7 @@ def create_pending_session(
             "workflow_run_id": workflow_run_id,
             "organization_id": organization_id,
             "started_at": started_at.astimezone(UTC).isoformat(),
+            "experiment_mode": experiment_mode,
         },
     )
 
@@ -54,6 +56,7 @@ def finish_session(
     organization_id: int,
     ended_at: datetime,
     turns: list[dict],
+    calm_turns: list[dict] | None = None,
     timings: dict[str, float] | None = None,
 ) -> Path:
     pending_path = sessions_directory() / ".pending" / f"{session_id}.json"
@@ -73,6 +76,8 @@ def finish_session(
         "ended_at": ended_at.astimezone(UTC).isoformat(),
         "timings": timings or {},
         "turns": turns,
+        "calm_turns": calm_turns or [],
+        "experiment_mode": session.get("experiment_mode"),
     }
     final_path = sessions_directory() / f"{session_id}.json"
     _write_json(final_path, final_payload)

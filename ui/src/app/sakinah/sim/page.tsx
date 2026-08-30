@@ -1,22 +1,24 @@
 "use client";
 
-import { Loader2, Play, Square, Volume2, VolumeX } from "lucide-react";
+import { ChartBar, EyeOff, Loader2, Play, Square, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { SimulationResponse } from "@/client";
 import {
     startSimulationApiV1SakinahSimulationsPost,
     stopSimulationApiV1SakinahSimulationsSimulationIdStopPost,
 } from "@/client";
-import type { SimulationResponse } from "@/client";
 import { client } from "@/client/client.gen";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
-import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
+
+import { type CalmAnalysis,CalmScoringPanel } from "./CalmScoringPanel";
 
 interface SimulationEvent {
     role: string;
@@ -32,6 +34,8 @@ interface SimTurn {
     timestamp?: string;
 }
 
+type ExperimentMode = "baseline" | "scores_only" | "scores_and_trends" | "full_calm_prompt";
+
 const ROLE_LABELS: Record<string, string> = {
     sakinah: "SAKINAH",
     service_user: "SERVICE USER",
@@ -46,6 +50,9 @@ export default function SakinahSimulationPage() {
     const [stopping, setStopping] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [muted, setMuted] = useState(false);
+    const [showScoringPanel, setShowScoringPanel] = useState(true);
+    const [experimentMode, setExperimentMode] = useState<ExperimentMode>("full_calm_prompt");
+    const [calmAnalysis, setCalmAnalysis] = useState<CalmAnalysis | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const audioWsRef = useRef<WebSocket | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -56,6 +63,15 @@ export default function SakinahSimulationPage() {
     const isActive =
         simulation !== null &&
         !["completed", "failed"].includes(simulation.status);
+
+    useEffect(() => {
+        const preference = window.sessionStorage.getItem("sakinah.showScoringPanel");
+        if (preference !== null) setShowScoringPanel(preference === "true");
+    }, []);
+
+    useEffect(() => {
+        window.sessionStorage.setItem("sakinah.showScoringPanel", String(showScoringPanel));
+    }, [showScoringPanel]);
 
     useEffect(() => {
         const container = transcriptRef.current;
@@ -87,6 +103,14 @@ export default function SakinahSimulationPage() {
     const handleEvent = useCallback((event: SimulationEvent) => {
         if (event.type === "simulation-status") {
             setSimulation(event.payload as unknown as SimulationResponse);
+            const snapshot = event.payload as unknown as SimulationResponse & { calm_scores?: Record<string, unknown>; calm_trend?: CalmAnalysis["trend"] };
+            if (snapshot.calm_scores && Object.keys(snapshot.calm_scores).length > 0) {
+                setCalmAnalysis({ calm_scores: snapshot.calm_scores as CalmAnalysis["calm_scores"], trend: snapshot.calm_trend });
+            }
+            return;
+        }
+        if (event.type === "calm-analysis") {
+            setCalmAnalysis(event.payload as unknown as CalmAnalysis);
             return;
         }
         if (event.type === "pipeline-error" || event.type === "rtf-pipeline-error") {
@@ -222,12 +246,13 @@ export default function SakinahSimulationPage() {
         setStarting(true);
         setError(null);
         setTurns([]);
+        setCalmAnalysis(null);
         try {
             // The SDK's auth interceptor signs the request; the token is only
             // needed for the events WebSocket, which cannot use the interceptor.
             const token = await getAccessToken();
             const response = await startSimulationApiV1SakinahSimulationsPost({
-                body: { scenario: scenario.trim() },
+                body: { scenario: scenario.trim(), experiment_mode: experimentMode },
             });
             if (response.error || !response.data) {
                 throw new Error(
@@ -318,6 +343,22 @@ export default function SakinahSimulationPage() {
                         placeholder="A service user presents with..."
                         className="resize-y"
                     />
+                    {!isActive ? (
+                        <div className="space-y-1">
+                            <Label htmlFor="sim-experiment-mode">Experiment mode</Label>
+                            <select
+                                id="sim-experiment-mode"
+                                value={experimentMode}
+                                onChange={(event) => setExperimentMode(event.target.value as ExperimentMode)}
+                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                            >
+                                <option value="baseline">Baseline</option>
+                                <option value="scores_only">Scores only</option>
+                                <option value="scores_and_trends">Scores + trends</option>
+                                <option value="full_calm_prompt">Full CALM prompt</option>
+                            </select>
+                        </div>
+                    ) : null}
                     {isActive ? (
                         <div className="flex flex-wrap gap-2">
                             <Button
@@ -338,6 +379,16 @@ export default function SakinahSimulationPage() {
                             >
                                 {muted ? <VolumeX /> : <Volume2 />}
                                 {muted ? "Unmute" : "Mute"}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setShowScoringPanel((previous) => !previous)}
+                                aria-label={showScoringPanel ? "Hide scoring" : "Show scoring"}
+                                title={showScoringPanel ? "Hide scoring" : "Show scoring"}
+                            >
+                                {showScoringPanel ? <EyeOff /> : <ChartBar />}
+                                {showScoringPanel ? "Hide scoring" : "Show scoring"}
                             </Button>
                         </div>
                     ) : (
@@ -418,6 +469,7 @@ export default function SakinahSimulationPage() {
                     </div>
                 </section>
             </div>
+            {showScoringPanel ? <div className="lg:ml-[calc(33.333%+0.5rem)]"><CalmScoringPanel analysis={calmAnalysis} /></div> : null}
         </main>
     );
 }

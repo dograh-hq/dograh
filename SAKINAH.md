@@ -58,6 +58,54 @@ request, capped at 15 minutes). The merged transcript is saved to
 
 ```bash
 docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml logs -f api ui
-docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml down
+docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml --profile local-turn down
 ```
+
+## Deployment process
+
+The local Docker stack is the current staging environment (see `ROADMAP.md`;
+AWS / `voice.calmos.io` is a later stage). Changes land on `main` through
+pull requests and are deployed as follows:
+
+1. **Merge to `main`** — every change goes through a PR (tests +
+   review), then merge on GitHub.
+2. **Sync and rebuild** from the repo root:
+
+   ```bash
+   git checkout main && git pull
+   docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml --profile local-turn stop
+   docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml build ui
+   docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml build api
+   docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml --profile local-turn up -d
+   ```
+
+   Build `ui` and `api` sequentially with the stack stopped: the Next.js
+   build needs most of the Docker VM's memory and gets OOM-killed when run
+   concurrently with the running containers.
+3. **Verify**:
+
+   ```bash
+   curl -s http://localhost:8000/api/v1/health   # expect status ok, turn_enabled true
+   ```
+
+   Then smoke-test http://localhost:3010/sakinah/sim (Start → labelled
+   transcript → Stop) and, for voice, http://localhost:3010/sakinah.
+4. **Run the integration tests** (no host Python needed — they run in a
+   one-off container against an isolated `_test` database):
+
+   ```bash
+   docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml run --rm --no-deps \
+     --user root --entrypoint "" -v ./api:/app/api -v ./sdk:/app/sdk -w /app/api api \
+     sh -c 'pip install -q --target /tmp/tdeps pytest pytest-asyncio && \
+            PYTHONPATH=/tmp/tdeps:/app python -m pytest tests/test_sakinah_simulation.py'
+   ```
+
+Notes:
+
+- Always include `--profile local-turn` in `up`/`down`/`stop` commands so
+  coturn is managed with the rest of the stack; without it the browser
+  voice console cannot exchange audio (see the TURN section above).
+- The UI regenerates its API client from a running backend: after changing
+  backend routes, start the stack and run `npm run generate-client` in
+  `ui/` (or the containerized equivalent), and commit `ui/src/client/`.
 

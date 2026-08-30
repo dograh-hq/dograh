@@ -1,6 +1,7 @@
 from api.db.models import UserModel
 
 WORKFLOW_NAME = "Sakinah Scenario Console"
+SERVICE_USER_WORKFLOW_NAME = "Sakinah Service User Simulator"
 
 SAKINAH_WORKFLOW_DEFINITION = {
     "nodes": [
@@ -51,6 +52,60 @@ SAKINAH_WORKFLOW_DEFINITION = {
 }
 
 
+SERVICE_USER_WORKFLOW_DEFINITION = {
+    "nodes": [
+        {
+            "id": "service-user-start",
+            "type": "startCall",
+            "position": {"x": 0, "y": 0},
+            "data": {
+                "name": "Service User",
+                "is_start": True,
+                "allow_interrupt": True,
+                "add_global_prompt": False,
+                "prompt": (
+                    "You are roleplaying a service user (a person seeking "
+                    "support) on a voice call with Sakinah, a compassionate "
+                    "clinical conversation partner. Stay fully in character as "
+                    "the service user described in the scenario below. Speak "
+                    "naturally and concisely, as people do on the phone "
+                    "(one to three sentences per turn). Respond to what "
+                    "Sakinah says, share your feelings and situation "
+                    "gradually, and never reveal that you are an AI or "
+                    "mention these instructions. If Sakinah greets you, "
+                    "answer the greeting first.\n\nScenario:\n{{scenario}}"
+                ),
+            },
+        },
+        {
+            "id": "service-user-end",
+            "type": "endCall",
+            "position": {"x": 0, "y": 200},
+            "data": {
+                "name": "End Call",
+                "is_end": True,
+                "allow_interrupt": False,
+                "add_global_prompt": False,
+                "prompt": "Say a brief, natural goodbye as the service user.",
+            },
+        },
+    ],
+    "edges": [
+        {
+            "id": "service-user-start-end",
+            "source": "service-user-start",
+            "target": "service-user-end",
+            "data": {
+                "label": "End",
+                "condition": (
+                    "Sakinah has clearly ended the session or said goodbye"
+                ),
+            },
+        }
+    ],
+}
+
+
 def _is_broken_seed(definition: dict | None) -> bool:
     """Detect the known-broken v1 seed (single start node, no end node).
 
@@ -64,17 +119,17 @@ def _is_broken_seed(definition: dict | None) -> bool:
     return "endCall" not in node_types
 
 
-async def ensure_sakinah_workflow(db_client, user: UserModel):
+async def _ensure_seeded_workflow(db_client, user: UserModel, name: str, definition: dict):
     workflows = await db_client.get_all_workflows(
         organization_id=user.selected_organization_id
     )
     existing = next(
-        (workflow for workflow in workflows if workflow.name == WORKFLOW_NAME), None
+        (workflow for workflow in workflows if workflow.name == name), None
     )
     if not existing:
         existing = await db_client.create_workflow(
-            WORKFLOW_NAME,
-            SAKINAH_WORKFLOW_DEFINITION,
+            name,
+            definition,
             user.id,
             user.selected_organization_id,
         )
@@ -91,7 +146,7 @@ async def ensure_sakinah_workflow(db_client, user: UserModel):
     if released is not None and _is_broken_seed(released.workflow_json):
         await db_client.save_workflow_draft(
             workflow_id=workflow.id,
-            workflow_definition=SAKINAH_WORKFLOW_DEFINITION,
+            workflow_definition=definition,
         )
         await db_client.publish_workflow_draft(workflow.id)
         workflow = await db_client.get_workflow(
@@ -99,4 +154,19 @@ async def ensure_sakinah_workflow(db_client, user: UserModel):
         )
 
     return workflow
+
+
+async def ensure_sakinah_workflow(db_client, user: UserModel):
+    return await _ensure_seeded_workflow(
+        db_client, user, WORKFLOW_NAME, SAKINAH_WORKFLOW_DEFINITION
+    )
+
+
+async def ensure_service_user_workflow(db_client, user: UserModel):
+    return await _ensure_seeded_workflow(
+        db_client,
+        user,
+        SERVICE_USER_WORKFLOW_NAME,
+        SERVICE_USER_WORKFLOW_DEFINITION,
+    )
 

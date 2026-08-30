@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { client } from "@/client/client.gen";
@@ -58,6 +59,12 @@ export default function SakinahPage() {
                 <p className="max-w-2xl text-muted-foreground">
                     Start a browser voice session and review the conversation as it happens.
                 </p>
+                <Link
+                    href="/sakinah/sim"
+                    className="text-sm text-primary underline underline-offset-4"
+                >
+                    Switch to the AI-to-AI simulation console
+                </Link>
             </header>
             {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
             {savedSessionId ? (

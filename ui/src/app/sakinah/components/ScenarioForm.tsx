@@ -24,7 +24,7 @@ export function ScenarioForm({
             <div className="space-y-1">
                 <h2 className="text-lg font-semibold">Scenario</h2>
                 <p className="text-sm text-muted-foreground">
-                    Describe the patient, situation, and objective for this session.
+                    Describe the service user, situation, and objective for this session.
                 </p>
             </div>
             <Label htmlFor="scenario">Scenario instructions</Label>
@@ -34,7 +34,7 @@ export function ScenarioForm({
                 onChange={(event) => onScenarioChange(event.target.value)}
                 disabled={disabled}
                 rows={9}
-                placeholder="A patient presents with..."
+                placeholder="A service user presents with..."
                 className="resize-y"
             />
             <Button

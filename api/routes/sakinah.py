@@ -1,17 +1,23 @@
 import uuid
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from loguru import logger
 from pydantic import BaseModel, Field
+from starlette.websockets import WebSocketState
 
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import CallType, WorkflowRunMode
-from api.services.auth.depends import get_user
+from api.services.auth.depends import get_user, get_user_ws
 from api.services.sakinah.session_store import (
     create_pending_session,
     finish_session,
+)
+from api.services.sakinah.simulation import (
+    SimulationAuthorizationError,
+    simulation_manager,
 )
 from api.services.sakinah.workflow import ensure_sakinah_workflow
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
@@ -112,3 +118,120 @@ async def end_session(
     except (FileNotFoundError, PermissionError):
         raise HTTPException(status_code=404, detail="Session not found") from None
     return EndSessionResponse(session_id=session_id, saved=True)
+
+
+class StartSimulationRequest(BaseModel):
+    scenario: str = Field(min_length=1, max_length=20_000)
+    max_duration_seconds: int | None = Field(default=None, ge=30, le=900)
+
+
+class SimulationAgentInfo(BaseModel):
+    workflow_id: int
+    workflow_run_id: int
+
+
+class SimulationResponse(BaseModel):
+    simulation_id: str
+    status: str
+    stop_reason: str | None = None
+    error: str | None = None
+    scenario: str
+    started_at: str
+    ended_at: str | None = None
+    turn_count: int
+    agents: dict[str, SimulationAgentInfo]
+
+
+def _simulation_response(snapshot: dict[str, Any]) -> SimulationResponse:
+    return SimulationResponse.model_validate(snapshot)
+
+
+@router.post("/simulations", response_model=SimulationResponse)
+async def start_simulation(
+    request: StartSimulationRequest, user: UserModel = Depends(get_user)
+) -> SimulationResponse:
+    scenario = request.scenario.strip()
+    if not scenario:
+        raise HTTPException(status_code=422, detail="Scenario cannot be blank")
+
+    try:
+        simulation = await simulation_manager.start_simulation(
+            user,
+            scenario,
+            max_duration_seconds=request.max_duration_seconds,
+        )
+    except SimulationAuthorizationError as e:
+        raise HTTPException(status_code=402, detail=str(e)) from None
+    return _simulation_response(simulation.snapshot())
+
+
+@router.post("/simulations/{simulation_id}/stop", response_model=SimulationResponse)
+async def stop_simulation(
+    simulation_id: str, user: UserModel = Depends(get_user)
+) -> SimulationResponse:
+    try:
+        simulation = await simulation_manager.stop_simulation(
+            simulation_id, user.selected_organization_id, reason="user_stopped"
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Simulation not found") from None
+    return _simulation_response(simulation.snapshot())
+
+
+@router.get("/simulations/{simulation_id}", response_model=SimulationResponse)
+async def get_simulation(
+    simulation_id: str, user: UserModel = Depends(get_user)
+) -> SimulationResponse:
+    try:
+        simulation = simulation_manager.get(
+            simulation_id, user.selected_organization_id
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Simulation not found") from None
+    return _simulation_response(simulation.snapshot())
+
+
+@router.websocket("/simulations/{simulation_id}/events")
+async def simulation_events(
+    websocket: WebSocket,
+    simulation_id: str,
+    user: UserModel = Depends(get_user_ws),
+):
+    """Stream simulation transcript events: backlog replay, then live events."""
+    if not user.selected_organization_id:
+        await websocket.close(code=1008, reason="No organization selected")
+        return
+
+    try:
+        simulation = simulation_manager.get(
+            simulation_id, user.selected_organization_id
+        )
+    except KeyError:
+        await websocket.close(code=1008, reason="Simulation not found")
+        return
+
+    await websocket.accept()
+    backlog, queue = simulation.subscribe()
+    try:
+        for event in backlog:
+            await websocket.send_json(event)
+        while True:
+            event = await queue.get()
+            await websocket.send_json(event)
+            if (
+                event.get("type") == "simulation-status"
+                and (event.get("payload") or {}).get("status")
+                in ("completed", "failed")
+            ):
+                break
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug(f"Simulation events WS error for {simulation_id}: {e}")
+    finally:
+        simulation.unsubscribe(queue)
+        if websocket.application_state == WebSocketState.CONNECTED:
+            try:
+                await websocket.close()
+            except Exception:
+                pass

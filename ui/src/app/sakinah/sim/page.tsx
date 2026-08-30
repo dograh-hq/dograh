@@ -1,0 +1,335 @@
+"use client";
+
+import { Loader2, Play, Square } from "lucide-react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { client } from "@/client/client.gen";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/auth";
+import { resolveBrowserBackendUrl } from "@/lib/apiClient";
+import { cn } from "@/lib/utils";
+
+interface SimulationAgentInfo {
+    workflow_id: number;
+    workflow_run_id: number;
+}
+
+interface SimulationSnapshot {
+    simulation_id: string;
+    status: string;
+    stop_reason: string | null;
+    error: string | null;
+    scenario: string;
+    started_at: string;
+    ended_at: string | null;
+    turn_count: number;
+    agents: Record<string, SimulationAgentInfo>;
+}
+
+interface SimulationEvent {
+    role: string;
+    type: string;
+    payload?: Record<string, unknown>;
+    timestamp?: string;
+}
+
+interface SimTurn {
+    role: "sakinah" | "service_user";
+    text: string;
+    final: boolean;
+    timestamp?: string;
+}
+
+const ROLE_LABELS: Record<string, string> = {
+    sakinah: "SAKINAH",
+    service_user: "SERVICE USER",
+};
+
+export default function SakinahSimulationPage() {
+    const { getAccessToken } = useAuth();
+    const [scenario, setScenario] = useState("");
+    const [simulation, setSimulation] = useState<SimulationSnapshot | null>(null);
+    const [turns, setTurns] = useState<SimTurn[]>([]);
+    const [starting, setStarting] = useState(false);
+    const [stopping, setStopping] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const wsRef = useRef<WebSocket | null>(null);
+    const transcriptRef = useRef<HTMLDivElement | null>(null);
+
+    const isActive =
+        simulation !== null &&
+        !["completed", "failed"].includes(simulation.status);
+
+    useEffect(() => {
+        const container = transcriptRef.current;
+        if (container) container.scrollTop = container.scrollHeight;
+    }, [turns]);
+
+    useEffect(() => () => wsRef.current?.close(), []);
+
+    const handleEvent = useCallback((event: SimulationEvent) => {
+        if (event.type === "simulation-status") {
+            setSimulation(event.payload as unknown as SimulationSnapshot);
+            return;
+        }
+        if (event.type === "pipeline-error" || event.type === "rtf-pipeline-error") {
+            const message = (event.payload?.error as string) ?? "Pipeline error";
+            setError(`${ROLE_LABELS[event.role] ?? event.role}: ${message}`);
+            return;
+        }
+        if (event.role !== "sakinah" && event.role !== "service_user") return;
+        const role = event.role as SimTurn["role"];
+        // The observer streams word/phrase-level rtf-bot-text chunks;
+        // consecutive chunks from the same role form one spoken turn, closed
+        // by that role's rtf-bot-stopped-speaking.
+        if (event.type === "rtf-bot-text") {
+            const text = ((event.payload?.text as string) ?? "").trim();
+            if (!text) return;
+            setTurns((previous) => {
+                const last = previous[previous.length - 1];
+                if (last && last.role === role && !last.final) {
+                    return [
+                        ...previous.slice(0, -1),
+                        { ...last, text: `${last.text} ${text}` },
+                    ];
+                }
+                return [
+                    ...previous.map((turn) => ({ ...turn, final: true })),
+                    {
+                        role,
+                        text,
+                        final: false,
+                        timestamp:
+                            event.timestamp ??
+                            (event.payload?.timestamp as string | undefined),
+                    },
+                ];
+            });
+            return;
+        }
+        if (event.type === "rtf-bot-stopped-speaking") {
+            setTurns((previous) =>
+                previous.map((turn, index) =>
+                    index === previous.length - 1 && turn.role === role
+                        ? { ...turn, final: true }
+                        : turn,
+                ),
+            );
+        }
+    }, []);
+
+    const openEventsSocket = useCallback(
+        (simulationId: string, token: string) => {
+            const baseUrl =
+                client.getConfig().baseUrl || resolveBrowserBackendUrl();
+            const wsUrl = baseUrl.replace(/^http/, "ws");
+            const socket = new WebSocket(
+                `${wsUrl}/api/v1/sakinah/simulations/${simulationId}/events?token=${token}`,
+            );
+            socket.onmessage = (message) => {
+                try {
+                    handleEvent(JSON.parse(message.data) as SimulationEvent);
+                } catch {
+                    // Ignore malformed events.
+                }
+            };
+            socket.onerror = () => {
+                setError("Lost connection to the simulation event stream.");
+            };
+            wsRef.current = socket;
+        },
+        [handleEvent],
+    );
+
+    const startSimulation = async () => {
+        setStarting(true);
+        setError(null);
+        setTurns([]);
+        try {
+            const token = await getAccessToken();
+            const response = await client.post<{ 200: SimulationSnapshot }>({
+                url: "/api/v1/sakinah/simulations",
+                headers: { Authorization: `Bearer ${token}` },
+                body: { scenario: scenario.trim() },
+            });
+            if (response.error || !response.data) {
+                throw new Error("Unable to start the simulation.");
+            }
+            const snapshot = response.data as SimulationSnapshot;
+            setSimulation(snapshot);
+            openEventsSocket(snapshot.simulation_id, token);
+        } catch (startError) {
+            setError(
+                startError instanceof Error
+                    ? startError.message
+                    : "Unable to start the simulation.",
+            );
+        } finally {
+            setStarting(false);
+        }
+    };
+
+    const stopSimulation = async () => {
+        if (!simulation) return;
+        setStopping(true);
+        try {
+            const token = await getAccessToken();
+            const response = await client.post<{ 200: SimulationSnapshot }>({
+                url: "/api/v1/sakinah/simulations/{simulation_id}/stop",
+                path: { simulation_id: simulation.simulation_id },
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (response.error || !response.data) {
+                throw new Error("Unable to stop the simulation.");
+            }
+            setSimulation(response.data as SimulationSnapshot);
+        } catch (stopError) {
+            setError(
+                stopError instanceof Error
+                    ? stopError.message
+                    : "Unable to stop the simulation.",
+            );
+        } finally {
+            setStopping(false);
+        }
+    };
+
+    return (
+        <main className="mx-auto w-full max-w-6xl space-y-6 p-4 md:p-8">
+            <header className="space-y-2">
+                <p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">
+                    Sakinah
+                </p>
+                <h1 className="text-3xl font-bold tracking-tight">
+                    AI-to-AI Simulation
+                </h1>
+                <p className="max-w-2xl text-muted-foreground">
+                    A simulated service user speaks with Sakinah automatically.
+                    Watch the conversation unfold live — no microphone needed.
+                </p>
+                <Link
+                    href="/sakinah"
+                    className="text-sm text-primary underline underline-offset-4"
+                >
+                    Switch to the live voice console
+                </Link>
+            </header>
+            {error ? (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                    {error}
+                </p>
+            ) : null}
+            <div className="grid gap-6 lg:grid-cols-3">
+                <section className="space-y-3 rounded-xl border bg-card p-5 shadow-sm">
+                    <div className="space-y-1">
+                        <h2 className="text-lg font-semibold">Scenario</h2>
+                        <p className="text-sm text-muted-foreground">
+                            Describe the service user the simulator should
+                            roleplay for this session.
+                        </p>
+                    </div>
+                    <Label htmlFor="sim-scenario">Scenario instructions</Label>
+                    <Textarea
+                        id="sim-scenario"
+                        value={scenario}
+                        onChange={(event) => setScenario(event.target.value)}
+                        disabled={isActive}
+                        rows={9}
+                        placeholder="A service user presents with..."
+                        className="resize-y"
+                    />
+                    {isActive ? (
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={() => void stopSimulation()}
+                            disabled={stopping}
+                            className="w-full sm:w-auto"
+                        >
+                            {stopping ? <Loader2 className="animate-spin" /> : <Square />}
+                            {stopping ? "Stopping..." : "Stop Simulation"}
+                        </Button>
+                    ) : (
+                        <Button
+                            type="button"
+                            onClick={() => void startSimulation()}
+                            disabled={starting || !scenario.trim()}
+                            className="w-full sm:w-auto"
+                        >
+                            {starting ? <Loader2 className="animate-spin" /> : <Play />}
+                            {starting ? "Starting..." : "Start Simulation"}
+                        </Button>
+                    )}
+                    {simulation ? (
+                        <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground">
+                            <p>
+                                Status:{" "}
+                                <span className="font-medium text-foreground">
+                                    {simulation.status}
+                                </span>
+                                {simulation.stop_reason
+                                    ? ` (${simulation.stop_reason})`
+                                    : null}
+                            </p>
+                            {Object.entries(simulation.agents).map(([role, info]) => (
+                                <p key={role}>
+                                    {ROLE_LABELS[role] ?? role}: workflow{" "}
+                                    {info.workflow_id}, run {info.workflow_run_id}
+                                </p>
+                            ))}
+                        </div>
+                    ) : null}
+                </section>
+                <section className="flex min-h-[28rem] flex-col rounded-xl border bg-card shadow-sm lg:col-span-2">
+                    <div className="border-b px-5 py-4">
+                        <h2 className="text-lg font-semibold">Live transcript</h2>
+                        <p className="text-sm text-muted-foreground">
+                            Service User and Sakinah turns appear as they are
+                            spoken.
+                        </p>
+                    </div>
+                    <div
+                        ref={transcriptRef}
+                        aria-live="polite"
+                        className="flex-1 space-y-4 overflow-y-auto p-5"
+                    >
+                        {turns.length === 0 ? (
+                            <p className="pt-16 text-center text-sm text-muted-foreground">
+                                The conversation will appear here.
+                            </p>
+                        ) : (
+                            turns.map((turn, index) => (
+                                <article
+                                    key={`${turn.timestamp ?? index}-${index}`}
+                                    className={cn(
+                                        "rounded-lg border p-3",
+                                        turn.role === "service_user"
+                                            ? "mr-8 bg-muted/40"
+                                            : "ml-8 bg-primary/5",
+                                    )}
+                                >
+                                    <div className="mb-1 flex items-center justify-between gap-3">
+                                        <span className="text-xs font-semibold tracking-wide">
+                                            {ROLE_LABELS[turn.role]}
+                                        </span>
+                                        {!turn.final ? (
+                                            <span className="text-xs text-muted-foreground">
+                                                speaking…
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                                        {turn.text}
+                                    </p>
+                                </article>
+                            ))
+                        )}
+                    </div>
+                </section>
+            </div>
+        </main>
+    );
+}

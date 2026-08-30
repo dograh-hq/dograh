@@ -1,17 +1,16 @@
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
+from api import constants
+
 
 def sessions_directory() -> Path:
-    return Path(
-        os.environ.get(
-            "SAKINAH_SESSIONS_DIR", "/app/data/sakinah-sessions"
-        )
-    )
+    # Read through the module attribute (not a from-import) so tests can
+    # patch api.constants.SAKINAH_SESSIONS_DIR at call time.
+    return Path(constants.SAKINAH_SESSIONS_DIR)
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

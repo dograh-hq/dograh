@@ -137,6 +137,9 @@ TELEPHONY_WS_TOKEN_ENFORCE = (
     os.getenv("TELEPHONY_WS_TOKEN_ENFORCE", "false").lower() == "true"
 )
 
+# Directory where Sakinah scenario/simulation session JSONs are written.
+SAKINAH_SESSIONS_DIR = os.getenv("SAKINAH_SESSIONS_DIR", "/app/data/sakinah-sessions")
+
 # Logging configuration
 LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", None)
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()

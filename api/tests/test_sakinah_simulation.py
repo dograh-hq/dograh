@@ -81,7 +81,7 @@ def _fake_pipeline(chunks_by_run: dict[int, list[str]] | None = None):
 
 @pytest.fixture
 def sessions_dir(tmp_path, monkeypatch):
-    monkeypatch.setenv("SAKINAH_SESSIONS_DIR", str(tmp_path))
+    monkeypatch.setattr("api.constants.SAKINAH_SESSIONS_DIR", str(tmp_path))
     return tmp_path
 
 

@@ -12,8 +12,22 @@ STT, and TTS credentials required by your workflow runtime), then run:
 ```bash
 mkdir -p data/sakinah-sessions
 docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml build api ui
-docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml up -d
+docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml --profile local-turn up -d
 ```
+
+The `local-turn` profile runs a coturn TURN server, which is **required for
+the browser voice console**: under Docker Desktop the browser and the API
+container cannot exchange WebRTC media directly, so audio is relayed through
+coturn. Configure it in `.env` before starting (the AI-to-AI simulation works
+without it, since its audio never leaves the API process):
+
+```bash
+ENABLE_COTURN=true
+TURN_HOST=<your Mac's LAN IP, e.g. from: ipconfig getifaddr en0>
+TURN_SECRET=<random secret, e.g. from: openssl rand -hex 24>
+```
+
+If your machine's LAN IP changes, update `TURN_HOST` and restart the stack.
 
 Open [http://localhost:3010/sakinah](http://localhost:3010/sakinah), sign in,
 enter a scenario, and select **Start Scenario**. Allow microphone access, speak
@@ -28,9 +42,11 @@ sign in, enter a scenario describing the service user, and select **Start
 Simulation**. Two real Dograh workflows start on the server — **Sakinah
 Scenario Console** and **Sakinah Service User Simulator** — wired together
 through an in-memory audio transport, so the two AIs speak to each other with
-no microphone involved. The live transcript labels each turn SERVICE USER or
-SAKINAH, and the panel below the Start button shows the workflow and run IDs
-for both agents.
+no microphone involved. Sakinah always opens the conversation; the service
+user is started as a listener (`suppress_initial_greeting`) and only replies
+once it hears her greeting, so turns alternate cleanly from the start. The
+live transcript labels each turn SERVICE USER or SAKINAH, and the panel below
+the Start button shows the workflow and run IDs for both agents.
 
 **Stop Simulation** ends both pipelines. A simulation also stops on its own
 when either agent ends the call, when either pipeline fails, or after the

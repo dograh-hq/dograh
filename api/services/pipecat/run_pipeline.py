@@ -883,10 +883,14 @@ async def _run_pipeline_impl(
     )
 
     user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
+    # Listener runs (suppress_initial_greeting, e.g. the service-user side of
+    # an AI-to-AI simulation) never produce a first bot utterance, so muting
+    # the user until the bot speaks would deadlock the conversation.
+    if not merged_call_context_vars.get("suppress_initial_greeting"):
+        user_mute_strategies.insert(0, MuteUntilFirstBotCompleteUserMuteStrategy())
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration

@@ -226,6 +226,12 @@ class SimulationManager:
                 "simulation_role": role,
                 "direction": CallType.INBOUND.value,
             }
+            if role == SERVICE_USER_ROLE:
+                # The service user must not speak first: it stays silent until
+                # Sakinah's greeting arrives through the internal transport,
+                # which prevents both agents from talking over each other at
+                # conversation start.
+                initial_context["suppress_initial_greeting"] = True
             run_inputs = await prepare_workflow_run_inputs(
                 db_client, workflow, initial_context=initial_context
             )

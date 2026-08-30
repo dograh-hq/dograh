@@ -140,6 +140,19 @@ async def test_simulation_lifecycle_start_events_stop(
                 assert run.initial_context["scenario"] == SCENARIO
                 assert run.initial_context["simulation_role"] == role
 
+            # Turn-taking: only the service user is a listener; Sakinah must
+            # speak first, the service user must wait for her greeting.
+            sakinah_run = await db_session.get_workflow_run(
+                snapshot["agents"][SAKINAH_ROLE]["workflow_run_id"],
+                organization_id=user.selected_organization_id,
+            )
+            service_user_run = await db_session.get_workflow_run(
+                snapshot["agents"][SERVICE_USER_ROLE]["workflow_run_id"],
+                organization_id=user.selected_organization_id,
+            )
+            assert "suppress_initial_greeting" not in sakinah_run.initial_context
+            assert service_user_run.initial_context["suppress_initial_greeting"] is True
+
             # Both authorizations were requested before launch.
             assert authorized_runs.await_count == 2
 
@@ -271,6 +284,73 @@ async def test_manager_raises_authorization_error(
     ):
         with pytest.raises(SimulationAuthorizationError):
             await simulation_manager.start_simulation(user, SCENARIO)
+
+
+def _capturing_event_handler(handlers: dict):
+    def event_handler(name):
+        def decorator(fn):
+            handlers[name] = fn
+            return fn
+
+        return decorator
+
+    return event_handler
+
+
+@pytest.mark.parametrize("suppress_greeting", [False, True])
+async def test_initial_greeting_gated_by_suppress_flag(suppress_greeting):
+    """suppress_initial_greeting stops the pipeline from speaking first.
+
+    The service-user side of an AI-to-AI simulation must stay silent until
+    the peer's greeting arrives; normal runs still open the conversation.
+    """
+    from unittest.mock import MagicMock
+
+    from api.services.pipecat.audio_config import AudioConfig
+    from api.services.pipecat.event_handlers import register_event_handlers
+
+    task_handlers: dict = {}
+    transport_handlers: dict = {}
+
+    task = MagicMock()
+    task.event_handler = _capturing_event_handler(task_handlers)
+    transport = MagicMock()
+    transport.event_handler = _capturing_event_handler(transport_handlers)
+
+    engine = MagicMock()
+    engine._call_context_vars = (
+        {"suppress_initial_greeting": True} if suppress_greeting else {}
+    )
+    engine.workflow.start_node_id = "start"
+    engine.set_node = AsyncMock()
+    engine.queue_node_opening = AsyncMock()
+
+    audio_buffer = MagicMock()
+    audio_buffer.start_recording = AsyncMock()
+
+    register_event_handlers(
+        task,
+        transport,
+        workflow_run_id=1,
+        engine=engine,
+        audio_buffer=audio_buffer,
+        in_memory_logs_buffer=MagicMock(),
+        transcript_log_coordinator=MagicMock(),
+        pipeline_metrics_aggregator=MagicMock(),
+        audio_config=AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        ),
+        user_provider_id="test",
+    )
+
+    await task_handlers["on_pipeline_started"](task, MagicMock())
+    await transport_handlers["on_client_connected"](transport, None)
+
+    engine.set_node.assert_awaited_once_with("start")
+    if suppress_greeting:
+        engine.queue_node_opening.assert_not_awaited()
+    else:
+        engine.queue_node_opening.assert_awaited_once()
 
 
 async def test_simulation_is_org_scoped(

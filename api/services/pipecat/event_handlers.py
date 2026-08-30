@@ -163,6 +163,18 @@ def register_event_handlers(
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)
+
+            # Callers can mark a run as a listener that must not speak first
+            # (e.g. the service-user side of an AI-to-AI simulation, which
+            # should only answer once it hears the other agent). The LLM then
+            # runs for the first time when the first user turn arrives.
+            if engine._call_context_vars.get("suppress_initial_greeting"):
+                logger.info(
+                    f"Skipping initial greeting for workflow run {workflow_run_id} "
+                    "(suppress_initial_greeting set)"
+                )
+                return
+
             await engine.queue_node_opening(
                 node_id=engine.workflow.start_node_id,
                 previous_node_id=None,

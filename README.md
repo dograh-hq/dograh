@@ -1,5 +1,8 @@
 # Dograh AI
 
+> **CALMOS / Sakinah fork** ([applied-biosciences/dograh](https://github.com/applied-biosciences/dograh)): this fork adds the Sakinah Scenario Console and AI-to-AI simulation — see [`SAKINAH.md`](SAKINAH.md) for setup/deployment and [`ROADMAP.md`](ROADMAP.md) for stages.
+> **Deployment limitation**: run the API with a **single worker** (`FASTAPI_WORKERS=1`, the default). Simulations keep in-process state, so with multiple workers the simulation status/stop endpoints and the transcript/audio WebSockets intermittently land on a worker that doesn't own the simulation ([#4](https://github.com/applied-biosciences/dograh/issues/4)).
+
 <p align="center">
   <a href="https://www.producthunt.com/products/dograh">
     <img src="https://img.shields.io/badge/Product%20Hunt-%231%20Product%20of%20the%20Day-DA552F?style=for-the-badge&logo=producthunt&logoColor=white" alt="Dograh: #1 Product of the Day on Product Hunt">

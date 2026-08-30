@@ -191,6 +191,51 @@ async def get_simulation(
     return _simulation_response(simulation.snapshot())
 
 
+@router.websocket("/simulations/{simulation_id}/audio")
+async def simulation_audio(
+    websocket: WebSocket,
+    simulation_id: str,
+    user: UserModel = Depends(get_user_ws),
+):
+    """Stream the live conversation audio (raw 16 kHz mono s16le PCM).
+
+    Both agents' spoken audio is interleaved by arrival order; turns
+    alternate, so the result plays back as the full conversation. The
+    stream closes when the simulation finalizes.
+    """
+    if not user.selected_organization_id:
+        await websocket.close(code=1008, reason="No organization selected")
+        return
+
+    try:
+        simulation = simulation_manager.get(
+            simulation_id, user.selected_organization_id
+        )
+    except KeyError:
+        await websocket.close(code=1008, reason="Simulation not found")
+        return
+
+    await websocket.accept()
+    queue = simulation.subscribe_audio()
+    try:
+        while True:
+            chunk = await queue.get()
+            if chunk is None:  # end-of-stream sentinel from finalize
+                break
+            await websocket.send_bytes(chunk)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug(f"Simulation audio WS error for {simulation_id}: {e}")
+    finally:
+        simulation.unsubscribe_audio(queue)
+        if websocket.application_state == WebSocketState.CONNECTED:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+
+
 @router.websocket("/simulations/{simulation_id}/events")
 async def simulation_events(
     websocket: WebSocket,

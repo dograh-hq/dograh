@@ -9,7 +9,7 @@ other without any network or microphone involvement.
 
 import asyncio
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from loguru import logger
 
@@ -146,6 +146,9 @@ class InternalOutputTransport(BaseOutputTransport):
         super().__init__(params, **kwargs)
         self._partner: Optional[InternalInputTransport] = None
         self._serializer = InternalFrameSerializer()
+        # Optional non-blocking observer for outgoing audio (e.g. streaming
+        # the simulated conversation to listening browsers).
+        self._audio_sink: Optional[Callable[[bytes], None]] = None
         # Pace audio at real-time speed like WebsocketServerOutputTransport,
         # otherwise TTS audio is dumped into the partner pipeline instantly.
         self._send_interval = 0.0
@@ -153,6 +156,10 @@ class InternalOutputTransport(BaseOutputTransport):
 
     def set_partner(self, partner: InternalInputTransport):
         self._partner = partner
+
+    def set_audio_sink(self, sink: Callable[[bytes], None]) -> None:
+        """Register a synchronous, non-blocking observer for outgoing PCM."""
+        self._audio_sink = sink
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
@@ -164,6 +171,11 @@ class InternalOutputTransport(BaseOutputTransport):
         data = await self._serializer.serialize(frame)
         if data and self._partner:
             await self._partner.receive_data(data)
+        if self._audio_sink and frame.audio:
+            try:
+                self._audio_sink(frame.audio)
+            except Exception as e:
+                logger.debug(f"Internal transport audio sink failed: {e}")
         await self._write_audio_sleep()
         return True
 
@@ -221,6 +233,10 @@ class InternalTransport(BaseTransport):
         """Cross-wire this transport with another internal transport."""
         self._output.set_partner(partner._input)
         partner._output.set_partner(self._input)
+
+    def set_audio_sink(self, sink: Callable[[bytes], None]) -> None:
+        """Observe all audio this agent speaks (see InternalOutputTransport)."""
+        self._output.set_audio_sink(sink)
 
 
 def create_internal_transport_pair(

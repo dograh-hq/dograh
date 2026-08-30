@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Play, Square } from "lucide-react";
+import { Loader2, Play, Square, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -45,7 +45,12 @@ export default function SakinahSimulationPage() {
     const [starting, setStarting] = useState(false);
     const [stopping, setStopping] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [muted, setMuted] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
+    const audioWsRef = useRef<WebSocket | null>(null);
+    const audioCtxRef = useRef<AudioContext | null>(null);
+    const gainRef = useRef<GainNode | null>(null);
+    const nextPlayTimeRef = useRef(0);
     const transcriptRef = useRef<HTMLDivElement | null>(null);
 
     const isActive =
@@ -57,7 +62,27 @@ export default function SakinahSimulationPage() {
         if (container) container.scrollTop = container.scrollHeight;
     }, [turns]);
 
-    useEffect(() => () => wsRef.current?.close(), []);
+    const teardownAudio = useCallback(() => {
+        audioWsRef.current?.close();
+        audioWsRef.current = null;
+        void audioCtxRef.current?.close().catch(() => undefined);
+        audioCtxRef.current = null;
+        gainRef.current = null;
+        nextPlayTimeRef.current = 0;
+    }, []);
+
+    useEffect(
+        () => () => {
+            wsRef.current?.close();
+            teardownAudio();
+        },
+        [teardownAudio],
+    );
+
+    // Release the audio pipeline once the simulation has finished.
+    useEffect(() => {
+        if (simulation && !isActive) teardownAudio();
+    }, [simulation, isActive, teardownAudio]);
 
     const handleEvent = useCallback((event: SimulationEvent) => {
         if (event.type === "simulation-status") {
@@ -133,6 +158,66 @@ export default function SakinahSimulationPage() {
         [handleEvent],
     );
 
+    const SIM_AUDIO_SAMPLE_RATE = 16000;
+
+    const openAudioSocket = useCallback(
+        (simulationId: string, token: string) => {
+            // Must be called from a user gesture (the Start click) so the
+            // browser allows the AudioContext to start.
+            const ctx = new AudioContext();
+            const gain = ctx.createGain();
+            gain.connect(ctx.destination);
+            audioCtxRef.current = ctx;
+            gainRef.current = gain;
+            nextPlayTimeRef.current = 0;
+
+            const baseUrl =
+                client.getConfig().baseUrl || resolveBrowserBackendUrl();
+            const wsUrl = baseUrl.replace(/^http/, "ws");
+            const socket = new WebSocket(
+                `${wsUrl}/api/v1/sakinah/simulations/${simulationId}/audio?token=${token}`,
+            );
+            socket.binaryType = "arraybuffer";
+            socket.onmessage = (message) => {
+                const context = audioCtxRef.current;
+                const gainNode = gainRef.current;
+                if (!context || !gainNode) return;
+                const pcm = new Int16Array(message.data as ArrayBuffer);
+                if (pcm.length === 0) return;
+                const samples = new Float32Array(pcm.length);
+                for (let i = 0; i < pcm.length; i += 1) {
+                    samples[i] = pcm[i] / 32768;
+                }
+                const buffer = context.createBuffer(
+                    1,
+                    samples.length,
+                    SIM_AUDIO_SAMPLE_RATE,
+                );
+                buffer.copyToChannel(samples, 0);
+                const source = context.createBufferSource();
+                source.buffer = buffer;
+                source.connect(gainNode);
+                // Schedule chunks back-to-back with a small jitter cushion.
+                const startAt = Math.max(
+                    context.currentTime + 0.1,
+                    nextPlayTimeRef.current,
+                );
+                source.start(startAt);
+                nextPlayTimeRef.current = startAt + buffer.duration;
+            };
+            audioWsRef.current = socket;
+        },
+        [],
+    );
+
+    const toggleMute = () => {
+        setMuted((previous) => {
+            const next = !previous;
+            if (gainRef.current) gainRef.current.gain.value = next ? 0 : 1;
+            return next;
+        });
+    };
+
     const startSimulation = async () => {
         setStarting(true);
         setError(null);
@@ -152,6 +237,7 @@ export default function SakinahSimulationPage() {
             const snapshot = response.data;
             setSimulation(snapshot);
             openEventsSocket(snapshot.simulation_id, token);
+            openAudioSocket(snapshot.simulation_id, token);
         } catch (startError) {
             setError(
                 startError instanceof Error
@@ -198,7 +284,8 @@ export default function SakinahSimulationPage() {
                 </h1>
                 <p className="max-w-2xl text-muted-foreground">
                     A simulated service user speaks with Sakinah automatically.
-                    Watch the conversation unfold live — no microphone needed.
+                    Watch and listen to the conversation live — no microphone
+                    needed.
                 </p>
                 <Link
                     href="/sakinah"
@@ -232,16 +319,27 @@ export default function SakinahSimulationPage() {
                         className="resize-y"
                     />
                     {isActive ? (
-                        <Button
-                            type="button"
-                            variant="destructive"
-                            onClick={() => void stopSimulation()}
-                            disabled={stopping}
-                            className="w-full sm:w-auto"
-                        >
-                            {stopping ? <Loader2 className="animate-spin" /> : <Square />}
-                            {stopping ? "Stopping..." : "Stop Simulation"}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                variant="destructive"
+                                onClick={() => void stopSimulation()}
+                                disabled={stopping}
+                                className="w-full sm:w-auto"
+                            >
+                                {stopping ? <Loader2 className="animate-spin" /> : <Square />}
+                                {stopping ? "Stopping..." : "Stop Simulation"}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={toggleMute}
+                                aria-label={muted ? "Unmute audio" : "Mute audio"}
+                            >
+                                {muted ? <VolumeX /> : <Volume2 />}
+                                {muted ? "Unmute" : "Mute"}
+                            </Button>
+                        </div>
                     ) : (
                         <Button
                             type="button"

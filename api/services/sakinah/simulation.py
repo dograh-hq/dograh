@@ -91,6 +91,9 @@ class Simulation:
         self.agents: Dict[str, SimulationAgent] = {}
         self.events: list[dict] = []
         self.subscribers: set[asyncio.Queue] = set()
+        # Listeners for the live conversation audio (raw 16 kHz mono s16le
+        # PCM chunks). Only live audio is streamed; there is no backlog.
+        self.audio_subscribers: set[asyncio.Queue] = set()
         self.watchdog_task: Optional[asyncio.Task] = None
         self._stopping = False
         self._finalized = False
@@ -176,6 +179,23 @@ class Simulation:
     def unsubscribe(self, queue: asyncio.Queue) -> None:
         self.subscribers.discard(queue)
 
+    def publish_audio(self, pcm: bytes) -> None:
+        """Fan live PCM out to audio listeners; drop chunks on slow consumers."""
+        for queue in list(self.audio_subscribers):
+            try:
+                queue.put_nowait(pcm)
+            except asyncio.QueueFull:
+                pass
+
+    def subscribe_audio(self) -> asyncio.Queue:
+        # ~250 chunks x 40 ms = 10 s of buffering before we drop.
+        queue: asyncio.Queue = asyncio.Queue(maxsize=250)
+        self.audio_subscribers.add(queue)
+        return queue
+
+    def unsubscribe_audio(self, queue: asyncio.Queue) -> None:
+        self.audio_subscribers.discard(queue)
+
 
 class SimulationManager:
     """Creates, tracks, and stops AI-to-AI simulations (in-process)."""
@@ -214,6 +234,11 @@ class SimulationManager:
             name_a=f"sakinah-{simulation_id[:8]}",
             name_b=f"service-user-{simulation_id[:8]}",
         )
+        # Each agent's spoken audio is forwarded to browser listeners. The
+        # two outputs together form the whole conversation, and turns
+        # alternate, so interleaving chunks by arrival order is sufficient.
+        sakinah_transport.set_audio_sink(simulation.publish_audio)
+        service_user_transport.set_audio_sink(simulation.publish_audio)
 
         roles = [
             (SAKINAH_ROLE, sakinah_workflow, sakinah_transport),
@@ -497,6 +522,13 @@ class SimulationManager:
             logger.error(
                 f"Simulation {simulation.id}: failed to save session JSON: {e}"
             )
+
+        # Signal end-of-stream to audio listeners.
+        for queue in list(simulation.audio_subscribers):
+            try:
+                queue.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
 
         simulation.publish_status()
         logger.info(

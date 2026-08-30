@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowUpCircle,
   AudioLines,
+  Bot,
   Brain,
   ChevronLeft,
   ChevronRight,
@@ -123,6 +124,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Recordings",
         url: "/recordings",
         icon: AudioLines,
+      },
+      {
+        title: "Simulation",
+        url: "/sakinah/sim",
+        icon: Bot,
       },
       {
         title: "Developers",

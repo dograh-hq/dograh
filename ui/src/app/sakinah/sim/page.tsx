@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { compileScenarioPrompt, findScenario } from "@/lib/sakinahScenarios";
 import { cn } from "@/lib/utils";
 
 import { type CalmAnalysis,CalmScoringPanel } from "./CalmScoringPanel";
@@ -59,6 +60,13 @@ export default function SakinahSimulationPage() {
     const gainRef = useRef<GainNode | null>(null);
     const nextPlayTimeRef = useRef(0);
     const transcriptRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        const scenarioId = new URLSearchParams(window.location.search).get("scenario");
+        if (!scenarioId) return;
+        const savedScenario = findScenario(window.localStorage, scenarioId);
+        if (savedScenario) setScenario(compileScenarioPrompt(savedScenario));
+    }, []);
 
     const isActive =
         simulation !== null &&
@@ -333,7 +341,15 @@ export default function SakinahSimulationPage() {
                             roleplay for this session.
                         </p>
                     </div>
-                    <Label htmlFor="sim-scenario">Scenario instructions</Label>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label htmlFor="sim-scenario">Scenario instructions</Label>
+                        <Link
+                            href="/sakinah/scenarios"
+                            className="text-sm text-primary underline underline-offset-4"
+                        >
+                            Choose from Scenario Library
+                        </Link>
+                    </div>
                     <Textarea
                         id="sim-scenario"
                         value={scenario}

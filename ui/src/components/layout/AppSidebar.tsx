@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowUpCircle,
   AudioLines,
+  BookOpen,
   Bot,
   Brain,
   ChevronLeft,
@@ -124,6 +125,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Recordings",
         url: "/recordings",
         icon: AudioLines,
+      },
+      {
+        title: "Scenario Library",
+        url: "/sakinah/scenarios",
+        icon: BookOpen,
       },
       {
         title: "Simulation",

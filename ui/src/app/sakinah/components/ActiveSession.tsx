@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useWebSocketRTC } from "@/app/workflow/[workflowId]/run/[runId]/hooks";
-import { client } from "@/client/client.gen";
+import { endSessionApiV1SakinahSessionsSessionIdEndPost } from "@/client";
 
 import { SessionStatus } from "./SessionStatus";
 import { TranscriptPanel } from "./TranscriptPanel";
@@ -61,15 +61,8 @@ export function ActiveSession({ session, accessToken, onSaved }: ActiveSessionPr
         savedRef.current = true;
         setEnding(true);
         setSaveError(null);
-        const response = await client.post<{
-            200: {
-                session_id: string;
-                saved: boolean;
-            };
-        }>({
-            url: "/api/v1/sakinah/sessions/{session_id}/end",
+        const response = await endSessionApiV1SakinahSessionsSessionIdEndPost({
             path: { session_id: session.session_id },
-            headers: { Authorization: `Bearer ${accessToken}` },
             body: {
                 turns,
                 ended_at: new Date().toISOString(),
@@ -86,7 +79,7 @@ export function ActiveSession({ session, accessToken, onSaved }: ActiveSessionPr
         }
         setEnding(false);
         onSaved(session.session_id);
-    }, [accessToken, onSaved, session.session_id, session.started_at, turns]);
+    }, [onSaved, session.session_id, session.started_at, turns]);
 
     useEffect(() => {
         if (startedRef.current) return;

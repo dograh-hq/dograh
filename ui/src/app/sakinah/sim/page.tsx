@@ -4,30 +4,19 @@ import { Loader2, Play, Square } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+    startSimulationApiV1SakinahSimulationsPost,
+    stopSimulationApiV1SakinahSimulationsSimulationIdStopPost,
+} from "@/client";
+import type { SimulationResponse } from "@/client";
 import { client } from "@/client/client.gen";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
-
-interface SimulationAgentInfo {
-    workflow_id: number;
-    workflow_run_id: number;
-}
-
-interface SimulationSnapshot {
-    simulation_id: string;
-    status: string;
-    stop_reason: string | null;
-    error: string | null;
-    scenario: string;
-    started_at: string;
-    ended_at: string | null;
-    turn_count: number;
-    agents: Record<string, SimulationAgentInfo>;
-}
 
 interface SimulationEvent {
     role: string;
@@ -51,7 +40,7 @@ const ROLE_LABELS: Record<string, string> = {
 export default function SakinahSimulationPage() {
     const { getAccessToken } = useAuth();
     const [scenario, setScenario] = useState("");
-    const [simulation, setSimulation] = useState<SimulationSnapshot | null>(null);
+    const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
     const [turns, setTurns] = useState<SimTurn[]>([]);
     const [starting, setStarting] = useState(false);
     const [stopping, setStopping] = useState(false);
@@ -72,7 +61,7 @@ export default function SakinahSimulationPage() {
 
     const handleEvent = useCallback((event: SimulationEvent) => {
         if (event.type === "simulation-status") {
-            setSimulation(event.payload as unknown as SimulationSnapshot);
+            setSimulation(event.payload as unknown as SimulationResponse);
             return;
         }
         if (event.type === "pipeline-error" || event.type === "rtf-pipeline-error") {
@@ -149,16 +138,18 @@ export default function SakinahSimulationPage() {
         setError(null);
         setTurns([]);
         try {
+            // The SDK's auth interceptor signs the request; the token is only
+            // needed for the events WebSocket, which cannot use the interceptor.
             const token = await getAccessToken();
-            const response = await client.post<{ 200: SimulationSnapshot }>({
-                url: "/api/v1/sakinah/simulations",
-                headers: { Authorization: `Bearer ${token}` },
+            const response = await startSimulationApiV1SakinahSimulationsPost({
                 body: { scenario: scenario.trim() },
             });
             if (response.error || !response.data) {
-                throw new Error("Unable to start the simulation.");
+                throw new Error(
+                    detailFromError(response.error, "Unable to start the simulation."),
+                );
             }
-            const snapshot = response.data as SimulationSnapshot;
+            const snapshot = response.data;
             setSimulation(snapshot);
             openEventsSocket(snapshot.simulation_id, token);
         } catch (startError) {
@@ -176,16 +167,15 @@ export default function SakinahSimulationPage() {
         if (!simulation) return;
         setStopping(true);
         try {
-            const token = await getAccessToken();
-            const response = await client.post<{ 200: SimulationSnapshot }>({
-                url: "/api/v1/sakinah/simulations/{simulation_id}/stop",
+            const response = await stopSimulationApiV1SakinahSimulationsSimulationIdStopPost({
                 path: { simulation_id: simulation.simulation_id },
-                headers: { Authorization: `Bearer ${token}` },
             });
             if (response.error || !response.data) {
-                throw new Error("Unable to stop the simulation.");
+                throw new Error(
+                    detailFromError(response.error, "Unable to stop the simulation."),
+                );
             }
-            setSimulation(response.data as SimulationSnapshot);
+            setSimulation(response.data);
         } catch (stopError) {
             setError(
                 stopError instanceof Error

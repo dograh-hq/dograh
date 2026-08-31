@@ -654,7 +654,10 @@ async def _run_pipeline_impl(
         ReactFlowDTO.model_validate(run_workflow_json),
         skip_instance_constraints_for={"trigger"},
     )
-    uses_variable_extraction = workflow_graph.uses_variable_extraction()
+    call_disposition_prompt = run_configs.get("call_disposition_prompt")
+    uses_variable_extraction = workflow_graph.uses_variable_extraction() or bool(
+        call_disposition_prompt
+    )
 
     from api.services.managed_model_services import (
         MPS_CORRELATION_ID_CONTEXT_KEY,
@@ -860,6 +863,7 @@ async def _run_pipeline_impl(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
+        call_disposition_prompt=call_disposition_prompt,
     )
 
     # Create pipeline components

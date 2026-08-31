@@ -1,12 +1,4 @@
-"""The extracted outcome replaces the placeholder disposition, or nothing does.
-
-Reaching any end node used to stamp ``user_qualified``. Across the runs on the
-dev database that was wrong 87 times out of 87 -- 32 of them voicemail, 21
-wrong numbers, 21 not-interested -- while the correct answer already sat in
-``extracted_variables`` because the workflow author had written a variable that
-asked for it. These cover reading that answer back, and every case where the
-recorded value must survive instead.
-"""
+"""Tests for workflow-configured terminal call-disposition extraction."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,7 +9,6 @@ from pipecat.utils.enums import EndTaskReason
 from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_VARIABLE,
     CALL_STATUS_CONTEXT_KEY,
-    DEFAULT_DISPOSITION_CODES,
     END_REASON_CONTEXT_KEY,
     build_disposition_variable,
     coerce_disposition,
@@ -30,49 +21,29 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
 )
 
 
-def _engine(*, extracted=None, has_user_turns=True, **context) -> PipecatEngine:
-    engine = PipecatEngine(workflow=None, call_context_vars={})
+def _engine(*, prompt: str | None = None, has_user_turns=True, **context) -> PipecatEngine:
+    engine = PipecatEngine(
+        workflow=None,
+        call_context_vars={},
+        call_disposition_prompt=prompt,
+    )
     engine._gathered_context.update(context)
-    if extracted is not None:
-        engine._gathered_context["extracted_variables"] = extracted
     engine._variable_extraction_manager = MagicMock()
     engine._variable_extraction_manager.has_user_turns.return_value = has_user_turns
+    engine._variable_extraction_manager._perform_extraction = AsyncMock(
+        return_value={CALL_DISPOSITION_VARIABLE: "call_rescheduled"}
+    )
     return engine
 
 
-# --------------------------------------------------------------------------
-# The variable that carries the outcome
-# --------------------------------------------------------------------------
-
-
-def test_the_disposition_variable_is_added_to_the_authors_own():
-    author = [ExtractionVariableDTO(name="state", type="string", prompt="US state")]
-
-    result = prepare_extraction_variables(author, include_disposition=True)
-
-    assert [v.name for v in result] == ["state", CALL_DISPOSITION_VARIABLE]
-
-
-def test_an_author_declared_disposition_variable_is_left_alone():
-    # Editing the hint is how an author picks their own outcome vocabulary, so
-    # a declared variable must keep its prompt rather than be replaced.
-    author = [
+def test_call_disposition_is_reserved_from_node_extraction():
+    variables = [
+        ExtractionVariableDTO(name="state", type="string", prompt="US state"),
         ExtractionVariableDTO(
             name=CALL_DISPOSITION_VARIABLE,
             type="string",
-            prompt="one of: sold, pitched, no_pitch",
-        )
-    ]
-
-    result = prepare_extraction_variables(author, include_disposition=True)
-
-    assert len(result) == 1
-    assert result[0].prompt == "one of: sold, pitched, no_pitch"
-
-
-def test_mechanical_fields_are_not_sent_to_the_extraction_llm():
-    variables = [
-        ExtractionVariableDTO(name="state", type="string", prompt="US state"),
+            prompt="node-level custom outcome",
+        ),
         ExtractionVariableDTO(
             name=CALL_STATUS_CONTEXT_KEY,
             type="string",
@@ -85,66 +56,85 @@ def test_mechanical_fields_are_not_sent_to_the_extraction_llm():
         ),
     ]
 
-    result = prepare_extraction_variables(variables, include_disposition=True)
+    result = prepare_extraction_variables(variables)
 
-    assert [variable.name for variable in result] == [
-        "state",
-        CALL_DISPOSITION_VARIABLE,
-    ]
+    assert [variable.name for variable in result] == ["state"]
 
 
-def test_disposition_is_not_requested_before_the_terminal_extraction():
-    author_disposition = ExtractionVariableDTO(
-        name=CALL_DISPOSITION_VARIABLE,
-        type="string",
-        prompt="one of: sold, no_sale",
+def test_call_disposition_variable_uses_the_workflow_prompt():
+    variable = build_disposition_variable("Return call_rescheduled after a booked follow-up.")
+
+    assert variable.name == CALL_DISPOSITION_VARIABLE
+    assert variable.prompt == "Return call_rescheduled after a booked follow-up."
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_workflow_does_not_run_dedicated_disposition_extraction():
+    engine = _engine(prompt=None)
+
+    result = await engine._perform_final_disposition_extraction()
+
+    assert result is None
+    engine._variable_extraction_manager._perform_extraction.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_configured_workflow_runs_one_dedicated_disposition_extraction():
+    prompt = "Return call_rescheduled when the caller books another conversation."
+    engine = _engine(prompt=prompt)
+
+    result = await engine._perform_final_disposition_extraction()
+
+    assert result == {CALL_DISPOSITION_VARIABLE: "call_rescheduled"}
+    variables = engine._variable_extraction_manager._perform_extraction.await_args.args[0]
+    assert [variable.name for variable in variables] == [CALL_DISPOSITION_VARIABLE]
+    assert variables[0].prompt == prompt
+
+
+@pytest.mark.asyncio
+async def test_no_user_speech_skips_the_configured_disposition_extraction():
+    engine = _engine(prompt="classify the outcome", has_user_turns=False)
+
+    result = await engine._perform_final_disposition_extraction()
+
+    assert result is None
+    engine._variable_extraction_manager._perform_extraction.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_disposition_extraction_failure_keeps_the_technical_fallback():
+    engine = _engine(prompt="classify the outcome")
+    engine._variable_extraction_manager._perform_extraction.side_effect = RuntimeError(
+        "provider unavailable"
     )
 
-    result = prepare_extraction_variables(
-        [author_disposition], include_disposition=False
-    )
+    result = await engine._perform_final_disposition_extraction()
 
-    assert result == []
+    assert result is None
 
 
-def test_terminal_extraction_reuses_the_authors_disposition_prompt():
-    author_disposition = ExtractionVariableDTO(
-        name=CALL_DISPOSITION_VARIABLE,
-        type="string",
-        prompt="one of: sold, no_sale",
-    )
+@pytest.mark.asyncio
+async def test_final_extraction_only_runs_the_disposition_prompt_when_requested():
+    engine = _engine(prompt="Return call_rescheduled after a booked follow-up.")
+    engine._perform_variable_extraction_if_needed = AsyncMock(return_value=None)
+    engine._await_pending_extractions = AsyncMock()
 
-    result = prepare_extraction_variables(
-        [author_disposition], include_disposition=True
-    )
+    result = await engine.perform_final_variable_extraction(extract_disposition=True)
 
-    assert result == [author_disposition]
-
-
-def test_the_default_variable_names_outcomes_and_offers_a_way_out():
-    prompt = build_disposition_variable().prompt
-
-    for disposition in DEFAULT_DISPOSITION_CODES:
-        assert disposition in prompt
-    # Without an explicit escape the model picks the closest label rather than
-    # declining; the author's prompt on run 1055 forced "other" 10 times.
-    assert "unknown" in prompt
-
-
-# --------------------------------------------------------------------------
-# What counts as an answer
-# --------------------------------------------------------------------------
+    assert result == {CALL_DISPOSITION_VARIABLE: "call_rescheduled"}
+    engine._perform_variable_extraction_if_needed.assert_awaited_once()
+    engine._variable_extraction_manager._perform_extraction.assert_awaited_once()
 
 
 @pytest.mark.parametrize(
     "value,expected",
     [
         ("voicemail_detected", "voicemail_detected"),
-        ("  Not_Interested  ", "Not_Interested"),
-        ("sold", "sold"),  # author vocabulary, not Dograh's
+        ("  Call_Rescheduled  ", "Call_Rescheduled"),
+        ("sold", "sold"),
     ],
 )
-def test_a_usable_disposition_is_kept(value, expected):
+def test_usable_disposition_is_kept(value, expected):
     assert coerce_disposition(value) == expected
 
 
@@ -163,68 +153,28 @@ def test_a_usable_disposition_is_kept(value, expected):
         "the caller said they were not interested and hung up before " * 3,
     ],
 )
-def test_a_non_answer_is_rejected(value):
+def test_non_answers_are_rejected(value):
     assert coerce_disposition(value) is None
 
 
-# --------------------------------------------------------------------------
-# When refinement applies
-# --------------------------------------------------------------------------
-
-
-def test_an_end_node_placeholder_is_replaced_by_the_extracted_outcome():
-    engine = _engine(
-        call_disposition=EndTaskReason.END_CALL.value,
-        extracted={CALL_DISPOSITION_VARIABLE: "voicemail_detected"},
-    )
-
-    engine.refine_call_disposition(
-        EndTaskReason.END_CALL.value,
-        {CALL_DISPOSITION_VARIABLE: "voicemail_detected"},
-    )
-
-    assert engine._gathered_context["call_disposition"] == "voicemail_detected"
-
-
-def test_refining_remaps_the_disposition():
-    # mapped_call_disposition is what reporting, the run filter and the PBX
-    # write-back read. Leaving it on the old value is the desync the owned-keys
-    # guard exists to prevent.
-    engine = _engine(
-        call_disposition=EndTaskReason.END_CALL.value,
-        extracted={CALL_DISPOSITION_VARIABLE: "voicemail_detected"},
-    )
-    engine._disposition_mapping = {"voicemail_detected": "AA"}
-
-    engine.refine_call_disposition(
-        EndTaskReason.END_CALL.value,
-        {CALL_DISPOSITION_VARIABLE: "voicemail_detected"},
-    )
-
-    assert engine._gathered_context["mapped_call_disposition"] == "AA"
-
-
-def test_a_hangup_after_a_stated_reason_records_that_reason():
-    engine = _engine(
-        call_disposition=EndTaskReason.USER_HANGUP.value,
-        extracted={CALL_DISPOSITION_VARIABLE: "not_interested"},
-    )
+def test_final_disposition_replaces_a_mechanical_fallback_and_remaps_it():
+    engine = _engine(call_disposition=EndTaskReason.USER_HANGUP.value)
+    engine._disposition_mapping = {"call_rescheduled": "RESCH"}
 
     engine.refine_call_disposition(
         EndTaskReason.USER_HANGUP.value,
-        {CALL_DISPOSITION_VARIABLE: "not_interested"},
+        {CALL_DISPOSITION_VARIABLE: "call_rescheduled"},
     )
 
-    assert engine._gathered_context["call_disposition"] == "not_interested"
+    assert engine._gathered_context["call_disposition"] == "call_rescheduled"
+    assert engine._gathered_context["mapped_call_disposition"] == "RESCH"
+    assert "call_rescheduled" in engine._gathered_context["call_tags"]
 
 
-def test_the_outcome_is_tagged_alongside_the_mechanism():
-    # The mechanism is still worth having -- "how often do people hang up on
-    # us" is a real question -- it just is not the lead status.
+def test_the_business_outcome_is_tagged_alongside_the_mechanism():
     engine = _engine(
         call_disposition=EndTaskReason.USER_HANGUP.value,
         call_tags=[EndTaskReason.USER_HANGUP.value],
-        extracted={CALL_DISPOSITION_VARIABLE: "not_interested"},
     )
 
     engine.refine_call_disposition(
@@ -235,35 +185,21 @@ def test_the_outcome_is_tagged_alongside_the_mechanism():
     assert engine._gathered_context["call_tags"] == ["user_hangup", "not_interested"]
 
 
-# --------------------------------------------------------------------------
-# When it must not
-# --------------------------------------------------------------------------
-
-
-def test_an_outcome_recorded_during_the_call_survives_teardown():
-    # An end-call tool or a DNC request records the outcome while the call is
-    # live, so the disposition is no longer the mechanism and is not a
-    # placeholder. Compliance depends on this one.
-    engine = _engine(
-        call_disposition="do_not_call",
-        extracted={CALL_DISPOSITION_VARIABLE: "not_interested"},
-    )
+def test_explicit_disposition_survives_the_final_extraction():
+    engine = _engine(call_disposition="do_not_call")
 
     engine.refine_call_disposition(
         EndTaskReason.USER_HANGUP.value,
-        {CALL_DISPOSITION_VARIABLE: "not_interested"},
+        {CALL_DISPOSITION_VARIABLE: "call_rescheduled"},
     )
 
     assert engine._gathered_context["call_disposition"] == "do_not_call"
 
 
-def test_a_call_with_no_user_speech_is_not_refined():
-    # 83 of 234 hangups had no user transcription at all -- the caller dropped
-    # during the greeting. There is nothing to read an outcome from.
+def test_no_user_speech_keeps_the_technical_fallback():
     engine = _engine(
-        call_disposition=EndTaskReason.USER_HANGUP.value,
-        extracted={CALL_DISPOSITION_VARIABLE: "not_interested"},
         has_user_turns=False,
+        call_disposition=EndTaskReason.USER_HANGUP.value,
     )
 
     engine.refine_call_disposition(
@@ -274,35 +210,21 @@ def test_a_call_with_no_user_speech_is_not_refined():
     assert engine._gathered_context["call_disposition"] == "user_hangup"
 
 
-def test_a_killed_extraction_leaves_the_recorded_disposition():
-    # The abrupt-hangup path runs its extraction on a dead socket and has been
-    # measured at 21.3s; the pipeline does not wait that long. The floor is the
-    # whole point.
-    engine = _engine(call_disposition=EndTaskReason.USER_HANGUP.value)
+def test_missing_or_unusable_final_result_keeps_the_technical_fallback():
+    engine = _engine(call_disposition="end_call")
 
-    engine.refine_call_disposition(EndTaskReason.USER_HANGUP.value, None)
+    engine.refine_call_disposition("end_call", None)
+    assert engine._gathered_context["call_disposition"] == "end_call"
 
-    assert engine._gathered_context["call_disposition"] == "user_hangup"
-
-
-def test_an_earlier_node_extraction_is_not_used_as_the_final_disposition():
-    engine = _engine(
-        call_disposition=EndTaskReason.END_CALL.value,
-        extracted={CALL_DISPOSITION_VARIABLE: "voicemail_detected"},
+    engine.refine_call_disposition(
+        "end_call",
+        {CALL_DISPOSITION_VARIABLE: "unknown"},
     )
-
-    engine.refine_call_disposition(EndTaskReason.END_CALL.value, None)
-
     assert engine._gathered_context["call_disposition"] == "end_call"
 
 
-def test_a_run_torn_down_before_initialization_is_not_refined():
-    # `_variable_extraction_manager` is built during `initialize`. A run that
-    # fails before that had no conversation either, and teardown must not raise.
-    engine = _engine(
-        call_disposition=EndTaskReason.USER_HANGUP.value,
-        extracted={CALL_DISPOSITION_VARIABLE: "not_interested"},
-    )
+def test_run_torn_down_before_initialization_is_not_refined():
+    engine = _engine(call_disposition=EndTaskReason.USER_HANGUP.value)
     engine._variable_extraction_manager = None
 
     engine.refine_call_disposition(
@@ -313,129 +235,47 @@ def test_a_run_torn_down_before_initialization_is_not_refined():
     assert engine._gathered_context["call_disposition"] == "user_hangup"
 
 
-def test_an_unusable_extracted_value_leaves_the_recorded_disposition():
-    engine = _engine(
-        call_disposition=EndTaskReason.END_CALL.value,
-        extracted={CALL_DISPOSITION_VARIABLE: "unknown"},
+@pytest.mark.asyncio
+async def test_node_extraction_never_asks_for_the_disposition():
+    engine = PipecatEngine(workflow=None, call_context_vars={})
+    node = MagicMock(
+        name="Qualification",
+        extraction_enabled=True,
+        extraction_prompt="",
+        extraction_variables=[
+            ExtractionVariableDTO(name="state", type="string", prompt="US state"),
+            ExtractionVariableDTO(
+                name=CALL_DISPOSITION_VARIABLE,
+                type="string",
+                prompt="node-level outcome",
+            ),
+        ],
     )
+    engine._variable_extraction_manager = MagicMock()
+    engine._variable_extraction_manager._perform_extraction = AsyncMock(return_value={})
 
-    engine.refine_call_disposition(
-        EndTaskReason.END_CALL.value,
-        {CALL_DISPOSITION_VARIABLE: "unknown"},
-    )
+    await engine._perform_variable_extraction_if_needed(node, run_in_background=False)
 
-    assert engine._gathered_context["call_disposition"] == "end_call"
-
-
-# --------------------------------------------------------------------------
-# Reading user speech off the real context
-# --------------------------------------------------------------------------
+    variables = engine._variable_extraction_manager._perform_extraction.await_args.args[0]
+    assert [variable.name for variable in variables] == ["state"]
 
 
 class TestHasUserTurns:
-    """The speech gate reads the same context the extraction summarises."""
-
     def _manager(self, messages):
         engine = PipecatEngine(workflow=None, call_context_vars={})
         engine.context = LLMContext()
         engine.context.set_messages(messages)
         return VariableExtractionManager(engine)
 
-    def test_a_caller_who_spoke_is_detected(self):
-        manager = self._manager(
+    def test_caller_speech_is_detected(self):
+        assert self._manager(
             [
                 {"role": "assistant", "content": "Hi, is this Lois?"},
-                {"role": "user", "content": "Please leave a message after the tone."},
+                {"role": "user", "content": "Please call me next Tuesday."},
             ]
-        )
+        ).has_user_turns()
 
-        assert manager.has_user_turns() is True
-
-    def test_a_call_with_only_our_own_speech_is_not(self):
-        # The caller dropped during the greeting: 83 of 234 hangups look like
-        # this, and there is nothing in here to derive an outcome from.
-        manager = self._manager(
-            [
-                {"role": "system", "content": "You are Sarah..."},
-                {"role": "assistant", "content": "Hi, is this Lois?"},
-            ]
-        )
-
-        assert manager.has_user_turns() is False
-
-    def test_an_empty_user_turn_does_not_count(self):
-        manager = self._manager(
-            [
-                {"role": "assistant", "content": "Hi, is this Lois?"},
-                {"role": "user", "content": ""},
-            ]
-        )
-
-        assert manager.has_user_turns() is False
-
-
-# --------------------------------------------------------------------------
-# Only the terminal extraction asks
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_the_disposition_is_only_asked_for_at_the_end():
-    """Mid-call transitions would be asking why a live call ended."""
-    engine = PipecatEngine(workflow=None, call_context_vars={})
-    node = MagicMock()
-    node.name = "Qualification"
-    node.extraction_enabled = True
-    node.extraction_prompt = ""
-    node.extraction_variables = [
-        ExtractionVariableDTO(name="state", type="string", prompt="US state"),
-        ExtractionVariableDTO(
-            name=END_REASON_CONTEXT_KEY,
-            type="string",
-            prompt="Why the call ended",
-        ),
-    ]
-    engine._variable_extraction_manager = MagicMock()
-    engine._variable_extraction_manager._perform_extraction = AsyncMock(return_value={})
-
-    await engine._perform_variable_extraction_if_needed(
-        node, run_in_background=False, extract_disposition=False
-    )
-
-    asked_for = [
-        v.name
-        for v in engine._variable_extraction_manager._perform_extraction.await_args.args[
-            0
-        ]
-    ]
-    assert asked_for == ["state"]
-
-
-@pytest.mark.asyncio
-async def test_the_final_extraction_asks_for_the_disposition():
-    engine = PipecatEngine(workflow=None, call_context_vars={})
-    node = MagicMock()
-    node.name = "General Close"
-    node.extraction_enabled = True
-    node.extraction_prompt = ""
-    node.extraction_variables = [
-        ExtractionVariableDTO(name="state", type="string", prompt="US state"),
-        ExtractionVariableDTO(
-            name=END_REASON_CONTEXT_KEY,
-            type="string",
-            prompt="Why the call ended",
-        ),
-    ]
-    engine._current_node = node
-    engine._variable_extraction_manager = MagicMock()
-    engine._variable_extraction_manager._perform_extraction = AsyncMock(return_value={})
-
-    await engine.perform_final_variable_extraction()
-
-    asked_for = [
-        v.name
-        for v in engine._variable_extraction_manager._perform_extraction.await_args.args[
-            0
-        ]
-    ]
-    assert asked_for == ["state", CALL_DISPOSITION_VARIABLE]
+    def test_only_agent_speech_is_not_enough(self):
+        assert not self._manager(
+            [{"role": "assistant", "content": "Hi, is this Lois?"}]
+        ).has_user_turns()

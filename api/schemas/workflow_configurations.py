@@ -27,6 +27,7 @@ DEFAULT_TURN_START_MIN_WORDS = 3
 DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5
 DEFAULT_TURN_STOP_STRATEGY = "transcription"
 DEFAULT_CONTEXT_COMPACTION_ENABLED = False
+MAX_CALL_DISPOSITION_PROMPT_LENGTH = 4_000
 
 
 class ExternalPBXFieldMapping(BaseModel):
@@ -97,6 +98,15 @@ class WorkflowConfigurationDefaults(BaseModel):
     )
     dictionary: str = ""
     context_compaction_enabled: bool = DEFAULT_CONTEXT_COMPACTION_ENABLED
+    call_disposition_prompt: str | None = Field(
+        default=None,
+        max_length=MAX_CALL_DISPOSITION_PROMPT_LENGTH,
+        description=(
+            "Optional workflow-wide instructions for deriving a call's business "
+            "outcome after it ends. When unset, Dograh does not run a dedicated "
+            "call-disposition extraction."
+        ),
+    )
     text_chat_inactivity_timeout_seconds: int = Field(
         default=TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
         ge=MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
@@ -110,6 +120,15 @@ class WorkflowConfigurationDefaults(BaseModel):
         default_factory=list,
         max_length=MAX_EXTERNAL_PBX_LEAD_HEADERS,
     )
+
+    @field_validator("call_disposition_prompt", mode="before")
+    @classmethod
+    def normalize_call_disposition_prompt(cls, value: object) -> object:
+        """Treat an empty editor value as the feature being disabled."""
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
     @field_validator("external_pbx_lead_headers", mode="before")
     @classmethod

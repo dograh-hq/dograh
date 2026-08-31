@@ -486,13 +486,14 @@ async def execute_text_chat_pending_turn(
 
     llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
     inference_llm = llm
+    call_disposition_prompt = run_configs.get("call_disposition_prompt")
     variable_extraction_llm = (
         create_llm_service(
             user_config,
             correlation_id=mps_correlation_id,
             usage_context="variable_extraction",
         )
-        if workflow_graph.uses_variable_extraction()
+        if (workflow_graph.uses_variable_extraction() or call_disposition_prompt)
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else llm
     )
@@ -614,6 +615,7 @@ async def execute_text_chat_pending_turn(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
+        call_disposition_prompt=call_disposition_prompt,
         # Each text turn owns a short-lived pipeline. Complete extraction before
         # leaving a node so teardown cannot discard the result before checkpointing.
         run_transition_variable_extraction_in_background=False,

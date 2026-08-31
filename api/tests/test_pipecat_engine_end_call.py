@@ -119,6 +119,7 @@ async def create_engine_with_tracking(
     mock_llm: MockLLMService,
     test_helper: EndCallTestHelper,
     generate_audio: bool = True,
+    call_disposition_prompt: str | None = None,
 ) -> tuple[PipecatEngine, MockTTSService, MockTransport, PipelineWorker]:
     """Create a PipecatEngine with tracking for end call behavior.
 
@@ -157,27 +158,24 @@ async def create_engine_with_tracking(
         workflow=workflow,
         call_context_vars={"customer_name": "Test User"},
         workflow_run_id=1,
+        call_disposition_prompt=call_disposition_prompt,
     )
 
     # Track variable extraction calls
     original_perform_extraction = engine._perform_variable_extraction_if_needed
 
-    async def tracked_perform_extraction(
-        node, run_in_background: bool = True, extract_disposition: bool = False
-    ):
+    async def tracked_perform_extraction(node, run_in_background: bool = True):
         test_helper.extraction_calls.append(
             {
                 "node_id": node.id if node else None,
                 "node_name": node.name if node else None,
                 "extraction_enabled": node.extraction_enabled if node else None,
                 "run_in_background": run_in_background,
-                "extract_disposition": extract_disposition,
             }
         )
         return await original_perform_extraction(
             node,
             run_in_background=run_in_background,
-            extract_disposition=extract_disposition,
         )
 
     engine._perform_variable_extraction_if_needed = tracked_perform_extraction
@@ -277,12 +275,15 @@ class TestEndCallViaNodeTransition:
         llm = MockLLMService(mock_steps=mock_steps, chunk_delay=0.001)
 
         engine, tts, transport, task = await create_engine_with_tracking(
-            simple_workflow, llm, test_helper
+            simple_workflow,
+            llm,
+            test_helper,
+            call_disposition_prompt="Return voicemail_detected when the call reaches voicemail.",
         )
 
-        # Mirror run 2340: the terminal node has a legacy, author-defined
-        # `end_reason` extraction. The engine must source that mechanically and
-        # add only `call_disposition` to this same extraction request.
+        # A legacy node-level `end_reason` extraction must not be able to
+        # replace call mechanics; the workflow-level disposition prompt owns
+        # the separate terminal request.
         end_node = next(node for node in simple_workflow.nodes.values() if node.is_end)
         end_node.extraction_enabled = True
         end_node.extraction_prompt = "Extract the final call outcome."
@@ -334,7 +335,7 @@ class TestEndCallViaNodeTransition:
         assert gathered_context["call_status"] == EndTaskReason.END_CALL.value
         assert gathered_context[END_REASON_CONTEXT_KEY] == EndTaskReason.END_CALL.value
         assert gathered_context["call_disposition"] == "voicemail_detected"
-        assert END_REASON_CONTEXT_KEY not in gathered_context["extracted_variables"]
+        assert END_REASON_CONTEXT_KEY not in gathered_context.get("extracted_variables", {})
         assert [CALL_DISPOSITION_VARIABLE] in requested_variables
 
         # Verify pipeline was muted
@@ -1191,14 +1192,9 @@ class TestEndCallExtractionBehavior:
     ):
         """Extraction reaches the outcome only through the engine, never directly.
 
-        A ``call_disposition`` variable *is* how a workflow author sets the
-        call's outcome -- but it takes effect through
-        ``refine_call_disposition``, which re-applies the organization's mapping
-        so both keys move together. The merge itself must never write either
-        one: extraction variable names are author-supplied, and a raw merge
-        would leave ``mapped_call_disposition`` -- what reporting, the run
-        filters and the PBX write-back actually read -- describing a different
-        outcome than ``call_disposition``.
+        A node ``call_disposition`` variable is ignored. Workflow-level
+        call settings own the final outcome, and ordinary extraction must never
+        write either engine-owned disposition field directly.
 
         This call has no user speech, so refinement declines and the recorded
         mechanism stands. The point here is the merge, not the refinement;
@@ -1261,10 +1257,10 @@ class TestEndCallExtractionBehavior:
         # that same disposition and not some third thing.
         assert "a_third_value" not in final.values()
 
-        # Ordinary variables are untouched, and the shadowed ones are still
-        # recoverable from the extraction record.
+        # Ordinary variables are untouched, while engine-owned values are not
+        # carried into the generic extraction record at all.
         assert final["user_intent"] == "ME"
-        assert final["extracted_variables"]["call_disposition"] == "extracted_impostor"
+        assert "call_disposition" not in final["extracted_variables"]
 
     @pytest.mark.asyncio
     async def test_a_stuck_extraction_does_not_hold_the_call_open(

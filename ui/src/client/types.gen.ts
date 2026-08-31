@@ -7406,6 +7406,10 @@ export type WorkflowConfigurationDefaults = {
      */
     context_compaction_enabled?: boolean;
     /**
+     * Optional workflow-wide instructions for deriving a call's business outcome after it ends.
+     */
+    call_disposition_prompt?: string | null;
+    /**
      * Text Chat Inactivity Timeout Seconds
      */
     text_chat_inactivity_timeout_seconds?: number;

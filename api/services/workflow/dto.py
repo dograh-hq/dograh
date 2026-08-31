@@ -153,10 +153,8 @@ class _ExtractionNodeDataMixin(BaseModel):
         display_name="Variables to Extract",
         description=(
             "Each entry declares one variable to capture, with its name, data "
-            "type, and extraction hint. A variable named `call_disposition` "
-            "sets the call's recorded outcome -- write its hint to name the "
-            "outcomes you want. Extraction asks for one automatically when the "
-            "call ends, so declare it only to choose your own wording."
+            "type, and extraction hint. Call outcomes are configured separately "
+            "in workflow settings."
         ),
         display_options=DisplayOptions(show={"extraction_enabled": [True]}),
     )

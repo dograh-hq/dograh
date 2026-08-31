@@ -661,6 +661,13 @@ class WorkflowConfigurationDefaults(BaseModel):
     context_compaction_enabled: Annotated[
         bool | None, Field(title='Context Compaction Enabled')
     ] = False
+    call_disposition_prompt: Annotated[
+        str | None,
+        Field(
+            description="Optional workflow-wide instructions for deriving a call's business outcome after it ends. When unset, Dograh does not run a dedicated call-disposition extraction.",
+            max_length=4000,
+        ),
+    ] = None
     text_chat_inactivity_timeout_seconds: Annotated[
         int | None, Field(ge=60, le=10500, title='Text Chat Inactivity Timeout Seconds')
     ] = 1800

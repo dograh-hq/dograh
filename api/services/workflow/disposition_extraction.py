@@ -14,27 +14,21 @@ call, and conflating them is what made every end-node call read as qualified:
     drives one decision: call this person again or not.
 
 The engine records the status and a conservative disposition before teardown,
-so a run whose pipeline is killed still records something. This module supplies
-the variable that lets the extraction LLM *refine* the disposition afterwards,
-and the rules for when that refinement is allowed to apply.
-
-The vocabulary is deliberately not validated here. The default prompt below
-names the outcomes Dograh expects, but a workflow author can edit that prompt
--- or replace the variable entirely -- to record whatever their business calls
-an outcome. Whatever comes back is what the lead gets.
+so a run whose pipeline is killed still records something. When a workflow has
+configured a call-disposition prompt, the engine makes one dedicated final
+extraction request to refine that fallback. It is deliberately separate from
+node variable extraction: dispositions describe the whole call, not the node
+that happened to be active when it ended.
 """
 
 from __future__ import annotations
-
-from typing import Iterable
 
 from pipecat.utils.enums import EndTaskReason
 
 from api.services.workflow.dto import ExtractionVariableDTO
 
-#: Extraction-variable name the engine reads the refined outcome from. An
-#: author who defines a variable of this name on a node owns it outright: the
-#: seed below is not injected, and their prompt decides the vocabulary.
+#: Internal extraction-variable name used by the dedicated terminal request.
+#: This is engine-owned; node extraction variables may not set a call outcome.
 CALL_DISPOSITION_VARIABLE = "call_disposition"
 
 #: Mechanical termination fields are populated by ``end_call_with_reason``.
@@ -46,6 +40,7 @@ _ENGINE_DERIVED_VARIABLES = frozenset(
     {
         CALL_STATUS_CONTEXT_KEY,
         END_REASON_CONTEXT_KEY,
+        CALL_DISPOSITION_VARIABLE,
         "mapped_call_disposition",
         "call_tags",
     }
@@ -63,27 +58,15 @@ _DEFAULT_DISPOSITION_OPTIONS: tuple[tuple[str, str | None], ...] = (
     ("callback_requested", None),
 )
 
-#: Dograh's built-in business outcomes. This is the default extraction
-#: vocabulary, not a validation allowlist: workflow authors may still supply
-#: their own values through a custom ``call_disposition`` variable.
+#: Dograh's built-in business outcomes. This is a catalog for filters and
+#: reporting, not a validation allowlist: a workflow's disposition prompt may
+#: return its own values, such as ``call_rescheduled``.
 DEFAULT_DISPOSITION_CODES: tuple[str, ...] = tuple(
     code for code, _description in _DEFAULT_DISPOSITION_OPTIONS
 )
 
-_DEFAULT_DISPOSITION_OPTIONS_TEXT = ", ".join(
-    f"{code} ({description})" if description else code
-    for code, description in _DEFAULT_DISPOSITION_OPTIONS
-)
-
-DEFAULT_DISPOSITION_PROMPT = (
-    "Why the call ended, from the caller's side. Use one of: "
-    f"{_DEFAULT_DISPOSITION_OPTIONS_TEXT}. "
-    "Answer 'unknown' if the conversation does not clearly show one of these -- "
-    "do not guess."
-)
-
 #: Extracted values that mean "no answer", not an answer. ``unknown`` is what
-#: the default prompt offers the model so it can decline instead of guessing.
+#: a workflow prompt may offer the model so it can decline instead of guessing.
 _NON_ANSWERS = frozenset({"unknown", "unclear", "none", "n/a", "null"})
 
 #: Dispositions are short labels that end up as per-workflow disposition codes
@@ -93,40 +76,25 @@ _NON_ANSWERS = frozenset({"unknown", "unclear", "none", "n/a", "null"})
 _MAX_DISPOSITION_LENGTH = 64
 
 
-def build_disposition_variable() -> ExtractionVariableDTO:
-    """The disposition variable injected when an author has not defined one."""
+def build_disposition_variable(prompt: str) -> ExtractionVariableDTO:
+    """Build the engine-owned variable for a configured terminal extraction."""
     return ExtractionVariableDTO(
         name=CALL_DISPOSITION_VARIABLE,
         type="string",
-        prompt=DEFAULT_DISPOSITION_PROMPT,
+        prompt=prompt,
     )
 
 
 def prepare_extraction_variables(
-    variables: Iterable[ExtractionVariableDTO],
-    *,
-    include_disposition: bool,
+    variables: list[ExtractionVariableDTO] | None,
 ) -> list[ExtractionVariableDTO]:
-    """Return only the variables the LLM should extract for this phase.
+    """Return node variables that are safe for ordinary extraction.
 
-    ``call_status`` and its legacy ``end_reason`` alias come from pipeline
-    mechanics and are therefore always removed. ``call_disposition`` is held
-    until the terminal extraction, where the author's custom prompt is reused
-    if they supplied one; otherwise Dograh's default variable is appended.
+    Mechanical fields and the call disposition belong to the engine. In
+    particular, a node variable named ``call_disposition`` is ignored:
+    workflow-level call settings now own the final outcome prompt.
     """
-    variables = list(variables)
-    author_disposition = next(
-        (v for v in variables if v.name == CALL_DISPOSITION_VARIABLE), None
-    )
-    extractable = [
-        v
-        for v in variables
-        if v.name not in _ENGINE_DERIVED_VARIABLES
-        and v.name != CALL_DISPOSITION_VARIABLE
-    ]
-    if include_disposition:
-        extractable.append(author_disposition or build_disposition_variable())
-    return extractable
+    return [v for v in variables or [] if v.name not in _ENGINE_DERIVED_VARIABLES]
 
 
 def coerce_disposition(value: object) -> str | None:

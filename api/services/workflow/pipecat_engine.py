@@ -55,6 +55,7 @@ from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_VARIABLE,
     CALL_STATUS_CONTEXT_KEY,
     END_REASON_CONTEXT_KEY,
+    build_disposition_variable,
     coerce_disposition,
     prepare_extraction_variables,
 )
@@ -85,12 +86,8 @@ from api.utils.template_renderer import render_template
 # Gathered-context keys the engine records itself. Variable extraction merges
 # its results into the same dict, so these are held back from that merge.
 #
-# `call_disposition` is here even though extraction is now what refines it:
-# the extracted value is read back out of `extracted_variables` and re-stamped
-# through `record_call_disposition`, which re-applies the organization's
-# mapping. Letting the raw value merge itself in would leave
-# `mapped_call_disposition` -- what reporting, filters and the PBX write-back
-# all read -- describing the previous outcome.
+# The call disposition is recorded only by the engine, which keeps its mapped
+# counterpart in sync for reporting, filters and external-PBX write-backs.
 _ENGINE_OWNED_CONTEXT_KEYS = frozenset(
     {
         "call_disposition",
@@ -134,6 +131,7 @@ class PipecatEngine:
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
         run_transition_variable_extraction_in_background: bool = True,
+        call_disposition_prompt: str | None = None,
     ):
         self.task = task
         self.llm = llm
@@ -154,6 +152,7 @@ class PipecatEngine:
         self._run_transition_variable_extraction_in_background = (
             run_transition_variable_extraction_in_background
         )
+        self._call_disposition_prompt = call_disposition_prompt
         self._initialized = False
         self._call_disposed = False
         self._current_node: Optional[Node] = None
@@ -500,7 +499,6 @@ class PipecatEngine:
         self,
         node: Optional[Node],
         run_in_background: bool = True,
-        extract_disposition: bool = False,
     ) -> Optional[dict]:
         """Perform variable extraction if the node has extraction enabled.
 
@@ -508,10 +506,6 @@ class PipecatEngine:
             node: The node to extract variables from.
             run_in_background: If True, runs extraction as a fire-and-forget task.
                 If False, awaits the extraction synchronously.
-            extract_disposition: If True, also ask for the call's outcome. Only
-                the terminal extraction sets this -- mid-conversation node
-                transitions would be asking why a call ended while it is still
-                going.
         """
         if not (node and node.extraction_enabled and node.extraction_variables):
             return
@@ -523,7 +517,6 @@ class PipecatEngine:
         extraction_prompt = self._format_prompt(node.extraction_prompt)
         node_variables = prepare_extraction_variables(
             node.extraction_variables,
-            include_disposition=extract_disposition,
         )
         if not node_variables:
             logger.debug(
@@ -653,39 +646,71 @@ class PipecatEngine:
                 f"Incomplete: {incomplete}"
             )
 
-    async def flush_variable_extraction(
-        self, extract_disposition: bool = False
-    ) -> Optional[dict]:
+    async def flush_variable_extraction(self) -> Optional[dict]:
         """Refresh extracted variables without marking the call finalized.
 
         This operation is intentionally repeatable. Transfer routing and
         external-PBX field mappings need current conversation values, but a
         failed transfer can return control to the agent and gather more input.
-        Those callers leave ``extract_disposition`` off: the call has not ended,
-        so there is no outcome to ask about yet.
         """
         await self._await_pending_extractions()
         return await self._perform_variable_extraction_if_needed(
             self._current_node,
             run_in_background=False,
-            extract_disposition=extract_disposition,
         )
 
-    async def perform_final_variable_extraction(self) -> Optional[dict]:
+    async def _perform_final_disposition_extraction(self) -> Optional[dict]:
+        """Derive the configured call-level outcome once the conversation ends."""
+        if not self._call_disposition_prompt or not self._variable_extraction_manager:
+            return None
+        if not self._variable_extraction_manager.has_user_turns():
+            logger.debug("No user speech in the conversation; skipping disposition extraction")
+            return None
+
+        try:
+            variable = build_disposition_variable(
+                self._format_prompt(self._call_disposition_prompt)
+            )
+            return await self._variable_extraction_manager._perform_extraction(
+                [variable], self._get_otel_context()
+            )
+        except Exception as e:
+            # A disposition is best-effort. The mechanism recorded before this
+            # request is the safe fallback when the inference provider fails.
+            metadata = failure_metadata_for_processor(self.variable_extraction_llm)
+            log_failure(
+                classify_exception(
+                    e,
+                    source=metadata.source,
+                    provider=metadata.provider,
+                    error_owner=metadata.error_owner,
+                ),
+                organization_id=self._organization_id,
+                workflow_run_id=self._workflow_run_id,
+                node_name="call_disposition",
+            )
+            return None
+
+    async def perform_final_variable_extraction(
+        self, *, extract_disposition: bool
+    ) -> Optional[dict]:
         """Perform the one-shot extraction used during call disposal.
 
         Awaits any background extractions still running from previous nodes,
         then runs the current node's extraction inline. Idempotency prevents
         duplicate terminal extraction when multiple teardown paths converge.
 
-        This is the only extraction that asks for the call's outcome, and it is
-        the reason the disposition can be refined at all.
+        The dedicated disposition extraction is independent from ordinary node
+        variables and only runs when teardown has a fallback outcome to refine.
         """
         if self._final_extraction_done:
             logger.debug("Final variable extraction already performed; skipping")
             return self._final_extraction_result
-        self._final_extraction_result = await self.flush_variable_extraction(
-            extract_disposition=True
+        await self.flush_variable_extraction()
+        self._final_extraction_result = (
+            await self._perform_final_disposition_extraction()
+            if extract_disposition
+            else None
         )
         self._final_extraction_done = True
         return self._final_extraction_result
@@ -1092,7 +1117,9 @@ class PipecatEngine:
             final_extraction = None
             try:
                 final_extraction = await asyncio.wait_for(
-                    self.perform_final_variable_extraction(),
+                    self.perform_final_variable_extraction(
+                        extract_disposition=disposition_is_fallback
+                    ),
                     timeout=FINAL_EXTRACTION_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:

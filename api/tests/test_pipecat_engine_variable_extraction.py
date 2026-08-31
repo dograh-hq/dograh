@@ -120,7 +120,6 @@ class TestVariableExtractionDuringTransitions:
         async def tracked_perform_extraction(
             node,
             run_in_background=True,
-            extract_disposition=False,
         ):
             extraction_calls.append(
                 {
@@ -134,7 +133,6 @@ class TestVariableExtractionDuringTransitions:
             return await original_perform_extraction(
                 node,
                 run_in_background=run_in_background,
-                extract_disposition=extract_disposition,
             )
 
         engine._perform_variable_extraction_if_needed = tracked_perform_extraction
@@ -233,11 +231,15 @@ async def test_transfer_flush_is_repeatable_without_consuming_final_extraction()
     assert engine._await_pending_extractions.await_count == 2
     assert engine._perform_variable_extraction_if_needed.await_count == 2
 
-    first_result = await engine.perform_final_variable_extraction()
-    second_result = await engine.perform_final_variable_extraction()
+    first_result = await engine.perform_final_variable_extraction(
+        extract_disposition=False
+    )
+    second_result = await engine.perform_final_variable_extraction(
+        extract_disposition=False
+    )
 
     assert engine._final_extraction_done is True
-    assert first_result == second_result == {"state": "ME"}
+    assert first_result is second_result is None
     assert engine._await_pending_extractions.await_count == 3
     assert engine._perform_variable_extraction_if_needed.await_count == 3
 

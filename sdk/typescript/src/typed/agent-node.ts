@@ -5,7 +5,7 @@
 // from `/api/v1/node-types`.
 
 /**
- * Each entry declares one variable to capture, with its name, data type, and extraction hint. A variable named `call_disposition` sets the call's recorded outcome -- write its hint to name the outcomes you want. Extraction asks for one automatically when the call ends, so declare it only to choose your own wording.
+ * Each entry declares one variable to capture, with its name, data type, and extraction hint. Call outcomes are configured separately in workflow settings; `call_disposition` is reserved and cannot be extracted by a node.
  */
 export interface AgentNodeExtraction_variablesRow {
     /**
@@ -54,7 +54,7 @@ export interface AgentNode {
      */
     extraction_prompt?: string;
     /**
-     * Each entry declares one variable to capture, with its name, data type, and extraction hint. A variable named `call_disposition` sets the call's recorded outcome -- write its hint to name the outcomes you want. Extraction asks for one automatically when the call ends, so declare it only to choose your own wording.
+     * Each entry declares one variable to capture, with its name, data type, and extraction hint. Call outcomes are configured separately in workflow settings; `call_disposition` is reserved and cannot be extracted by a node.
      */
     extraction_variables?: Array<AgentNodeExtraction_variablesRow>;
     /**

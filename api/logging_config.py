@@ -127,12 +127,25 @@ def setup_logging():
             compression=LOG_COMPRESSION,  # Compress rotated logs
         )
     else:
-        # Console handler (existing behavior)
+        # Console handler - the container path. `serialize` has to be honoured
+        # here too and not only on the file sink above: under an orchestrator
+        # stdout IS the log transport, so a plain-text line reaches the log
+        # backend as one opaque string with no level, run_id, or error
+        # classification to query on. Colour and JSON are mutually exclusive:
+        # loguru still renders `format` into the serialized record's `text`
+        # field, so leaving colorize on embeds ANSI escapes in the JSON.
+        #
+        # diagnose=False for the same reason the file sink sets it - loguru
+        # defaults it to True, which annotates every traceback frame with the
+        # values of its local variables.
         patched.add(
             sys.stdout,
             format=log_format,
             level=log_level,
-            colorize=True,
+            serialize=SERIALIZE_LOG_OUTPUT,
+            colorize=not SERIALIZE_LOG_OUTPUT,
+            backtrace=True,
+            diagnose=False,
         )
 
     loguru.logger = patched

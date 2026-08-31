@@ -97,10 +97,13 @@ class ExotelProvider(TelephonyProvider):
 
     @staticmethod
     def _exotel_dial_number(number: str) -> str:
-        """Map E.164 to Exotel's usual 0-prefixed national form for India.
+        """Map an ExoPhone (CallerId) E.164 to Exotel's 0-prefixed national form.
 
-        Working Connect examples use CallerId/From like ``07314852338``, not
-        ``+917314852338``. Other regions keep the input as-is.
+        Only applied to ``CallerId`` — Exotel's Connect Voice AI docs example
+        shows ``CallerId=0XXXXXXXXXX``. ``From`` (the destination) stays in
+        E.164 per the same doc example (``From=+91XXXXXXXXXX``). See
+        https://docs.exotel.com/exotel-agentstream/connect-voice-ai-api.
+        Non-India numbers pass through unchanged.
         """
         n = (number or "").strip()
         if n.startswith("+91") and len(n) >= 12:
@@ -180,8 +183,10 @@ class ExotelProvider(TelephonyProvider):
                 "Add at least one ExoPhone as CallerId."
             )
 
-        to_number = self._exotel_dial_number(to_number)
-        from_number = self._exotel_dial_number(from_number)
+        # Exotel Connect Voice AI: ``From`` (destination) is E.164, ``CallerId``
+        # (ExoPhone) is 0-prefixed national — see the documented example curl
+        # at https://docs.exotel.com/exotel-agentstream/connect-voice-ai-api.
+        caller_id = self._exotel_dial_number(from_number)
 
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         stream_url = ws_auth.build_media_ws_url(
@@ -190,7 +195,7 @@ class ExotelProvider(TelephonyProvider):
 
         form: Dict[str, Any] = {
             "From": to_number,
-            "CallerId": from_number,
+            "CallerId": caller_id,
             "StreamUrl": stream_url,
             "StreamType": "bidirectional",
         }
@@ -448,6 +453,22 @@ class ExotelProvider(TelephonyProvider):
             logger.error(f"Error in Exotel WebSocket handler: {e}")
             raise
 
+    # Exotel-unique field names that appear on Voicebot Applet / Passthru
+    # HTTPS webhooks and don't collide with Twilio, Vobiz, Plivo, Vonage,
+    # Telnyx, or Cloudonix payloads. Any one of these together with CallSid
+    # is a strong Exotel signature. Docs:
+    # https://developer.exotel.com/docs/agentstream/stream-voicebot-applet
+    # https://developer.exotel.com/docs/app-bazaar/passthru-applet-guide
+    _EXOTEL_SIGNATURE_FIELDS = (
+        "CallFrom",
+        "CallTo",
+        "DialWhomNumber",
+        "ServerCode",
+        "HangupLatencyStartTime",
+        "HangupLatencyStartTimeExocc",
+        "CurrentTime",
+    )
+
     @classmethod
     def can_handle_webhook(
         cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
@@ -457,6 +478,10 @@ class ExotelProvider(TelephonyProvider):
         if "exotel" in user_agent:
             return True
 
+        # Reject other providers first when their tell-tale fields/headers
+        # are present, so an ambiguous CallSid+From payload can't be double-
+        # claimed. Exotel inbound HTTPS webhooks never include AccountSid —
+        # the account_sid arrives on the WebSocket ``start`` frame instead.
         account_sid = str(
             webhook_data.get("AccountSid")
             or webhook_data.get("accountSid")
@@ -464,25 +489,34 @@ class ExotelProvider(TelephonyProvider):
             or webhook_data.get("accountsid")
             or ""
         )
+        if account_sid.startswith("AC") and "." not in account_sid:
+            return False  # Twilio
+        if account_sid.endswith(".cloudonix.net"):
+            return False  # Cloudonix
+        if "x-plivo-signature-v3" in normalized or "x-plivo-signature-ma-v3" in normalized:
+            return False
+        if webhook_data.get("CallUUID"):
+            return False  # Plivo/Vobiz use CallUUID; Exotel uses CallSid.
+
         call_sid = (
             webhook_data.get("CallSid")
             or webhook_data.get("callSid")
             or webhook_data.get("call_sid")
             or webhook_data.get("callsid")
         )
-        from_number = (
-            webhook_data.get("From")
-            or webhook_data.get("CallFrom")
-            or webhook_data.get("from")
-        )
-        if not (account_sid and call_sid and from_number):
+        if not call_sid:
             return False
-        # Exclude Twilio (AC…) and Cloudonix (*.cloudonix.net)
-        if account_sid.startswith("AC") and "." not in account_sid:
-            return False
-        if account_sid.endswith(".cloudonix.net"):
-            return False
-        return True
+
+        # Require an Exotel-unique field to be present. Case-preserving check
+        # against the exact keys Exotel documents (they are PascalCase on the
+        # wire); we don't invent lower/camel variants here because Exotel's
+        # own payloads are consistent.
+        if any(field in webhook_data for field in cls._EXOTEL_SIGNATURE_FIELDS):
+            return True
+
+        # Fallback: legacy shape where AccountSid is present. Kept so status
+        # callback POSTs (which do include AccountSid) still match.
+        return bool(account_sid)
 
     @staticmethod
     def _india_country_hint(number: str) -> Optional[str]:

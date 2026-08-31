@@ -109,7 +109,7 @@ Request fields:
 - `StreamType=bidirectional`
 - `StatusCallback` and `StatusCallbackEvents[]=terminal` — **only attached when a `workflow_run_id` is present**
 
-For Indian numbers, Dograh's `_exotel_dial_number()` helper maps E.164 to Exotel's 0-prefixed national form for both `From` and `CallerId` (Exotel's Connect examples use `07314852338`, not `+917314852338`). Example: `+917314852338` → `07314852338`. Non-India numbers pass through unchanged.
+For Indian ExoPhones, Dograh's `_exotel_dial_number()` helper maps the stored E.164 `CallerId` to Exotel's 0-prefixed national form (Exotel's [Connect Voice AI example](https://docs.exotel.com/exotel-agentstream/connect-voice-ai-api) uses `CallerId=0XXXXXXXXXX`). Example: `+917314852338` → `07314852338`. The destination `From` stays in E.164 per the same example (`From=+91XXXXXXXXXX`). Non-India numbers pass through unchanged.
 
 Test from a workflow **Call** button. Confirm two-way audio and that hangup marks the run completed.
 
@@ -126,7 +126,7 @@ Dograh implements **Flow-Based Inbound via the Voicebot Applet's dynamic-URL con
 3. Configure the applet:
    - **URL** = `https://<dograh-host>/api/v1/telephony/inbound/run`
    - **Authentication** = HTTP Basic; username = your Exotel API Key, password = your Exotel API Token (Dograh verifies this in `verify_inbound_signature`).
-   - **Sample Rate** = `8000` (default), or append `?sample-rate=16000` / `?sample-rate=24000` for enhanced/HD.
+   - **Sample Rate** = `8000`. Dograh's Exotel transport is fixed at 8 kHz today; do not append `?sample-rate=…` — the applet will negotiate a rate the transport doesn't decode and audio breaks.
 4. Assign the ExoPhone's Voice URL to this flow in Exotel.
 5. In Dograh, assign the matching **inbound workflow** to the number.
 
@@ -145,7 +145,7 @@ Exotel's Voicebot Applet then opens the bidirectional WebSocket to that URL.
 Drawn from Exotel's [applet documentation](https://developer.exotel.com/docs/agentstream/stream-voicebot-applet):
 
 - **Audio format**: raw/slin — 16-bit PCM little-endian, mono, base64-encoded.
-- **Sample rates**: `8000` (default, PSTN), `16000`, or `24000` (HD). Pass via `?sample-rate=…` on the applet URL.
+- **Sample rate**: `8000` (PSTN). Exotel's applet also supports `16000` and `24000` via `?sample-rate=…`, but Dograh's Exotel transport is hard-coded to 8 kHz today, so leave the sample rate at the default.
 - **Chunk size**: min 3.2 KB (100 ms of audio), max 100 KB, must be a multiple of 320 bytes. Smaller chunks risk audio distortion; larger cause timeouts.
 - **Custom parameters**: up to 3 key-value pairs appended to the URL (`?param1=value1&param2=value2`, 256 chars total).
 

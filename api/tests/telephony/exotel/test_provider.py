@@ -80,6 +80,59 @@ def test_can_handle_webhook_rejects_twilio_account():
     )
 
 
+# Regression: the live payload chewwbaka's Exotel account posts to
+# /inbound/run does not include AccountSid. Fields taken verbatim from the
+# PR-review log so the shape can't drift without breaking this test.
+LIVE_VOICEBOT_APPLET_PAYLOAD = {
+    "CallSid": "faccc8dce91e426a398475de9fdb1a8p",
+    "CallFrom": "09441233609",
+    "CallTo": "08037091588",
+    "Direction": "incoming",
+    "Created": "Tue, 25 Aug 2026 12:07:08",
+    "DialWhomNumber": "",
+    "HangupLatencyStartTimeExocc": "",
+    "HangupLatencyStartTime": "",
+    "ServerCode": "",
+    "From": "09441233609",
+    "To": "09513886363",
+    "CurrentTime": "2026-08-25 12:07:09",
+}
+
+
+def test_can_handle_webhook_live_voicebot_applet_payload_without_account_sid():
+    """Exotel Voicebot Applet dynamic URL invocation carries no AccountSid.
+
+    Detector must still claim it as Exotel using the field-signature
+    (CallSid + at least one Exotel-unique field like CallFrom / CallTo /
+    DialWhomNumber). See Exotel developer docs for the Voicebot Applet
+    dynamic-URL contract; account_sid arrives on the WSS start frame.
+    """
+    assert ExotelProvider.can_handle_webhook(LIVE_VOICEBOT_APPLET_PAYLOAD, {})
+
+
+def test_can_handle_webhook_rejects_plivo_shape():
+    assert not ExotelProvider.can_handle_webhook(
+        {
+            "CallUUID": "uuid-plivo-1",
+            "From": "+15551230001",
+            "To": "+15551230002",
+        },
+        {"x-plivo-signature-v3": "sig", "user-agent": "plivo/1.0"},
+    )
+
+
+def test_can_handle_webhook_rejects_vobiz_shape():
+    assert not ExotelProvider.can_handle_webhook(
+        {
+            "CallUUID": "uuid-vobiz-1",
+            "From": "+912271264296",
+            "To": "+911140845784",
+            "ParentAuthID": "vobiz-auth-1",
+        },
+        {"user-agent": "vobiz/1.0"},
+    )
+
+
 def test_parse_inbound_webhook():
     parsed = ExotelProvider.parse_inbound_webhook(INBOUND_FIXTURE)
     assert parsed.call_id == "call-inbound-1"
@@ -210,15 +263,18 @@ async def test_initiate_call_posts_connect_with_stream_url():
         )
 
     assert result.call_id == "call-sid-1"
-    # India E.164 is dialed to Exotel as 0-prefixed national.
-    assert result.caller_number == "080XXXXXXX1"
+    # Internal caller number stays in E.164; the 0-prefixed form is only the
+    # wire representation Exotel expects for CallerId.
+    assert result.caller_number == "+9180XXXXXXX1"
 
     _, kwargs = session.post.call_args
     auth = kwargs["auth"]
     assert auth.login == "key123"
     assert auth.password == "token456"
     form = kwargs["data"]
-    assert form["From"] == "09999999999"
+    # Per Exotel Connect Voice AI docs: From is E.164, CallerId is 0-prefixed.
+    # https://docs.exotel.com/exotel-agentstream/connect-voice-ai-api
+    assert form["From"] == "+919999999999"
     assert form["CallerId"] == "080XXXXXXX1"
     assert form["StreamType"] == "bidirectional"
     assert form["StreamUrl"] == "wss://api.example.test/api/v1/telephony/ws/7/9/42"
@@ -268,8 +324,9 @@ async def test_initiate_call_uses_default_from_number():
             organization_id=9,
         )
 
-    assert result.caller_number == "08022222222"
+    assert result.caller_number == "+918022222222"
     _, kwargs = session.post.call_args
+    assert kwargs["data"]["From"] == "+919999999999"
     assert kwargs["data"]["CallerId"] == "08022222222"
 
 

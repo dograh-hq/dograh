@@ -218,6 +218,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     TelephonyPhoneNumberModel.is_active.is_(True),
                     TelephonyConfigurationModel.inactive.is_(False),
                 )
+                .limit(2)
             )
             result = await session.execute(stmt)
             rows = result.all()

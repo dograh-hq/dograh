@@ -93,7 +93,7 @@ services:
       - "traefik.http.routers.dograh-audio.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.dograh-audio.tls=true"
       - "traefik.http.routers.dograh-audio.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
-      - "traefik.http.routers.dograh-audio.priority=20"
+      - "traefik.http.routers.dograh-audio.priority=110"
       - "traefik.http.services.dograh-audio.loadbalancer.server.port=9000"
     networks:
       - app-network
@@ -218,7 +218,7 @@ services:
       - "traefik.http.routers.dograh-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.dograh-api.tls=true"
       - "traefik.http.routers.dograh-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
-      - "traefik.http.routers.dograh-api.priority=10"
+      - "traefik.http.routers.dograh-api.priority=100"
       - "traefik.http.services.dograh-api.loadbalancer.server.port=8000"
     networks:
       - app-network

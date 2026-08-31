@@ -114,3 +114,104 @@ async def test_inbound_route_queries_exclude_inactive_configuration(
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_find_inbound_route_by_called_number_unique_match(
+    async_session, db_session
+):
+    organization = OrganizationModel(provider_id=f"called-number-{uuid4()}")
+    async_session.add(organization)
+    await async_session.flush()
+
+    config = TelephonyConfigurationModel(
+        organization_id=organization.id,
+        name="Exotel",
+        provider="exotel",
+        credentials={"account_sid": "exotel905"},
+        is_default_outbound=True,
+        inactive=False,
+    )
+    async_session.add(config)
+    await async_session.flush()
+
+    phone_number = TelephonyPhoneNumberModel(
+        organization_id=organization.id,
+        telephony_configuration_id=config.id,
+        address="+917314852338",
+        address_normalized="+917314852338",
+        address_type="phone",
+        is_active=True,
+    )
+    async_session.add(phone_number)
+    await async_session.flush()
+
+    match = await db_session.find_inbound_route_by_called_number(
+        provider="exotel",
+        to_number="07314852338",
+        country_hint="IN",
+    )
+    assert match is not None
+    matched_config, matched_phone = match
+    assert matched_config.id == config.id
+    assert matched_phone.id == phone_number.id
+
+
+@pytest.mark.asyncio
+async def test_find_inbound_route_by_called_number_ambiguous_returns_none(
+    async_session, db_session
+):
+    org_a = OrganizationModel(provider_id=f"called-ambig-a-{uuid4()}")
+    org_b = OrganizationModel(provider_id=f"called-ambig-b-{uuid4()}")
+    async_session.add_all([org_a, org_b])
+    await async_session.flush()
+
+    config_a = TelephonyConfigurationModel(
+        organization_id=org_a.id,
+        name="Exotel A",
+        provider="exotel",
+        credentials={"account_sid": "exotel-a"},
+        is_default_outbound=True,
+        inactive=False,
+    )
+    config_b = TelephonyConfigurationModel(
+        organization_id=org_b.id,
+        name="Exotel B",
+        provider="exotel",
+        credentials={"account_sid": "exotel-b"},
+        is_default_outbound=True,
+        inactive=False,
+    )
+    async_session.add_all([config_a, config_b])
+    await async_session.flush()
+
+    async_session.add_all(
+        [
+            TelephonyPhoneNumberModel(
+                organization_id=org_a.id,
+                telephony_configuration_id=config_a.id,
+                address="+917314852338",
+                address_normalized="+917314852338",
+                address_type="phone",
+                is_active=True,
+            ),
+            TelephonyPhoneNumberModel(
+                organization_id=org_b.id,
+                telephony_configuration_id=config_b.id,
+                address="+917314852338",
+                address_normalized="+917314852338",
+                address_type="phone",
+                is_active=True,
+            ),
+        ]
+    )
+    await async_session.flush()
+
+    assert (
+        await db_session.find_inbound_route_by_called_number(
+            provider="exotel",
+            to_number="07314852338",
+            country_hint="IN",
+        )
+        is None
+    )

@@ -183,6 +183,48 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 return None
             return row[0], row[1]
 
+    async def find_inbound_route_by_called_number(
+        self,
+        provider: str,
+        to_number: str,
+        country_hint: Optional[str] = None,
+    ) -> Optional[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
+        """Inbound route lookup when the webhook omits account_id.
+
+        Some providers (Exotel Voicebot Applet dynamic URL) POST/GET inbound
+        webhooks without an account identifier. In that case we match on
+        ``(provider, canonical called number)`` across all orgs. Returns a
+        route only when exactly one active, non-parked config owns that
+        number; returns None on zero matches or when multiple configs would
+        race for the same call.
+        """
+        if not (provider and to_number):
+            return None
+
+        normalized = normalize_telephony_address(to_number, country_hint=country_hint)
+
+        async with self.async_session() as session:
+            stmt = (
+                select(TelephonyConfigurationModel, TelephonyPhoneNumberModel)
+                .join(
+                    TelephonyPhoneNumberModel,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == TelephonyConfigurationModel.id,
+                )
+                .where(
+                    TelephonyConfigurationModel.provider == provider,
+                    TelephonyPhoneNumberModel.address_normalized
+                    == normalized.canonical,
+                    TelephonyPhoneNumberModel.is_active.is_(True),
+                    TelephonyConfigurationModel.inactive.is_(False),
+                )
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+            if len(rows) == 1:
+                return rows[0][0], rows[0][1]
+            return None
+
     async def find_inbound_routing_conflict(
         self,
         provider: str,

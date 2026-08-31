@@ -374,6 +374,91 @@ def test_initiate_call_rejects_when_concurrency_limit_reached():
 
 
 @pytest.mark.asyncio
+async def test_inbound_run_routes_exotel_without_account_id_by_called_number():
+    """Exotel Voicebot webhooks omit AccountSid; route by called number."""
+    request = SimpleNamespace(headers={}, url="https://api.example.com/inbound/run")
+    provider_class = SimpleNamespace(
+        PROVIDER_NAME="exotel",
+        generate_validation_error_response=Mock(return_value="not-configured"),
+    )
+    normalized_data = SimpleNamespace(
+        provider="exotel",
+        direction="inbound",
+        to_number="07314852338",
+        from_number="09441233609",
+        to_country="IN",
+        from_country="IN",
+        account_id=None,
+        call_id="call-1",
+        raw_data={},
+    )
+    config = SimpleNamespace(id=55, organization_id=11)
+    phone_row = SimpleNamespace(id=77, inbound_workflow_id=33)
+    workflow = SimpleNamespace(id=33, user_id=99)
+    provider_instance = SimpleNamespace(
+        verify_inbound_signature=AsyncMock(return_value=True),
+        start_inbound_stream=AsyncMock(return_value='{"url":"wss://x"}'),
+    )
+
+    with (
+        patch(
+            "api.routes.telephony.parse_webhook_request",
+            new=AsyncMock(return_value=({}, "raw-body")),
+        ),
+        patch(
+            "api.routes.telephony._detect_provider",
+            new=AsyncMock(return_value=provider_class),
+        ),
+        patch(
+            "api.routes.telephony.normalize_webhook_data",
+            return_value=normalized_data,
+        ),
+        patch("api.routes.telephony.db_client") as mock_db,
+        patch(
+            "api.routes.telephony.get_telephony_provider_by_id",
+            new=AsyncMock(return_value=provider_instance),
+        ),
+        patch(
+            "api.routes.telephony.get_backend_endpoints",
+            new=AsyncMock(return_value=("https://api.example.test", "wss://api.example.test")),
+        ),
+        patch(
+            "api.routes.telephony.authorize_workflow_run_start",
+            new=AsyncMock(),
+        ),
+        patch(
+            "api.routes.telephony.prepare_workflow_run_inputs",
+            new=AsyncMock(return_value={}),
+        ),
+        patch("api.routes.telephony.call_concurrency") as mock_concurrency,
+        patch(
+            "api.routes.telephony._create_inbound_workflow_run",
+            new=AsyncMock(return_value=999),
+        ),
+    ):
+        mock_db.find_inbound_route_by_account = AsyncMock()
+        mock_db.find_inbound_route_by_called_number = AsyncMock(
+            return_value=(config, phone_row)
+        )
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_concurrency.acquire_org_slot = AsyncMock(return_value=object())
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_workflow_run_slot = AsyncMock()
+        mock_concurrency.release_slot = AsyncMock()
+
+        response = await handle_inbound_run(request)
+
+    mock_db.find_inbound_route_by_account.assert_not_awaited()
+    mock_db.find_inbound_route_by_called_number.assert_awaited_once_with(
+        provider="exotel",
+        to_number="07314852338",
+        country_hint="IN",
+    )
+    provider_instance.start_inbound_stream.assert_awaited_once()
+    assert response == '{"url":"wss://x"}'
+
+
+@pytest.mark.asyncio
 async def test_inbound_run_rejects_when_concurrency_limit_reached():
     request = SimpleNamespace(headers={}, url="https://api.example.com/inbound/run")
     provider_class = SimpleNamespace(

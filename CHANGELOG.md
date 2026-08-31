@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.45.3 (2026-08-31)
+
+### Persistence
+- Persist Sakinah scenario libraries per authenticated user with server-backed create, edit, delete, and cross-device loading.
+- Persist Sakinah run transcripts, conversation previews, CALM data, timestamps, agent/run IDs, and recording/transcript artifact references.
+- Keep native workflow artifacts linked to white-label runs and enforce user-scoped access.
+- Add migration `8d7f2c1a4b6e_add_sakinah_persistence` for `sakinah_scenarios` and `sakinah_runs`.
+
+### Verification and release
+- Synchronized application version across the repository to `1.45.3`.
+- Added Docker, restart-persistence, auth-isolation, scenario CRUD, run persistence, and existing configuration regression coverage.
+- Built and published matching `dograh-api:1.45.3` and `dograh-ui:1.45.3` images for `linux/amd64`.
+
 ## 1.45.0 (2026-08-11)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

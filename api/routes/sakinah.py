@@ -25,6 +25,219 @@ from api.services.workflow.run_creation import prepare_workflow_run_inputs
 router = APIRouter(prefix="/sakinah", tags=["sakinah"])
 
 
+SCENARIO_FIELDS = (
+    "title",
+    "mode",
+    "persona",
+    "age",
+    "gender",
+    "language",
+    "emotion",
+    "communication_style",
+    "initial_information",
+    "hidden_information",
+    "disclosure",
+    "behaviour",
+    "background",
+    "additional_factors",
+    "notes",
+    "freestyle_prompt",
+)
+
+
+class ScenarioWriteRequest(BaseModel):
+    title: str = Field(default="Untitled scenario", max_length=500)
+    mode: Literal["structured", "freestyle"] = "structured"
+    persona: str = Field(default="", max_length=20_000)
+    age: str = Field(default="", max_length=200)
+    gender: str = Field(default="", max_length=200)
+    language: str = Field(default="", max_length=200)
+    emotion: str = Field(default="", max_length=500)
+    communication_style: str = Field(default="", max_length=20_000)
+    initial_information: str = Field(default="", max_length=20_000)
+    hidden_information: str = Field(default="", max_length=20_000)
+    disclosure: str = Field(default="", max_length=20_000)
+    behaviour: str = Field(default="", max_length=20_000)
+    background: str = Field(default="", max_length=20_000)
+    additional_factors: str = Field(default="", max_length=20_000)
+    notes: str = Field(default="", max_length=20_000)
+    freestyle_prompt: str = Field(default="", max_length=20_000)
+
+
+class ScenarioResponse(ScenarioWriteRequest):
+    id: str
+    sequence: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ScenarioListResponse(BaseModel):
+    scenarios: list[ScenarioResponse]
+
+
+def _scenario_payload(request: ScenarioWriteRequest) -> dict[str, Any]:
+    return {field: getattr(request, field) for field in SCENARIO_FIELDS}
+
+
+def _scenario_response(value: dict[str, Any]) -> ScenarioResponse:
+    return ScenarioResponse(
+        id=value["id"],
+        sequence=value["sequence"],
+        title=value["title"],
+        mode=value["mode"],
+        persona=value["persona"],
+        age=value["age"],
+        gender=value["gender"],
+        language=value["language"],
+        emotion=value["emotion"],
+        communication_style=value["communicationStyle"],
+        initial_information=value["initialInformation"],
+        hidden_information=value["hiddenInformation"],
+        disclosure=value["disclosure"],
+        behaviour=value["behaviour"],
+        background=value["background"],
+        additional_factors=value["additionalFactors"],
+        notes=value["notes"],
+        freestyle_prompt=value["freestylePrompt"],
+        created_at=value["createdAt"],
+        updated_at=value["updatedAt"],
+    )
+
+
+def _format_transcript(turns: list[dict[str, Any]]) -> str:
+    role_labels = {
+        "user": "user",
+        "sakinah": "assistant",
+        "service_user": "service user",
+    }
+    return "".join(
+        f"[{turn.get('timestamp', '')}] {role_labels.get(turn.get('role'), turn.get('role', 'unknown'))}: {turn.get('text', '')}\n"
+        for turn in turns
+        if turn.get("text")
+    )
+
+
+@router.get("/scenarios", response_model=ScenarioListResponse)
+async def list_scenarios(user: UserModel = Depends(get_user)) -> ScenarioListResponse:
+    scenarios = await db_client.get_sakinah_scenarios(user.id)
+    return ScenarioListResponse(
+        scenarios=[_scenario_response(item) for item in scenarios]
+    )
+
+
+@router.post("/scenarios", response_model=ScenarioResponse)
+async def create_scenario(
+    request: ScenarioWriteRequest, user: UserModel = Depends(get_user)
+) -> ScenarioResponse:
+    if request.mode == "freestyle" and not request.freestyle_prompt.strip():
+        raise HTTPException(
+            status_code=422, detail="Freestyle scenarios need instructions"
+        )
+    if request.mode == "structured" and (
+        not request.title.strip()
+        or not request.persona.strip()
+        or not request.behaviour.strip()
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Structured scenarios need title, persona, and behaviour",
+        )
+    scenario = await db_client.create_sakinah_scenario(
+        user.id, _scenario_payload(request)
+    )
+    return _scenario_response(scenario)
+
+
+@router.put("/scenarios/{scenario_id}", response_model=ScenarioResponse)
+async def update_scenario(
+    scenario_id: str,
+    request: ScenarioWriteRequest,
+    user: UserModel = Depends(get_user),
+) -> ScenarioResponse:
+    scenario = await db_client.update_sakinah_scenario(
+        user.id, scenario_id, _scenario_payload(request)
+    )
+    if scenario is None:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    return _scenario_response(scenario)
+
+
+@router.delete("/scenarios/{scenario_id}", status_code=204)
+async def delete_scenario(
+    scenario_id: str, user: UserModel = Depends(get_user)
+) -> None:
+    if not await db_client.delete_sakinah_scenario(user.id, scenario_id):
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+
+class SakinahRunResponse(BaseModel):
+    session_id: uuid.UUID
+    agent_id: int
+    run_id: int
+    service_user_agent_id: int | None = None
+    service_user_run_id: int | None = None
+    scenario: str
+    status: str
+    experiment_mode: str | None = None
+    transcript: str | None = None
+    transcript_url: str | None = None
+    conversation: list[dict[str, Any]]
+    preview_data: dict[str, Any]
+    recording_url: str | None = None
+    recording_file_reference: dict[str, Any]
+    started_at: datetime
+    ended_at: datetime | None = None
+    calm_turns: list[dict[str, Any]]
+    timings: dict[str, Any]
+    created_at: datetime
+
+
+class SakinahRunListResponse(BaseModel):
+    runs: list[SakinahRunResponse]
+
+
+def _run_response(run) -> SakinahRunResponse:
+    return SakinahRunResponse(
+        session_id=run.session_id,
+        agent_id=run.agent_id,
+        run_id=run.run_id,
+        service_user_agent_id=run.service_user_agent_id,
+        service_user_run_id=run.service_user_run_id,
+        scenario=run.scenario,
+        status=run.status,
+        experiment_mode=run.experiment_mode,
+        transcript=run.transcript,
+        transcript_url=run.transcript_url,
+        conversation=run.conversation or [],
+        preview_data=run.preview_data or {},
+        recording_url=run.recording_url,
+        recording_file_reference=run.recording_file_reference or {},
+        started_at=run.started_at,
+        ended_at=run.ended_at,
+        calm_turns=run.calm_turns or [],
+        timings=run.timings or {},
+        created_at=run.created_at,
+    )
+
+
+@router.get("/runs", response_model=SakinahRunListResponse)
+async def list_sakinah_runs(
+    user: UserModel = Depends(get_user),
+) -> SakinahRunListResponse:
+    runs = await db_client.get_sakinah_runs(user.id)
+    return SakinahRunListResponse(runs=[_run_response(run) for run in runs])
+
+
+@router.get("/runs/{session_id}", response_model=SakinahRunResponse)
+async def get_sakinah_run(
+    session_id: uuid.UUID, user: UserModel = Depends(get_user)
+) -> SakinahRunResponse:
+    run = await db_client.get_sakinah_run(user.id, str(session_id))
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return _run_response(run)
+
+
 class CreateSessionRequest(BaseModel):
     scenario: str = Field(min_length=1, max_length=20_000)
     name: str | None = Field(default=None, max_length=200)
@@ -84,6 +297,14 @@ async def create_session(
         definition_id=run_inputs.definition_id,
         initial_context=run_inputs.initial_context,
     )
+    await db_client.create_sakinah_run(
+        session_id=str(session_id),
+        user_id=user.id,
+        agent_id=workflow.id,
+        run_id=run.id,
+        scenario=scenario,
+        started_at=started_at,
+    )
     create_pending_session(
         session_id=str(session_id),
         scenario=scenario,
@@ -107,16 +328,47 @@ async def end_session(
     request: EndSessionRequest,
     user: UserModel = Depends(get_user),
 ) -> EndSessionResponse:
+    ended_at = request.ended_at or datetime.now(UTC)
+    persisted_session = await db_client.get_sakinah_run(user.id, str(session_id))
+    if persisted_session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    workflow_artifacts = await db_client.get_workflow_run_artifacts_for_user(
+        user.id, persisted_session.run_id
+    )
+    transcript = _format_transcript(
+        [turn.model_dump(mode="json") for turn in request.turns]
+    )
+    persisted_run = await db_client.complete_sakinah_run(
+        user_id=user.id,
+        session_id=str(session_id),
+        status="completed",
+        ended_at=ended_at,
+        transcript=transcript,
+        conversation=[turn.model_dump(mode="json") for turn in request.turns],
+        preview_data={
+            "turns": [turn.model_dump(mode="json") for turn in request.turns]
+        },
+        recording_url=(workflow_artifacts or {}).get("recording_url"),
+        transcript_url=(workflow_artifacts or {}).get("transcript_url"),
+        recording_file_reference=(workflow_artifacts or {}).get(
+            "recording_file_reference", {}
+        ),
+        timings=request.timings,
+    )
+    if persisted_run is None:
+        raise HTTPException(status_code=404, detail="Session not found")
     try:
         finish_session(
             session_id=str(session_id),
             organization_id=user.selected_organization_id,
-            ended_at=request.ended_at or datetime.now(UTC),
+            ended_at=ended_at,
             turns=[turn.model_dump(mode="json") for turn in request.turns],
             timings=request.timings,
         )
     except (FileNotFoundError, PermissionError):
-        raise HTTPException(status_code=404, detail="Session not found") from None
+        # The database row is authoritative. The compatibility JSON file may
+        # be absent after a container restart, without losing the saved run.
+        logger.warning(f"Session JSON unavailable for persisted session {session_id}")
     return EndSessionResponse(session_id=session_id, saved=True)
 
 
@@ -180,7 +432,10 @@ async def stop_simulation(
 ) -> SimulationResponse:
     try:
         simulation = await simulation_manager.stop_simulation(
-            simulation_id, user.selected_organization_id, reason="user_stopped"
+            simulation_id,
+            user.selected_organization_id,
+            reason="user_stopped",
+            user_id=user.id,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Simulation not found") from None
@@ -193,7 +448,7 @@ async def get_simulation(
 ) -> SimulationResponse:
     try:
         simulation = simulation_manager.get(
-            simulation_id, user.selected_organization_id
+            simulation_id, user.selected_organization_id, user.id
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Simulation not found") from None
@@ -218,7 +473,7 @@ async def simulation_audio(
 
     try:
         simulation = simulation_manager.get(
-            simulation_id, user.selected_organization_id
+            simulation_id, user.selected_organization_id, user.id
         )
     except KeyError:
         await websocket.close(code=1008, reason="Simulation not found")
@@ -258,7 +513,7 @@ async def simulation_events(
 
     try:
         simulation = simulation_manager.get(
-            simulation_id, user.selected_organization_id
+            simulation_id, user.selected_organization_id, user.id
         )
     except KeyError:
         await websocket.close(code=1008, reason="Simulation not found")

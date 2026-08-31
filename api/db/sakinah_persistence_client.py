@@ -1,0 +1,296 @@
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import delete, func, or_
+from sqlalchemy.future import select
+
+from api.db.base_client import BaseDBClient
+from api.db.models import (
+    SakinahRunModel,
+    SakinahScenarioModel,
+    UserModel,
+    WorkflowModel,
+    WorkflowRunModel,
+)
+
+SCENARIO_FIELDS = (
+    "title",
+    "mode",
+    "persona",
+    "age",
+    "gender",
+    "language",
+    "emotion",
+    "communication_style",
+    "initial_information",
+    "hidden_information",
+    "disclosure",
+    "behaviour",
+    "background",
+    "additional_factors",
+    "notes",
+    "freestyle_prompt",
+)
+
+
+def _scenario_dict(scenario: SakinahScenarioModel) -> dict[str, Any]:
+    return {
+        "id": scenario.id,
+        "sequence": scenario.sequence,
+        "title": scenario.title,
+        "mode": scenario.mode,
+        "persona": scenario.persona,
+        "age": scenario.age,
+        "gender": scenario.gender,
+        "language": scenario.language,
+        "emotion": scenario.emotion,
+        "communicationStyle": scenario.communication_style,
+        "initialInformation": scenario.initial_information,
+        "hiddenInformation": scenario.hidden_information,
+        "disclosure": scenario.disclosure,
+        "behaviour": scenario.behaviour,
+        "background": scenario.background,
+        "additionalFactors": scenario.additional_factors,
+        "notes": scenario.notes,
+        "freestylePrompt": scenario.freestyle_prompt,
+        "createdAt": scenario.created_at.isoformat(),
+        "updatedAt": scenario.updated_at.isoformat(),
+    }
+
+
+class SakinahPersistenceClient(BaseDBClient):
+    async def get_sakinah_scenarios(self, user_id: int) -> list[dict[str, Any]]:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SakinahScenarioModel)
+                .where(SakinahScenarioModel.user_id == user_id)
+                .order_by(
+                    SakinahScenarioModel.sequence.asc(),
+                    SakinahScenarioModel.created_at.asc(),
+                )
+            )
+            return [_scenario_dict(item) for item in result.scalars().all()]
+
+    async def create_sakinah_scenario(
+        self,
+        user_id: int,
+        scenario: dict[str, Any],
+        *,
+        scenario_id: str | None = None,
+        sequence: int | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        async with self.async_session() as session:
+            # Lock the user row so two simultaneous creates cannot receive the
+            # same display sequence for one user.
+            await session.execute(
+                select(UserModel.id).where(UserModel.id == user_id).with_for_update()
+            )
+            if sequence is None:
+                sequence = (
+                    await session.execute(
+                        select(
+                            func.coalesce(func.max(SakinahScenarioModel.sequence), 0)
+                        ).where(SakinahScenarioModel.user_id == user_id)
+                    )
+                ).scalar_one() + 1
+            now = datetime.now(UTC)
+            item = SakinahScenarioModel(
+                id=scenario_id or str(uuid.uuid4()),
+                user_id=user_id,
+                sequence=sequence,
+                created_at=created_at or now,
+                updated_at=updated_at or now,
+                **{field: scenario.get(field, "") for field in SCENARIO_FIELDS},
+            )
+            session.add(item)
+            await session.commit()
+            await session.refresh(item)
+            return _scenario_dict(item)
+
+    async def update_sakinah_scenario(
+        self, user_id: int, scenario_id: str, scenario: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SakinahScenarioModel).where(
+                    SakinahScenarioModel.id == scenario_id,
+                    SakinahScenarioModel.user_id == user_id,
+                )
+            )
+            item = result.scalars().first()
+            if item is None:
+                return None
+            for field in SCENARIO_FIELDS:
+                setattr(item, field, scenario.get(field, ""))
+            item.updated_at = datetime.now(UTC)
+            await session.commit()
+            await session.refresh(item)
+            return _scenario_dict(item)
+
+    async def delete_sakinah_scenario(self, user_id: int, scenario_id: str) -> bool:
+        async with self.async_session() as session:
+            result = await session.execute(
+                delete(SakinahScenarioModel).where(
+                    SakinahScenarioModel.id == scenario_id,
+                    SakinahScenarioModel.user_id == user_id,
+                )
+            )
+            await session.commit()
+            return result.rowcount > 0
+
+    async def create_sakinah_run(
+        self,
+        *,
+        session_id: str,
+        user_id: int,
+        agent_id: int,
+        run_id: int,
+        scenario: str,
+        started_at: datetime,
+        service_user_agent_id: int | None = None,
+        service_user_run_id: int | None = None,
+        experiment_mode: str | None = None,
+    ) -> SakinahRunModel:
+        async with self.async_session() as session:
+            item = SakinahRunModel(
+                session_id=session_id,
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                service_user_agent_id=service_user_agent_id,
+                service_user_run_id=service_user_run_id,
+                scenario=scenario,
+                started_at=started_at,
+                experiment_mode=experiment_mode,
+            )
+            session.add(item)
+            await session.commit()
+            await session.refresh(item)
+            return item
+
+    async def get_sakinah_runs(
+        self, user_id: int, limit: int = 50
+    ) -> list[SakinahRunModel]:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SakinahRunModel)
+                .where(SakinahRunModel.user_id == user_id)
+                .order_by(SakinahRunModel.started_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
+    async def get_sakinah_run(
+        self, user_id: int, session_id: str
+    ) -> SakinahRunModel | None:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SakinahRunModel).where(
+                    SakinahRunModel.session_id == session_id,
+                    SakinahRunModel.user_id == user_id,
+                )
+            )
+            return result.scalars().first()
+
+    async def complete_sakinah_run(
+        self,
+        *,
+        user_id: int,
+        session_id: str,
+        status: str,
+        ended_at: datetime,
+        transcript: str,
+        conversation: list[dict[str, Any]],
+        preview_data: dict[str, Any],
+        recording_url: str | None = None,
+        transcript_url: str | None = None,
+        recording_file_reference: dict[str, Any] | None = None,
+        calm_turns: list[dict[str, Any]] | None = None,
+        timings: dict[str, Any] | None = None,
+    ) -> SakinahRunModel | None:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SakinahRunModel)
+                .where(
+                    SakinahRunModel.session_id == session_id,
+                    SakinahRunModel.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            item = result.scalars().first()
+            if item is None:
+                return None
+            item.status = status
+            item.ended_at = ended_at
+            item.transcript = transcript
+            item.conversation = conversation
+            item.preview_data = preview_data
+            item.recording_url = recording_url
+            item.transcript_url = transcript_url
+            item.recording_file_reference = recording_file_reference or {}
+            item.calm_turns = calm_turns or []
+            item.timings = timings or {}
+            await session.commit()
+            await session.refresh(item)
+            return item
+
+    async def get_workflow_run_artifacts_for_user(
+        self, user_id: int, run_id: int
+    ) -> dict[str, Any] | None:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == run_id,
+                    WorkflowModel.user_id == user_id,
+                )
+            )
+            run = result.scalars().first()
+            if run is None:
+                return None
+            return {
+                "recording_url": run.recording_url,
+                "transcript_url": run.transcript_url,
+                "recording_file_reference": (run.extra or {}).get("recordings", {}),
+            }
+
+    async def sync_sakinah_run_artifacts(self, workflow_run_id: int) -> None:
+        """Copy native workflow artifact references into the white-label run."""
+        async with self.async_session() as session:
+            run_result = await session.execute(
+                select(WorkflowRunModel, WorkflowModel.user_id)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(WorkflowRunModel.id == workflow_run_id)
+            )
+            workflow_row = run_result.first()
+            if workflow_row is None:
+                return
+            workflow_run, workflow_owner_id = workflow_row
+            white_label_result = await session.execute(
+                select(SakinahRunModel).where(
+                    SakinahRunModel.user_id == workflow_owner_id,
+                    or_(
+                        SakinahRunModel.run_id == workflow_run_id,
+                        SakinahRunModel.service_user_run_id == workflow_run_id,
+                    ),
+                )
+            )
+            white_label_run = white_label_result.scalars().first()
+            if white_label_run is None:
+                return
+            role = (
+                "service_user"
+                if white_label_run.service_user_run_id == workflow_run_id
+                else "sakinah"
+            )
+            references = dict(white_label_run.recording_file_reference or {})
+            references[role] = (workflow_run.extra or {}).get("recordings", {})
+            white_label_run.recording_file_reference = references
+            if role == "sakinah":
+                white_label_run.recording_url = workflow_run.recording_url
+                white_label_run.transcript_url = workflow_run.transcript_url
+            await session.commit()

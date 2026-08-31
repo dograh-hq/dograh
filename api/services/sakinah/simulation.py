@@ -22,8 +22,8 @@ from api.services.pipecat.ws_sender_registry import (
     unregister_ws_sender,
 )
 from api.services.quota_service import authorize_workflow_run_start
-from api.services.sakinah.calm_evaluation import CalmEvaluator, run_llm_inference
 from api.services.sakinah.calm.runtime import EXPERIMENT_MODES, CalmSimulationRuntime
+from api.services.sakinah.calm_evaluation import CalmEvaluator, run_llm_inference
 from api.services.sakinah.internal_transport import (
     InternalTransport,
     create_internal_transport_pair,
@@ -48,6 +48,15 @@ SERVICE_USER_START_DELAY_SECONDS = 1.5
 
 # How long to wait for pipelines to wind down gracefully before cancelling.
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 15.0
+
+
+def _format_simulation_transcript(turns: list[dict[str, Any]]) -> str:
+    role_labels = {"sakinah": "assistant", "service_user": "service user"}
+    return "".join(
+        f"[{turn.get('timestamp', '')}] {role_labels.get(turn.get('role'), turn.get('role', 'unknown'))}: {turn.get('text', '')}\n"
+        for turn in turns
+        if turn.get("text")
+    )
 
 
 class SimulationAuthorizationError(Exception):
@@ -81,8 +90,10 @@ class Simulation:
         scenario: str,
         max_duration_seconds: int,
         experiment_mode: str = "full_calm_prompt",
+        user_id: int | None = None,
     ):
         self.id = simulation_id
+        self.user_id = user_id
         self.organization_id = organization_id
         self.scenario = scenario
         self.max_duration_seconds = max_duration_seconds
@@ -227,9 +238,15 @@ class SimulationManager:
     def __init__(self):
         self._simulations: Dict[str, Simulation] = {}
 
-    def get(self, simulation_id: str, organization_id: int) -> Simulation:
+    def get(
+        self, simulation_id: str, organization_id: int, user_id: int | None = None
+    ) -> Simulation:
         simulation = self._simulations.get(simulation_id)
-        if not simulation or simulation.organization_id != organization_id:
+        if (
+            not simulation
+            or simulation.organization_id != organization_id
+            or (user_id is not None and simulation.user_id != user_id)
+        ):
             raise KeyError(simulation_id)
         return simulation
 
@@ -266,6 +283,7 @@ class SimulationManager:
             scenario=scenario,
             max_duration_seconds=max_duration,
             experiment_mode=experiment_mode,
+            user_id=user.id,
         )
 
         sakinah_workflow = await ensure_sakinah_workflow(db_client, user)
@@ -334,6 +352,18 @@ class SimulationManager:
                     quota_result.error_message
                     or f"Workflow run authorization failed for {role}"
                 )
+
+        await db_client.create_sakinah_run(
+            session_id=simulation.id,
+            user_id=user.id,
+            agent_id=simulation.agents[SAKINAH_ROLE].workflow_id,
+            run_id=simulation.agents[SAKINAH_ROLE].workflow_run_id,
+            service_user_agent_id=simulation.agents[SERVICE_USER_ROLE].workflow_id,
+            service_user_run_id=simulation.agents[SERVICE_USER_ROLE].workflow_run_id,
+            scenario=scenario,
+            started_at=simulation.started_at,
+            experiment_mode=simulation.experiment_mode,
+        )
 
         simulation.evaluator = CalmEvaluator(
             self._make_evaluation_inference(simulation)
@@ -669,7 +699,10 @@ class SimulationManager:
             f"Simulation {simulation.id}: {role} finished, stopping peer ({reason})"
         )
         await self.stop_simulation(
-            simulation.id, simulation.organization_id, reason=reason
+            simulation.id,
+            simulation.organization_id,
+            reason=reason,
+            user_id=simulation.user_id,
         )
 
     async def _watchdog(self, simulation: Simulation) -> None:
@@ -682,13 +715,20 @@ class SimulationManager:
             f"{simulation.max_duration_seconds}s reached, stopping"
         )
         await self.stop_simulation(
-            simulation.id, simulation.organization_id, reason="max_duration"
+            simulation.id,
+            simulation.organization_id,
+            reason="max_duration",
+            user_id=simulation.user_id,
         )
 
     async def stop_simulation(
-        self, simulation_id: str, organization_id: int, reason: str = "stopped"
+        self,
+        simulation_id: str,
+        organization_id: int,
+        reason: str = "stopped",
+        user_id: int | None = None,
     ) -> Simulation:
-        simulation = self.get(simulation_id, organization_id)
+        simulation = self.get(simulation_id, organization_id, user_id)
         if simulation._stopping or simulation._finalized:
             return simulation
         simulation._stopping = True
@@ -730,7 +770,7 @@ class SimulationManager:
             if agent.pipeline_task is not None
         ]
         if pending:
-            done, still_pending = await asyncio.wait(
+            _done, still_pending = await asyncio.wait(
                 pending, timeout=GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
             )
             for task in still_pending:
@@ -779,6 +819,43 @@ class SimulationManager:
             logger.error(
                 f"Simulation {simulation.id}: failed to save session JSON: {e}"
             )
+
+        if simulation.user_id is not None:
+            artifact_references: dict[str, Any] = {}
+            for role, agent in simulation.agents.items():
+                artifacts = await db_client.get_workflow_run_artifacts_for_user(
+                    simulation.user_id, agent.workflow_run_id
+                )
+                if artifacts is not None:
+                    artifact_references[role] = artifacts
+            primary_artifacts = artifact_references.get(SAKINAH_ROLE, {})
+            try:
+                await db_client.complete_sakinah_run(
+                    user_id=simulation.user_id,
+                    session_id=simulation.id,
+                    status=simulation.status,
+                    ended_at=simulation.ended_at,
+                    transcript=_format_simulation_transcript(turns),
+                    conversation=turns,
+                    preview_data={
+                        "turns": turns,
+                        "agents": simulation.snapshot()["agents"],
+                        "calm_scores": simulation.snapshot()["calm_scores"],
+                        "calm_trend": simulation.snapshot()["calm_trend"],
+                    },
+                    recording_url=primary_artifacts.get("recording_url"),
+                    transcript_url=primary_artifacts.get("transcript_url"),
+                    recording_file_reference=artifact_references,
+                    calm_turns=simulation.calm_runtime.turns,
+                    timings={
+                        "duration_ms": (
+                            simulation.ended_at - simulation.started_at
+                        ).total_seconds()
+                        * 1000
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Simulation {simulation.id}: failed to save DB run: {e}")
 
         # Signal end-of-stream to audio listeners.
         for queue in list(simulation.audio_subscribers):

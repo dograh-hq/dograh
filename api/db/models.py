@@ -70,6 +70,12 @@ class UserModel(Base):
     is_superuser = Column(Boolean, default=False)
     email = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)
+    sakinah_scenarios = relationship(
+        "SakinahScenarioModel", back_populates="user", cascade="all, delete-orphan"
+    )
+    sakinah_runs = relationship(
+        "SakinahRunModel", back_populates="user", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index(
@@ -594,6 +600,87 @@ class WorkflowRunModel(Base):
         ),
         Index("idx_workflow_runs_workflow_id", "workflow_id"),
         Index("idx_workflow_runs_campaign_id", "campaign_id"),
+    )
+
+
+class SakinahScenarioModel(Base):
+    """A persisted Sakinah scenario owned by one authenticated user."""
+
+    __tablename__ = "sakinah_scenarios"
+
+    id = Column(String(128), primary_key=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sequence = Column(Integer, nullable=False)
+    title = Column(String, nullable=False)
+    mode = Column(String(32), nullable=False)
+    persona = Column(Text, nullable=False, default="")
+    age = Column(String, nullable=False, default="")
+    gender = Column(String, nullable=False, default="")
+    language = Column(String, nullable=False, default="")
+    emotion = Column(String, nullable=False, default="")
+    communication_style = Column(Text, nullable=False, default="")
+    initial_information = Column(Text, nullable=False, default="")
+    hidden_information = Column(Text, nullable=False, default="")
+    disclosure = Column(Text, nullable=False, default="")
+    behaviour = Column(Text, nullable=False, default="")
+    background = Column(Text, nullable=False, default="")
+    additional_factors = Column(Text, nullable=False, default="")
+    notes = Column(Text, nullable=False, default="")
+    freestyle_prompt = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    user = relationship("UserModel", back_populates="sakinah_scenarios")
+
+    __table_args__ = (
+        Index("ix_sakinah_scenarios_user_sequence", "user_id", "sequence"),
+    )
+
+
+class SakinahRunModel(Base):
+    """Durable white-label Sakinah run summary linked to native workflow runs."""
+
+    __tablename__ = "sakinah_runs"
+
+    session_id = Column(String(36), primary_key=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_id = Column(Integer, nullable=False)
+    run_id = Column(Integer, nullable=False, index=True)
+    service_user_agent_id = Column(Integer, nullable=True)
+    service_user_run_id = Column(Integer, nullable=True)
+    scenario = Column(Text, nullable=False)
+    status = Column(String(32), nullable=False, default="running")
+    experiment_mode = Column(String(64), nullable=True)
+    transcript = Column(Text, nullable=True)
+    transcript_url = Column(String, nullable=True)
+    conversation = Column(
+        JSON, nullable=False, default=list, server_default=text("'[]'::json")
+    )
+    preview_data = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+    recording_url = Column(String, nullable=True)
+    recording_file_reference = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    calm_turns = Column(
+        JSON, nullable=False, default=list, server_default=text("'[]'::json")
+    )
+    timings = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    user = relationship("UserModel", back_populates="sakinah_runs")
+
+    __table_args__ = (
+        Index("ix_sakinah_runs_user_started_at", "user_id", "started_at"),
     )
 
 

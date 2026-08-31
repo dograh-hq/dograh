@@ -430,6 +430,10 @@ def register_event_handlers(
                 bot_audio_wav=bot_audio_wav,
                 transcript_text=transcript_text,
             )
+            if (workflow_run.initial_context or {}).get("session_id") or (
+                workflow_run.initial_context or {}
+            ).get("simulation_id"):
+                await db_client.sync_sakinah_run_artifacts(workflow_run_id)
         except Exception as e:
             logger.error(f"Error uploading call artifacts: {e}", exc_info=True)
 

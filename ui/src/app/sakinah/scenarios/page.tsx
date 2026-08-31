@@ -20,8 +20,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-    createScenario, duplicateScenario, EMPTY_SCENARIO_DRAFT, formatScenarioNumber,
-    loadScenarios, parseScenarioImport, saveScenarios, type Scenario, type ScenarioDraft, type ScenarioMode,
+    deleteSakinahScenario, loadSakinahScenariosWithLegacyMigration,
+    saveSakinahScenario,
+} from "@/lib/sakinahPersistence";
+import {
+    duplicateScenario, EMPTY_SCENARIO_DRAFT, formatScenarioNumber,
+    parseScenarioImport, type Scenario, type ScenarioDraft, type ScenarioMode,
     scenarioToDraft,
 } from "@/lib/sakinahScenarios";
 
@@ -108,9 +112,18 @@ export default function ScenarioLibraryPage() {
     const [editing, setEditing] = useState<Scenario | null>(null);
     const [deleting, setDeleting] = useState<Scenario | null>(null);
     const [importMessage, setImportMessage] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
     const importInputRef = useRef<HTMLInputElement | null>(null);
-    useEffect(() => { setScenarios(loadScenarios(window.localStorage)); setLoaded(true); }, []);
-    const persist = (next: Scenario[]) => { setScenarios(next); saveScenarios(window.localStorage, next); };
+    useEffect(() => {
+        let cancelled = false;
+        void loadSakinahScenariosWithLegacyMigration()
+            .then((loadedScenarios) => { if (!cancelled) setScenarios(loadedScenarios); })
+            .catch((loadError) => {
+                if (!cancelled) setImportMessage(loadError instanceof Error ? loadError.message : "Unable to load scenarios.");
+            })
+            .finally(() => { if (!cancelled) setLoaded(true); });
+        return () => { cancelled = true; };
+    }, []);
     const openCreate = () => { setEditing(null); setEditorOpen(true); };
     const handleImport = async (file: File | undefined) => {
         if (!file) return;
@@ -121,25 +134,62 @@ export default function ScenarioLibraryPage() {
         }
         try {
             const imported = parseScenarioImport(await file.text(), scenarios);
-            persist([...scenarios, ...imported]);
+            setSaving(true);
+            const saved = [...scenarios];
+            for (const scenario of imported) saved.push(await saveSakinahScenario(null, scenarioToDraft(scenario)));
+            setScenarios(saved);
             setImportMessage(`Imported ${imported.length} scenario${imported.length === 1 ? "" : "s"}.`);
         } catch (importError) {
             setImportMessage(importError instanceof Error ? importError.message : "Unable to import scenarios.");
         } finally {
+            setSaving(false);
             if (importInputRef.current) importInputRef.current.value = "";
         }
     };
-    const handleSave = (draft: ScenarioDraft) => {
-        if (editing) persist(scenarios.map((item) => item.id === editing.id ? { ...editing, ...draft, updatedAt: new Date().toISOString() } : item));
-        else persist([...scenarios, createScenario(draft, scenarios)]);
-        setEditorOpen(false);
+    const handleSave = async (draft: ScenarioDraft) => {
+        setSaving(true);
+        try {
+            const saved = await saveSakinahScenario(editing, draft);
+            setScenarios((current) => editing
+                ? current.map((item) => item.id === editing.id ? saved : item)
+                : [...current, saved]);
+            setEditorOpen(false);
+        } catch (saveError) {
+            setImportMessage(saveError instanceof Error ? saveError.message : "Unable to save scenario.");
+        } finally {
+            setSaving(false);
+        }
+    };
+    const handleDuplicate = async (scenario: Scenario) => {
+        setSaving(true);
+        try {
+            const saved = await saveSakinahScenario(null, scenarioToDraft(duplicateScenario(scenario, scenarios)));
+            setScenarios((current) => [...current, saved]);
+        } catch (duplicateError) {
+            setImportMessage(duplicateError instanceof Error ? duplicateError.message : "Unable to duplicate scenario.");
+        } finally {
+            setSaving(false);
+        }
+    };
+    const handleDelete = async () => {
+        if (!deleting) return;
+        setSaving(true);
+        try {
+            await deleteSakinahScenario(deleting.id);
+            setScenarios((current) => current.filter((item) => item.id !== deleting.id));
+            setDeleting(null);
+        } catch (deleteError) {
+            setImportMessage(deleteError instanceof Error ? deleteError.message : "Unable to delete scenario.");
+        } finally {
+            setSaving(false);
+        }
     };
     return <main className="mx-auto w-full max-w-6xl space-y-6 p-4 md:p-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-2"><p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Sakinah</p><h1 className="text-3xl font-bold tracking-tight">Scenario Library</h1><p className="text-muted-foreground">Create and manage simulated service-user scenarios for Sakinah testing.</p></div><div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImport(event.target.files?.[0])} /><Button variant="outline" onClick={() => importInputRef.current?.click()}><Upload />Import JSON</Button><Button onClick={openCreate}><Plus />Create Scenario</Button></div></header>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-2"><p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Sakinah</p><h1 className="text-3xl font-bold tracking-tight">Scenario Library</h1><p className="text-muted-foreground">Create and manage simulated service-user scenarios for Sakinah testing.</p></div><div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImport(event.target.files?.[0])} /><Button variant="outline" disabled={saving} onClick={() => importInputRef.current?.click()}><Upload />Import JSON</Button><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></div></header>
         {importMessage ? <p role="status" className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">{importMessage}</p> : null}
-        {loaded && scenarios.length === 0 ? <Card className="py-14 text-center"><CardContent className="space-y-4"><Library className="mx-auto size-10 text-muted-foreground" /><div><h2 className="font-semibold">No scenarios yet.</h2><p className="text-sm text-muted-foreground">Create a reusable scenario to begin testing Sakinah.</p></div><Button onClick={openCreate}><Plus />Create Scenario</Button></CardContent></Card> : null}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{scenarios.map((scenario) => <Card key={scenario.id} className="flex flex-col"><CardHeader><div className="flex items-center justify-between gap-3"><Badge variant="secondary">{formatScenarioNumber(scenario.sequence)}</Badge><Badge variant="outline" className="capitalize">{scenario.mode}</Badge></div><CardTitle className="mt-2">{scenario.title}</CardTitle><CardDescription className="line-clamp-3">{scenario.mode === "freestyle" ? scenario.freestylePrompt : scenario.persona}</CardDescription></CardHeader><CardContent className="flex-1 space-y-1 text-sm text-muted-foreground">{scenario.language ? <p>Language: {scenario.language}</p> : null}{scenario.emotion ? <p>Emotion: {scenario.emotion}</p> : null}</CardContent><CardFooter className="flex flex-wrap gap-2"><Button size="sm" onClick={() => router.push(`/sakinah/sim?scenario=${encodeURIComponent(scenario.id)}`)}><Play />Use in Simulation</Button><Button size="icon" variant="outline" aria-label={`Edit ${scenario.title}`} onClick={() => { setEditing(scenario); setEditorOpen(true); }}><Pencil /></Button><Button size="icon" variant="outline" aria-label={`Duplicate ${scenario.title}`} onClick={() => persist([...scenarios, duplicateScenario(scenario, scenarios)])}><Copy /></Button><Button size="icon" variant="outline" aria-label={`Delete ${scenario.title}`} onClick={() => setDeleting(scenario)}><Trash2 /></Button></CardFooter></Card>)}</div>
+        {loaded && scenarios.length === 0 ? <Card className="py-14 text-center"><CardContent className="space-y-4"><Library className="mx-auto size-10 text-muted-foreground" /><div><h2 className="font-semibold">No scenarios yet.</h2><p className="text-sm text-muted-foreground">Create a reusable scenario to begin testing Sakinah.</p></div><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></CardContent></Card> : null}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{scenarios.map((scenario) => <Card key={scenario.id} className="flex flex-col"><CardHeader><div className="flex items-center justify-between gap-3"><Badge variant="secondary">{formatScenarioNumber(scenario.sequence)}</Badge><Badge variant="outline" className="capitalize">{scenario.mode}</Badge></div><CardTitle className="mt-2">{scenario.title}</CardTitle><CardDescription className="line-clamp-3">{scenario.mode === "freestyle" ? scenario.freestylePrompt : scenario.persona}</CardDescription></CardHeader><CardContent className="flex-1 space-y-1 text-sm text-muted-foreground">{scenario.language ? <p>Language: {scenario.language}</p> : null}{scenario.emotion ? <p>Emotion: {scenario.emotion}</p> : null}</CardContent><CardFooter className="flex flex-wrap gap-2"><Button size="sm" disabled={saving} onClick={() => router.push(`/sakinah/sim?scenario=${encodeURIComponent(scenario.id)}`)}><Play />Use in Simulation</Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Edit ${scenario.title}`} onClick={() => { setEditing(scenario); setEditorOpen(true); }}><Pencil /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Duplicate ${scenario.title}`} onClick={() => void handleDuplicate(scenario)}><Copy /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Delete ${scenario.title}`} onClick={() => setDeleting(scenario)}><Trash2 /></Button></CardFooter></Card>)}</div>
         <ScenarioEditor open={editorOpen} scenario={editing} onOpenChange={setEditorOpen} onSave={handleSave} />
-        <AlertDialog open={deleting !== null} onOpenChange={(open) => { if (!open) setDeleting(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete scenario?</AlertDialogTitle><AlertDialogDescription>This permanently removes {deleting ? formatScenarioNumber(deleting.sequence) : "this scenario"}. Other scenario numbers will not change.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => { if (deleting) persist(scenarios.filter((item) => item.id !== deleting.id)); setDeleting(null); }}>Delete Scenario</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+        <AlertDialog open={deleting !== null} onOpenChange={(open) => { if (!open && !saving) setDeleting(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete scenario?</AlertDialogTitle><AlertDialogDescription>This permanently removes {deleting ? formatScenarioNumber(deleting.sequence) : "this scenario"}. Other scenario numbers will not change.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel><AlertDialogAction disabled={saving} className="bg-destructive text-white hover:bg-destructive/90" onClick={() => void handleDelete()}>Delete Scenario</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </main>;
 }

@@ -16,7 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
-import { compileScenarioPrompt, findScenario } from "@/lib/sakinahScenarios";
+import { listSakinahScenarios } from "@/lib/sakinahPersistence";
+import { compileScenarioPrompt } from "@/lib/sakinahScenarios";
 import { cn } from "@/lib/utils";
 
 import { CalmEvaluationPanel } from "./CalmEvaluationPanel";
@@ -68,8 +69,12 @@ export default function SakinahSimulationPage() {
     useEffect(() => {
         const scenarioId = new URLSearchParams(window.location.search).get("scenario");
         if (!scenarioId) return;
-        const savedScenario = findScenario(window.localStorage, scenarioId);
-        if (savedScenario) setScenario(compileScenarioPrompt(savedScenario));
+        void listSakinahScenarios()
+            .then((savedScenarios) => {
+                const savedScenario = savedScenarios.find((item) => item.id === scenarioId);
+                if (savedScenario) setScenario(compileScenarioPrompt(savedScenario));
+            })
+            .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load scenario."));
     }, []);
 
     const isActive =

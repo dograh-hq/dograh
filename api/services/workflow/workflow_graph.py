@@ -2,7 +2,12 @@ import re
 from collections import Counter
 from typing import Dict, Iterable, List, Set
 
-from api.services.workflow.dto import EdgeDataDTO, NodeType, ReactFlowDTO
+from api.services.workflow.dto import (
+    EdgeDataDTO,
+    NodeType,
+    PreCallFetchMode,
+    ReactFlowDTO,
+)
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs import all_specs, get_spec
@@ -129,13 +134,20 @@ class Node:
         self.tool_uuids = getattr(data, "tool_uuids", None)
         self.document_uuids = getattr(data, "document_uuids", None)
         self.mcp_tool_filters = getattr(data, "mcp_tool_filters", None)
-        self.pre_call_fetch_enabled = getattr(data, "pre_call_fetch_enabled", False)
+        mode = getattr(data, "pre_call_fetch_mode", PreCallFetchMode.disabled)
+        self.pre_call_fetch_mode = mode.value if hasattr(mode, "value") else mode
         self.pre_call_fetch_url = getattr(data, "pre_call_fetch_url", None)
         self.pre_call_fetch_credential_uuid = getattr(
             data, "pre_call_fetch_credential_uuid", None
         )
 
         self.data = data
+
+    def should_run_pre_call_fetch(self, direction: str | None) -> bool:
+        """Return whether the Start-node fetch applies to this execution."""
+        if self.pre_call_fetch_mode == "always":
+            return True
+        return self.pre_call_fetch_mode == direction
 
 
 def _instance_constraint_message(

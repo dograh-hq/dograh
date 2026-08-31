@@ -5,6 +5,7 @@ Each row represents one provider account that an organization has connected
 ``OrganizationConfiguration(TELEPHONY_CONFIGURATION)`` storage.
 """
 
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, update
@@ -19,6 +20,10 @@ class TelephonyConfigurationInUseError(Exception):
     """Raised when deleting a config that is still referenced by a campaign."""
 
 
+class TelephonyConfigurationConflictError(Exception):
+    """Raised when a telephony configuration violates a DB constraint."""
+
+
 class TelephonyConfigurationClient(BaseDBClient):
     async def list_telephony_configurations(
         self, organization_id: int
@@ -31,6 +36,25 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return list(result.scalars().all())
 
+    async def list_outbound_telephony_configuration_candidates(
+        self, organization_id: int
+    ) -> List[TelephonyConfigurationModel]:
+        """Active outbound candidates, with an explicit default considered first."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyConfigurationModel)
+                .where(
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                    TelephonyConfigurationModel.inactive.is_(False),
+                )
+                .order_by(
+                    TelephonyConfigurationModel.is_default_outbound.desc(),
+                    TelephonyConfigurationModel.created_at,
+                    TelephonyConfigurationModel.id,
+                )
+            )
+            return list(result.scalars().all())
+
     async def get_telephony_configuration(
         self, config_id: int
     ) -> Optional[TelephonyConfigurationModel]:
@@ -38,41 +62,52 @@ class TelephonyConfigurationClient(BaseDBClient):
             return await session.get(TelephonyConfigurationModel, config_id)
 
     async def get_telephony_configuration_for_org(
-        self, config_id: int, organization_id: int
+        self,
+        config_id: int,
+        organization_id: int,
+        active_only: bool = True,
     ) -> Optional[TelephonyConfigurationModel]:
-        """Lookup scoped to an org — used to authorize per-org access."""
+        """Lookup scoped to an org, excluding parked configs by default.
+
+        Management flows that need to display, repair, or reactivate a parked
+        row must opt in with ``active_only=False``.
+        """
         async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.id == config_id,
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                )
+            query = select(TelephonyConfigurationModel).where(
+                TelephonyConfigurationModel.id == config_id,
+                TelephonyConfigurationModel.organization_id == organization_id,
             )
+            if active_only:
+                query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            result = await session.execute(query)
             return result.scalars().first()
 
     async def get_default_telephony_configuration(
-        self, organization_id: int
+        self, organization_id: int, active_only: bool = True
     ) -> Optional[TelephonyConfigurationModel]:
+        """Return the default outbound config, if it is usable for routing."""
         async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                    TelephonyConfigurationModel.is_default_outbound.is_(True),
-                )
+            query = select(TelephonyConfigurationModel).where(
+                TelephonyConfigurationModel.organization_id == organization_id,
+                TelephonyConfigurationModel.is_default_outbound.is_(True),
             )
+            if active_only:
+                query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            result = await session.execute(query)
             return result.scalars().first()
 
     async def list_telephony_configurations_by_provider(
-        self, organization_id: int, provider: str
+        self, organization_id: int, provider: str, active_only: bool = True
     ) -> List[TelephonyConfigurationModel]:
-        """Used by inbound matching to enumerate candidates of a given provider."""
+        """List provider configs usable for inbound matching by default."""
         async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                    TelephonyConfigurationModel.provider == provider,
-                )
+            query = select(TelephonyConfigurationModel).where(
+                TelephonyConfigurationModel.organization_id == organization_id,
+                TelephonyConfigurationModel.provider == provider,
             )
+            if active_only:
+                query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            result = await session.execute(query)
             return list(result.scalars().all())
 
     async def count_telnyx_configs_missing_webhook_public_key(
@@ -127,21 +162,65 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return int(result.scalar() or 0)
 
-    async def list_all_telephony_configurations_by_provider(
+    async def list_active_telephony_configurations_by_provider(
         self, provider: str
     ) -> List[TelephonyConfigurationModel]:
-        """List configs of a given provider across every organization.
+        """List the non-deactivated configs of a given provider, across all orgs.
 
         Used by background workers like the ARI manager that maintain
         long-lived connections per config row, independent of any one org.
+        Deactivated rows stay excluded until someone reactivates them.
         """
         async with self.async_session() as session:
             result = await session.execute(
                 select(TelephonyConfigurationModel).where(
                     TelephonyConfigurationModel.provider == provider,
+                    TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
             return list(result.scalars().all())
+
+    async def set_telephony_configuration_inactive(
+        self, config_id: int, organization_id: int, reason: str
+    ) -> bool:
+        """Deactivate a config, recording when and why."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(TelephonyConfigurationModel)
+                .where(
+                    TelephonyConfigurationModel.id == config_id,
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                )
+                .values(
+                    inactive=True,
+                    inactive_since=datetime.now(UTC),
+                    inactive_reason=reason[:255],
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+            return bool(result.rowcount)
+
+    async def set_telephony_configuration_active(
+        self, config_id: int, organization_id: int
+    ) -> bool:
+        """Clear the inactive flag and the recorded deactivation details."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(TelephonyConfigurationModel)
+                .where(
+                    TelephonyConfigurationModel.id == config_id,
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                )
+                .values(
+                    inactive=False,
+                    inactive_since=None,
+                    inactive_reason=None,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+            return bool(result.rowcount)
 
     async def create_telephony_configuration(
         self,
@@ -152,16 +231,17 @@ class TelephonyConfigurationClient(BaseDBClient):
         is_default_outbound: bool = False,
     ) -> TelephonyConfigurationModel:
         """Create a new config row. Duplicate-account guarding is the caller's
-        responsibility; this method does not enforce it."""
+        responsibility; this method does not enforce it.
+
+        Which configuration is the default outbound is the customer's choice,
+        so this stores exactly what the caller passed. The only write beyond
+        the new row is demoting the previous default when this one claims it —
+        part of honouring ``is_default_outbound=True``, since two defaults in
+        one organization would make ``get_default_telephony_configuration``
+        return an arbitrary row.
+        """
         async with self.async_session() as session:
-            existing_count = await session.scalar(
-                select(func.count(TelephonyConfigurationModel.id)).where(
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                )
-            )
-            if existing_count == 0:
-                is_default_outbound = True
-            elif is_default_outbound:
+            if is_default_outbound:
                 await self._clear_default_outbound(session, organization_id)
 
             row = TelephonyConfigurationModel(
@@ -176,7 +256,7 @@ class TelephonyConfigurationClient(BaseDBClient):
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
-                raise e
+                raise TelephonyConfigurationConflictError(str(e)) from e
             await session.refresh(row)
             return row
 
@@ -201,7 +281,7 @@ class TelephonyConfigurationClient(BaseDBClient):
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
-                raise e
+                raise TelephonyConfigurationConflictError(str(e)) from e
             await session.refresh(row)
             return row
 

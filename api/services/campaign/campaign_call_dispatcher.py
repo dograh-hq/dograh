@@ -36,23 +36,31 @@ class CampaignCallDispatcher:
     """Manages rate-limited and concurrent-limited call dispatching"""
 
     async def get_provider_for_campaign(self, campaign) -> "TelephonyProvider":
-        """Get the telephony provider pinned to this campaign's config. Falls back
-        to the org's default config for legacy campaigns whose
-        ``telephony_configuration_id`` was never backfilled."""
-        from api.services.telephony.factory import (
-            get_default_telephony_provider,
-            get_telephony_provider_by_id,
+        """Resolve and pre-flight the provider used by a campaign.
+
+        Legacy campaigns without a pinned configuration select the first active
+        outbound-ready config, preferring an explicit default. The resolved id
+        is pinned on this detached campaign instance for the rest of the batch.
+        """
+        from api.services.telephony.factory import get_telephony_provider_by_id
+        from api.services.telephony.outbound_readiness import (
+            resolve_outbound_configuration_id,
         )
 
-        if campaign.telephony_configuration_id:
-            return await get_telephony_provider_by_id(
-                campaign.telephony_configuration_id, campaign.organization_id
-            )
-        logger.warning(
-            f"Campaign {campaign.id} has no telephony_configuration_id; "
-            f"falling back to org default for {campaign.organization_id}"
+        requested_id = campaign.telephony_configuration_id
+        resolved_id = await resolve_outbound_configuration_id(
+            requested_id,
+            campaign.organization_id,
+            db=db_client,
         )
-        return await get_default_telephony_provider(campaign.organization_id)
+        if requested_id is None:
+            logger.warning(
+                f"Campaign {campaign.id} has no telephony_configuration_id; "
+                f"using ready config {resolved_id} for org "
+                f"{campaign.organization_id}"
+            )
+            campaign.telephony_configuration_id = resolved_id
+        return await get_telephony_provider_by_id(resolved_id, campaign.organization_id)
 
     async def get_org_concurrent_limit(self, organization_id: int) -> int:
         """Get the concurrent call limit for an organization."""
@@ -64,6 +72,10 @@ class CampaignCallDispatcher:
         Thread-safe: uses SELECT FOR UPDATE SKIP LOCKED to prevent concurrent processing.
         Returns: number of processed runs
         """
+        # Lazy to preserve this module's import-cycle boundary with telephony
+        # provider registration. See the TYPE_CHECKING note above.
+        from api.services.telephony.outbound_readiness import OutboundReadinessError
+
         # Get campaign details
         campaign = await db_client.get_campaign_by_id(campaign_id)
         if not campaign:
@@ -143,6 +155,19 @@ class CampaignCallDispatcher:
                 )
                 await self._return_unprocessed_claims(
                     queued_runs, processed_run_ids, reason="task_cancelled"
+                )
+                raise
+
+            except OutboundReadinessError as e:
+                logger.warning(
+                    f"Outbound setup is incomplete for campaign {campaign_id}; "
+                    "returning claimed queued runs without dispatching calls: "
+                    f"{e}"
+                )
+                await self._return_unprocessed_claims(
+                    queued_runs,
+                    processed_run_ids,
+                    reason="outbound_readiness_failed",
                 )
                 raise
 
@@ -278,6 +303,7 @@ class CampaignCallDispatcher:
                 "source_uuid": queued_run.source_uuid,
                 "caller_number": from_number,
                 "called_number": phone_number,
+                "direction": "outbound",
                 "telephony_configuration_id": campaign.telephony_configuration_id,
             }
 

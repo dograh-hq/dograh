@@ -18,7 +18,7 @@ class TestGoogleVertexLLMConfiguration:
     def test_defaults(self):
         config = GoogleVertexLLMConfiguration(project_id="demo-project")
         assert config.provider == ServiceProviders.GOOGLE_VERTEX
-        assert config.model == "gemini-2.5-flash"
+        assert config.model == "gemini-3.5-flash"
         assert config.location == "global"
         assert config.credentials is None
         assert config.api_key is None
@@ -57,7 +57,7 @@ class TestGoogleVertexLLMServiceFactory:
             llm=SimpleNamespace(
                 provider=ServiceProviders.GOOGLE_VERTEX.value,
                 api_key=None,
-                model="gemini-2.5-flash",
+                model="gemini-3.5-flash",
                 project_id="demo-project",
                 location="us-east4",
                 credentials='{"type":"service_account"}',

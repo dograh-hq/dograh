@@ -67,6 +67,8 @@ import { useWorkflowState } from "../hooks/useWorkflowState";
 // Constants
 // ---------------------------------------------------------------------------
 
+const PUBLISH_WORKFLOW_REMINDER = "Publish the agent to apply the changes.";
+
 const DEFAULT_VOICEMAIL_SYSTEM_PROMPT = `You are a voicemail detection classifier for an OUTBOUND calling system. A bot has called a phone number and you need to determine if a human answered or if the call went to voicemail based on the provided text.
 
 HUMAN ANSWERED - LIVE CONVERSATION (respond "CONVERSATION"):
@@ -305,6 +307,9 @@ function GeneralSection({
     const [externalPbxFieldMappings, setExternalPbxFieldMappings] = useState<ExternalPBXFieldMapping[]>(
         workflowConfigurations.external_pbx_field_mappings,
     );
+    const [externalPbxLeadHeaders, setExternalPbxLeadHeaders] = useState<string[]>(
+        workflowConfigurations.external_pbx_lead_headers,
+    );
     const [isSaving, setIsSaving] = useState(false);
     const [isUploadingAudio, setIsUploadingAudio] = useState(false);
     const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
@@ -318,6 +323,11 @@ function GeneralSection({
             Boolean(mapping.context_path.trim()) &&
             /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(mapping.destination_field.trim()),
     );
+    const externalPbxLeadHeadersValid = externalPbxLeadHeaders.every((field) =>
+        /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field.trim()),
+    );
+    const externalPbxSettingsValid =
+        externalPbxFieldMappingsValid && externalPbxLeadHeadersValid;
 
     const isDirty = useMemo(() => {
         const initAmbient = workflowConfigurations.ambient_noise_configuration;
@@ -335,9 +345,11 @@ function GeneralSection({
             includeTranscriptEndTimestamps !==
             (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false) ||
             JSON.stringify(externalPbxFieldMappings) !==
-            JSON.stringify(workflowConfigurations.external_pbx_field_mappings)
+            JSON.stringify(workflowConfigurations.external_pbx_field_mappings) ||
+            JSON.stringify(externalPbxLeadHeaders) !==
+            JSON.stringify(workflowConfigurations.external_pbx_lead_headers)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, externalPbxFieldMappings, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -419,9 +431,11 @@ function GeneralSection({
                         include_end_timestamps: includeTranscriptEndTimestamps,
                     },
                     external_pbx_field_mappings: externalPbxFieldMappings,
+                    external_pbx_lead_headers: externalPbxLeadHeaders.map((field) => field.trim()),
                 },
                 name,
             );
+            toast.success(`General settings saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save general settings:", error);
         } finally {
@@ -886,6 +900,66 @@ function GeneralSection({
                                     </p>
                                 )}
                             </div>
+
+                            <div className="space-y-4 border-t pt-4">
+                                <div>
+                                    <h3 className="text-sm font-medium">Lead Fields To Capture</h3>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Extra lead fields to read from the inbound call, named without the header prefix
+                                        (<code>first_name</code> reads <code>X-VICIDIAL-first_name</code>). Captured values are
+                                        addressable in prompts as <code>{"{{initial_context.external_pbx_call.lead.<field>}}"}</code>.
+                                        Each field adds one request during call setup, so list only what the agent uses.
+                                    </p>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-sm">Lead Fields</Label>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setExternalPbxLeadHeaders((current) => [...current, ""])}
+                                    >
+                                        <Plus className="mr-1 h-4 w-4" /> Add field
+                                    </Button>
+                                </div>
+                                <div className="space-y-2">
+                                    {externalPbxLeadHeaders.map((field, index) => (
+                                        <div key={index} className="grid grid-cols-[1fr_auto] gap-2">
+                                            <Input
+                                                aria-label={`External PBX lead field ${index + 1}`}
+                                                value={field}
+                                                onChange={(event) => setExternalPbxLeadHeaders((current) =>
+                                                    current.map((item, itemIndex) =>
+                                                        itemIndex === index ? event.target.value : item,
+                                                    )
+                                                )}
+                                                placeholder="first_name"
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                aria-label={`Remove external PBX lead field ${index + 1}`}
+                                                onClick={() => setExternalPbxLeadHeaders((current) =>
+                                                    current.filter((_, itemIndex) => itemIndex !== index)
+                                                )}
+                                            >
+                                                <Trash2Icon className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                    {externalPbxLeadHeaders.length === 0 && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Only the identity fields needed to transfer or hang up the call are captured.
+                                        </p>
+                                    )}
+                                    {!externalPbxLeadHeadersValid && (
+                                        <p className="text-xs text-destructive">
+                                            Each lead field must start with a letter and contain only letters, numbers, and underscores.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </>
                 )}
@@ -894,7 +968,7 @@ function GeneralSection({
                 {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
                 <Button
                     onClick={handleSave}
-                    disabled={isSaving || !isDirty || (externalPbxIntegrationsEnabled && !externalPbxFieldMappingsValid)}
+                    disabled={isSaving || !isDirty || (externalPbxIntegrationsEnabled && !externalPbxSettingsValid)}
                 >
                     {isSaving ? "Saving..." : "Save General Settings"}
                 </Button>
@@ -950,6 +1024,7 @@ function TemplateVariablesSection({
                 varsToSave = { ...varsToSave, [newKey]: newValue };
             }
             await onSave(varsToSave);
+            toast.success(`Template variables saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save variables:", error);
         } finally {
@@ -1048,6 +1123,7 @@ function DictionarySection({
         setIsSaving(true);
         try {
             await onSave(dictionaryValue);
+            toast.success(`Dictionary saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save dictionary:", error);
         } finally {
@@ -1148,6 +1224,7 @@ function VoicemailSection({
                 { ...workflowConfigurations, voicemail_detection: voicemailConfig },
                 workflowName,
             );
+            toast.success(`Voicemail settings saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save voicemail settings:", error);
         } finally {
@@ -1336,7 +1413,7 @@ function WorkflowModelOverridesSection({
         const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
         nextConfigurations.model_configuration_v2_override = configuration;
         await onSave(nextConfigurations, workflowName);
-        toast.success("Model override saved");
+        toast.success(`Model override saved. ${PUBLISH_WORKFLOW_REMINDER}`);
     };
 
     const removeV2Override = async () => {
@@ -1344,7 +1421,7 @@ function WorkflowModelOverridesSection({
         try {
             await onSave(withoutModelConfigurationOverrides(workflowConfigurations), workflowName);
             setOverrideEnabled(false);
-            toast.success("Using organization model configuration");
+            toast.success(`Organization model configuration saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } finally {
             setIsRemovingOverride(false);
         }
@@ -1569,6 +1646,8 @@ function WorkflowSettingsInner({
     const {
         workflowName,
         workflowConfigurations,
+        textChatInactivityTimeoutConstraints,
+        widgetTextDefaults,
         templateContextVariables,
         dictionary,
         saveWorkflowConfigurations,
@@ -1778,12 +1857,18 @@ function WorkflowSettingsInner({
             </div>
 
             {/* Dialogs for complex sections */}
-            <EmbedDialog
-                open={isEmbedDialogOpen}
-                onOpenChange={setIsEmbedDialogOpen}
-                workflowId={workflowId}
-                workflowName={workflowName || workflow.name}
-            />
+            {resolvedWorkflowConfigurationsForRender && (
+                <EmbedDialog
+                    open={isEmbedDialogOpen}
+                    onOpenChange={setIsEmbedDialogOpen}
+                    workflowId={workflowId}
+                    workflowName={workflowName || workflow.name}
+                    workflowConfigurations={resolvedWorkflowConfigurationsForRender}
+                    textChatInactivityTimeoutConstraints={textChatInactivityTimeoutConstraints}
+                    widgetTextDefaults={widgetTextDefaults}
+                    onSaveWorkflowConfigurations={saveWorkflowConfigurations}
+                />
+            )}
         </div>
     );
 }

@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, Loader2, MessageCircle, Mic, Plus, Rocket, Send, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Copy, ExternalLink, Loader2, MessageCircle, Mic, Plus, Rocket, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -7,7 +7,13 @@ import {
     deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete,
     getEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGet,
 } from "@/client/sdk.gen";
+import type { TextChatInactivityTimeoutConstraints, WidgetTexts } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
     Dialog,
     DialogContent,
@@ -28,13 +34,22 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { WIDGET_CONTEXT_DOC_URL, WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { HEADLESS_CHAT_EXAMPLE } from "@/constants/embedExamples";
+import { detailFromError } from "@/lib/apiError";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import type { WorkflowConfigurations } from "@/types/workflow-configurations";
 
 interface EmbedDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     workflowId: number;
     workflowName: string;
+    workflowConfigurations: WorkflowConfigurations;
+    textChatInactivityTimeoutConstraints: TextChatInactivityTimeoutConstraints | null;
+    widgetTextDefaults: WidgetTexts | null;
+    onSaveWorkflowConfigurations: (
+        configurations: WorkflowConfigurations,
+        workflowName: string,
+    ) => Promise<void>;
 }
 
 type WidgetType = "voice" | "chat";
@@ -51,6 +66,127 @@ const WIDGET_TYPE_DEFAULTS: Record<WidgetType, { buttonText: string; callToActio
         callToActionText: "Click to start chatting",
     },
 };
+
+// Visitor-facing copy the agent owner can translate. The default strings live
+// only in api/schemas/widget_texts.py — they reach this dialog as placeholders
+// via the generated client, and reach the widget already resolved. Everything
+// below is presentation: which key goes in which group, and what to call it.
+type WidgetTextKey = keyof WidgetTexts;
+
+interface WidgetTextField {
+    key: WidgetTextKey;
+    label: string;
+    hint?: string;
+}
+
+const CHAT_TEXT_FIELDS: WidgetTextField[] = [
+    { key: "endChatText", label: "End Chat Button" },
+    { key: "conversationEndedText", label: "Conversation Ended Message" },
+    { key: "startNewChatText", label: "Start New Chat Button" },
+    { key: "chatRetryText", label: "Retry Button" },
+    { key: "chatInputPlaceholder", label: "Message Input Placeholder" },
+    { key: "sendMessageLabel", label: "Send Button Label", hint: "screen readers only" },
+    { key: "closeChatLabel", label: "Close Button Label", hint: "screen readers only" },
+];
+
+// Floating voice widgets only ever show the CTA pill, so they get the button
+// labels alone; the status headings below are inline-only.
+const VOICE_BUTTON_TEXT_FIELDS: WidgetTextField[] = [
+    { key: "voiceConnectingText", label: "Connecting" },
+    { key: "voiceEndCallText", label: "End Call Button" },
+    { key: "voiceRetryText", label: "Retry Button" },
+];
+
+const VOICE_STATUS_TEXT_FIELDS: WidgetTextField[] = [
+    { key: "voiceReadyTitle", label: "Ready Heading", hint: "paired with Call to Action Text" },
+    { key: "voiceConnectingSubtext", label: "Connecting Subtext" },
+    { key: "voiceConnectedTitle", label: "Connected Heading" },
+    { key: "voiceConnectedSubtext", label: "Connected Subtext" },
+    { key: "voiceCallEndedTitle", label: "Call Ended Heading" },
+    { key: "voiceCallEndedSubtext", label: "Call Ended Subtext" },
+    { key: "voiceConnectionFailedTitle", label: "Connection Failed Heading" },
+    { key: "voiceConnectionFailedSubtext", label: "Connection Failed Subtext" },
+    { key: "voiceConnectionLostTitle", label: "Connection Lost Heading" },
+    { key: "voiceConnectionLostSubtext", label: "Connection Lost Subtext" },
+];
+
+const WIDGET_TEXT_KEYS: WidgetTextKey[] = [
+    ...CHAT_TEXT_FIELDS,
+    ...VOICE_BUTTON_TEXT_FIELDS,
+    ...VOICE_STATUS_TEXT_FIELDS,
+].map((field) => field.key);
+
+/**
+ * Collapsed-by-default panel of text overrides. Kept at module scope so
+ * toggling it open doesn't remount the inputs and drop focus.
+ */
+function WidgetTextSection({
+    title,
+    description,
+    groups,
+    values,
+    defaults,
+    onChange,
+}: {
+    title: string;
+    description: string;
+    groups: { heading?: string; fields: WidgetTextField[] }[];
+    values: Partial<Record<WidgetTextKey, string>>;
+    defaults: WidgetTexts | null;
+    onChange: (key: WidgetTextKey, value: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border bg-muted/20">
+            <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 p-4 text-left">
+                <div className="space-y-0.5">
+                    <div className="text-sm font-medium">{title}</div>
+                    <p className="text-xs text-muted-foreground">{description}</p>
+                </div>
+                <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-4 border-t p-4">
+                {groups.map((group, groupIndex) => (
+                    <div key={group.heading ?? groupIndex} className="space-y-3">
+                        {group.heading && (
+                            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                {group.heading}
+                            </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                            {group.fields.map(({ key, label, hint }) => (
+                                <div key={key} className="space-y-2">
+                                    <Label htmlFor={`widget-text-${key}`} className="text-sm">
+                                        {label}
+                                        {hint && (
+                                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                                                ({hint})
+                                            </span>
+                                        )}
+                                    </Label>
+                                    <Input
+                                        id={`widget-text-${key}`}
+                                        // Untouched fields show the backend default, so the
+                                        // owner edits real copy rather than a blank box.
+                                        value={values[key] ?? defaults?.[key] ?? ""}
+                                        onChange={(e) => onChange(key, e.target.value)}
+                                        placeholder={defaults?.[key] ?? ""}
+                                        maxLength={80}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </CollapsibleContent>
+        </Collapsible>
+    );
+}
+
+const SECONDS_PER_MINUTE = 60;
 
 interface EmbedToken {
     id: number;
@@ -70,6 +206,10 @@ export function EmbedDialog({
     onOpenChange,
     workflowId,
     workflowName,
+    workflowConfigurations,
+    textChatInactivityTimeoutConstraints,
+    widgetTextDefaults,
+    onSaveWorkflowConfigurations,
 }: EmbedDialogProps) {
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -86,6 +226,49 @@ export function EmbedDialog({
     const [buttonText, setButtonText] = useState("Talk to Agent");
     const [buttonColor, setButtonColor] = useState("#10b981");
     const [callToActionText, setCallToActionText] = useState("Click to start voice conversation");
+    // Sparse: only keys the owner has overridden. Anything absent renders (and
+    // saves as) the backend default.
+    const [widgetTexts, setWidgetTexts] = useState<Partial<Record<WidgetTextKey, string>>>({});
+    const configuredTextChatInactivitySeconds =
+        workflowConfigurations.text_chat_inactivity_timeout_seconds
+        ?? textChatInactivityTimeoutConstraints?.default_seconds;
+    const [textChatInactivityMinutes, setTextChatInactivityMinutes] = useState(() =>
+        configuredTextChatInactivitySeconds === undefined
+            ? ""
+            : String(configuredTextChatInactivitySeconds / SECONDS_PER_MINUTE),
+    );
+
+    const parsedTextChatInactivityMinutes = Number(textChatInactivityMinutes);
+    const parsedTextChatInactivitySeconds =
+        parsedTextChatInactivityMinutes * SECONDS_PER_MINUTE;
+    const minimumTextChatInactivitySeconds =
+        textChatInactivityTimeoutConstraints?.minimum_seconds;
+    const maximumTextChatInactivitySeconds =
+        textChatInactivityTimeoutConstraints?.maximum_seconds;
+    const minimumTextChatInactivityMinutes = minimumTextChatInactivitySeconds !== undefined
+        ? minimumTextChatInactivitySeconds / SECONDS_PER_MINUTE
+        : undefined;
+    const maximumTextChatInactivityMinutes = maximumTextChatInactivitySeconds !== undefined
+        ? maximumTextChatInactivitySeconds / SECONDS_PER_MINUTE
+        : undefined;
+    const hasTextChatInactivityBounds =
+        minimumTextChatInactivitySeconds !== undefined &&
+        maximumTextChatInactivitySeconds !== undefined;
+    const textChatInactivityIsValid =
+        textChatInactivityMinutes.trim() !== "" &&
+        Number.isInteger(parsedTextChatInactivityMinutes) &&
+        (!hasTextChatInactivityBounds ||
+            (parsedTextChatInactivitySeconds >=
+                minimumTextChatInactivitySeconds &&
+                parsedTextChatInactivitySeconds <=
+                    maximumTextChatInactivitySeconds));
+    const textChatInactivityValidationMessage = hasTextChatInactivityBounds
+        ? `Chat inactivity timeout must be a whole number between ${minimumTextChatInactivityMinutes} and ${maximumTextChatInactivityMinutes} minutes`
+        : "Chat inactivity timeout must be a whole number of minutes";
+
+    const handleWidgetTextChange = useCallback((key: WidgetTextKey, value: string) => {
+        setWidgetTexts((prev) => ({ ...prev, [key]: value }));
+    }, []);
 
     const handleWidgetTypeChange = (type: WidgetType) => {
         if (type === widgetType) return;
@@ -117,6 +300,13 @@ export function EmbedDialog({
                     setButtonText(settings.buttonText || WIDGET_TYPE_DEFAULTS[loadedType].buttonText);
                     setButtonColor(settings.buttonColor || "#10b981");
                     setCallToActionText(settings.callToActionText || WIDGET_TYPE_DEFAULTS[loadedType].callToActionText);
+                    setWidgetTexts(
+                        Object.fromEntries(
+                            WIDGET_TEXT_KEYS
+                                .filter((key) => settings[key])
+                                .map((key) => [key, settings[key]]),
+                        ),
+                    );
                 }
 
                 // Load domains
@@ -134,17 +324,42 @@ export function EmbedDialog({
     useEffect(() => {
         if (open) {
             loadEmbedToken();
+            setTextChatInactivityMinutes(
+                configuredTextChatInactivitySeconds === undefined
+                    ? ""
+                    : String(configuredTextChatInactivitySeconds / SECONDS_PER_MINUTE),
+            );
         }
-    }, [open, loadEmbedToken]);
+    }, [open, loadEmbedToken, configuredTextChatInactivitySeconds]);
 
     const handleSave = async () => {
+        if (isEnabled && widgetType === "chat" && !textChatInactivityIsValid) {
+            toast.error(textChatInactivityValidationMessage);
+            return;
+        }
+
         setSaving(true);
         try {
+            if (isEnabled && widgetType === "chat") {
+                await onSaveWorkflowConfigurations(
+                    {
+                        ...workflowConfigurations,
+                        text_chat_inactivity_timeout_seconds: parsedTextChatInactivitySeconds,
+                    },
+                    workflowName,
+                );
+            }
+
             if (!isEnabled && embedToken) {
                 // Deactivate token
-                await deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete({
+                const response = await deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete({
                     path: { workflow_id: workflowId },
                 });
+                if (response.error) {
+                    throw new Error(
+                        detailFromError(response.error, "Failed to disable embedding"),
+                    );
+                }
                 setEmbedToken(null);
             } else if (isEnabled) {
                 // Create or update token
@@ -159,6 +374,14 @@ export function EmbedDialog({
                             buttonText,
                             buttonColor,
                             callToActionText,
+                            // Overrides only — a key left out resolves to the
+                            // backend default, so default copy keeps improving
+                            // for tokens that never customized it.
+                            ...Object.fromEntries(
+                                WIDGET_TEXT_KEYS
+                                    .map((key) => [key, (widgetTexts[key] ?? "").trim()])
+                                    .filter(([, value]) => value !== ""),
+                            ),
                             size: "medium",
                             autoStart: false,
                             containerId: embedMode === "inline" ? "dograh-inline-container" : undefined,
@@ -168,14 +391,25 @@ export function EmbedDialog({
                     },
                 });
 
+                if (response.error) {
+                    throw new Error(
+                        detailFromError(response.error, "Failed to save widget configuration"),
+                    );
+                }
                 if (response.data) {
                     setEmbedToken(response.data as EmbedToken);
                 }
             }
 
+            toast.success(
+                "Widget configuration saved. Publish the agent to apply the changes.",
+            );
             // Don't close modal after saving - let user copy the embed code
         } catch (error) {
             console.error("Failed to save embed token:", error);
+            toast.error(
+                error instanceof Error ? error.message : "Failed to save widget configuration",
+            );
         } finally {
             setSaving(false);
         }
@@ -355,6 +589,40 @@ export function EmbedDialog({
                                     </div>
                                 </div>
 
+                                {widgetType === "chat" && (
+                                    <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
+                                        <Label htmlFor="text-chat-inactivity-timeout">
+                                            Chat Inactivity Timeout
+                                        </Label>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                id="text-chat-inactivity-timeout"
+                                                type="number"
+                                                min={minimumTextChatInactivityMinutes}
+                                                max={maximumTextChatInactivityMinutes}
+                                                step="1"
+                                                value={textChatInactivityMinutes}
+                                                onChange={(event) =>
+                                                    setTextChatInactivityMinutes(event.target.value)
+                                                }
+                                                aria-invalid={!textChatInactivityIsValid}
+                                                className="w-32"
+                                            />
+                                            <span className="text-sm text-muted-foreground">
+                                                minutes
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            End a text chat and trigger its completion webhook after this long without chat activity.
+                                        </p>
+                                        {!textChatInactivityIsValid && (
+                                            <p className="text-xs text-destructive">
+                                                {textChatInactivityValidationMessage}.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
                                 {/* Embed Mode Selection */}
                                 <div className="space-y-4">
                                     <Label>Embed Mode</Label>
@@ -480,6 +748,41 @@ export function EmbedDialog({
                                         </div>
                                     )}
 
+                                    {/* Visitor-facing copy, so the widget can match the site's language.
+                                        Headless renders no UI of ours, so it has nothing to translate. */}
+                                    {embedMode !== "headless" && widgetType === "chat" && (
+                                        <WidgetTextSection
+                                            title="Chat Panel Text"
+                                            description="Wording visitors see inside the chat panel."
+                                            groups={[{ fields: CHAT_TEXT_FIELDS }]}
+                                            values={widgetTexts}
+                                            defaults={widgetTextDefaults}
+                                            onChange={handleWidgetTextChange}
+                                        />
+                                    )}
+
+                                    {embedMode !== "headless" && widgetType === "voice" && (
+                                        <WidgetTextSection
+                                            title="Voice Call Text"
+                                            description={
+                                                embedMode === "inline"
+                                                    ? "Wording visitors see on the call panel across the call lifecycle."
+                                                    : "Wording the call button cycles through while a call connects and runs."
+                                            }
+                                            groups={
+                                                embedMode === "inline"
+                                                    ? [
+                                                        { heading: "Button labels", fields: VOICE_BUTTON_TEXT_FIELDS },
+                                                        { heading: "Status messages", fields: VOICE_STATUS_TEXT_FIELDS },
+                                                    ]
+                                                    : [{ fields: VOICE_BUTTON_TEXT_FIELDS }]
+                                            }
+                                            values={widgetTexts}
+                                            defaults={widgetTextDefaults}
+                                            onChange={handleWidgetTextChange}
+                                        />
+                                    )}
+
                                     {/* Preview (skipped for headless — host renders its own UI) */}
                                     {embedMode === "headless" ? null : embedMode === "floating" ? (
                                         <div className="rounded-lg border bg-muted/30 p-6 flex items-center justify-center">
@@ -517,7 +820,8 @@ export function EmbedDialog({
                                                 </div>
                                                 <div className="flex items-center gap-2 border-t px-3 py-2">
                                                     <div className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm text-muted-foreground">
-                                                        Type a message…
+                                                        {widgetTexts.chatInputPlaceholder?.trim()
+                                                            || widgetTextDefaults?.chatInputPlaceholder}
                                                     </div>
                                                     <span
                                                         className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white"
@@ -534,7 +838,9 @@ export function EmbedDialog({
                                                 <svg className="w-16 h-16 mx-auto mb-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                                                 </svg>
-                                                <p className="text-lg font-medium text-foreground mb-1">Ready to Connect</p>
+                                                <p className="text-lg font-medium text-foreground mb-1">
+                                                    {widgetTexts.voiceReadyTitle?.trim() || widgetTextDefaults?.voiceReadyTitle}
+                                                </p>
                                                 <p className="text-sm text-muted-foreground mb-5">{callToActionText}</p>
                                                 <button
                                                     className="px-8 py-3 rounded-lg font-semibold text-white shadow-md"
@@ -556,6 +862,7 @@ export function EmbedDialog({
                                                     <li>• The widget renders no UI - render your own chat interface.</li>
                                                     <li>• Call <code className="text-xs">window.DograhWidget.startChat()</code> to start a conversation (the agent greeting arrives via <code className="text-xs">onMessage</code>).</li>
                                                     <li>• Call <code className="text-xs">window.DograhWidget.sendMessage(text)</code> to send a visitor message; it resolves with the updated transcript, or <code className="text-xs">null</code> if the message could not be delivered.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.endChat()</code> to end the active conversation and trigger its completion webhook.</li>
                                                     <li>• Use <code className="text-xs">getMessages()</code> to read the transcript at any time.</li>
                                                     <li>• Subscribe to <code className="text-xs">onMessage</code> and <code className="text-xs">onChatStateChange</code> to drive your UI. States are <code className="text-xs">idle</code>, <code className="text-xs">starting</code>, <code className="text-xs">ready</code>, <code className="text-xs">waiting</code>, <code className="text-xs">ended</code>, <code className="text-xs">expired</code>, <code className="text-xs">error</code>.</li>
                                                     <li>• Call <code className="text-xs">window.DograhWidget.setContext({"{ ... }"})</code> before <code className="text-xs">startChat()</code> to pass visitor details the page learned after load.</li>
@@ -703,7 +1010,14 @@ document.getElementById('talk-btn').addEventListener('click', () => {
 
                                 {/* Save Button */}
                                 <div className="flex justify-end">
-                                    <Button onClick={handleSave} disabled={saving}>
+                                    <Button
+                                        onClick={handleSave}
+                                        disabled={
+                                            saving ||
+                                            (widgetType === "chat" &&
+                                                !textChatInactivityIsValid)
+                                        }
+                                    >
                                         {saving ? (
                                             <>
                                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -9,7 +9,7 @@ This module tests:
 
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -37,6 +37,7 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from api.utils.template_renderer import render_url_template
 from pipecat.tests import MockLLMService, run_test
 
 
@@ -48,7 +49,7 @@ class MockToolModel:
     name: str
     description: str
     category: str
-    definition: Dict[str, Any]
+    definition: dict[str, Any]
 
 
 def test_empty_resolver_credential_uuid_is_ignored():
@@ -435,7 +436,7 @@ class TestExecuteHttpTool:
 
     @pytest.mark.asyncio
     async def test_post_request_sends_nested_json_body(self):
-        """Test that POST requests preserve nested arguments in the JSON body."""
+        """Test that POST requests render nested JSON body templates."""
         tool = MockToolModel(
             tool_uuid="test-uuid-nested",
             name="Create Booking",
@@ -448,16 +449,24 @@ class TestExecuteHttpTool:
                     "method": "POST",
                     "url": "https://api.example.com/bookings",
                     "timeout_ms": 5000,
+                    "body_template": {
+                        "booking": {
+                            "start": "{{start}}",
+                            "attendee": "{{attendee}}",
+                            "count": "{{count}}",
+                            "active": "{{active}}",
+                            "caller": "{{initial_context.phone}}",
+                        }
+                    },
                 },
             },
         )
 
         arguments = {
-            "booking": {
-                "start": "2026-05-28T10:00:00Z",
-                "attendee": {"name": "Jane", "email": "jane@example.com"},
-                "metadata": {"source": "voice"},
-            }
+            "start": "2026-05-28T10:00:00Z",
+            "attendee": {"name": "Jane", "email": "jane@example.com"},
+            "count": 2,
+            "active": False,
         }
 
         with patch(
@@ -470,10 +479,23 @@ class TestExecuteHttpTool:
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            result = await execute_http_tool(tool, arguments)
+            result = await execute_http_tool(
+                tool, arguments, call_context_vars={"phone": "+15551234567"}
+            )
 
             call_kwargs = mock_client.request.call_args.kwargs
-            assert call_kwargs["json"] == arguments
+            assert call_kwargs["json"] == {
+                "booking": {
+                    "start": "2026-05-28T10:00:00Z",
+                    "attendee": {
+                        "name": "Jane",
+                        "email": "jane@example.com",
+                    },
+                    "count": 2,
+                    "active": False,
+                    "caller": "+15551234567",
+                }
+            }
             assert isinstance(call_kwargs["json"]["booking"], dict)
             assert isinstance(call_kwargs["json"]["booking"]["attendee"], dict)
             assert result["status"] == "success"
@@ -549,8 +571,8 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
 
     @pytest.mark.asyncio
-    async def test_post_request_accepts_pre_resolved_preset_params(self):
-        """The test endpoint can supply preset values without call context."""
+    async def test_llm_arguments_override_pre_resolved_preset_params(self):
+        """Context-derived presets remain fallbacks for LLM arguments."""
         tool = MockToolModel(
             tool_uuid="test-uuid-preset-override",
             name="Create Lead",
@@ -587,13 +609,17 @@ class TestExecuteHttpTool:
 
             result = await execute_http_tool(
                 tool,
-                {"name": "John"},
-                preset_params={"phone_number": "+14155550123"},
+                {"name": "John", "phone_number": "+14155550999"},
+                preset_params={
+                    "phone_number": "+14155550123",
+                    "source": "initial-context",
+                },
             )
 
             assert mock_client.request.call_args.kwargs["json"] == {
                 "name": "John",
-                "phone_number": "+14155550123",
+                "phone_number": "+14155550999",
+                "source": "initial-context",
             }
             assert result["status"] == "success"
 
@@ -1020,7 +1046,7 @@ class TestCoerceParameterValue:
 class TestTransferResolver:
     """Tests for dynamic transfer resolution behavior."""
 
-    def test_dynamic_transfer_handler_timeout_includes_resolver_budget(self):
+    def test_dynamic_transfer_handler_timeout_includes_all_sequential_phases(self):
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         manager = CustomToolManager(Mock())
@@ -1046,7 +1072,7 @@ class TestTransferResolver:
 
         _handler, timeout_secs = manager._create_handler(tool, "transfer_call")
 
-        assert timeout_secs == 140.0
+        assert timeout_secs == 194.0
 
     @pytest.mark.asyncio
     async def test_http_resolver_resolves_transfer_context_destination(self):
@@ -1690,6 +1716,82 @@ class TestCustomToolManagerUnit:
         assert result_received["status"] == "transfer_failed"
 
     @pytest.mark.asyncio
+    async def test_context_mapping_runs_for_non_external_pbx_call(self):
+        """Context routing is provider-neutral and flushes gathered values first."""
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        mock_engine = Mock()
+        mock_engine._workflow_run_id = 1
+        mock_engine._call_context_vars = {"department": "sales"}
+        mock_engine._gathered_context = {}
+        mock_engine._get_organization_id = AsyncMock(return_value=1)
+        mock_engine.flush_variable_extraction = AsyncMock()
+        mock_engine.arm_speech_playback = Mock()
+
+        manager = CustomToolManager(mock_engine)
+        tool = MockToolModel(
+            tool_uuid="context-transfer-tool-uuid",
+            name="Transfer Call",
+            description="Transfer the caller",
+            category="transfer_call",
+            definition={
+                "schema_version": 1,
+                "type": "transfer_call",
+                "config": {
+                    "destination_source": "context_mapping",
+                    "context_mapping": {
+                        "rules": [
+                            {
+                                "context_path": "department",
+                                "routes": [
+                                    {
+                                        "context_value": "sales",
+                                        "destination": "+14155550123",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+        handler, _timeout_secs = manager._create_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.TWILIO.value,
+            initial_context={},
+            gathered_context={"call_id": "caller-call-sid"},
+        )
+        provider = Mock()
+        provider.supports_transfers.return_value = False
+        provider.validate_config.return_value = True
+
+        result_received = None
+
+        async def mock_result_callback(result, properties=None):
+            nonlocal result_received
+            result_received = result
+
+        mock_params = Mock()
+        mock_params.arguments = {}
+        mock_params.result_callback = mock_result_callback
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                new=AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_telephony_provider_for_run",
+                new=AsyncMock(return_value=provider),
+            ),
+        ):
+            await handler(mock_params)
+
+        mock_engine.flush_variable_extraction.assert_awaited_once()
+        assert result_received["reason"] == "provider_does_not_support_transfer"
+
+    @pytest.mark.asyncio
     async def test_transfer_call_http_resolver_uses_transfer_context_destination(self):
         """HTTP resolver transfer_context.destination is passed to the provider."""
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
@@ -2133,3 +2235,498 @@ class TestUpdateLLMContext:
         assert schema.description == "Check if service is alive"
         assert schema.properties == {}
         assert schema.required == []
+
+
+class TestUrlPathParameters:
+    def test_single_path_param_substituted(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}",
+            {"userId": "123"},
+        )
+        assert url == "https://api.com/users/123"
+
+    def test_multiple_path_params_substituted(self):
+        url = render_url_template(
+            "https://api.com/orgs/{{orgId}}/users/{{userId}}",
+            {"orgId": "abc", "userId": "123"},
+        )
+        assert url == "https://api.com/orgs/abc/users/123"
+
+    def test_preset_param_in_url(self):
+        url = render_url_template(
+            "https://api.com/props/{{propertyId}}",
+            {"propertyId": "prop-1"},
+        )
+        assert url == "https://api.com/props/prop-1"
+
+    def test_static_url_unchanged(self):
+        url = render_url_template(
+            "https://api.com/static",
+            {"userId": "123"},
+        )
+        assert url == "https://api.com/static"
+
+    def test_fallback_filter_in_url_uses_fallback_when_empty(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId | default}}",
+            {"userId": ""},
+        )
+        assert url == "https://api.com/users/default"
+
+        url2 = render_url_template(
+            "https://api.com/users/{{userId | fallback:me}}",
+            {"userId": None},
+        )
+        assert url2 == "https://api.com/users/me"
+
+    def test_dot_notation_path_param_in_url(self):
+        url = render_url_template(
+            "https://api.com/users/{{user.id}}",
+            {"user": {"id": "456"}},
+        )
+        assert url == "https://api.com/users/456"
+
+    def test_number_param_in_url_stringified(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}",
+            {"userId": 123},
+        )
+        assert url == "https://api.com/users/123"
+
+    def test_boolean_param_in_url_stringified(self):
+        url = render_url_template(
+            "https://api.com/users/{{active}}",
+            {"active": True},
+        )
+        assert url == "https://api.com/users/true"
+
+    def test_existing_query_string_preserved(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}?limit=10&sort=desc",
+            {"userId": "123"},
+        )
+        assert url == "https://api.com/users/123?limit=10&sort=desc"
+
+    def test_unresolved_required_placeholder_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="has no value"):
+            render_url_template("https://api.com/users/{{userId}}", {})
+
+    def test_empty_value_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="resolved to an empty string"):
+            render_url_template(
+                "https://api.com/users/{{userId}}",
+                {"userId": ""},
+            )
+
+    def test_context_variable_does_not_require_parameter_declaration(self):
+        url = render_url_template(
+            "https://api.com/users/{{path}}",
+            {"path": "123"},
+        )
+        assert url == "https://api.com/users/123"
+
+    def test_malformed_open_brace_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="unmatched '{{'"):
+            render_url_template("https://api.com/users/{{userId", {})
+
+    def test_malformed_close_brace_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="unmatched '}}'"):
+            render_url_template("https://api.com/users/userId}}", {})
+
+    def test_nested_brace_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="nested '{{'"):
+            render_url_template("https://api.com/users/{{{{userId}}}}", {})
+
+    def test_array_param_in_url_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="Arrays cannot be rendered"):
+            render_url_template(
+                "https://api.com/users/{{ids}}",
+                {"ids": [1, 2, 3]},
+            )
+
+    def test_object_param_in_url_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="Objects cannot be rendered"):
+            render_url_template(
+                "https://api.com/users/{{user}}",
+                {"user": {"id": "123"}},
+            )
+
+    def test_initial_context_hostname_substituted(self):
+        url = render_url_template(
+            "https://{{initial_context.host}}/v1/data",
+            {"initial_context": {"host": "api.example.com"}},
+        )
+        assert url == "https://api.example.com/v1/data"
+
+    def test_hostname_parameter_can_be_embedded_in_domain(self):
+        url = render_url_template(
+            "https://{{tenant}}.example.com/v1/data",
+            {"tenant": "acme"},
+        )
+        assert url == "https://acme.example.com/v1/data"
+
+    def test_scheme_injection_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="cannot alter the scheme"):
+            render_url_template(
+                "{{scheme}}://api.example.com/v1/data",
+                {"scheme": "https"},
+            )
+
+    def test_malformed_placeholder_syntax_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="invalid placeholder syntax"):
+            render_url_template(
+                "https://api.com/users/{{userId|}}",
+                {"userId": "123"},
+            )
+
+    def test_path_traversal_slash_is_encoded(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}",
+            {"userId": "../admin"},
+        )
+        assert url == "https://api.com/users/..%2Fadmin"
+
+    def test_query_injection_ampersand_is_encoded(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}",
+            {"userId": "123&evil=true"},
+        )
+        assert url == "https://api.com/users/123%26evil%3Dtrue"
+
+    def test_query_injection_question_mark_is_encoded(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}",
+            {"userId": "123?evil=true"},
+        )
+        assert url == "https://api.com/users/123%3Fevil%3Dtrue"
+
+    def test_space_in_value_is_encoded(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}",
+            {"userId": "john doe"},
+        )
+        assert url == "https://api.com/users/john%20doe"
+
+    def test_null_byte_is_encoded(self):
+        url = render_url_template(
+            "https://api.com/users/{{userId}}",
+            {"userId": "123\x00"},
+        )
+        assert url == "https://api.com/users/123%00"
+
+    def test_initial_context_in_url(self):
+        url = render_url_template(
+            "https://api.com/users/{{initial_context.phone}}",
+            {"initial_context": {"phone": "+1234567890"}},
+        )
+        assert url == "https://api.com/users/%2B1234567890"
+
+    def test_gathered_context_in_url(self):
+        url = render_url_template(
+            "https://api.com/users/{{gathered_context.email}}",
+            {"gathered_context": {"email": "test@example.com"}},
+        )
+        assert url == "https://api.com/users/test%40example.com"
+
+    @pytest.mark.parametrize(
+        ("arguments", "gathered_context", "initial_context", "expected_path"),
+        [
+            (
+                {"path": "from-llm"},
+                {"path": "from-gathered"},
+                {"path": "from-initial"},
+                "from-llm",
+            ),
+            ({}, {"path": "from-gathered"}, {"path": "from-initial"}, "from-gathered"),
+            ({}, {}, {"path": "from-initial"}, "from-initial"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_url_render_context_precedence(
+        self,
+        arguments,
+        gathered_context,
+        initial_context,
+        expected_path,
+    ):
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Context URL",
+            description="Render a URL from runtime context",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.com/{{path}}",
+                }
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                arguments,
+                call_context_vars=initial_context,
+                gathered_context_vars=gathered_context,
+            )
+
+            assert mock_client.request.call_args.kwargs["url"] == (
+                f"https://api.com/{expected_path}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_initial_context_hostname_used_for_request(self):
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Tenant API",
+            description="Call a tenant-specific API",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "GET",
+                    "url": "https://{{initial_context.host}}/v1/data",
+                }
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(
+                tool,
+                {},
+                call_context_vars={"host": "tenant.example.com"},
+            )
+
+            assert result["status"] == "success"
+            assert mock_client.request.call_args.kwargs["url"] == (
+                "https://tenant.example.com/v1/data"
+            )
+
+    @pytest.mark.asyncio
+    async def test_saas_rejects_private_rendered_hostname(self, monkeypatch):
+        monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Tenant API",
+            description="Call a tenant-specific API",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "GET",
+                    "url": "https://{{initial_context.host}}/v1/data",
+                }
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            result = await execute_http_tool(
+                tool,
+                {},
+                call_context_vars={"host": "127.0.0.1"},
+            )
+
+        assert result["status"] == "error"
+        assert "public IP" in result["error"]
+        mock_client_class.assert_not_called()
+
+    import pytest
+
+    @pytest.mark.asyncio
+    async def test_get_with_path_param_is_also_sent_as_query_param(self):
+        from unittest.mock import patch
+
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Get User",
+            description="Get User",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.com/users/{{userId}}",
+                    "parameters": [{"name": "userId", "type": "string"}],
+                }
+            },
+        )
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client:
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 200
+            mock_client.return_value.__aenter__.return_value.request.return_value.json.return_value = {}
+
+            await execute_http_tool(tool, {"userId": "123"})
+
+            mock_client.return_value.__aenter__.return_value.request.assert_called_once_with(
+                method="GET",
+                url="https://api.com/users/123",
+                headers={},
+                json=None,
+                params={"userId": "123"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_put_path_param_is_also_sent_in_body(self):
+        from unittest.mock import patch
+
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Cancel",
+            description="Cancel",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "PUT",
+                    "url": "https://api.apaleo.com/booking/v1/reservations/{{reservationId}}/actions/cancel",
+                    "parameters": [{"name": "reservationId", "type": "string"}],
+                }
+            },
+        )
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client:
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+
+            await execute_http_tool(tool, {"reservationId": "AWAEYPKI-1"})
+
+            mock_client.return_value.__aenter__.return_value.request.assert_called_once_with(
+                method="PUT",
+                url="https://api.apaleo.com/booking/v1/reservations/AWAEYPKI-1/actions/cancel",
+                headers={},
+                json={"reservationId": "AWAEYPKI-1"},
+                params=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_rendered_url_in_test_mode_result(self):
+        from unittest.mock import patch
+
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Cancel",
+            description="Cancel",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "PUT",
+                    "url": "https://api.apaleo.com/booking/v1/reservations/{{reservationId}}/actions/cancel",
+                    "parameters": [{"name": "reservationId", "type": "string"}],
+                }
+            },
+        )
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client:
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+
+            result = await execute_http_tool(
+                tool, {"reservationId": "123"}, include_request_headers=True
+            )
+            assert (
+                result.get("rendered_url")
+                == "https://api.apaleo.com/booking/v1/reservations/123/actions/cancel"
+            )
+
+    @pytest.mark.asyncio
+    async def test_rendered_url_absent_in_live_mode(self):
+        from unittest.mock import patch
+
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Cancel",
+            description="Cancel",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "PUT",
+                    "url": "https://api.apaleo.com/booking/v1/reservations/{{reservationId}}/actions/cancel",
+                    "parameters": [{"name": "reservationId", "type": "string"}],
+                }
+            },
+        )
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client:
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+
+            result = await execute_http_tool(
+                tool, {"reservationId": "123"}, include_request_headers=False
+            )
+            assert "rendered_url" not in result
+
+    def test_current_time_timezone_in_url(self):
+        url = render_url_template(
+            "https://api.com/users/{{current_time_Europe/Berlin}}",
+            {},
+        )
+        assert "https://api.com/users/" in url
+        # Output should be quoted datetime string. It'll have characters like %3A (encoded colon)
+        assert "%3A" in url or ":" in url
+
+    @pytest.mark.asyncio
+    async def test_delete_with_path_param(self):
+        from unittest.mock import patch
+
+        tool = MockToolModel(
+            tool_uuid="uuid",
+            name="Delete User",
+            description="Delete User",
+            category="http_api",
+            definition={
+                "config": {
+                    "method": "DELETE",
+                    "url": "https://api.com/users/{{userId}}",
+                    "parameters": [{"name": "userId", "type": "string"}],
+                }
+            },
+        )
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client:
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+
+            await execute_http_tool(tool, {"userId": "123"})
+
+            mock_client.return_value.__aenter__.return_value.request.assert_called_once_with(
+                method="DELETE",
+                url="https://api.com/users/123",
+                headers={},
+                json=None,
+                params={"userId": "123"},
+            )

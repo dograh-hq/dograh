@@ -36,4 +36,8 @@ withDograhWidget((widget) => {
     const transcript = await widget.sendMessage(input.value);
     if (transcript !== null) input.value = '';
   });
+
+  document.getElementById('end-chat')?.addEventListener('click', async () => {
+    await widget.endChat();
+  });
 });`;

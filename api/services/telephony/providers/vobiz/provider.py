@@ -127,7 +127,6 @@ class VobizProvider(TelephonyProvider):
             async with session.post(endpoint, json=data, headers=headers) as response:
                 if response.status != 201:
                     error_data = await response.text()
-                    logger.error(f"Vobiz API error: {error_data}")
                     raise HTTPException(
                         status_code=response.status,
                         detail=f"Failed to initiate Vobiz call: {error_data}",
@@ -145,9 +144,6 @@ class VobizProvider(TelephonyProvider):
                 )
 
                 if not call_id:
-                    logger.error(
-                        f"No call ID found in Vobiz response. Available keys: {list(response_data.keys())}"
-                    )
                     raise HTTPException(
                         status_code=response.status,
                         detail=f"Vobiz API response missing call identifier. Response: {response_data}"
@@ -376,39 +372,34 @@ class VobizProvider(TelephonyProvider):
 
         logger.debug(f"Vobiz WebSocket connected for workflow_run {workflow_run_id}")
 
-        try:
-            # Extract stream_id and call_id from the start event
-            start_data = start_msg.get("start", {})
-            stream_id = start_data.get("streamId")
-            call_id = start_data.get("callId")
+        # Extract stream_id and call_id from the start event
+        start_data = start_msg.get("start", {})
+        stream_id = start_data.get("streamId")
+        call_id = start_data.get("callId")
 
-            if not stream_id or not call_id:
-                logger.error(f"Missing streamId or callId in start event: {start_data}")
-                await websocket.close(code=4400, reason="Missing streamId or callId")
-                return
+        if not stream_id or not call_id:
+            logger.error(f"Missing streamId or callId in start event: {start_data}")
+            await websocket.close(code=4400, reason="Missing streamId or callId")
+            return
 
-            logger.info(
-                f"[run {workflow_run_id}] Starting Vobiz WebSocket handler - "
-                f"stream_id: {stream_id}, call_id: {call_id}"
-            )
+        logger.info(
+            f"[run {workflow_run_id}] Starting Vobiz WebSocket handler - "
+            f"stream_id: {stream_id}, call_id: {call_id}"
+        )
 
-            await run_pipeline_telephony(
-                websocket,
-                provider_name=self.PROVIDER_NAME,
-                workflow_id=workflow_id,
-                workflow_run_id=workflow_run_id,
-                organization_id=organization_id,
-                call_id=call_id,
-                transport_kwargs={"stream_id": stream_id, "call_id": call_id},
-            )
+        # Failures propagate untouched: the pipeline reports them with the
+        # traceback, and catching to re-log here would split one failure in two.
+        await run_pipeline_telephony(
+            websocket,
+            provider_name=self.PROVIDER_NAME,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            organization_id=organization_id,
+            call_id=call_id,
+            transport_kwargs={"stream_id": stream_id, "call_id": call_id},
+        )
 
-            logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed")
-
-        except Exception as e:
-            logger.error(
-                f"[run {workflow_run_id}] Error in Vobiz WebSocket handler: {e}"
-            )
-            raise
+        logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed")
 
     # ======== INBOUND CALL METHODS ========
 
@@ -698,7 +689,8 @@ class VobizProvider(TelephonyProvider):
                         if response.status != 200:
                             body = await response.text()
                             raise ProviderPhoneNumberLookupError(
-                                f"Vobiz API {response.status}: {body}"
+                                f"Vobiz API {response.status}: {body}",
+                                status_code=response.status,
                             )
                         data = await response.json()
 

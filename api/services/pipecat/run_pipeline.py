@@ -6,6 +6,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
+from api.errors.failure import mark_failure_reported
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
@@ -387,10 +388,13 @@ async def _run_pipeline_telephony_impl(
             organization_id=organization_id,
         )
     except Exception as e:
+        # Closest layer to the failure and the only one with the traceback, so
+        # it owns the report; outer handlers see the mark and stay quiet.
         logger.error(
             f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
             exc_info=True,
         )
+        mark_failure_reported(e)
         raise
 
 
@@ -739,13 +743,18 @@ async def _run_pipeline_impl(
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
     pre_call_fetch_task = None
     start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
+    call_direction = getattr(workflow_run, "call_type", None)
+    if hasattr(call_direction, "value"):
+        call_direction = call_direction.value
+    call_direction = call_direction or merged_call_context_vars.get("direction")
     if (
         start_node
-        and start_node.pre_call_fetch_enabled
+        and start_node.should_run_pre_call_fetch(call_direction)
         and start_node.pre_call_fetch_url
     ):
         logger.info(
-            f"Pre-call fetch enabled for workflow run {workflow_run_id}, "
+            f"Pre-call fetch enabled for {call_direction or 'unknown'} workflow "
+            f"run {workflow_run_id}, "
             f"firing request to {start_node.pre_call_fetch_url}"
         )
         pre_call_fetch_task = asyncio.create_task(
@@ -1077,16 +1086,16 @@ async def _run_pipeline_impl(
     engine.set_task(task)
     engine.set_transport_output(transport.output())
 
-    # Initialize the engine to set the initial context with
-    # System Prompt and Tools
-    await engine.initialize()
-
-    # Add real-time feedback observer (always logs to buffer, streams to WS if available)
+    # Add the observer before initialization so early ErrorFrames are not missed.
     feedback_observer = RealtimeFeedbackObserver(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
     )
     task.add_observer(feedback_observer)
+
+    # Initialize the engine to set the initial context with
+    # System Prompt and Tools
+    await engine.initialize()
 
     # Register latency observer to log user-to-bot response latency
     if task.user_bot_latency_observer:

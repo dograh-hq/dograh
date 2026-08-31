@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
+from api.enums import CallType
 from api.routes.public_embed import PublicEmbedCORSMiddleware
 from api.routes.public_embed import router as public_embed_router
 from api.routes.public_embed_chat import router as public_embed_chat_router
@@ -144,6 +145,7 @@ _GREETING_TURN = {
 def _text_session(
     *,
     turns=None,
+    status="idle",
     revision=3,
     state="running",
     is_completed=False,
@@ -153,7 +155,7 @@ def _text_session(
 ):
     return SimpleNamespace(
         revision=revision,
-        session_data={"turns": list(turns or [])},
+        session_data={"status": status, "turns": list(turns or [])},
         workflow_run=SimpleNamespace(
             id=run_id,
             workflow_id=workflow_id,
@@ -307,6 +309,7 @@ def test_init_chat_token_creates_textchat_run(_patch_db):
     assert len(_patch_db.created_runs) == 1
     kwargs = _patch_db.created_runs[0]
     assert kwargs["mode"] == "textchat"
+    assert kwargs["call_type"] == CallType.INBOUND
     # Text-chat runs must not carry a webrtc transport provider.
     assert "provider" not in kwargs["initial_context"]
     assert kwargs["initial_context"]["name"] == "Ada"
@@ -330,7 +333,9 @@ def test_init_voice_token_keeps_smallwebrtc(_patch_db):
 
     kwargs = _patch_db.created_runs[0]
     assert kwargs["mode"] == "smallwebrtc"
+    assert kwargs["call_type"] == CallType.INBOUND
     assert kwargs["initial_context"]["provider"] == "smallwebrtc"
+    assert kwargs["initial_context"]["direction"] == "inbound"
 
     body = resp.json()
     assert body["widget_type"] == "voice"
@@ -346,6 +351,7 @@ def test_init_sanitizes_context_variables(_patch_db):
             "context_variables": {
                 "  customer_name  ": "Abhishek",
                 "provider": "twilio",
+                "direction": "outbound",
                 "bio": "a" * (MAX_VALUE_LENGTH + 500),
             },
         },
@@ -356,6 +362,8 @@ def test_init_sanitizes_context_variables(_patch_db):
     assert initial_context["customer_name"] == "Abhishek"
     # The host page can't rewrite the transport the backend picked.
     assert initial_context["provider"] == "smallwebrtc"
+    # Nor can visitor context reclassify an embedded voice call as outbound.
+    assert initial_context["direction"] == "inbound"
     assert len(initial_context["bio"]) == MAX_VALUE_LENGTH
 
 
@@ -475,6 +483,95 @@ def test_projection_builder_strips_sensitive_fields():
         assert set(turn.keys()) == {"id", "status", "user_message", "assistant_message"}
     # The greeting turn has no user message.
     assert dumped["turns"][1]["user_message"] is None
+
+
+# ---------------------------------------------------------------------------
+# POST /end
+# ---------------------------------------------------------------------------
+
+
+def test_end_chat_session_happy_path(monkeypatch):
+    captured = []
+
+    async def _end(**kwargs):
+        captured.append(kwargs)
+        return _text_session(
+            turns=[_GREETING_TURN],
+            revision=4,
+            state="completed",
+            is_completed=True,
+        )
+
+    monkeypatch.setattr(
+        "api.routes.public_embed_chat.end_embed_text_chat_session",
+        _end,
+    )
+
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-chat/end",
+        headers={"Origin": ORIGIN},
+        json={"expected_revision": 3},
+    )
+
+    assert resp.status_code == 200
+    _assert_embed_cors(resp, ORIGIN)
+    assert captured == [
+        {
+            "session_token": "session-chat",
+            "origin": ORIGIN,
+            "expected_revision": 3,
+        }
+    ]
+    assert resp.json()["state"] == "completed"
+    assert resp.json()["is_completed"] is True
+
+
+def test_end_chat_session_revision_conflict_409(monkeypatch):
+    async def _end(**_kwargs):
+        raise TextChatSessionRevisionConflictError(
+            expected_revision=3, actual_revision=4
+        )
+
+    monkeypatch.setattr(
+        "api.routes.public_embed_chat.end_embed_text_chat_session",
+        _end,
+    )
+
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-chat/end",
+        headers={"Origin": ORIGIN},
+        json={"expected_revision": 3},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {
+        "message": "Text chat session revision conflict",
+        "expected_revision": 3,
+        "actual_revision": 4,
+    }
+
+
+def test_end_chat_session_rejects_inactive_embed_token():
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-inactive/end",
+        headers={"Origin": ORIGIN},
+        json={},
+    )
+
+    assert resp.status_code == 403
+
+
+def test_options_chat_end_succeeds():
+    resp = client.options(
+        "/api/v1/public/embed/chat/session-chat/end",
+        headers={
+            "Origin": ORIGIN,
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert resp.status_code == 200
+    _assert_embed_cors(resp, ORIGIN)
 
 
 # ---------------------------------------------------------------------------
@@ -625,6 +722,21 @@ def test_post_message_execution_error_generic_500(monkeypatch):
 
 def test_post_message_completed_run_400(monkeypatch):
     _patch_chat_text_session(monkeypatch, _text_session(is_completed=True))
+
+    resp = client.post(
+        "/api/v1/public/embed/chat/session-chat/messages",
+        headers={"Origin": ORIGIN},
+        json={"text": "hello"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "chat_completed"
+
+
+def test_post_message_completed_session_status_400(monkeypatch):
+    _patch_chat_text_session(
+        monkeypatch,
+        _text_session(status="completed", is_completed=False),
+    )
 
     resp = client.post(
         "/api/v1/public/embed/chat/session-chat/messages",

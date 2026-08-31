@@ -14,21 +14,130 @@ ARQ jobs. The DB row is the source of truth; this task is idempotent and only
 acts on a delivery that is still ``pending``.
 """
 
+import json
+import re
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from loguru import logger
-from pipecat.utils.run_context import set_current_run_id
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 from api.constants import DEFAULT_WEBHOOK_DELIVERY_CONFIG
 from api.db import db_client
 from api.db.models import WebhookDeliveryModel
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    classify_exception,
+    classify_http_response,
+    log_failure,
+)
 from api.tasks.function_names import FunctionNames
 from api.utils.credential_auth import build_auth_header
 
 # HTTP statuses that are worth retrying even though the server answered.
 _RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+_REDACTED = "[REDACTED]"
+_MAX_REQUEST_LOG_CHARS = 8_000
+_SENSITIVE_FIELD_RE = re.compile(
+    r"(?:^|_)(?:"
+    r"authorization|cookie|credential|password|passwd|secret|signature|token|"
+    r"api_?key|access_?key|private_?key|client_?secret|"
+    r"email|phone|telephone|mobile|address|date_?of_?birth|dob|ssn|"
+    r"card(?:_?(?:number|no))?|cvv\d*|cvc\d*|callback_url|redirect_uri"
+    r")(?:$|_)",
+    re.IGNORECASE,
+)
+
+
+def _normalize_webhook_field_name(key: Any) -> str:
+    """Normalize common field-name styles before checking for sensitive terms."""
+    name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key))
+    name = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", name)
+    return re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
+
+
+def _redact_webhook_value(value: Any) -> Any:
+    """Redact known sensitive fields while retaining payload shape for debugging."""
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                _REDACTED
+                if _SENSITIVE_FIELD_RE.search(_normalize_webhook_field_name(key))
+                else _redact_webhook_value(nested)
+            )
+            for key, nested in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_webhook_value(item) for item in value]
+    if isinstance(value, str):
+        try:
+            parsed = urlsplit(value)
+            if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+                return _REDACTED
+        except ValueError:
+            pass
+    return value
+
+
+def _safe_webhook_url(url: str) -> str:
+    """Return only the URL origin so path-based credentials cannot reach logs."""
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname or ""
+        if not parsed.scheme or not hostname:
+            return _REDACTED
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        if parsed.port is not None:
+            hostname = f"{hostname}:{parsed.port}"
+        return urlunsplit((parsed.scheme, hostname, "", "", ""))
+    except (TypeError, ValueError):
+        return _REDACTED
+
+
+def _log_webhook_request(
+    delivery: WebhookDeliveryModel,
+    *,
+    method: str,
+    attempt: int,
+    headers: dict[str, str],
+) -> None:
+    """Log the frozen request shape with known sensitive values redacted."""
+    safe_headers = {
+        key: (
+            value
+            if key.lower()
+            in {
+                "content-type",
+                "x-dograh-delivery-id",
+                "x-dograh-workflow-run-id",
+                "x-dograh-delivery-attempt",
+            }
+            else _REDACTED
+        )
+        for key, value in headers.items()
+    }
+    request_data = {
+        "method": method,
+        "url": _safe_webhook_url(delivery.endpoint_url),
+        "headers": safe_headers,
+        "payload": (
+            _redact_webhook_value(delivery.payload)
+            if method in ("POST", "PUT", "PATCH")
+            else None
+        ),
+    }
+    rendered = json.dumps(request_data, default=str, ensure_ascii=False)
+    if len(rendered) > _MAX_REQUEST_LOG_CHARS:
+        rendered = rendered[:_MAX_REQUEST_LOG_CHARS] + "...[TRUNCATED]"
+    logger.info(
+        f"Webhook '{delivery.webhook_name}' delivery {delivery.id} request "
+        f"(attempt {attempt}): {rendered}"
+    )
 
 
 def _delivery_job_id(delivery_id: int, attempt_count: int) -> str:
@@ -107,13 +216,13 @@ async def _handle_transient_failure(
     attempt: int,
     error: str,
     status_code: Optional[int],
-) -> None:
+) -> bool:
     """Schedule a backed-off retry, or dead-letter once attempts are exhausted."""
     if attempt >= delivery.max_attempts:
         await db_client.mark_webhook_delivery_dead_letter(
             delivery.id, attempt, error, status_code
         )
-        return
+        return True
 
     delay = _backoff_seconds(attempt)
     scheduled_for = datetime.now(UTC) + timedelta(seconds=delay)
@@ -129,6 +238,18 @@ async def _handle_transient_failure(
         f"Webhook '{delivery.webhook_name}' delivery {delivery.id} attempt {attempt} "
         f"failed ({error}); retrying in {delay}s "
         f"(attempt {attempt + 1}/{delivery.max_attempts})"
+    )
+    return False
+
+
+def _log_dead_letter_failure(
+    delivery: WebhookDeliveryModel, failure: DograhFailure
+) -> None:
+    log_failure(
+        failure,
+        organization_id=delivery.organization_id,
+        workflow_run_id=delivery.workflow_run_id,
+        delivery_id=delivery.id,
     )
 
 
@@ -153,12 +274,19 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
         return
 
     set_current_run_id(str(delivery.workflow_run_id))
+    set_current_org_id(delivery.organization_id)
     attempt = delivery.attempt_count + 1
     method = (delivery.http_method or "POST").upper()
     timeout = DEFAULT_WEBHOOK_DELIVERY_CONFIG["timeout_seconds"]
 
     try:
         headers = await _build_headers(delivery, attempt)
+        _log_webhook_request(
+            delivery,
+            method=method,
+            attempt=attempt,
+            headers=headers,
+        )
 
         async with httpx.AsyncClient() as client:
             if method in ("POST", "PUT", "PATCH"):
@@ -181,27 +309,56 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
     except httpx.HTTPStatusError as e:
         status_code = e.response.status_code
         error = f"HTTP {status_code}: {e.response.text[:200]}"
+        failure = classify_http_response(
+            status_code,
+            error,
+            source=ErrorSource.WEBHOOK,
+            provider="webhook",
+            error_owner="user",
+        )
         if status_code in _RETRYABLE_STATUS_CODES:
-            await _handle_transient_failure(delivery, attempt, error, status_code)
+            dead_lettered = await _handle_transient_failure(
+                delivery, attempt, error, status_code
+            )
+            if dead_lettered:
+                _log_dead_letter_failure(delivery, failure)
         else:
             # Permanent (auth/validation/not-found): retrying won't help. Park it.
             await db_client.mark_webhook_delivery_dead_letter(
                 delivery.id, attempt, error, status_code
             )
+            _log_dead_letter_failure(delivery, failure)
         return
     except httpx.RequestError as e:
         # Connect/read timeouts, DNS, connection resets -- the transient class that
         # previously lost the webhook entirely. str(e) is often empty, so use repr.
-        await _handle_transient_failure(delivery, attempt, repr(e), None)
+        dead_lettered = await _handle_transient_failure(
+            delivery, attempt, repr(e), None
+        )
+        if dead_lettered:
+            _log_dead_letter_failure(
+                delivery,
+                classify_exception(
+                    e,
+                    source=ErrorSource.WEBHOOK,
+                    provider="webhook",
+                    error_owner="user",
+                ),
+            )
         return
     except Exception as e:
         # Unexpected (e.g. a bug): don't loop on it, surface as dead-letter.
-        logger.error(
-            f"Webhook '{delivery.webhook_name}' delivery {delivery.id} "
-            f"unexpected error: {e!r}"
-        )
         await db_client.mark_webhook_delivery_dead_letter(
             delivery.id, attempt, repr(e), None
+        )
+        _log_dead_letter_failure(
+            delivery,
+            classify_exception(
+                e,
+                source=ErrorSource.WEBHOOK,
+                provider="webhook",
+                error_owner="user",
+            ),
         )
         return
 

@@ -22,6 +22,7 @@ from starlette.websockets import WebSocketDisconnect
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import CallType, WorkflowRunMode, WorkflowRunState
+from api.errors.failure import failure_already_reported
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
@@ -35,9 +36,13 @@ from api.services.telephony import ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
-    get_default_telephony_provider,
     get_telephony_provider_by_id,
     get_telephony_provider_for_run,
+)
+from api.services.telephony.outbound_readiness import (
+    OutboundConfigurationNotFoundError,
+    OutboundSetupIncompleteError,
+    resolve_outbound_configuration_id,
 )
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
@@ -61,7 +66,7 @@ class InitiateCallRequest(BaseModel):
     workflow_run_id: int | None = None
     phone_number: str | None = None
     # Optional explicit telephony config to use for the test call. If omitted,
-    # falls back to the org default.
+    # the resolver prefers the org default and then another ready active config.
     telephony_configuration_id: int | None = None
     # Optional caller-ID phone number to dial out from. Must belong to the
     # resolved telephony configuration; otherwise the provider picks one.
@@ -97,30 +102,37 @@ async def initiate_call(
         db=db_client,
     )
 
-    # Resolve which telephony config to use: explicit request value, otherwise
-    # the org's default outbound config.
-    telephony_configuration_id = request.telephony_configuration_id
-
-    if telephony_configuration_id:
-        try:
-            provider = await get_telephony_provider_by_id(
-                telephony_configuration_id, user.selected_organization_id
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=400, detail="telephony_configuration_not_found"
-            )
-    else:
-        try:
-            provider = await get_default_telephony_provider(
-                user.selected_organization_id
-            )
-        except ValueError:
-            raise HTTPException(status_code=400, detail="telephony_not_configured")
-        default_cfg = await db_client.get_default_telephony_configuration(
-            user.selected_organization_id
+    # Resolve and pre-flight the explicit config, or select the first active
+    # config that is ready for outbound. This happens before run creation so a
+    # setup problem does not land in run history as a failed call.
+    try:
+        telephony_configuration_id = await resolve_outbound_configuration_id(
+            request.telephony_configuration_id,
+            user.selected_organization_id,
+            db=db_client,
         )
-        telephony_configuration_id = default_cfg.id if default_cfg else None
+        provider = await get_telephony_provider_by_id(
+            telephony_configuration_id, user.selected_organization_id
+        )
+    except OutboundSetupIncompleteError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except OutboundConfigurationNotFoundError as e:
+        detail = (
+            "telephony_configuration_not_found"
+            if request.telephony_configuration_id is not None
+            else "telephony_not_configured"
+        )
+        raise HTTPException(status_code=400, detail=detail) from e
+    except ValueError as e:
+        detail = (
+            "telephony_configuration_not_found"
+            if request.telephony_configuration_id is not None
+            else "telephony_not_configured"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=detail,
+        ) from e
 
     # Validate provider is configured
     if not provider.validate_config():
@@ -184,6 +196,7 @@ async def initiate_call(
                 initial_context={
                     "phone_number": phone_number,
                     "called_number": phone_number,
+                    "direction": "outbound",
                     "provider": provider.PROVIDER_NAME,
                     "telephony_configuration_id": telephony_configuration_id,
                 },
@@ -279,6 +292,7 @@ async def initiate_call(
     updated_initial_context = {
         **(workflow_run.initial_context or {}),
         "called_number": phone_number,
+        "direction": "outbound",
         "telephony_configuration_id": telephony_configuration_id,
     }
     if result.caller_number:
@@ -767,7 +781,12 @@ async def _handle_telephony_websocket(
     except WebSocketDisconnect as e:
         logger.info(f"WebSocket disconnected: code={e.code}, reason={e.reason}")
     except Exception as e:
-        logger.error(f"Error in WebSocket connection: {e}")
+        # This catch-all also covers setup before the pipeline starts, so it
+        # still reports anything no inner seam has claimed.
+        if failure_already_reported(e):
+            logger.warning(f"WebSocket connection ended on a reported failure: {e}")
+        else:
+            logger.error(f"Error in WebSocket connection: {e}")
         try:
             await websocket.close(1011, "Internal server error")
         except RuntimeError:
@@ -805,7 +824,11 @@ async def handle_inbound_run(request: Request):
         normalized_data = normalize_webhook_data(provider_class, webhook_data, headers)
         logger.info(
             f"/inbound/run normalized data — provider={normalized_data.provider} "
-            f"to={normalized_data.to_number} from={normalized_data.from_number}"
+            f"to={normalized_data.to_number} from={normalized_data.from_number} "
+            f"account_id={normalized_data.account_id!r} "
+            f"direction={normalized_data.direction} "
+            f"call_id={normalized_data.call_id} "
+            f"to_country={normalized_data.to_country}"
         )
 
         if normalized_data.direction != "inbound":
@@ -844,6 +867,17 @@ async def handle_inbound_run(request: Request):
 
         config, phone_row = match
         telephony_configuration_id = config.id
+        # The org the rest of this request runs as is decided here and nowhere
+        # else: everything downstream (concurrency slot, workflow lookup,
+        # credentials used for signature checks) follows from this row.
+        logger.info(
+            f"/inbound/run matched route — org={config.organization_id} "
+            f"config={config.id} name={config.name!r} "
+            f"config_{account_field}={(config.credentials or {}).get(account_field)!r} "
+            f"webhook_account_id={normalized_data.account_id!r} "
+            f"phone={phone_row.id} address={phone_row.address!r} "
+            f"inbound_workflow_id={phone_row.inbound_workflow_id}"
+        )
 
         if not phone_row.inbound_workflow_id:
             logger.warning(

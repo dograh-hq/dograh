@@ -7,6 +7,7 @@ import { WorkflowValidationError } from "@/components/flow/types";
 import type { ConversationNodeTransitionItem, RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { resolveBrowserBackendUrl } from '@/lib/apiClient';
+import { detailFromError } from '@/lib/apiError';
 import logger from '@/lib/logger';
 
 import { sdpFilterCodec } from "../utils";
@@ -38,6 +39,11 @@ const HANDLED_SERVICE_ERROR_TYPES = new Set([
     'quota_check_failed',
 ]);
 
+// Errors meaning this run can never be called again. Retrying reaches the same
+// refusal, so the session is closed out as completed and the caller is left to
+// start a fresh run rather than being offered a retry that cannot succeed.
+const SPENT_RUN_ERROR_TYPES = new Set(['workflow_run_already_completed']);
+
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables, onNodeTransition }: UseWebSocketRTCProps) => {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
     const [connectionActive, setConnectionActive] = useState(false);
@@ -50,7 +56,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [isStarting, setIsStarting] = useState(false);
     const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
     const initialContext = initialContextVariables || {};
-    const { config: appConfig } = useAppConfig();
+    const { config: appConfig, loading: appConfigLoading, refresh: refreshAppConfig } = useAppConfig();
 
     const {
         audioInputs,
@@ -201,7 +207,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         // Build ICE servers list
         const iceServers: RTCIceServer[] = [];
 
-        if (useStun) {
+        // A `stun:` entry can only yield srflx, never relay — and srflx has been
+        // seen leaking through iceTransportPolicy: 'relay', so skip it entirely.
+        if (useStun && !appConfig?.forceTurnRelay) {
             iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
         }
 
@@ -392,6 +400,15 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
                                 // Stop the connection and surface the handled service error.
                                 cleanupConnection({ graceful: false, status: 'failed' });
+                            } else if (SPENT_RUN_ERROR_TYPES.has(message.payload?.error_type)) {
+                                logger.info('Run is no longer callable:', message.payload.message);
+                                setPermissionError(
+                                    message.payload?.message || 'This test run has already finished.'
+                                );
+                                // Completed rather than failed: the run did its
+                                // work, so the footer offers a new test instead
+                                // of a retry that would be refused again.
+                                cleanupConnection({ graceful: true, status: 'idle' });
                             } else {
                                 const serverErrorMessage = message.payload?.message || 'Server error';
                                 logger.error('Server error:', message.payload);
@@ -704,16 +721,28 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             });
 
             if (response.error) {
+                const isServiceUnavailable = response.response?.status === 503;
+                const message = detailFromError(
+                    response.error,
+                    isServiceUnavailable
+                        ? 'Dograh is temporarily unavailable. Please try again later.'
+                        : 'API Key Error',
+                );
+
+                if (isServiceUnavailable) {
+                    // MPS is a Dograh-owned dependency. Do not tell the customer
+                    // to change credentials when Dograh could not validate them.
+                    setApiKeyModalOpen(false);
+                    setApiKeyError(null);
+                    setApiKeyErrorCode(null);
+                    setPermissionError(message);
+                    setConnectionStatus('failed');
+                    return;
+                }
+
                 setApiKeyModalOpen(true);
                 setApiKeyErrorCode('invalid_api_key');
-                let msg = 'API Key Error';
-                const detail = (response.error as unknown as { detail?: { errors: { model: string; message: string }[] } }).detail;
-                if (Array.isArray(detail)) {
-                    msg = detail
-                        .map((e: { model: string; message: string }) => `${e.model}: ${e.message}`)
-                        .join('\n');
-                }
-                setApiKeyError(msg);
+                setApiKeyError(message);
                 setConnectionStatus('failed');
                 return;
             }
@@ -815,6 +844,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         audioInputs,
         selectedAudioInput,
         setSelectedAudioInput,
+        // Auto-starting callers must wait on both: /api/config/version resolves
+        // 200 even when its backend healthcheck failed, defaulting forceTurnRelay
+        // to false, so only a 'reachable' backendStatus confirms the real value.
+        appConfig,
+        appConfigLoading,
+        refreshAppConfig,
         connectionActive,
         permissionError,
         isCompleted,

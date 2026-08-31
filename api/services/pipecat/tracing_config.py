@@ -1,4 +1,5 @@
 import base64
+import re
 
 from loguru import logger
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -7,6 +8,7 @@ from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 
 from api.constants import (
     LANGFUSE_HOST,
+    LANGFUSE_PROJECT_ID,
     LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY,
 )
@@ -15,6 +17,19 @@ from pipecat.utils.tracing.setup import setup_tracing
 
 _tracing_initialized = False
 _org_routing_exporter = None
+
+
+def normalize_langfuse_host(host: str | None) -> str:
+    """Reduce a configured Langfuse host to its bare origin.
+
+    Users routinely paste a full trace-page URL
+    (``https://cloud.langfuse.com/project/<id>/traces``) into the host field.
+    Left as-is that yields a nonsense OTLP endpoint and traces never arrive, so
+    everything past the origin is dropped.
+    """
+    if not host:
+        return ""
+    return re.split(r"/project/", host.strip().rstrip("/"))[0].rstrip("/")
 
 
 class _OrgAttributeSpanProcessor(SpanProcessor):
@@ -49,15 +64,24 @@ class _OrgRoutingExporter(SpanExporter):
         self._default_exporter = default_exporter
         self._org_exporters = {}
         self._org_hosts = {}
+        self._org_project_ids = {}
 
     def get_org_host(self, org_id):
         return self._org_hosts.get(str(org_id))
 
-    def register_org(self, org_id, host, public_key, secret_key):
+    def get_org_project_id(self, org_id):
+        return self._org_project_ids.get(str(org_id))
+
+    def register_org(self, org_id, host, public_key, secret_key, project_id=None):
         key = str(org_id)
-        normalized_host = host.rstrip("/")
+        normalized_host = normalize_langfuse_host(host)
         auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
         endpoint = f"{normalized_host}/api/public/otel/v1/traces"
+
+        # Kept even when the exporter itself is unchanged, so a project id
+        # resolved on a later pass still lands.
+        if project_id:
+            self._org_project_ids[key] = project_id
 
         # Skip if already registered with identical settings
         if key in self._org_exporters:
@@ -84,6 +108,7 @@ class _OrgRoutingExporter(SpanExporter):
         key = str(org_id)
         exporter = self._org_exporters.pop(key, None)
         self._org_hosts.pop(key, None)
+        self._org_project_ids.pop(key, None)
         if exporter:
             exporter.shutdown()
             logger.info(f"Unregistered OTEL exporter for org {org_id}")
@@ -175,10 +200,14 @@ def ensure_tracing() -> bool:
     return True
 
 
-def register_org_langfuse_credentials(org_id, host, public_key, secret_key):
+def register_org_langfuse_credentials(
+    org_id, host, public_key, secret_key, project_id=None
+):
     """Register or update org-specific Langfuse credentials for span routing.
 
-    Safe to call multiple times — updates credentials if they changed.
+    Safe to call multiple times — updates credentials if they changed. A missing
+    ``project_id`` only degrades the trace URL to the legacy form; spans still
+    export, so it is not treated as a registration failure.
     """
     if not ensure_tracing():
         return
@@ -187,7 +216,14 @@ def register_org_langfuse_credentials(org_id, host, public_key, secret_key):
             f"Incomplete Langfuse credentials for org {org_id}, skipping registration"
         )
         return
-    _org_routing_exporter.register_org(org_id, host, public_key, secret_key)
+    if not project_id:
+        logger.warning(
+            f"No Langfuse project_id configured for org {org_id}; trace links will "
+            "use the legacy /trace/<id> form, which 404s on Langfuse v4"
+        )
+    _org_routing_exporter.register_org(
+        org_id, host, public_key, secret_key, project_id=project_id
+    )
 
 
 def unregister_org_langfuse_credentials(org_id):
@@ -220,6 +256,7 @@ async def load_all_org_langfuse_credentials():
             host=value.get("host"),
             public_key=value.get("public_key"),
             secret_key=value.get("secret_key"),
+            project_id=value.get("project_id"),
         )
     logger.info(f"Loaded Langfuse credentials for {len(configs)} org(s)")
 
@@ -248,6 +285,7 @@ async def handle_langfuse_sync(event):
             host=config.value.get("host"),
             public_key=config.value.get("public_key"),
             secret_key=config.value.get("secret_key"),
+            project_id=config.value.get("project_id"),
         )
     else:
         # Credentials were saved then deleted before we got the event
@@ -293,16 +331,30 @@ def build_remote_parent_context(trace_id: str | None):
 
 
 def get_trace_url(trace_id: str, org_id=None) -> str | None:
-    """Build a Langfuse trace URL, using org-specific host when available."""
+    """Build a Langfuse trace URL, using org-specific host when available.
+
+    Langfuse v4 dropped the trace entity, and with it the ``/trace/<id>``
+    shortcut that resolved the project server-side — it 404s for anything
+    ingested after the v4 cutover. The project-scoped URL is the durable form,
+    so it is used whenever the project id is known. Without one (unreachable
+    Langfuse, rejected keys, or a host still on v3, where the legacy form is
+    the correct one) the old shortcut is kept.
+    """
     if org_id is None:
         org_id = get_current_org_id()
 
     host = None
+    project_id = None
     if org_id and _org_routing_exporter:
         host = _org_routing_exporter.get_org_host(str(org_id))
+        if host:
+            project_id = _org_routing_exporter.get_org_project_id(str(org_id))
     if not host:
-        host = LANGFUSE_HOST
+        host = normalize_langfuse_host(LANGFUSE_HOST)
+        project_id = LANGFUSE_PROJECT_ID
     if not host:
         return None
 
-    return f"{host.rstrip('/')}/trace/{trace_id}"
+    if project_id:
+        return f"{host}/project/{project_id}/traces/{trace_id}"
+    return f"{host}/trace/{trace_id}"

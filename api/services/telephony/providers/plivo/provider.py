@@ -519,7 +519,8 @@ class PlivoProvider(TelephonyProvider):
                         )
                     body = await response.text()
                     raise ProviderPhoneNumberLookupError(
-                        f"Plivo API {response.status}: {body}"
+                        f"Plivo API {response.status}: {body}",
+                        status_code=response.status,
                     )
         except ProviderPhoneNumberLookupError:
             raise

@@ -1,9 +1,16 @@
 import pytest
 from pydantic import ValidationError
 
+from api.constants import (
+    MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+    TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
+)
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     MAX_CALL_DURATION_SECONDS,
+    MAX_EXTERNAL_PBX_LEAD_HEADERS,
+    TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
 )
 
@@ -26,6 +33,56 @@ def test_max_call_duration_rejects_over_cap():
 def test_max_call_duration_rejects_non_positive():
     with pytest.raises(ValidationError):
         WorkflowConfigurationDefaults(max_call_duration=0)
+
+
+def test_text_chat_inactivity_timeout_defaults_to_deployment_value():
+    config = WorkflowConfigurationDefaults()
+
+    assert (
+        config.text_chat_inactivity_timeout_seconds
+        == TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    )
+
+
+def test_text_chat_inactivity_timeout_accepts_workflow_override():
+    config = WorkflowConfigurationDefaults(text_chat_inactivity_timeout_seconds=15 * 60)
+
+    assert config.text_chat_inactivity_timeout_seconds == 15 * 60
+
+
+def test_text_chat_inactivity_timeout_rejects_values_below_minimum():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            text_chat_inactivity_timeout_seconds=(
+                MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS - 1
+            )
+        )
+
+
+def test_text_chat_inactivity_timeout_rejects_values_beyond_sweep_lookback():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            text_chat_inactivity_timeout_seconds=(
+                MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS + 1
+            )
+        )
+
+
+def test_text_chat_inactivity_timeout_bounds_are_exported_in_schema():
+    field_schema = WorkflowConfigurationDefaults.model_json_schema()["properties"][
+        "text_chat_inactivity_timeout_seconds"
+    ]
+
+    assert field_schema["minimum"] == MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    assert field_schema["maximum"] == MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+
+
+def test_text_chat_inactivity_timeout_constraints_export_backend_constants():
+    constraints = TextChatInactivityTimeoutConstraints()
+
+    assert constraints.default_seconds == TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    assert constraints.minimum_seconds == MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
+    assert constraints.maximum_seconds == MAX_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS
 
 
 def test_null_values_treated_as_unset():
@@ -88,3 +145,45 @@ def test_external_pbx_field_mapping_rejects_invalid_field_names():
                 {"context_path": "qualified", "destination_field": "invalid-field"}
             ]
         )
+
+
+def test_external_pbx_lead_headers_default_to_empty():
+    assert WorkflowConfigurationDefaults().external_pbx_lead_headers == []
+
+
+def test_external_pbx_lead_headers_are_stripped_and_deduplicated_in_order():
+    config = WorkflowConfigurationDefaults(
+        external_pbx_lead_headers=["  first_name  ", "address1", "first_name", "", "  "]
+    )
+
+    assert config.external_pbx_lead_headers == ["first_name", "address1"]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "1first_name",  # must start with a letter
+        "first name",  # no spaces
+        "first-name",  # no dashes
+        "PJSIP_HEADER(read,x))",  # function-injection shaped
+        "a" * 65,  # over the length cap
+    ],
+)
+def test_external_pbx_lead_headers_reject_unsafe_field_names(field):
+    with pytest.raises(ValidationError, match="external_pbx_lead_headers"):
+        WorkflowConfigurationDefaults(external_pbx_lead_headers=[field])
+
+
+def test_external_pbx_lead_headers_reject_oversized_list():
+    fields = [f"field_{index}" for index in range(MAX_EXTERNAL_PBX_LEAD_HEADERS + 1)]
+
+    with pytest.raises(ValidationError, match="external_pbx_lead_headers"):
+        WorkflowConfigurationDefaults(external_pbx_lead_headers=fields)
+
+
+def test_external_pbx_lead_headers_treat_null_as_unset():
+    config = WorkflowConfigurationDefaults.model_validate(
+        {"external_pbx_lead_headers": None}
+    )
+
+    assert config.external_pbx_lead_headers == []

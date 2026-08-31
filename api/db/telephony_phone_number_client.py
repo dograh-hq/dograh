@@ -5,8 +5,9 @@ owned by a telephony configuration. They power both outbound caller-ID
 selection and inbound call routing.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from loguru import logger
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
@@ -18,6 +19,10 @@ from api.db.models import (
     WorkflowModel,
 )
 from api.utils.telephony_address import normalize_telephony_address
+
+
+class TelephonyPhoneNumberConflictError(Exception):
+    """Raised when a phone number violates a DB constraint."""
 
 
 class TelephonyPhoneNumberClient(BaseDBClient):
@@ -101,8 +106,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         provider: str,
         country_hint: Optional[str] = None,
     ) -> Optional[TelephonyPhoneNumberModel]:
-        """Inbound routing primary lookup: normalize the called address and find
-        the matching active row whose config is for the detected provider."""
+        """Inbound routing primary lookup for an active number and config."""
         normalized = normalize_telephony_address(address, country_hint=country_hint)
 
         async with self.async_session() as session:
@@ -119,6 +123,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     == normalized.canonical,
                     TelephonyPhoneNumberModel.is_active.is_(True),
                     TelephonyConfigurationModel.provider == provider,
+                    TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
             return result.scalars().first()
@@ -138,9 +143,9 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         ``telephony_phone_numbers`` and matches all of:
         provider, ``credentials[account_id_field] == account_id``,
         ``phone.address_normalized == canonical(to_number)``, and
-        ``phone.is_active``. Replaces the previous pattern of resolving the
-        config and the phone number in two separate queries with a Python-side
-        loop over candidate configs.
+        ``phone.is_active``, and a non-parked configuration. Replaces the
+        previous pattern of resolving the config and the phone number in two
+        separate queries with a Python-side loop over candidate configs.
 
         Returns ``(config, phone_number)`` or None when the primary path
         misses (e.g. legacy non-E.164 stored addresses); the caller should
@@ -166,6 +171,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     TelephonyPhoneNumberModel.address_normalized
                     == normalized.canonical,
                     TelephonyPhoneNumberModel.is_active.is_(True),
+                    TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
             if organization_id is not None:
@@ -173,33 +179,71 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     TelephonyConfigurationModel.organization_id == organization_id
                 )
             result = await session.execute(stmt)
-            row = result.first()
-            if not row:
-                return None
-            return row[0], row[1]
+            rows = result.all()
 
-    async def find_inbound_routing_conflict(
+            if not rows:
+                logger.info(
+                    f"Inbound route lookup miss — provider={provider} "
+                    f"{account_id_field}={account_id!r} "
+                    f"to={to_number!r} canonical={normalized.canonical!r} "
+                    f"org_scope={organization_id}"
+                )
+                return None
+
+            # The (provider, account_id, address_normalized) tuple is meant
+            # to be globally unique; the write paths that keep it so live in
+            # ``api.services.telephony.inbound_routing``. When it isn't, the
+            # call silently lands in whichever org Postgres returned first, so
+            # name every candidate rather than only the winner.
+            if len(rows) > 1:
+                candidates = ", ".join(
+                    f"config={cfg.id}/org={cfg.organization_id}/name={cfg.name!r}"
+                    f"/phone={phone.id}"
+                    for cfg, phone in rows
+                )
+                logger.error(
+                    f"Ambiguous inbound route — provider={provider} "
+                    f"{account_id_field}={account_id!r} "
+                    f"canonical={normalized.canonical!r} matched {len(rows)} "
+                    f"rows, using the first: {candidates}"
+                )
+
+            config, phone_number = rows[0][0], rows[0][1]
+            logger.info(
+                f"Inbound route resolved — provider={provider} "
+                f"{account_id_field}={account_id!r} "
+                f"canonical={normalized.canonical!r} -> config={config.id} "
+                f"org={config.organization_id} name={config.name!r} "
+                f"config_{account_id_field}="
+                f"{(config.credentials or {}).get(account_id_field)!r} "
+                f"phone={phone_number.id} address={phone_number.address!r} "
+                f"inbound_workflow_id={phone_number.inbound_workflow_id}"
+            )
+            return config, phone_number
+
+    async def find_inbound_routing_conflicts(
         self,
         provider: str,
         account_id_field: str,
         account_id: str,
-        address: str,
-        country_hint: Optional[str] = None,
-    ) -> Optional[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
-        """Inbound dispatch keys on (provider, credentials[account_id_field],
+        addresses_normalized: Sequence[str],
+        exclude_configuration_id: Optional[int] = None,
+    ) -> List[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
+        """Rows that already hold one of these inbound routing keys.
+
+        Inbound dispatch keys on (provider, credentials[account_id_field],
         address_normalized) — see ``find_inbound_route_by_account``. That tuple
-        must be globally unique or two orgs would race for the same call.
+        must be globally unique or two orgs race for the same call. The rule and
+        the decision of when to apply it live in
+        ``api.services.telephony.inbound_routing``; this is only its query.
 
-        Returns the conflicting (config, phone_number) — possibly in another
-        org — when inserting a row with this combination would break that
-        invariant, or None when the row is safe to insert. Returns None for
-        providers that don't carry an account_id (e.g. ARI), which use a
-        different inbound path.
+        Returns every conflicting (config, phone_number) pair, possibly owned by
+        other organizations. ``exclude_configuration_id`` drops the configuration
+        being updated so it cannot conflict with itself. Addresses are matched as
+        already-canonical ``address_normalized`` values — callers normalize.
         """
-        if not (provider and account_id_field and account_id):
-            return None
-
-        normalized = normalize_telephony_address(address, country_hint=country_hint)
+        if not (provider and account_id_field and account_id and addresses_normalized):
+            return []
 
         async with self.async_session() as session:
             stmt = (
@@ -213,13 +257,17 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     TelephonyConfigurationModel.provider == provider,
                     TelephonyConfigurationModel.credentials.op("->>")(account_id_field)
                     == account_id,
-                    TelephonyPhoneNumberModel.address_normalized
-                    == normalized.canonical,
+                    TelephonyPhoneNumberModel.address_normalized.in_(
+                        list(addresses_normalized)
+                    ),
                 )
             )
+            if exclude_configuration_id is not None:
+                stmt = stmt.where(
+                    TelephonyConfigurationModel.id != exclude_configuration_id
+                )
             result = await session.execute(stmt)
-            row = result.first()
-            return (row[0], row[1]) if row else None
+            return [(row[0], row[1]) for row in result.all()]
 
     async def create_phone_number(
         self,
@@ -229,6 +277,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         country_code: Optional[str] = None,
         label: Optional[str] = None,
         inbound_workflow_id: Optional[int] = None,
+        telephony_trunk_id: Optional[int] = None,
         is_active: bool = True,
         is_default_caller_id: bool = False,
         extra_metadata: Optional[Dict[str, Any]] = None,
@@ -248,6 +297,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 country_code=country_code or normalized.country_code,
                 label=label,
                 inbound_workflow_id=inbound_workflow_id,
+                telephony_trunk_id=telephony_trunk_id,
                 is_active=is_active,
                 is_default_caller_id=is_default_caller_id,
                 extra_metadata=extra_metadata or {},
@@ -257,7 +307,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
-                raise e
+                raise TelephonyPhoneNumberConflictError(str(e)) from e
             await session.refresh(row)
             return row
 
@@ -267,13 +317,16 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         telephony_configuration_id: int,
         label: Optional[str] = None,
         inbound_workflow_id: Optional[int] = None,
+        telephony_trunk_id: Optional[int] = None,
         is_active: Optional[bool] = None,
         country_code: Optional[str] = None,
         extra_metadata: Optional[Dict[str, Any]] = None,
         clear_inbound_workflow: bool = False,
+        clear_trunk: bool = False,
     ) -> Optional[TelephonyPhoneNumberModel]:
         """Partial update. ``address`` is intentionally immutable — create a new
-        row instead. Set ``clear_inbound_workflow=True`` to null out the FK."""
+        row instead. Set ``clear_inbound_workflow``/``clear_trunk`` to null out
+        the respective FK."""
         async with self.async_session() as session:
             row = await session.get(TelephonyPhoneNumberModel, phone_number_id)
             if not row or row.telephony_configuration_id != telephony_configuration_id:
@@ -285,6 +338,10 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 row.inbound_workflow_id = inbound_workflow_id
             elif clear_inbound_workflow:
                 row.inbound_workflow_id = None
+            if telephony_trunk_id is not None:
+                row.telephony_trunk_id = telephony_trunk_id
+            elif clear_trunk:
+                row.telephony_trunk_id = None
             if is_active is not None:
                 row.is_active = is_active
             if country_code is not None:

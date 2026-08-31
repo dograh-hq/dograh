@@ -33,10 +33,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.tests.utils import SleepFrame, run_test
-from pipecat.turns.user_start import (
-    TranscriptionUserTurnStartStrategy,
-    VADUserTurnStartStrategy,
-)
+from pipecat.turns.user_start import ExternalUserTurnStartStrategy
 from pipecat.turns.user_stop import (
     ExternalUserTurnStopStrategy,
 )
@@ -105,12 +102,12 @@ class TestVoicemailDetectorWithUserAggregator:
         """
         context = LLMContext()
 
-        # Create user turn strategies
+        # The injector supplies explicit user-turn boundary frames, matching an
+        # STT service that owns turn detection. Use external strategies here so
+        # the main aggregator does not broadcast a duplicate upstream
+        # UserStartedSpeakingFrame into the voicemail classifier branch.
         user_turn_strategies = UserTurnStrategies(
-            start=[
-                VADUserTurnStartStrategy(),
-                TranscriptionUserTurnStartStrategy(),
-            ],
+            start=[ExternalUserTurnStartStrategy()],
             stop=[ExternalUserTurnStopStrategy()],
         )
 
@@ -186,8 +183,14 @@ class TestVoicemailDetectorWithUserAggregator:
             await asyncio.sleep(0.05)
             await injector.inject_frame(UserStoppedSpeakingFrame())
 
-            # Wait for voicemail classification and main LLM response
-            await asyncio.sleep(0.2)
+            # Wait for voicemail classification and the first main-LLM response
+            # before starting another externally controlled turn.
+            async with asyncio.timeout(1.0):
+                while (
+                    voicemail_llm.get_current_step() < 1
+                    or main_llm.get_current_step() < 1
+                ):
+                    await asyncio.sleep(0.01)
 
             # === Second user turn ===
             await injector.inject_frame(UserStartedSpeakingFrame())
@@ -204,7 +207,9 @@ class TestVoicemailDetectorWithUserAggregator:
             await asyncio.sleep(0.05)
             await injector.inject_frame(UserStoppedSpeakingFrame())
 
-            await asyncio.sleep(0.05)
+            async with asyncio.timeout(1.0):
+                while main_llm.get_current_step() < 2:
+                    await asyncio.sleep(0.01)
             await injector.inject_frame(
                 EndWorkerFrame(), direction=FrameDirection.UPSTREAM
             )
@@ -225,10 +230,10 @@ class TestVoicemailDetectorWithUserAggregator:
             f"but saw it {frame_counter.user_stopped_speaking_count} times"
         )
 
-        # We should see no more than 2 user started speaking frame. One from downstream FrameInjector
-        # and one from upstream main pipeline's LLMUserAggregator
-        assert frame_counter.user_started_speaking_count <= 2, (
-            f"Expected voicemail detector's user aggregator to see UserStartedSpeakingFrame at most twice, "
+        # The externally controlled main aggregator does not echo another start
+        # frame upstream, and the classifier gate blocks the second turn.
+        assert frame_counter.user_started_speaking_count == 1, (
+            f"Expected voicemail detector's user aggregator to see UserStartedSpeakingFrame once, "
             f"but saw it {frame_counter.user_started_speaking_count} times"
         )
 
@@ -315,7 +320,7 @@ class TestVoicemailDetectorWithUserAggregator:
             context,
             user_params=LLMUserAggregatorParams(
                 user_turn_strategies=UserTurnStrategies(
-                    start=[TranscriptionUserTurnStartStrategy()],
+                    start=[ExternalUserTurnStartStrategy()],
                     stop=[ExternalUserTurnStopStrategy()],
                 )
             ),

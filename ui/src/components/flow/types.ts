@@ -29,7 +29,7 @@ export type FlowNodeData = {
     delayed_start?: boolean;
     delayed_start_duration?: number;
     // Pre-call data fetch (StartCall only)
-    pre_call_fetch_enabled?: boolean;
+    pre_call_fetch_mode?: 'disabled' | 'always' | 'inbound' | 'outbound';
     pre_call_fetch_url?: string;
     pre_call_fetch_credential_uuid?: string;
     // Trigger node specific

@@ -19,9 +19,11 @@ from api.services.call_concurrency import (
     call_concurrency,
 )
 from api.services.quota_service import authorize_workflow_run_start
-from api.services.telephony.factory import (
-    get_default_telephony_provider,
-    get_telephony_provider_by_id,
+from api.services.telephony.factory import get_telephony_provider_by_id
+from api.services.telephony.outbound_readiness import (
+    OutboundConfigurationNotFoundError,
+    OutboundSetupIncompleteError,
+    resolve_outbound_configuration_id,
 )
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
@@ -36,7 +38,11 @@ class TriggerCallRequest(BaseModel):
 
     phone_number: str
     initial_context: Optional[dict] = None
+    # Optional for backwards compatibility. The resolver prefers the marked
+    # default, then selects another ready active configuration when necessary.
     telephony_configuration_id: int | None = None
+    # Optional active caller ID in the resolved telephony configuration.
+    from_phone_number_id: int | None = None
 
 
 class TriggerCallResponse(BaseModel):
@@ -186,39 +192,35 @@ async def _execute_resolved_target(
     """Shared execution path once the target workflow has been resolved."""
     execution_user_id = _get_execution_user_id(target.workflow)
 
-    # Get telephony provider — either the caller-specified config (validated
-    # against the workflow's org) or the org's default config.
-    if request.telephony_configuration_id is not None:
-        cfg = await db_client.get_telephony_configuration_for_org(
+    # An explicit config remains authoritative. Legacy callers that omit it
+    # get the first active configuration that passes outbound pre-flight.
+    try:
+        resolved_cfg_id = await resolve_outbound_configuration_id(
             request.telephony_configuration_id,
             target.organization_id,
+            db=db_client,
         )
-        if not cfg:
+        provider = await get_telephony_provider_by_id(
+            resolved_cfg_id, target.organization_id
+        )
+    except OutboundSetupIncompleteError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except OutboundConfigurationNotFoundError as e:
+        if request.telephony_configuration_id is not None:
             raise HTTPException(
                 status_code=404, detail="Telephony configuration not found"
-            )
-        try:
-            provider = await get_telephony_provider_by_id(
-                cfg.id, target.organization_id
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Telephony provider not configured for this configuration",
-            )
-        resolved_cfg_id = cfg.id
-    else:
-        try:
-            provider = await get_default_telephony_provider(target.organization_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Telephony provider not configured for this organization",
-            )
-        default_cfg = await db_client.get_default_telephony_configuration(
-            target.organization_id
+            ) from e
+        raise HTTPException(
+            status_code=400,
+            detail="Telephony provider not configured for this organization",
+        ) from e
+    except ValueError as e:
+        detail = (
+            "Telephony provider not configured for this configuration"
+            if request.telephony_configuration_id is not None
+            else "Telephony provider not configured for this organization"
         )
-        resolved_cfg_id = default_cfg.id if default_cfg else None
+        raise HTTPException(status_code=400, detail=detail) from e
 
     # Validate provider is configured
     if not provider.validate_config():
@@ -226,6 +228,16 @@ async def _execute_resolved_target(
             status_code=400,
             detail="Telephony provider not configured for this organization",
         )
+
+    # Resolve an explicit caller ID within the selected configuration.
+    from_number: str | None = None
+    if request.from_phone_number_id is not None:
+        phone_row = await db_client.get_phone_number_for_config(
+            request.from_phone_number_id, resolved_cfg_id
+        )
+        if not phone_row or not phone_row.is_active:
+            raise HTTPException(status_code=400, detail="from_phone_number_not_found")
+        from_number = phone_row.address_normalized
 
     # 7. Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
@@ -235,6 +247,7 @@ async def _execute_resolved_target(
     workflow_run_name = f"WR-{mode_label}-{random.randint(1000, 9999)}"
     initial_context = {
         "provider": provider.PROVIDER_NAME,
+        "direction": "outbound",
         "phone_number": request.phone_number,
         "trigger_mode": "test" if use_draft else "production",
         "telephony_configuration_id": resolved_cfg_id,
@@ -242,6 +255,8 @@ async def _execute_resolved_target(
         "agent_identifier_type": target.identifier_type,
         "workflow_uuid": target.workflow.workflow_uuid,
     }
+    if request.from_phone_number_id is not None:
+        initial_context["from_phone_number_id"] = request.from_phone_number_id
     if target.identifier_type == "trigger_path":
         initial_context["agent_uuid"] = target.identifier_value
     if api_key_id is not None:
@@ -334,6 +349,7 @@ async def _execute_resolved_target(
             to_number=request.phone_number,
             webhook_url=webhook_url,
             workflow_run_id=workflow_run.id,
+            from_number=from_number,
             workflow_id=target.workflow.id,
             organization_id=target.organization_id,
         )

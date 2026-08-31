@@ -19,10 +19,16 @@ import {
     updateWorkflowApiV1WorkflowWorkflowIdPut,
     validateWorkflowApiV1WorkflowWorkflowIdValidatePost
 } from "@/client";
-import { NodeSpec, WorkflowError } from "@/client/types.gen";
+import {
+    NodeSpec,
+    TextChatInactivityTimeoutConstraints,
+    WidgetTexts,
+    WorkflowError,
+} from "@/client/types.gen";
 import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, FlowNodeData, NodeType } from "@/components/flow/types";
 import { PostHogEvent } from "@/constants/posthog-events";
+import { detailFromError } from "@/lib/apiError";
 import logger from '@/lib/logger';
 import { getNextNodeId, getRandomId } from "@/lib/utils";
 import {
@@ -118,6 +124,9 @@ export const useWorkflowState = ({
     const rfInstance = useRef<ReactFlowInstance<FlowNode, FlowEdge> | null>(null);
     const [workflowConfigurationDefaults, setWorkflowConfigurationDefaults] =
         useState<WorkflowConfigurationDefaults | null>(null);
+    const [textChatInactivityTimeoutConstraints, setTextChatInactivityTimeoutConstraints] =
+        useState<TextChatInactivityTimeoutConstraints | null>(null);
+    const [widgetTextDefaults, setWidgetTextDefaults] = useState<WidgetTexts | null>(null);
     const [workflowConfigurationDefaultsLoaded, setWorkflowConfigurationDefaultsLoaded] =
         useState(false);
 
@@ -172,13 +181,21 @@ export const useWorkflowState = ({
                         `Failed to load workflow configuration defaults: ${JSON.stringify(response.error)}`,
                     );
                     setWorkflowConfigurationDefaults(null);
+                    setTextChatInactivityTimeoutConstraints(null);
+                    setWidgetTextDefaults(null);
                 } else {
                     setWorkflowConfigurationDefaults(response.data.workflow_configurations);
+                    setTextChatInactivityTimeoutConstraints(
+                        response.data.text_chat_inactivity_timeout_constraints,
+                    );
+                    setWidgetTextDefaults(response.data.widget_text_defaults);
                 }
             } catch (error) {
                 if (cancelled) return;
                 logger.error(`Failed to load workflow configuration defaults: ${error}`);
                 setWorkflowConfigurationDefaults(null);
+                setTextChatInactivityTimeoutConstraints(null);
+                setWidgetTextDefaults(null);
             } finally {
                 if (!cancelled) {
                     setWorkflowConfigurationDefaultsLoaded(true);
@@ -517,7 +534,7 @@ export const useWorkflowState = ({
     const saveTemplateContextVariables = useCallback(async (variables: Record<string, string>) => {
         if (!user?.id) return;
         try {
-            await updateWorkflowApiV1WorkflowWorkflowIdPut({
+            const response = await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {
                     workflow_id: workflowId,
                 },
@@ -527,6 +544,11 @@ export const useWorkflowState = ({
                     template_context_variables: variables,
                 },
             });
+            if (response.error) {
+                throw new Error(
+                    detailFromError(response.error, "Failed to save template variables"),
+                );
+            }
             setTemplateContextVariables(variables);
             logger.info('Template context variables saved successfully');
         } catch (error) {
@@ -592,7 +614,7 @@ export const useWorkflowState = ({
             ?? resolveWorkflowConfigurations(null, workflowConfigurationDefaults);
         const updatedConfigurations: WorkflowConfigurations = { ...currentConfigurations, dictionary: newDictionary };
         try {
-            await updateWorkflowApiV1WorkflowWorkflowIdPut({
+            const response = await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {
                     workflow_id: workflowId,
                 },
@@ -602,6 +624,9 @@ export const useWorkflowState = ({
                     workflow_configurations: updatedConfigurations as Record<string, unknown>,
                 },
             });
+            if (response.error) {
+                throw new Error(detailFromError(response.error, "Failed to save dictionary"));
+            }
             setDictionary(newDictionary);
             setWorkflowConfigurations(updatedConfigurations);
         } catch (error) {
@@ -632,6 +657,8 @@ export const useWorkflowState = ({
         workflowValidationErrors,
         templateContextVariables,
         workflowConfigurations,
+        textChatInactivityTimeoutConstraints,
+        widgetTextDefaults,
         dictionary,
         setNodes,
         setEdges,

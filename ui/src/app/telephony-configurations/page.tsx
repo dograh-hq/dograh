@@ -7,10 +7,12 @@ import {
   ExternalLink,
   Pencil,
   Plus,
+  RotateCcw,
   Star,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -18,6 +20,7 @@ import {
   deleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDelete,
   getTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGet,
   listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
+  reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost,
   setDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPost,
 } from "@/client/sdk.gen";
 import type {
@@ -52,6 +55,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 
 export default function TelephonyConfigurationsPage() {
   const { user, getAccessToken, loading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
   const {
     telnyxMissingWebhookPublicKeyCount,
     vonageMissingSignatureSecretCount,
@@ -96,6 +100,12 @@ export default function TelephonyConfigurationsPage() {
     fetchItems();
   }, [fetchItems]);
 
+  // ?add=1 lands the user straight on the provider form — used by the Phone
+  // Call dialog's "Add provider" action so the choice isn't asked twice.
+  useEffect(() => {
+    if (searchParams.get("add") === "1") setCreateOpen(true);
+  }, [searchParams]);
+
   const onEdit = async (item: TelephonyConfigurationListItem) => {
     try {
       const token = await getAccessToken();
@@ -127,6 +137,25 @@ export default function TelephonyConfigurationsPage() {
       fetchItems();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to set default");
+    }
+  };
+
+  const onReactivate = async (item: TelephonyConfigurationListItem) => {
+    try {
+      const token = await getAccessToken();
+      const res = await reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost(
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          path: { config_id: item.id },
+        },
+      );
+      if (res.error) throw new Error(detailFromError(res.error));
+      toast.success(`${item.name} reactivated — reconnecting within a minute`);
+      fetchItems();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to reactivate configuration",
+      );
     }
   };
 
@@ -254,11 +283,34 @@ export default function TelephonyConfigurationsPage() {
                             Default
                           </Badge>
                         )}
+                        {item.inactive && (
+                          <Badge variant="destructive">Inactive</Badge>
+                        )}
+                        {!item.inactive && item.is_ready_for_outbound === false && (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 border-amber-400 text-amber-700 dark:border-amber-700 dark:text-amber-400"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            Setup incomplete
+                          </Badge>
+                        )}
                       </div>
                       <span className="text-sm text-muted-foreground">
                         {item.phone_number_count} phone{" "}
                         {item.phone_number_count === 1 ? "number" : "numbers"}
                       </span>
+                      {item.inactive && (
+                        <span className="text-sm text-destructive">
+                          Disabled after repeated connection failures
+                          {item.inactive_reason ? `: ${item.inactive_reason}` : ""}
+                        </span>
+                      )}
+                      {!item.inactive && item.outbound_blocked_reason && (
+                        <span className="text-sm text-amber-700 dark:text-amber-500">
+                          {item.outbound_blocked_reason}
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -277,6 +329,17 @@ export default function TelephonyConfigurationsPage() {
                     </div>
                   </Link>
                   <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:flex-nowrap">
+                    {item.inactive && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onReactivate(item)}
+                        title="Reconnect this configuration now"
+                      >
+                        <RotateCcw className="h-4 w-4 mr-1" />
+                        Reactivate
+                      </Button>
+                    )}
                     {!item.is_default_outbound && (
                       <Button
                         variant="ghost"
@@ -324,6 +387,7 @@ export default function TelephonyConfigurationsPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         existing={null}
+        suggestDefaultOutbound={!items.some((item) => item.is_default_outbound)}
         onSaved={onSaved}
       />
       <ConfigFormDialog

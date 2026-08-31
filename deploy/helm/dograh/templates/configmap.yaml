@@ -39,3 +39,9 @@ data:
   {{- if .Values.secrets.langfuseHost }}
   LANGFUSE_HOST: {{ .Values.secrets.langfuseHost | quote }}
   {{- end }}
+  {{- if .Values.secrets.langfuseProjectId }}
+  LANGFUSE_PROJECT_ID: {{ .Values.secrets.langfuseProjectId | quote }}
+  {{- end }}
+  {{- if .Values.secrets.langfuseTracesPublic }}
+  LANGFUSE_TRACES_PUBLIC: {{ .Values.secrets.langfuseTracesPublic | quote }}
+  {{- end }}

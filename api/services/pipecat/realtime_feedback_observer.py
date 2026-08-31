@@ -25,6 +25,12 @@ from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
 from loguru import logger
 
+from api.errors.failure import (
+    classify_exception,
+    classify_message,
+    failure_metadata_for_processor,
+    log_failure,
+)
 from api.services.pipecat.realtime_feedback_events import (
     build_bot_text_event,
     build_function_call_end_event,
@@ -242,6 +248,26 @@ class RealtimeFeedbackObserver(BaseObserver):
             # them (e.g. google.genai APIError: code=1008, status=None,
             # message="Your project has been denied access...").
             exc = frame.exception
+            metadata = failure_metadata_for_processor(frame.processor)
+            if exc is not None:
+                failure = classify_exception(
+                    exc,
+                    source=metadata.source,
+                    provider=metadata.provider,
+                    error_owner=metadata.error_owner,
+                )
+            else:
+                failure = classify_message(
+                    frame.error,
+                    source=metadata.source,
+                    provider=metadata.provider,
+                    error_owner=metadata.error_owner,
+                )
+            log_failure(
+                failure,
+                fatal=frame.fatal,
+            )
+
             if exc is not None:
                 exc_type = type(exc).__name__
                 extra_payload["exception_type"] = exc_type

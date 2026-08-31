@@ -33,6 +33,7 @@ import { useAppConfig } from "@/context/AppConfigContext";
 import { useOrganizationTimezone } from "@/hooks/useOrganizationTimezone";
 import { useAuth } from "@/lib/auth";
 import { formatDateTime } from "@/lib/dateTime";
+import { trackMetaInitiateCheckout } from "@/lib/metaPixel";
 
 const LEDGER_PAGE_SIZE = 50;
 
@@ -207,6 +208,9 @@ export default function BillingPage() {
             return;
         }
 
+        // Fire on checkout intent (the click). The purchase-URL round-trip below
+        // gives the pixel beacon time to flush before the full-page redirect.
+        trackMetaInitiateCheckout();
         setPurchasing(true);
         try {
             const response = await createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost();

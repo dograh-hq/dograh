@@ -1,11 +1,33 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from api.routes.public_agent import router
+from api.routes.public_agent import (
+    ResolvedAgentTarget,
+    TriggerCallRequest,
+    _execute_resolved_target,
+    router,
+)
 from api.services.call_concurrency import CallConcurrencyLimitError
+from api.services.telephony.outbound_readiness import OutboundSetupIncompleteError
+
+
+@pytest.fixture(autouse=True)
+def outbound_configuration_is_ready():
+    """Keep route tests focused unless they explicitly exercise readiness."""
+    guard = AsyncMock(
+        side_effect=lambda telephony_configuration_id, _organization_id, **_kwargs: (
+            telephony_configuration_id or 55
+        )
+    )
+    with patch(
+        "api.routes.public_agent.resolve_outbound_configuration_id",
+        new=guard,
+    ):
+        yield guard
 
 
 def _make_test_app() -> FastAPI:
@@ -56,6 +78,50 @@ def _provider():
     )
 
 
+@pytest.mark.asyncio
+async def test_public_agent_rejects_incomplete_outbound_setup_before_run_creation(
+    outbound_configuration_is_ready,
+):
+    provider = _provider()
+    outbound_configuration_is_ready.side_effect = OutboundSetupIncompleteError(
+        55,
+        "Twilio production",
+        "Add a caller ID before placing calls.",
+    )
+    target = ResolvedAgentTarget(
+        workflow=_active_workflow(),
+        organization_id=11,
+        identifier_type="workflow_uuid",
+        identifier_value="workflow-uuid-123",
+    )
+
+    with (
+        patch("api.routes.public_agent.db_client") as mock_db,
+        patch(
+            "api.routes.public_agent.get_telephony_provider_by_id",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        mock_db.get_default_telephony_configuration = AsyncMock(
+            return_value=SimpleNamespace(id=55)
+        )
+        mock_db.create_workflow_run = AsyncMock()
+
+        with pytest.raises(HTTPException) as excinfo:
+            await _execute_resolved_target(
+                target,
+                TriggerCallRequest(phone_number="+15551234567"),
+                use_draft=False,
+                api_key_id=None,
+                api_key_created_by=None,
+            )
+
+    assert excinfo.value.status_code == 400
+    assert "Twilio production" in excinfo.value.detail
+    mock_db.create_workflow_run.assert_not_awaited()
+    provider.initiate_call.assert_not_awaited()
+
+
 def test_trigger_route_executes_as_workflow_owner():
     app = _make_test_app()
     client = TestClient(app)
@@ -74,7 +140,7 @@ def test_trigger_route_executes_as_workflow_owner():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -136,12 +202,14 @@ def test_trigger_route_executes_as_workflow_owner():
     assert create_kwargs["initial_context"]["api_key_id"] == 7
     assert create_kwargs["initial_context"]["api_key_created_by"] == 22
     assert create_kwargs["initial_context"]["called_number"] == "+15551234567"
+    assert create_kwargs["initial_context"]["telephony_configuration_id"] == 55
     assert create_kwargs["definition_id"] == 77
     assert "name" not in create_kwargs["initial_context"]
     assert not mock_db.get_draft_version.called
 
     initiate_kwargs = provider.initiate_call.await_args.kwargs
     assert initiate_kwargs["workflow_id"] == workflow.id
+    assert initiate_kwargs["from_number"] is None
     # The media websocket URL is keyed on the org, not the workflow owner.
     assert initiate_kwargs["organization_id"] == workflow.organization_id
     mock_db.update_workflow_run.assert_awaited_once_with(
@@ -157,6 +225,114 @@ def test_trigger_route_executes_as_workflow_owner():
             "caller_number": "+15550000000",
         },
     )
+
+
+def test_trigger_route_uses_requested_configured_caller_id():
+    app = _make_test_app()
+    client = TestClient(app)
+    workflow = _active_workflow(trigger_path="trigger-uuid-123")
+    provider = _provider()
+
+    with (
+        patch("api.routes.public_agent.db_client") as mock_db,
+        patch("api.routes.public_agent.call_concurrency") as mock_concurrency,
+        patch(
+            "api.routes.public_agent.authorize_workflow_run_start",
+            new=AsyncMock(
+                return_value=SimpleNamespace(has_quota=True, error_message="")
+            ),
+        ),
+        patch(
+            "api.routes.public_agent.get_telephony_provider_by_id",
+            new=AsyncMock(return_value=provider),
+        ),
+        patch(
+            "api.routes.public_agent.get_backend_endpoints",
+            new=AsyncMock(return_value=("https://api.example.com", "wss://ignored")),
+        ),
+    ):
+        slot = object()
+        mock_concurrency.acquire_org_slot = AsyncMock(return_value=slot)
+        mock_concurrency.bind_workflow_run = AsyncMock()
+        mock_concurrency.release_workflow_run_slot = AsyncMock()
+        mock_concurrency.release_slot = AsyncMock()
+        mock_db.validate_api_key = AsyncMock(
+            return_value=SimpleNamespace(id=7, organization_id=11, created_by=22)
+        )
+        mock_db.get_agent_trigger_by_path = AsyncMock(
+            return_value=SimpleNamespace(
+                workflow_id=workflow.id, organization_id=11, state="active"
+            )
+        )
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_telephony_configuration_for_org = AsyncMock(
+            return_value=SimpleNamespace(id=123)
+        )
+        mock_db.get_phone_number_for_config = AsyncMock(
+            return_value=SimpleNamespace(
+                is_active=True, address_normalized="+15550000001"
+            )
+        )
+        mock_db.create_workflow_run = AsyncMock(return_value=SimpleNamespace(id=501))
+        mock_db.update_workflow_run = AsyncMock()
+
+        response = client.post(
+            "/public/agent/trigger-uuid-123",
+            headers={"X-API-Key": "test-api-key"},
+            json={
+                "phone_number": "+15551234567",
+                "telephony_configuration_id": 123,
+                "from_phone_number_id": 456,
+            },
+        )
+
+    assert response.status_code == 200
+    mock_db.get_phone_number_for_config.assert_awaited_once_with(456, 123)
+    assert provider.initiate_call.await_args.kwargs["from_number"] == "+15550000001"
+    initial_context = mock_db.create_workflow_run.await_args.kwargs["initial_context"]
+    assert initial_context["telephony_configuration_id"] == 123
+    assert initial_context["from_phone_number_id"] == 456
+
+
+def test_trigger_route_rejects_caller_id_outside_resolved_config():
+    app = _make_test_app()
+    client = TestClient(app)
+    workflow = _active_workflow(trigger_path="trigger-uuid-123")
+    provider = _provider()
+
+    with (
+        patch("api.routes.public_agent.db_client") as mock_db,
+        patch(
+            "api.routes.public_agent.get_telephony_provider_by_id",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        mock_db.validate_api_key = AsyncMock(
+            return_value=SimpleNamespace(id=7, organization_id=11, created_by=22)
+        )
+        mock_db.get_agent_trigger_by_path = AsyncMock(
+            return_value=SimpleNamespace(
+                workflow_id=workflow.id, organization_id=11, state="active"
+            )
+        )
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.get_telephony_configuration_for_org = AsyncMock(
+            return_value=SimpleNamespace(id=123)
+        )
+        mock_db.get_phone_number_for_config = AsyncMock(return_value=None)
+
+        response = client.post(
+            "/public/agent/trigger-uuid-123",
+            headers={"X-API-Key": "test-api-key"},
+            json={
+                "phone_number": "+15551234567",
+                "telephony_configuration_id": 123,
+                "from_phone_number_id": 999,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "from_phone_number_not_found"}
 
 
 def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
@@ -177,7 +353,7 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -268,7 +444,7 @@ def test_trigger_test_route_uses_draft_and_template_context_with_api_override():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -366,7 +542,7 @@ def test_workflow_uuid_test_route_uses_draft_and_template_context():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -441,7 +617,7 @@ def test_trigger_route_still_returns_success_when_metadata_persistence_fails():
             new=quota_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
         patch(
@@ -495,7 +671,7 @@ def test_trigger_route_rejects_when_concurrency_limit_reached():
         patch("api.routes.public_agent.db_client") as mock_db,
         patch("api.routes.public_agent.call_concurrency") as mock_concurrency,
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
     ):
@@ -557,7 +733,7 @@ def test_trigger_route_releases_concurrency_slot_when_quota_fails():
             new=mark_failed_mock,
         ),
         patch(
-            "api.routes.public_agent.get_default_telephony_provider",
+            "api.routes.public_agent.get_telephony_provider_by_id",
             new=AsyncMock(return_value=provider),
         ),
     ):

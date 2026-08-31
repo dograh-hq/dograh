@@ -18,7 +18,6 @@ import pytest
 from pipecat.frames.frames import (
     Frame,
     FunctionCallResultFrame,
-    LLMContextFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -47,9 +46,9 @@ from pipecat.turns.user_stop import (
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
-from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
+from api.tests.pipecat_test_utils import run_engine_test_pipeline
 from pipecat.tests import MockLLMService, MockTTSService
 
 
@@ -145,6 +144,7 @@ async def create_test_pipeline(
             audio_out_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
         ),
     )
 
@@ -269,7 +269,7 @@ class TestNodeSwitchWithUserSpeech:
         mock_steps = [step_0_chunks, step_1_chunks, step_2_chunks]
         llm = MockLLMService(mock_steps=mock_steps, chunk_delay=0.001)
 
-        engine, _transport, task = await create_test_pipeline(
+        engine, transport, task = await create_test_pipeline(
             three_node_workflow_no_variable_extraction,
             llm,
             user_speech_initial_delay=user_speech_initial_delay,
@@ -281,19 +281,7 @@ class TestNodeSwitchWithUserSpeech:
             new_callable=AsyncMock,
             return_value=1,
         ):
-
-            async def run_pipeline():
-                await run_pipeline_worker(task)
-
-            async def initialize_engine():
-                await asyncio.sleep(0.01)
-                await engine.initialize()
-                await engine.set_node(engine.workflow.start_node_id)
-                # Start the LLM generation - user speech will be injected
-                # automatically when FunctionCallResultFrame #1 is seen
-                await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-            await asyncio.gather(run_pipeline(), initialize_engine())
+            await run_engine_test_pipeline(task, engine, transport)
 
         # Total 4 generations out of which 1 was cancelled due to interruption
         assert llm.get_current_step() == 4

@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -15,6 +16,7 @@ from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
     _serialize_text_chat_checkpoint_messages,
 )
+from api.tasks.function_names import FunctionNames
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
@@ -150,6 +152,75 @@ async def test_text_chat_session_creation_requires_selected_organization():
 
 
 @pytest.mark.asyncio
+async def test_user_can_end_text_chat_session(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "You are a helpful assistant.",
+                    "is_start": True,
+                },
+            }
+        ],
+        "edges": [],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="user-end",
+    )
+    workflow_run = await db_session.create_workflow_run(
+        name="User-ended text chat",
+        workflow_id=workflow.id,
+        mode="textchat",
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    text_session = await db_session.ensure_workflow_run_text_session(
+        workflow_run.id,
+        session_data={
+            "version": 1,
+            "status": "idle",
+            "cursor_turn_id": None,
+            "turns": [],
+            "discarded_future": [],
+            "simulator": {"enabled": False, "config": {}},
+        },
+        checkpoint={},
+    )
+    enqueue = AsyncMock()
+
+    async with test_client_factory(user) as client:
+        with patch("api.tasks.arq.enqueue_job", enqueue):
+            response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+                f"{workflow_run.id}/end",
+                json={"expected_revision": text_session.revision},
+            )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["is_completed"] is True
+    assert payload["state"] == "completed"
+    assert payload["session_data"]["status"] == "completed"
+    assert payload["gathered_context"]["call_disposition"] == "user_hangup"
+    enqueue.assert_awaited_once_with(
+        FunctionNames.PROCESS_WORKFLOW_COMPLETION,
+        workflow_run.id,
+        _job_id=f"workflow-completion-{workflow_run.id}",
+    )
+
+
+@pytest.mark.asyncio
 async def test_text_chat_session_creation_executes_initial_assistant_turn(
     db_session,
     async_session,
@@ -282,7 +353,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
                     "add_global_prompt": False,
                     "greeting_type": "text",
                     "greeting": "Welcome {{customer_name}} ({{account_tier}}).",
-                    "pre_call_fetch_enabled": True,
+                    "pre_call_fetch_mode": "always",
                     "pre_call_fetch_url": "https://example.com/customer",
                     "pre_call_fetch_credential_uuid": "credential-uuid",
                 },
@@ -552,6 +623,15 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
                     "add_global_prompt": False,
                     "greeting_type": "text",
                     "greeting": "Welcome to the workflow tester.",
+                    "extraction_enabled": True,
+                    "extraction_prompt": "Extract the customer's details.",
+                    "extraction_variables": [
+                        {
+                            "name": "customer_age",
+                            "type": "string",
+                            "prompt": "The customer's age.",
+                        }
+                    ],
                 },
             },
             {
@@ -601,6 +681,14 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
             chunk_delay=0.001,
         ),
     ]
+    extraction_completed = asyncio.Event()
+
+    async def slow_extraction(*_args, **_kwargs):
+        # Longer than the text runner's idle-settle window. Background extraction
+        # would be omitted from the checkpoint before this returns.
+        await asyncio.sleep(0.35)
+        extraction_completed.set()
+        return {"customer_age": "45"}
 
     async with test_client_factory(user) as client:
         with (
@@ -611,6 +699,11 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
                 new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_variable_extractor."
+                "VariableExtractionManager._perform_extraction",
+                new=slow_extraction,
             ),
         ):
             create_response = await client.post(
@@ -639,7 +732,16 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
 
     assert "Let me transfer you." in assistant_text
     assert "Agent one here." in assistant_text
+    assert extraction_completed.is_set()
     assert payload["checkpoint"]["current_node_id"] == "agent1"
+    assert payload["checkpoint"]["gathered_context"]["customer_age"] == "45"
+    assert payload["checkpoint"]["gathered_context"]["extracted_variables"] == {
+        "customer_age": "45"
+    }
+    assert payload["gathered_context"]["extracted_variables"] == {"customer_age": "45"}
+    assert run_payload["gathered_context"]["extracted_variables"] == {
+        "customer_age": "45"
+    }
     assert any(
         event["type"] == "tool_call_started"
         and event["payload"]["function_name"] == "go_to_agent_one"
@@ -660,6 +762,161 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
         "rtf-function-call-start",
         "rtf-function-call-end",
     ]
+
+
+@pytest.mark.asyncio
+async def test_text_chat_end_transition_persists_synchronous_variable_extraction(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the customer.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome to the workflow tester.",
+                    "extraction_enabled": True,
+                    "extraction_prompt": "Extract the customer's details.",
+                    "extraction_variables": [
+                        {
+                            "name": "customer_age",
+                            "type": "string",
+                            "prompt": "The customer's age.",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "end",
+                "type": "endCall",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "End",
+                    "prompt": "Thank the customer and end the conversation.",
+                    "is_end": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-end",
+                "source": "start",
+                "target": "end",
+                "data": {
+                    "label": "End The Call",
+                    "condition": "When the customer asks to end the conversation.",
+                },
+            }
+        ],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="end-with-extraction",
+    )
+
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[
+                MockLLMService.create_function_call_chunks(
+                    "end_the_call",
+                    {},
+                    tool_call_id="call_end",
+                ),
+                MockLLMService.create_text_chunks("Thank you for chatting!"),
+            ],
+            chunk_delay=0.001,
+        ),
+    ]
+    extraction_completed = asyncio.Event()
+
+    async def slow_extraction(*_args, **_kwargs):
+        await asyncio.sleep(0.35)
+        extraction_completed.set()
+        return {"customer_age": "45"}
+
+    enqueue = AsyncMock()
+    upload_artifacts = AsyncMock()
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_variable_extractor."
+                "VariableExtractionManager._perform_extraction",
+                new=slow_extraction,
+            ),
+            patch("api.tasks.arq.enqueue_job", enqueue),
+            patch(
+                "api.services.workflow.text_chat_session_service."
+                "upload_workflow_run_artifacts",
+                upload_artifacts,
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={},
+            )
+            assert create_response.status_code == 200
+            session = create_response.json()
+
+            message_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+                f"{session['workflow_run_id']}/messages",
+                json={
+                    "text": "I am 45. End the call.",
+                    "expected_revision": session["revision"],
+                },
+            )
+            assert message_response.status_code == 200
+            run_response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/runs/{session['workflow_run_id']}"
+            )
+            assert run_response.status_code == 200
+
+    payload = message_response.json()
+    run_payload = run_response.json()
+    final_turn = payload["session_data"]["turns"][-1]
+
+    assert extraction_completed.is_set()
+    assert payload["is_completed"] is True
+    assert payload["state"] == "completed"
+    assert payload["session_data"]["status"] == "completed"
+    assert final_turn["assistant_message"]["text"] == "Thank you for chatting!"
+    assert any(event["type"] == "session_end" for event in final_turn["events"])
+    assert payload["checkpoint"]["gathered_context"]["extracted_variables"] == {
+        "customer_age": "45"
+    }
+    assert run_payload["gathered_context"]["extracted_variables"] == {
+        "customer_age": "45"
+    }
+    assert run_payload["gathered_context"]["call_disposition"] == "user_qualified"
+    enqueue.assert_awaited_once_with(
+        FunctionNames.PROCESS_WORKFLOW_COMPLETION,
+        session["workflow_run_id"],
+        _job_id=f"workflow-completion-{session['workflow_run_id']}",
+    )
+    upload_artifacts.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1225,6 +1482,13 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
             f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}"
         )
         assert get_response.status_code == 404
+
+        end_response = await other_client.post(
+            f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+            f"{created['workflow_run_id']}/end",
+            json={"expected_revision": created["revision"]},
+        )
+        assert end_response.status_code == 404
 
 
 @pytest.mark.asyncio

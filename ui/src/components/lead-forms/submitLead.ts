@@ -6,6 +6,7 @@
 import posthog from "posthog-js";
 
 import { PostHogEvent } from "@/constants/posthog-events";
+import { trackMetaLead } from "@/lib/metaPixel";
 
 import { detectCountry, detectTimezone } from "./detectCountry";
 import type { LeadKind, LeadOrigin, LeadSource } from "./leadFieldOptions";
@@ -32,6 +33,7 @@ export async function submitLead({ kind, source, origin, payload }: SubmitLeadAr
   const body = { source, origin, country: detectCountry(), timezone: detectTimezone(), ...payload };
   // PostHog capture — the durable record, always fired.
   posthog.capture(SUBMIT_EVENT[kind], body);
+  trackMetaLead({ content_name: kind, source });
   // Persist to the separate user_onboarding service (best-effort, public); return its verdict.
   return postLeadToService(kind, body);
 }

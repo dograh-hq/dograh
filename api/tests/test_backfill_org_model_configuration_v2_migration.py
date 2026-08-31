@@ -111,7 +111,7 @@ def test_realtime_legacy_converts_to_byok_realtime():
             "llm": {
                 "provider": "google",
                 "api_key": "google-key",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-3.5-flash",
             },
         }
     )

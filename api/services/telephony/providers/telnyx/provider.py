@@ -143,7 +143,6 @@ class TelnyxProvider(TelephonyProvider):
             ) as response:
                 if response.status != 200:
                     error_data = await response.json()
-                    logger.error(f"Telnyx API error: {error_data}")
                     raise HTTPException(
                         status_code=response.status, detail=json.dumps(error_data)
                     )
@@ -678,7 +677,8 @@ class TelnyxProvider(TelephonyProvider):
                     if response.status != 200:
                         body = await response.text()
                         raise ProviderPhoneNumberLookupError(
-                            f"Telnyx API {response.status}: {body}"
+                            f"Telnyx API {response.status}: {body}",
+                            status_code=response.status,
                         )
                     data = await response.json()
         except ProviderPhoneNumberLookupError:

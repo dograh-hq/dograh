@@ -1,14 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getCampaignRunsApiV1CampaignCampaignIdRunsGet, getWorkflowApiV1WorkflowFetchWorkflowIdGet } from "@/client/sdk.gen";
+import { getCampaignRunsApiV1CampaignCampaignIdRunsGet } from "@/client/sdk.gen";
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
 import { WorkflowRunsTable } from "@/components/workflow-runs";
+import { useDispositionCodes } from "@/hooks/useDispositionCodes";
 import { useAuth } from "@/lib/auth";
+import { withDispositionCodeOptions } from "@/lib/filterAttributes";
 import { decodeFiltersFromURL, encodeFiltersToURL } from "@/lib/filters";
-import { ActiveFilter, availableAttributes, FilterAttribute } from "@/types/filters";
+import { ActiveFilter, availableAttributes } from "@/types/filters";
 
 interface CampaignRunsProps {
     campaignId: number;
@@ -19,6 +21,16 @@ interface CampaignRunsProps {
 export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignRunsProps) {
     const router = useRouter();
     const { isAuthenticated } = useAuth();
+    const { codes: dispositionCodes } = useDispositionCodes();
+    const campaignFilterAttributes = useMemo(
+        () => withDispositionCodeOptions(
+            availableAttributes.filter(attribute => (
+                ['dateRange', 'dispositionCode', 'duration', 'status', 'tokenUsage'].includes(attribute.id)
+            )),
+            dispositionCodes
+        ),
+        [dispositionCodes]
+    );
     const [runs, setRuns] = useState<WorkflowRunResponseSchema[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -48,41 +60,6 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
     const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
         return searchParams ? decodeFiltersFromURL(searchParams, availableAttributes) : [];
     });
-
-    const [configuredAttributes, setConfiguredAttributes] = useState<FilterAttribute[]>(availableAttributes);
-
-    // Load disposition codes from workflow configuration
-    const loadDispositionCodes = useCallback(async () => {
-        if (!isAuthenticated) return;
-        try {
-            const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({
-                path: { workflow_id: workflowId },
-            });
-
-            const workflow = response.data;
-            const codes = workflow?.call_disposition_codes?.disposition_codes;
-            if (codes && codes.length > 0) {
-                setConfiguredAttributes(prev => prev.map(attr => {
-                    if (attr.id === 'dispositionCode') {
-                        return {
-                            ...attr,
-                            config: {
-                                ...attr.config,
-                                options: codes,
-                            }
-                        };
-                    }
-                    return attr;
-                }));
-            }
-        } catch (err) {
-            console.error("Failed to load disposition codes:", err);
-        }
-    }, [workflowId, isAuthenticated]);
-
-    useEffect(() => {
-        loadDispositionCodes();
-    }, [loadDispositionCodes]);
 
     const fetchCampaignRuns = useCallback(async (
         page: number,
@@ -209,11 +186,6 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
     const handleReload = useCallback(() => {
         fetchCampaignRuns(currentPage, appliedFilters, sortBy, sortOrder);
     }, [fetchCampaignRuns, currentPage, appliedFilters, sortBy, sortOrder]);
-
-    // Use a subset of filter attributes relevant for campaigns
-    const campaignFilterAttributes: FilterAttribute[] = configuredAttributes.filter(
-        attr => ['dateRange', 'dispositionCode', 'duration', 'status', 'tokenUsage'].includes(attr.id)
-    );
 
     return (
         <WorkflowRunsTable

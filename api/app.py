@@ -27,11 +27,13 @@ if SENTRY_DSN and (
 
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from api.constants import REDIS_URL
+from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE, MPSUnavailableError
 from api.mcp_server import mcp
 from api.routes.main import router as main_router
 from api.services.pipecat.tracing_config import (
@@ -68,11 +70,14 @@ async def lifespan(app: FastAPI):
         await sync_manager.start()
         set_worker_sync_manager(sync_manager)
 
+        from api.services.observability import loop_exceptions, loop_lag
+
         # Event-loop lag gauge — per-pod saturation signal read off
         # /health/active-calls during autoscaling load tests.
-        from api.services.observability import loop_lag
-
         loop_lag.start()
+        # Routes exceptions that escape tasks and timer callbacks; demotes one
+        # known aioice teardown race and leaves everything else at ERROR.
+        loop_exceptions.install()
 
         yield  # Run app
 
@@ -93,6 +98,19 @@ app = FastAPI(
         {"url": "http://localhost:8000", "description": "Local development"},
     ],
 )
+
+
+@app.exception_handler(MPSUnavailableError)
+async def handle_mps_unavailable_error(
+    _request: Request,
+    _exc: MPSUnavailableError,
+) -> JSONResponse:
+    """Tell callers this is a Dograh outage, not invalid customer config."""
+
+    return JSONResponse(
+        status_code=503,
+        content={"detail": MPS_UNAVAILABLE_PUBLIC_MESSAGE},
+    )
 
 
 # Configure CORS.

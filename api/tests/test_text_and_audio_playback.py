@@ -6,7 +6,6 @@ Verifies that:
 - Covers: start node greetings, edge transition speech, tool config messages
 """
 
-import asyncio
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -30,7 +29,6 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.services.pipecat.recording_audio_cache import RecordingAudio
-from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
@@ -43,6 +41,7 @@ from api.services.workflow.dto import (
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.workflow_graph import WorkflowGraph
+from api.tests.pipecat_test_utils import run_engine_test_pipeline
 from pipecat.tests import MockLLMService, MockTTSService
 
 # ─── Constants ──────────────────────────────────────────────────
@@ -188,6 +187,7 @@ async def run_pipeline_and_capture_frames(
             audio_out_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
         ),
     )
 
@@ -211,7 +211,15 @@ async def run_pipeline_and_capture_frames(
         engine.set_fetch_recording_audio(fetch_recording_audio)
         engine.set_transport_output(transport_output)
 
-    pipeline = Pipeline([llm, tts, transport_output, context_aggregator.assistant()])
+    pipeline = Pipeline(
+        [
+            mock_transport.input(),
+            llm,
+            tts,
+            transport_output,
+            context_aggregator.assistant(),
+        ]
+    )
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
@@ -242,17 +250,7 @@ async def run_pipeline_and_capture_frames(
             return_value=1,
         ),
     ):
-
-        async def run():
-            await run_pipeline_worker(task)
-
-        async def initialize():
-            await asyncio.sleep(0.01)
-            await engine.initialize()
-            await engine.set_node(engine.workflow.start_node_id)
-            await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
-        await asyncio.gather(run(), initialize())
+        await run_engine_test_pipeline(task, engine, mock_transport)
 
     return llm, context, queued_frames
 
@@ -375,6 +373,67 @@ class TestStartGreeting:
         )
         result = engine.get_start_greeting()
         assert result == ("text", "Hello Alice!")
+
+    def test_trigger_text_greeting_override_wins_and_renders_context(
+        self, text_workflow: WorkflowGraph
+    ):
+        engine = PipecatEngine(
+            workflow=text_workflow,
+            call_context_vars={
+                "account_id": "ACC-123",
+                "greeting_override": {
+                    "type": "text",
+                    "text": "Please confirm account {{account_id}}.",
+                },
+            },
+            workflow_run_id=1,
+        )
+
+        assert engine.get_start_greeting() == (
+            "text",
+            "Please confirm account ACC-123.",
+        )
+
+    def test_invalid_trigger_greeting_override_uses_node_greeting(
+        self, text_workflow: WorkflowGraph
+    ):
+        engine = PipecatEngine(
+            workflow=text_workflow,
+            call_context_vars={"greeting_override": {"type": "text"}},
+            workflow_run_id=1,
+        )
+
+        assert engine.get_start_greeting() == ("text", TEXT_GREETING)
+
+    @pytest.mark.asyncio
+    async def test_audio_greeting_override_resolves_public_recording_id(
+        self, text_workflow: WorkflowGraph
+    ):
+        engine = PipecatEngine(
+            workflow=text_workflow,
+            call_context_vars={
+                "greeting_override": {
+                    "type": "audio",
+                    "recording_id": "callback-welcome",
+                }
+            },
+            workflow_run_id=1,
+        )
+        engine.set_transport_output(Mock(queue_frame=AsyncMock()))
+        engine.set_fetch_recording_audio(
+            AsyncMock(return_value=RecordingAudio(FAKE_PCM_AUDIO, "Welcome back"))
+        )
+
+        result = await engine.queue_node_opening(
+            node_id=text_workflow.start_node_id,
+            previous_node_id=None,
+            generate_if_no_greeting=True,
+        )
+
+        assert result == "greeting"
+        engine._fetch_recording_audio.assert_awaited_once_with(
+            recording_id="callback-welcome"
+        )
 
     @pytest.mark.asyncio
     async def test_queue_node_opening_queues_text_greeting(

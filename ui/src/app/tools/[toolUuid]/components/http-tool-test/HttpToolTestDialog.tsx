@@ -445,7 +445,7 @@ export function HttpToolTestDialog({
                                                 Body: {JSON.stringify(result.request_body, null, 2)}
                                             </pre>
                                         )}
-                                        {result.request_params != null && (
+                                        {result.request_params != null && Object.keys(result.request_params).length > 0 && (
                                             <pre className="whitespace-pre-wrap">
                                                 Query:{" "}
                                                 {Object.entries(result.request_params)

@@ -16,9 +16,9 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class Trigger(TypedNode):
     """
-    Public HTTP endpoints that launch the workflow.  LLM hint: Exposes two
-    public HTTP POST endpoints derived from the auto-generated
-    `trigger_path`:   • Production:
+    Public HTTP endpoints that triggers the agent and make a call over
+    telephone.  LLM hint: Exposes two public HTTP POST endpoints derived
+    from the auto-generated `trigger_path`:   • Production:
     `<backend>/api/v1/public/agent/<trigger_path>` — runs the published
     agent. Use this from production systems.   • Test:
     `<backend>/api/v1/public/agent/test/<trigger_path>` — runs the latest
@@ -26,10 +26,16 @@ class Trigger(TypedNode):
     published agent when no draft exists. Both require an API key in the
     `X-API-Key` header. Request body fields:   • `phone_number` (string,
     required) — destination to dial.   • `initial_context` (object,
-    optional) — merged into the run's initial context.   •
-    `telephony_configuration_id` (int, optional) — pick a specific telephony
-    configuration for the call. Must belong to the same organization as the
-    trigger. When omitted, the org's default outbound configuration is used.
+    optional) — merged into the run's initial context.     To override the
+    Start-node greeting for one call, provide `greeting_override`: either
+    `{"type": "text", "text": "Hi {{name}}"}` or `{"type": "audio",
+    "recording_id": "welcome-message"}`. A valid override takes precedence
+    over the saved Start-node greeting.   • `telephony_configuration_id`
+    (int, optional) — pick a specific telephony configuration for the call.
+    Must belong to the same organization as the trigger. When omitted, the
+    org's default outbound configuration is used.   • `from_phone_number_id`
+    (int, optional) — pick the caller-ID number to use. It must be active
+    and registered to the resolved telephony configuration.
     """
 
     type: ClassVar[str] = 'trigger'

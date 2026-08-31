@@ -171,17 +171,32 @@ function importedDraft(value: unknown, index: number): ScenarioDraft {
         throw new Error(`Scenario ${index + 1} must be a JSON object.`);
     }
     const candidate = value as Record<string, unknown>;
-    const stringValue = (name: string, fallback = ""): string => {
+    const stringValue = (names: string | string[], fallback = ""): string => {
+        const aliases = Array.isArray(names) ? names : [names];
+        const name = aliases.find((alias) => candidate[alias] !== undefined);
+        if (!name) return fallback;
         const raw = candidate[name];
-        if (raw === undefined || raw === null) return fallback;
-        if (typeof raw !== "string") throw new Error(`Scenario ${index + 1} field "${name}" must be a string.`);
+        if (raw === null) return fallback;
+        if (typeof raw !== "string") {
+            throw new Error(`Scenario ${index + 1} field "${name}" must be a string.`);
+        }
         return raw;
     };
-    const freestylePrompt = candidate.freestylePrompt !== undefined
-        ? stringValue("freestylePrompt")
-        : candidate.prompt !== undefined
-            ? stringValue("prompt")
-            : stringValue("instructions");
+    const emotionalState = candidate.emotional_state ?? candidate.emotionalState;
+    if (emotionalState !== undefined &&
+        (!emotionalState || typeof emotionalState !== "object" || Array.isArray(emotionalState))) {
+        throw new Error(`Scenario ${index + 1} field "emotional_state" must be an object.`);
+    }
+    const emotionalStateRecord = emotionalState as Record<string, unknown> | undefined;
+    const emotionalStateCategory = emotionalStateRecord?.category;
+    const emotionalStateDescription = emotionalStateRecord?.description;
+    if (emotionalStateCategory !== undefined && typeof emotionalStateCategory !== "string") {
+        throw new Error(`Scenario ${index + 1} field "emotional_state.category" must be a string.`);
+    }
+    if (emotionalStateDescription !== undefined && typeof emotionalStateDescription !== "string") {
+        throw new Error(`Scenario ${index + 1} field "emotional_state.description" must be a string.`);
+    }
+    const freestylePrompt = stringValue(["freestylePrompt", "prompt", "instructions"]);
     const rawMode = candidate.mode;
     const mode = rawMode === undefined
         ? (freestylePrompt.trim() ? "freestyle" : "structured")
@@ -191,21 +206,21 @@ function importedDraft(value: unknown, index: number): ScenarioDraft {
     }
     const draft: ScenarioDraft = {
         ...EMPTY_SCENARIO_DRAFT,
-        title: stringValue("title", freestylePrompt.trim() ? "Imported scenario" : ""),
+        title: stringValue(["title", "scenario_title"], freestylePrompt.trim() ? "Imported scenario" : ""),
         mode,
         persona: stringValue("persona"),
-        age: stringValue("age"),
+        age: stringValue(["age", "service_user_age"]),
         gender: stringValue("gender", EMPTY_SCENARIO_DRAFT.gender),
         language: stringValue("language", EMPTY_SCENARIO_DRAFT.language),
-        emotion: stringValue("emotion"),
-        communicationStyle: stringValue("communicationStyle"),
-        initialInformation: stringValue("initialInformation"),
-        hiddenInformation: stringValue("hiddenInformation"),
+        emotion: stringValue("emotion", typeof emotionalStateCategory === "string" ? emotionalStateCategory : ""),
+        communicationStyle: stringValue(["communicationStyle", "communication_style"]),
+        initialInformation: stringValue(["initialInformation", "initial_information"]),
+        hiddenInformation: stringValue(["hiddenInformation", "hidden_information"]),
         disclosure: stringValue("disclosure"),
         behaviour: stringValue("behaviour"),
-        background: stringValue("background"),
-        additionalFactors: stringValue("additionalFactors"),
-        notes: stringValue("notes"),
+        background: stringValue(["background", "background_context"]),
+        additionalFactors: stringValue(["additionalFactors", "additional_factors"], typeof emotionalStateDescription === "string" ? `Emotional state detail: ${emotionalStateDescription}` : ""),
+        notes: stringValue(["notes", "optional_free_notes"]),
         freestylePrompt,
     };
     if (mode === "freestyle" && !draft.freestylePrompt.trim()) {

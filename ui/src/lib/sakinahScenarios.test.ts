@@ -61,4 +61,44 @@ describe("Sakinah scenario helpers", () => {
         expect(imported[0].title).toBe("One");
         expect(() => parseScenarioImport(JSON.stringify([{ title: "Missing behaviour", persona: "Person" }]))).toThrow("title, persona, and behaviour");
     });
+
+    it("maps the structured scenario export fields into the editable draft", () => {
+        const imported = parseScenarioImport(JSON.stringify({
+            mode: "structured",
+            scenario_title: "Anxiety following a new diagnosis",
+            service_user_age: "48",
+            persona: "An English man waiting for oncology support.",
+            gender: "Male",
+            language: "English",
+            emotional_state: {
+                category: "Anxious",
+                description: "Anxious, worried, confused and frustrated",
+            },
+            communication_style: "Initially guarded and hesitant.",
+            initial_information: "I have had some bad news.",
+            hidden_information: "The diagnosis is acute myeloid leukaemia.",
+            disclosure: "Reveal information gradually.",
+            behaviour: "Initially guarded.\n\nIf Sakinah listens:\nBecome more open.",
+            background_context: "Newly communicated diagnosis.",
+            additional_factors: "The manner of communication contributes to distress.",
+            optional_free_notes: "Testing objective.",
+        }), [], "2026-03-01T00:00:00.000Z");
+
+        expect(imported[0]).toMatchObject({
+            title: "Anxiety following a new diagnosis",
+            age: "48",
+            emotion: "Anxious",
+            communicationStyle: "Initially guarded and hesitant.",
+            initialInformation: "I have had some bad news.",
+            hiddenInformation: "The diagnosis is acute myeloid leukaemia.",
+            background: "Newly communicated diagnosis.",
+            additionalFactors: "The manner of communication contributes to distress.",
+            notes: "Testing objective.",
+        });
+    });
+
+    it("reports malformed JSON and missing required fields clearly", () => {
+        expect(() => parseScenarioImport("{not valid json")).toThrow("valid JSON");
+        expect(() => parseScenarioImport(JSON.stringify({ mode: "structured", persona: "Person" }))).toThrow("title, persona, and behaviour");
+    });
 });

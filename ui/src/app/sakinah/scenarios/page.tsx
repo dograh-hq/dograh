@@ -114,6 +114,11 @@ export default function ScenarioLibraryPage() {
     const openCreate = () => { setEditing(null); setEditorOpen(true); };
     const handleImport = async (file: File | undefined) => {
         if (!file) return;
+        if (!file.name.toLowerCase().endsWith(".json")) {
+            setImportMessage("Please select a scenario file with a .json extension.");
+            if (importInputRef.current) importInputRef.current.value = "";
+            return;
+        }
         try {
             const imported = parseScenarioImport(await file.text(), scenarios);
             persist([...scenarios, ...imported]);

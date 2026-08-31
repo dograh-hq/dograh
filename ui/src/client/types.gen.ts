@@ -4121,6 +4121,12 @@ export type OpenAiEmbeddingsConfiguration = {
      * OpenAI embedding model.
      */
     model?: string;
+    /**
+     * Base Url
+     *
+     * Override only if using an OpenAI-compatible API (e.g. Azure-OpenAI, vLLM, LocalAI).
+     */
+    base_url?: string;
 };
 
 /**

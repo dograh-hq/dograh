@@ -5,10 +5,11 @@ do-not-call list) writes a record that an external backend later has to
 correlate back to the run. Post-run webhook nodes already render
 ``workflow_run_id``; in-call tools did not (#690), so it resolved to nothing.
 
-Note the two spellings are not interchangeable, and that is by design:
-``initial_context`` is spread at the top level of the URL and preset-parameter
-contexts, but the body context reserves the top level for LLM/preset arguments.
-So a body template has to say ``{{initial_context.workflow_run_id}}``.
+The run id is addressable by the same unprefixed spelling on every surface -
+URL, preset parameter and body template. The body context otherwise reserves
+its top level for LLM/preset arguments, so the run id is layered underneath
+them: a tool that declares its own ``workflow_run_id`` parameter still wins, and
+the namespaced spelling stays the way to reach the run's own value.
 """
 
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ import pytest
 
 from api.services.workflow.initial_context import (
     RESERVED_INITIAL_CONTEXT_KEYS,
+    RUN_OWNED_TEMPLATE_KEYS,
     WORKFLOW_RUN_ID_CONTEXT_KEY,
     merge_external_initial_context,
 )
@@ -81,14 +83,19 @@ async def test_run_id_renders_in_the_url_template(http_client):
     )
 
 
+@pytest.mark.parametrize(
+    "placeholder",
+    ["{{workflow_run_id}}", "{{initial_context.workflow_run_id}}"],
+)
 @pytest.mark.asyncio
-async def test_run_id_renders_in_the_body_template(http_client):
+async def test_run_id_renders_in_the_body_template(http_client, placeholder):
+    """Both spellings work, so the URL/preset spelling can't silently post ""."""
     tool = _tool(
         {
             "method": "POST",
             "url": "https://api.example.com/bookings",
             "timeout_ms": 5000,
-            "body_template": {"run_id": "{{initial_context.workflow_run_id}}"},
+            "body_template": {"run_id": placeholder},
         }
     )
 
@@ -98,6 +105,39 @@ async def test_run_id_renders_in_the_body_template(http_client):
 
     assert result["status"] == "success"
     assert http_client.request.call_args.kwargs["json"] == {"run_id": RUN_ID}
+
+
+@pytest.mark.asyncio
+async def test_body_run_id_does_not_shadow_a_declared_parameter(http_client):
+    """The top level stays the argument namespace; the run id only fills gaps."""
+    tool = _tool(
+        {
+            "method": "POST",
+            "url": "https://api.example.com/bookings",
+            "timeout_ms": 5000,
+            "body_template": {
+                "run_id": "{{workflow_run_id}}",
+                "true_run_id": "{{initial_context.workflow_run_id}}",
+            },
+        }
+    )
+
+    result = await execute_http_tool(
+        tool,
+        {WORKFLOW_RUN_ID_CONTEXT_KEY: 7},
+        call_context_vars={WORKFLOW_RUN_ID_CONTEXT_KEY: RUN_ID},
+    )
+
+    assert result["status"] == "success"
+    assert http_client.request.call_args.kwargs["json"] == {
+        "run_id": 7,
+        "true_run_id": RUN_ID,
+    }
+
+
+def test_only_reserved_keys_are_exposed_unprefixed_in_bodies():
+    """Non-reserved context is caller-supplied and must not shadow arguments."""
+    assert set(RUN_OWNED_TEMPLATE_KEYS) <= RESERVED_INITIAL_CONTEXT_KEYS
 
 
 @pytest.mark.asyncio
@@ -144,13 +184,17 @@ async def test_without_the_run_id_the_tool_cannot_reference_the_run(http_client)
 
 @pytest.mark.asyncio
 async def test_body_only_tool_silently_loses_the_run_id_without_it(http_client):
-    """Without a URL template there is no loud failure - just an empty value."""
+    """Without a URL template there is no loud failure - just an empty value.
+
+    This is the #690 symptom: the request looks fine but can't be correlated.
+    Injecting the run id into the call context is what stops it happening.
+    """
     tool = _tool(
         {
             "method": "POST",
             "url": "https://api.example.com/bookings",
             "timeout_ms": 5000,
-            "body_template": {"run_id": "{{initial_context.workflow_run_id}}"},
+            "body_template": {"run_id": "{{workflow_run_id}}"},
         }
     )
 

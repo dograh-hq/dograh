@@ -46,6 +46,8 @@ function ContextMappingHarness({ rules: initialRules }: { rules?: ContextDestina
             onAudioRecordingIdChange={noop}
             timeout={30}
             onTimeoutChange={noop}
+            callDisposition=""
+            onCallDispositionChange={noop}
             resolverUrl=""
             onResolverUrlChange={noop}
             resolverCredentialUuid=""
@@ -69,6 +71,18 @@ function ContextMappingHarness({ rules: initialRules }: { rules?: ContextDestina
 }
 
 describe("TransferCallToolConfig context mappings", () => {
+    it("shows a bounded optional successful-transfer disposition", () => {
+        render(<ContextMappingHarness />);
+
+        const input = screen.getByLabelText(
+            "Call Disposition After Successful Transfer"
+        ) as HTMLInputElement;
+
+        expect(input.value).toBe("");
+        expect(input.maxLength).toBe(64);
+        expect(screen.getByText(/recorded only when the transfer succeeds/i)).toBeTruthy();
+    });
+
     it("makes context mapping generally available", () => {
         render(<ContextMappingHarness />);
 

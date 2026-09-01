@@ -1,6 +1,10 @@
 import pytest
 
-from api.schemas.tool import ContextDestinationMappingConfig, TransferCallConfig
+from api.schemas.tool import (
+    MAX_TRANSFER_CALL_DISPOSITION_LENGTH,
+    ContextDestinationMappingConfig,
+    TransferCallConfig,
+)
 
 
 def test_transfer_call_destination_accepts_initial_context_template():
@@ -22,6 +26,22 @@ def test_transfer_call_static_allows_empty_draft_destination():
 
     assert config.destination_source == "static"
     assert config.destination == ""
+
+
+def test_transfer_call_normalizes_blank_call_disposition():
+    config = TransferCallConfig(call_disposition="  transferred_to_sales  ")
+    blank = TransferCallConfig(call_disposition="  ")
+
+    assert config.call_disposition == "transferred_to_sales"
+    assert blank.call_disposition is None
+
+
+def test_transfer_call_disposition_has_a_bounded_size():
+    with pytest.raises(ValueError, match="at most 64 characters"):
+        TransferCallConfig(
+            call_disposition="x"
+            * (MAX_TRANSFER_CALL_DISPOSITION_LENGTH + 1)
+        )
 
 
 def test_transfer_call_dynamic_requires_resolver():

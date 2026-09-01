@@ -610,6 +610,13 @@ class MessageType1(Enum):
     audio = 'audio'
 
 
+class CallDisposition(RootModel[str]):
+    root: Annotated[str, Field(max_length=64, title='Call Disposition')]
+    """
+    Optional disposition to record after a successful transfer. When omitted, Dograh records its provider-specific transfer default.
+    """
+
+
 class ValidationError(BaseModel):
     loc: Annotated[list[str | int], Field(title='Location')]
     msg: Annotated[str, Field(title='Message')]
@@ -968,6 +975,12 @@ class TransferCallConfig(BaseModel):
     timeout: Annotated[int | None, Field(ge=5, le=120, title='Timeout')] = 30
     """
     Maximum seconds to wait for the destination to answer.
+    """
+    call_disposition: Annotated[
+        CallDisposition | None, Field(title='Call Disposition')
+    ] = None
+    """
+    Optional disposition to record after a successful transfer. When omitted, Dograh records its provider-specific transfer default.
     """
     parameters: Annotated[list[ToolParameter] | None, Field(title='Parameters')] = None
     """

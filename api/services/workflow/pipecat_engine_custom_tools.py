@@ -586,6 +586,12 @@ class CustomToolManager:
                 config = tool.definition.get("config", {})
                 destination = config.get("destination", "")
                 timeout_seconds = config.get("timeout", 30)
+                raw_call_disposition = config.get("call_disposition")
+                configured_call_disposition = (
+                    raw_call_disposition.strip()
+                    if isinstance(raw_call_disposition, str)
+                    else None
+                ) or None
 
                 # Check if this is a WebRTC call - transfers are not supported
                 workflow_run = await db_client.get_workflow_run_by_id(
@@ -714,6 +720,10 @@ class CustomToolManager:
                     message_queued = await self._play_config_message(config)
 
                 if external_pbx_call:
+                    transfer_disposition = (
+                        configured_call_disposition
+                        or EndTaskReason.CALL_TRANSFERRED.value
+                    )
                     workflow_configurations = (
                         await db_client.get_workflow_run_configurations(
                             self._engine._workflow_run_id, organization_id
@@ -738,9 +748,7 @@ class CustomToolManager:
                         # The PBX gets the organization's own code for a
                         # transfer, resolved through the same mapping the
                         # engine will stamp on the run a few lines below.
-                        disposition=self._engine.map_disposition(
-                            EndTaskReason.CALL_TRANSFERRED.value
-                        ),
+                        disposition=self._engine.map_disposition(transfer_disposition),
                     )
                     if external_result is not None:
                         if external_result.get("status") == "success":
@@ -753,16 +761,14 @@ class CustomToolManager:
                             # delay below is over. Stamp the disposition now, or
                             # that handler records this completed transfer as a
                             # user hangup.
-                            self._engine.record_call_disposition(
-                                EndTaskReason.CALL_TRANSFERRED.value
-                            )
+                            self._engine.record_call_disposition(transfer_disposition)
                             await db_client.update_workflow_run(
                                 run_id=self._engine._workflow_run_id,
                                 gathered_context={
                                     "external_pbx_transferred": True,
-                                    "call_disposition": EndTaskReason.CALL_TRANSFERRED.value,
+                                    "call_disposition": transfer_disposition,
                                     "mapped_call_disposition": self._engine.map_disposition(
-                                        EndTaskReason.CALL_TRANSFERRED.value
+                                        transfer_disposition
                                     ),
                                 },
                             )
@@ -922,7 +928,10 @@ class CustomToolManager:
                 if transfer_event:
                     final_result = transfer_event.to_result_dict()
                     await self._handle_transfer_result(
-                        final_result, function_call_params, properties
+                        final_result,
+                        function_call_params,
+                        properties,
+                        success_disposition=configured_call_disposition,
                     )
                 else:
                     logger.error(
@@ -959,7 +968,11 @@ class CustomToolManager:
         return transfer_call_handler
 
     async def _handle_transfer_result(
-        self, result: dict, function_call_params, properties
+        self,
+        result: dict,
+        function_call_params,
+        properties,
+        success_disposition: str | None = None,
     ):
         """Handle transfer call outcomes from any telephony provider (Twilio, ARI, etc).
 
@@ -997,6 +1010,12 @@ class CustomToolManager:
                 },
                 properties=response_properties,
             )
+
+            # A tool-configured disposition replaces the normal transfer_call
+            # fallback only once the destination has actually answered. Stamping
+            # it before teardown also prevents final extraction from replacing it.
+            if success_disposition:
+                self._engine.record_call_disposition(success_disposition)
 
             # End pipeline - providers complete bridge swap/conference join as final transfer leg
             await self._engine.end_call_with_reason(

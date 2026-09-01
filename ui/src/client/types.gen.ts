@@ -6506,6 +6506,12 @@ export type TransferCallConfig = {
      */
     timeout?: number;
     /**
+     * Call Disposition
+     *
+     * Optional disposition to record after a successful transfer. When omitted, Dograh records its provider-specific transfer default.
+     */
+    call_disposition?: string | null;
+    /**
      * Parameters
      *
      * Parameters the model may provide when calling this transfer tool, for example state, department, or transfer reason.

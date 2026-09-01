@@ -17,6 +17,7 @@ from api.enums import ToolCategory
 
 DEFAULT_MCP_TIMEOUT_SECS = 30
 DEFAULT_MCP_SSE_READ_TIMEOUT_SECS = 300
+MAX_TRANSFER_CALL_DISPOSITION_LENGTH = 64
 
 ToolParameterType = Literal["string", "number", "boolean", "object", "array"]
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
@@ -393,6 +394,14 @@ class TransferCallConfig(BaseModel):
         le=120,
         description="Maximum seconds to wait for the destination to answer.",
     )
+    call_disposition: str | None = Field(
+        default=None,
+        max_length=MAX_TRANSFER_CALL_DISPOSITION_LENGTH,
+        description=(
+            "Optional disposition to record after a successful transfer. When "
+            "omitted, Dograh records its provider-specific transfer default."
+        ),
+    )
     parameters: list[ToolParameter] | None = Field(
         default=None,
         description=(
@@ -408,6 +417,14 @@ class TransferCallConfig(BaseModel):
         default=None,
         description="Optional ordered context-to-destination routing rules.",
     )
+
+    @field_validator("call_disposition", mode="before")
+    @classmethod
+    def normalize_call_disposition(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
     @model_validator(mode="after")
     def validate_destination_source_config(self):

@@ -20,6 +20,7 @@ import {
     validateWorkflowApiV1WorkflowWorkflowIdValidatePost
 } from "@/client";
 import {
+    CallDispositionOption,
     NodeSpec,
     TextChatInactivityTimeoutConstraints,
     WidgetTexts,
@@ -124,6 +125,8 @@ export const useWorkflowState = ({
     const rfInstance = useRef<ReactFlowInstance<FlowNode, FlowEdge> | null>(null);
     const [workflowConfigurationDefaults, setWorkflowConfigurationDefaults] =
         useState<WorkflowConfigurationDefaults | null>(null);
+    const [defaultCallDispositions, setDefaultCallDispositions] =
+        useState<CallDispositionOption[]>([]);
     const [textChatInactivityTimeoutConstraints, setTextChatInactivityTimeoutConstraints] =
         useState<TextChatInactivityTimeoutConstraints | null>(null);
     const [widgetTextDefaults, setWidgetTextDefaults] = useState<WidgetTexts | null>(null);
@@ -181,10 +184,14 @@ export const useWorkflowState = ({
                         `Failed to load workflow configuration defaults: ${JSON.stringify(response.error)}`,
                     );
                     setWorkflowConfigurationDefaults(null);
+                    setDefaultCallDispositions([]);
                     setTextChatInactivityTimeoutConstraints(null);
                     setWidgetTextDefaults(null);
                 } else {
                     setWorkflowConfigurationDefaults(response.data.workflow_configurations);
+                    setDefaultCallDispositions(
+                        response.data.default_call_dispositions ?? [],
+                    );
                     setTextChatInactivityTimeoutConstraints(
                         response.data.text_chat_inactivity_timeout_constraints,
                     );
@@ -194,6 +201,7 @@ export const useWorkflowState = ({
                 if (cancelled) return;
                 logger.error(`Failed to load workflow configuration defaults: ${error}`);
                 setWorkflowConfigurationDefaults(null);
+                setDefaultCallDispositions([]);
                 setTextChatInactivityTimeoutConstraints(null);
                 setWidgetTextDefaults(null);
             } finally {
@@ -657,6 +665,7 @@ export const useWorkflowState = ({
         workflowValidationErrors,
         templateContextVariables,
         workflowConfigurations,
+        defaultCallDispositions,
         textChatInactivityTimeoutConstraints,
         widgetTextDefaults,
         dictionary,

@@ -48,6 +48,7 @@ import logger from "@/lib/logger";
 import { fetchModelConfigurationPricing } from "@/lib/modelConfigurationPricing";
 import {
     type AmbientNoiseConfiguration,
+    type CallDispositionOption,
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
@@ -276,11 +277,13 @@ const MAX_AMBIENT_NOISE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function GeneralSection({
     workflowConfigurations,
+    defaultCallDispositions,
     workflowName,
     workflowId,
     onSave,
 }: {
     workflowConfigurations: WorkflowConfigurations;
+    defaultCallDispositions: CallDispositionOption[];
     workflowName: string;
     workflowId: number;
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
@@ -814,6 +817,7 @@ function GeneralSection({
                 <CallDispositionEditor
                     rows={callDispositionRows}
                     onChange={setCallDispositionRows}
+                    defaultDispositions={defaultCallDispositions}
                 />
 
                 <Separator />
@@ -1688,6 +1692,7 @@ function WorkflowSettingsInner({
     const {
         workflowName,
         workflowConfigurations,
+        defaultCallDispositions,
         textChatInactivityTimeoutConstraints,
         widgetTextDefaults,
         templateContextVariables,
@@ -1787,6 +1792,7 @@ function WorkflowSettingsInner({
                             {/* General */}
                             <GeneralSection
                                 workflowConfigurations={resolvedWorkflowConfigurationsForRender}
+                                defaultCallDispositions={defaultCallDispositions}
                                 workflowName={workflowName || workflow.name}
                                 workflowId={workflowId}
                                 onSave={saveWorkflowConfigurations}

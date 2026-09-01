@@ -21,7 +21,7 @@ You can have multiple Webhook Nodes for a single Voice Agent, if you want to syn
 </Note>
 
 ### Creating the Webhook Payload
-The payload can contain a valid JSON, and you can reference context variables while constructing it using double-brace syntax — for example `{{workflow_run_id}}`, [`{{initial_context.*}}`](/core-concepts/context-and-variables#initial_context), and [`{{gathered_context.*}}`](/core-concepts/context-and-variables#gathered_context), including the final call outcome `{{gathered_context.call_disposition}}`.
+The payload can contain a valid JSON, and you can reference context variables while constructing it using double-brace syntax — for example `{{workflow_run_id}}`, [`{{initial_context.*}}`](/core-concepts/context-and-variables#initial_context), and [`{{gathered_context.*}}`](/core-concepts/context-and-variables#gathered_context), including the [final call outcome](../developer/call-dispositions) `{{gathered_context.call_disposition}}`.
 
 For the full list of available variables, authentication options, and receiver examples, see the [Webhook Payloads developer reference](/developer/webhooks).
 

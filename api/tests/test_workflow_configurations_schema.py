@@ -7,6 +7,7 @@ from api.constants import (
     TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
 )
 from api.schemas.workflow_configurations import (
+    DEFAULT_CALL_DISPOSITION_OPTIONS,
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     MAX_CALL_DISPOSITION_CODE_LENGTH,
     MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH,
@@ -16,6 +17,7 @@ from api.schemas.workflow_configurations import (
     MAX_EXTERNAL_PBX_LEAD_HEADERS,
     TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
+    get_default_call_disposition_options,
 )
 
 
@@ -118,6 +120,23 @@ def test_call_dispositions_are_trimmed():
     assert configured.call_dispositions[0].description == (
         "The caller booked another conversation."
     )
+
+
+def test_default_call_dispositions_are_complete_and_returned_as_fresh_models():
+    first = get_default_call_disposition_options()
+    second = get_default_call_disposition_options()
+
+    assert [option.code for option in first] == [
+        "qualified",
+        "not_interested",
+        "wrong_number",
+        "voicemail_detected",
+        "do_not_call",
+        "callback_requested",
+    ]
+    assert all(option.description for option in first)
+    assert tuple(first) == DEFAULT_CALL_DISPOSITION_OPTIONS
+    assert all(left is not right for left, right in zip(first, second, strict=True))
 
 
 def test_call_dispositions_have_a_bounded_row_count():

@@ -163,27 +163,32 @@ does not prevent Dograh from attempting the requested transfer or hangup.
 
 ## Configure disposition mapping
 
-Dograh records every call's outcome on the VICIdial lead's `status` column, so
-a call Dograh handled is dispositioned in the same reports as one an agent
-handled. Dograh's own disposition names (`user_hangup`, `voicemail_detected`)
-are not VICIdial status codes and do not fit `vicidial_list.status`, which is
-six characters, so they have to be mapped onto the codes your deployment uses.
+Dograh can record a completed call's outcome on the VICIdial lead's `status`
+column, so a call Dograh handled appears in the same reports as one an agent
+handled. First,
+[configure the business outcomes for each workflow](../../developer/call-dispositions#configure-outcomes-for-a-workflow).
+You can then map those raw outcomes to the status codes used by your VICIdial
+deployment:
 
 1. Open **Platform Settings** and enable **Disposition mapping** under
    Preferences.
 2. Select **Configure mapping**.
-3. Set each Dograh disposition to the VICIdial status code you want recorded.
-   A disposition left as itself is sent unchanged.
-4. Select **Add disposition** for any end-call tool reason your agent emits
-   that is not in the built-in list, then save your preferences.
+3. Choose the VICIdial status code you want recorded for each Dograh
+   disposition. A disposition left as itself is sent unchanged.
+4. Select **Add disposition** for any custom workflow outcome or end-call tool
+   reason that is not already listed, then save your preferences.
 
-For example, map `call_transferred` to `XFER`, `user_hangup` to `HUNGUP`, and
-`voicemail_detected` to `AA`. VICIdial exposes no API for listing a
-deployment's configured statuses, so the codes come from your own VICIdial
-status report rather than being discovered automatically.
+Use the status codes already configured in your VICIdial deployment. Dograh
+does not prescribe the mapping, and VICIdial exposes no API for discovering
+those codes automatically. Consult your own VICIdial status configuration or
+report when choosing each target value.
 
 The mapped code is written to `gathered_context.mapped_call_disposition`, which
-is also what outbound webhooks, the disposition run filter, and reports read.
+is what VICIdial write-back, the disposition run filter, and reports read. To
+send it in a webhook, reference that field explicitly. The automatically added
+top-level webhook field contains the raw `gathered_context.call_disposition`.
+See [Call Dispositions](../../developer/call-dispositions#understand-the-stored-fields)
+for the complete data model.
 
 <Note>
   Map your do-not-call outcomes to `DNC` to have Dograh add the customer's
@@ -191,10 +196,11 @@ is also what outbound webhooks, the disposition run filter, and reports read.
   the current list being redialed; only the DNC entry travels with the number.
 </Note>
 
-An unmapped disposition is not written at all: VICIdial keeps whatever it
-recorded for the call, usually `RAXFER`. That is deliberate — an unrecognised
-outcome written as a plausible-looking code is worse than one that is visibly
-missing when someone reads the report.
+A disposition that does not contain one to six letters, numbers, underscores,
+or hyphens is not written at all. VICIdial keeps whatever it recorded for the
+call, usually `RAXFER`. An unmapped disposition that already fits this format is
+written unchanged. Dograh never truncates a longer outcome into a
+plausible-looking but incorrect status.
 
 ## Runtime behavior
 

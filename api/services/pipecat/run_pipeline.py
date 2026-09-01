@@ -658,7 +658,7 @@ async def _run_pipeline_impl(
     call_dispositions = WorkflowConfigurationDefaults.model_validate(
         {"call_dispositions": run_configs.get("call_dispositions") or []}
     ).call_dispositions
-    uses_variable_extraction = workflow_graph.uses_variable_extraction() or bool(
+    needs_extraction_llm = workflow_graph.uses_variable_extraction() or bool(
         call_dispositions
     )
 
@@ -705,16 +705,16 @@ async def _run_pipeline_impl(
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
 
-    # A shared LLM cannot carry an extraction usage_context without also tagging
-    # normal conversation or context-summarization requests. Create a dedicated
-    # client only for the managed provider; other providers ignore usage_context.
+    # Variable and disposition extraction may share this out-of-band LLM. A
+    # shared conversation LLM cannot carry an extraction usage_context without
+    # also tagging normal conversation or context-summarization requests.
     variable_extraction_llm = (
         create_llm_service(
             user_config,
             correlation_id=mps_correlation_id,
             usage_context="variable_extraction",
         )
-        if uses_variable_extraction
+        if needs_extraction_llm
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else inference_llm or llm
     )
@@ -1032,7 +1032,7 @@ async def _run_pipeline_impl(
         async def _on_voicemail_detected(_processor):
             logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
             await engine.end_call_with_reason(
-                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
+                call_status=EndTaskReason.VOICEMAIL_DETECTED.value,
                 abort_immediately=True,
             )
 

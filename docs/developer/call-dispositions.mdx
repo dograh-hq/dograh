@@ -1,0 +1,169 @@
+---
+title: "Call Dispositions"
+description: "Configure workflow-specific business outcomes and use them consistently across Dograh"
+---
+
+A call disposition is a stable code that describes the business outcome of a
+completed conversation, such as `qualified`, `appointment_booked`, or
+`callback_requested`. It is different from the call status: `user_hangup`
+explains how a call ended, while `appointment_booked` explains what the call
+achieved.
+
+<Note>
+  Call disposition extraction is disabled by default for every workflow. Until
+  you enable it, Dograh keeps the disposition recorded by the event that ended
+  the call.
+</Note>
+
+## Before you begin
+
+Before configuring a workflow, decide which outcomes matter to your business
+and write an observable criterion for each one. You also need permission to
+edit and publish the workflow.
+
+## Configure outcomes for a workflow
+
+1. Open the agent whose workflow you want to configure.
+2. Open **Settings**, then select **General**.
+3. Turn on **Extract call disposition at the end of the call**.
+4. In the **Call disposition extraction** dialog, review the starter outcomes.
+5. Edit or remove any outcome that does not fit this workflow.
+6. Select **Add custom disposition** to add your own code and description.
+7. Select **Enable extraction**.
+8. Select **Save General Settings**, then publish the agent for the change to
+   affect live calls.
+
+The dialog starts with these suggestions. They do not become active until you
+enable extraction and save the workflow.
+
+| Code | Selection criteria |
+| --- | --- |
+| `qualified` | The call achieved the workflow's primary goal. |
+| `not_interested` | The person clearly declined the offer or said they are not interested. |
+| `wrong_number` | The call reached the wrong person or an incorrect phone number. |
+| `voicemail_detected` | The call reached voicemail or an answering machine instead of a person. |
+| `do_not_call` | The person explicitly asked not to be contacted again. |
+| `callback_requested` | The person asked to be contacted again at a later time. |
+
+To change an enabled workflow later, select **Configure options**, update the
+list, save the general settings, and publish again. Turning extraction off
+removes the configured options from the workflow after you save and publish.
+
+### Define effective custom outcomes
+
+The code is the value Dograh stores for the run. Keep it stable and
+machine-readable. The description tells the classifier when it should select
+that code.
+
+For example:
+
+| Code | Description |
+| --- | --- |
+| `appointment_booked` | Use when the customer agrees to a specific appointment date and time. |
+| `follow_up_required` | Use when the customer is interested but no appointment or next step is confirmed. |
+
+Use mutually exclusive descriptions based on evidence in the conversation.
+Avoid vague descriptions such as "the call went well," because two outcomes
+may appear equally valid.
+
+Each workflow can have up to 50 outcomes. A code must start with a letter, may
+contain letters, numbers, underscores, and hyphens, and can be at most 64
+characters. Codes are unique regardless of letter case. Each description can
+be at most 1,000 characters, with a combined limit of 4,000 characters across
+the workflow.
+
+## How extraction works
+
+At the end of an eligible call, Dograh analyzes the complete conversation and
+selects exactly one of the configured codes. It cannot invent a code that is
+not in the workflow configuration.
+
+If the conversation does not support any configured outcome, contains no user
+speech, or classification fails, Dograh keeps the disposition already recorded
+for the call. A disposition explicitly set by an end-call or transfer tool is
+also preserved rather than overwritten by final classification.
+
+This classification is separate from variable extraction on individual agent
+nodes. Node variables describe information gathered at one point in the
+workflow; the call disposition describes the final outcome of the conversation
+as a whole.
+
+## Understand the stored fields
+
+Dograh stores the termination mechanism, raw business outcome, and optional
+organization-specific code separately:
+
+| Field | Meaning | Example |
+| --- | --- | --- |
+| `gathered_context.call_status` | Observed reason the call ended; never inferred | `user_hangup` |
+| `gathered_context.call_disposition` | Raw outcome recorded by the workflow before organization mapping | `callback_requested` |
+| `gathered_context.mapped_call_disposition` | Organization-specific code after disposition mapping | `follow_up` |
+
+When no custom outcome is recorded, `call_disposition` falls back to the call's
+termination reason. When disposition mapping is disabled or no mapping matches,
+`mapped_call_disposition` keeps the raw value.
+
+## Use dispositions in a webhook
+
+Reference the raw, mapped, and status values independently in a webhook payload
+template:
+
+```json
+{
+  "call_status": "{{gathered_context.call_status}}",
+  "call_disposition": "{{gathered_context.call_disposition}}",
+  "mapped_call_disposition": "{{gathered_context.mapped_call_disposition}}"
+}
+```
+
+Dograh automatically adds a top-level `call_disposition` containing the raw
+value when your webhook template does not define that key. To send your
+organization-specific code instead, reference
+`{{gathered_context.mapped_call_disposition}}` explicitly. See
+[Webhook Payloads](./webhooks) for the complete payload context.
+
+## Map outcomes to your organization's codes
+
+Disposition mapping is optional and applies across your organization. Use it
+to normalize raw outcomes from different workflows into a shared vocabulary
+for filtering and reporting.
+
+1. Open **Platform Settings**.
+2. Under **Preferences**, turn on **Disposition mapping**.
+3. Select **Configure mapping**.
+4. Map each raw Dograh or workflow disposition to your preferred organization
+   code.
+5. Select **Add disposition** if a custom workflow code is not already listed.
+6. Save the mapping.
+
+For example, you can map `callback_requested` to `follow_up`. Dograh preserves
+`call_disposition` as `callback_requested` and writes `follow_up` to
+`mapped_call_disposition`. Run filters and reports use the mapped value. In a
+webhook, you can choose either the raw or mapped field explicitly. Mapping
+changes apply to subsequent calls; they do not rewrite completed runs.
+
+## Configure dispositions through the API
+
+The workflow stores its options in
+`workflow_configurations.call_dispositions`:
+
+```json
+{
+  "call_dispositions": [
+    {
+      "code": "appointment_booked",
+      "description": "Use when the customer agrees to a specific appointment date and time."
+    },
+    {
+      "code": "callback_requested",
+      "description": "Use when the customer asks to be contacted again later."
+    }
+  ]
+}
+```
+
+The example above shows the `workflow_configurations` value, not the complete
+request body. When using the [Update Agent API](../api-reference/agents/update),
+read the agent's current configuration first and preserve unrelated
+`workflow_configurations` fields in the update. Send an empty
+`call_dispositions` array to disable final classification.

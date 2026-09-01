@@ -1,10 +1,20 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { createUuid } from "@/lib/uuid";
 import type { CallDispositionOption } from "@/types/workflow-configurations";
@@ -112,11 +122,132 @@ export function validateCallDispositionRows(
 export function CallDispositionEditor({
     rows,
     onChange,
+    defaultDispositions = [],
 }: {
     rows: CallDispositionRow[];
     onChange: (rows: CallDispositionRow[]) => void;
+    defaultDispositions?: CallDispositionOption[];
 }) {
-    const validation = validateCallDispositionRows(rows);
+    const enabled = rows.length > 0;
+    const rememberedRows = useRef<CallDispositionRow[]>(rows);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [draftRows, setDraftRows] = useState<CallDispositionRow[]>([]);
+
+    useEffect(() => {
+        if (rows.length > 0) {
+            rememberedRows.current = rows;
+        }
+    }, [rows]);
+
+    const openEditor = (editorRows: CallDispositionRow[]) => {
+        setDraftRows(editorRows.map((row) => ({ ...row })));
+        setDialogOpen(true);
+    };
+
+    const handleEnabledChange = (checked: boolean) => {
+        if (!checked) {
+            rememberedRows.current = rows;
+            onChange([]);
+            return;
+        }
+
+        const options = rememberedRows.current.length > 0
+            ? rememberedRows.current
+            : createCallDispositionRows(defaultDispositions);
+        openEditor(options);
+    };
+
+    const handleApply = () => {
+        const validation = validateCallDispositionRows(draftRows);
+        if (draftRows.length === 0 || !validation.isValid) return;
+
+        rememberedRows.current = draftRows;
+        onChange(draftRows);
+        setDialogOpen(false);
+    };
+
+    const draftValidation = validateCallDispositionRows(draftRows);
+
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center justify-between gap-6">
+                <div className="space-y-1">
+                    <Label htmlFor="call-disposition-extraction-enabled" className="text-sm font-medium">
+                        Extract call disposition at the end of the call
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                        {enabled
+                            ? `${rows.length} outcome${rows.length === 1 ? "" : "s"} configured. Dograh will classify the completed conversation into one of them.`
+                            : "Disabled. Dograh will keep the disposition recorded by the call-ending event."}
+                    </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                    {enabled && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEditor(rows)}
+                        >
+                            Configure options
+                        </Button>
+                    )}
+                    <Switch
+                        id="call-disposition-extraction-enabled"
+                        checked={enabled}
+                        onCheckedChange={handleEnabledChange}
+                    />
+                </div>
+            </div>
+
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="max-h-[90vh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Call disposition extraction</DialogTitle>
+                        <DialogDescription>
+                            Configure the code and description pairs the model can choose from. Codes are recorded before organization-level disposition mapping is applied.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="min-h-0 overflow-y-auto pr-1">
+                        <CallDispositionRowsEditor
+                            rows={draftRows}
+                            onChange={setDraftRows}
+                            validation={draftValidation}
+                        />
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDialogOpen(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            disabled={draftRows.length === 0 || !draftValidation.isValid}
+                            onClick={handleApply}
+                        >
+                            {enabled ? "Save options" : "Enable extraction"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}
+
+function CallDispositionRowsEditor({
+    rows,
+    onChange,
+    validation,
+}: {
+    rows: CallDispositionRow[];
+    onChange: (rows: CallDispositionRow[]) => void;
+    validation: CallDispositionValidation;
+}) {
 
     const updateRow = (
         rowId: string,
@@ -127,15 +258,8 @@ export function CallDispositionEditor({
 
     return (
         <div className="space-y-4">
-            <div>
-                <h3 className="text-sm font-medium">Call Disposition</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                    Define the exact business outcomes the AI may select after a call ends. Each description should clearly explain when its code applies.
-                </p>
-            </div>
-
             <div className="flex items-center justify-between gap-4">
-                <Label className="text-sm">Dispositions</Label>
+                <Label className="text-sm">Disposition options</Label>
                 <Button
                     type="button"
                     variant="outline"
@@ -146,7 +270,7 @@ export function CallDispositionEditor({
                         { id: createUuid(), code: "", description: "" },
                     ])}
                 >
-                    <Plus className="mr-1 h-4 w-4" /> Add disposition
+                    <Plus className="mr-1 h-4 w-4" /> Add custom disposition
                 </Button>
             </div>
 
@@ -220,15 +344,15 @@ export function CallDispositionEditor({
                 })}
 
                 {rows.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                        No call dispositions configured. Dograh will keep the existing call-ending disposition without running dedicated outcome extraction.
-                    </p>
+                    <div className="rounded-md border border-dashed p-4 text-center">
+                        <p className="text-sm font-medium">Add at least one disposition</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            Extraction needs a closed list of outcomes to choose from.
+                        </p>
+                    </div>
                 )}
 
-                <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
-                    <p>
-                        Codes are recorded before organization-level disposition mapping is applied.
-                    </p>
+                <div className="flex justify-end text-xs text-muted-foreground">
                     <p className={validation.totalError ? "text-destructive" : undefined}>
                         {validation.totalDescriptionLength.toLocaleString()} / {MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH.toLocaleString()} description characters
                     </p>

@@ -54,6 +54,39 @@ class CallDispositionOption(BaseModel):
         return value.strip() if isinstance(value, str) else value
 
 
+DEFAULT_CALL_DISPOSITION_OPTIONS: tuple[CallDispositionOption, ...] = (
+    CallDispositionOption(
+        code="qualified",
+        description="The call achieved the workflow's primary goal.",
+    ),
+    CallDispositionOption(
+        code="not_interested",
+        description="The person clearly declined the offer or said they are not interested.",
+    ),
+    CallDispositionOption(
+        code="wrong_number",
+        description="The call reached the wrong person or an incorrect phone number.",
+    ),
+    CallDispositionOption(
+        code="voicemail_detected",
+        description="The call reached voicemail or an answering machine instead of a person.",
+    ),
+    CallDispositionOption(
+        code="do_not_call",
+        description="The person explicitly asked not to be contacted again.",
+    ),
+    CallDispositionOption(
+        code="callback_requested",
+        description="The person asked to be contacted again at a later time.",
+    ),
+)
+
+
+def get_default_call_disposition_options() -> list[CallDispositionOption]:
+    """Return fresh copies of the built-in terminal outcome catalog."""
+    return [option.model_copy(deep=True) for option in DEFAULT_CALL_DISPOSITION_OPTIONS]
+
+
 class ExternalPBXFieldMapping(BaseModel):
     """Map one gathered-context value to a provider-native field."""
 

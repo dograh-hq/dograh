@@ -123,7 +123,7 @@ class RecordingEngine:
     async def flush_variable_extraction(self):
         return None
 
-    def record_call_disposition(self, disposition):
+    def set_call_disposition(self, disposition):
         self.events.append(("disposition", disposition))
 
     def map_disposition(self, disposition):
@@ -131,8 +131,8 @@ class RecordingEngine:
         # so every disposition passes through as itself.
         return disposition
 
-    async def end_call_with_reason(self, reason, abort_immediately=False):
-        self.events.append(("end_call", reason))
+    async def end_call_with_reason(self, call_status, abort_immediately=False):
+        self.events.append(("end_call", call_status))
 
     def set_mute_pipeline(self, value):
         return None
@@ -311,7 +311,7 @@ class TestTransferDispositionRace:
         engine = make_engine()
         engine.task = SimpleNamespace(queue_frame=AsyncMock())
 
-        engine.record_call_disposition(EndTaskReason.CALL_TRANSFERRED.value)
+        engine.set_call_disposition(EndTaskReason.CALL_TRANSFERRED.value)
 
         with (
             patch.object(

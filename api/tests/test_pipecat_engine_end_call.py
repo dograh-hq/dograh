@@ -42,14 +42,10 @@ from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory
 from api.schemas.workflow_configurations import CallDispositionOption
-from api.services.workflow.disposition_extraction import (
-    CALL_DISPOSITION_VARIABLE,
-    END_REASON_CONTEXT_KEY,
-)
+from api.services.workflow.disposition_extraction import DispositionExtractionService
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
-    ExtractionVariableDTO,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
@@ -185,12 +181,12 @@ async def create_engine_with_tracking(
     original_end_call = engine.end_call_with_reason
 
     async def tracked_end_call(
-        reason: str,
+        call_status: str,
         abort_immediately: bool = False,
     ):
         # Record state before end_call_with_reason modifies it
-        test_helper.end_call_reasons.append(reason)
-        await original_end_call(reason, abort_immediately)
+        test_helper.end_call_reasons.append(call_status)
+        await original_end_call(call_status, abort_immediately)
         # Record state after end_call_with_reason
         test_helper.mute_pipeline_state.append(engine._mute_pipeline)
         test_helper.call_disposed_state.append(engine._call_disposed)
@@ -287,32 +283,6 @@ class TestEndCallViaNodeTransition:
             ],
         )
 
-        # A legacy node-level `end_reason` extraction must not be able to
-        # replace call mechanics; the workflow-level disposition config owns
-        # the separate terminal request.
-        end_node = next(node for node in simple_workflow.nodes.values() if node.is_end)
-        end_node.extraction_enabled = True
-        end_node.extraction_prompt = "Extract the final call outcome."
-        end_node.extraction_variables = [
-            ExtractionVariableDTO(
-                name=END_REASON_CONTEXT_KEY,
-                type="string",
-                prompt="Why the call ended",
-            )
-        ]
-        requested_variables: list[list[str]] = []
-
-        async def extract_variables(variables, *_args):
-            names = [variable.name for variable in variables]
-            requested_variables.append(names)
-            if CALL_DISPOSITION_VARIABLE in names:
-                return {
-                    CALL_DISPOSITION_VARIABLE: "voicemail_detected",
-                    # Even an unexpected model key cannot overwrite mechanics.
-                    END_REASON_CONTEXT_KEY: "voicemail",
-                }
-            return {"user_intent": "end call"}
-
         # Patch DB calls and extraction manager
         with patch(
             "api.db:db_client.get_organization_id_by_workflow_run_id",
@@ -322,13 +292,15 @@ class TestEndCallViaNodeTransition:
             with patch.object(
                 VariableExtractionManager,
                 "_perform_extraction",
-                side_effect=extract_variables,
+                new_callable=AsyncMock,
+                return_value={"user_intent": "end call"},
             ):
                 with patch.object(
-                    VariableExtractionManager,
-                    "has_user_turns",
-                    return_value=True,
-                ):
+                    DispositionExtractionService,
+                    "extract",
+                    new_callable=AsyncMock,
+                    return_value="voicemail_detected",
+                ) as extract_disposition:
                     await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called
@@ -339,12 +311,8 @@ class TestEndCallViaNodeTransition:
 
         gathered_context = await engine.get_gathered_context()
         assert gathered_context["call_status"] == EndTaskReason.END_CALL.value
-        assert gathered_context[END_REASON_CONTEXT_KEY] == EndTaskReason.END_CALL.value
         assert gathered_context["call_disposition"] == "voicemail_detected"
-        assert END_REASON_CONTEXT_KEY not in gathered_context.get(
-            "extracted_variables", {}
-        )
-        assert [CALL_DISPOSITION_VARIABLE] in requested_variables
+        extract_disposition.assert_awaited_once()
 
         # Verify pipeline was muted
         assert any(test_helper.mute_pipeline_state), "Pipeline should be muted"
@@ -1090,9 +1058,6 @@ class TestEndCallExtractionBehavior:
 
         gathered_context = await engine.get_gathered_context()
         assert gathered_context["call_status"] == EndTaskReason.USER_HANGUP.value
-        assert (
-            gathered_context[END_REASON_CONTEXT_KEY] == EndTaskReason.USER_HANGUP.value
-        )
         assert gathered_context["call_disposition"] == gathered_context["call_status"]
 
         # Even without extraction, user muting should still be active

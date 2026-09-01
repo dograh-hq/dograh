@@ -1976,6 +1976,12 @@ export type DefaultConfigurationsResponse = {
         [key: string]: string;
     };
     workflow_configurations: WorkflowConfigurationDefaults;
+    /**
+     * Default Call Dispositions
+     *
+     * Built-in suggestions for call-disposition extraction. They do not enable extraction until saved in workflow_configurations.call_dispositions.
+     */
+    default_call_dispositions: Array<CallDispositionOption>;
     text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints;
     widget_text_defaults: WidgetTexts;
 };
@@ -4862,6 +4868,11 @@ export type PropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multi_
 
 /**
  * ProviderSetupChecklist
+ *
+ * A configuration's setup progress, as computed by its provider.
+ *
+ * ``ready_for_outbound`` is derived rather than reported independently so a
+ * provider cannot claim readiness while leaving a blocking step incomplete.
  */
 export type ProviderSetupChecklist = {
     /**
@@ -5305,6 +5316,8 @@ export type S3SignedUrlResponse = {
 
 /**
  * SIPConnectivityDetails
+ *
+ * Provider-supplied SIP connection details displayed to customers.
  */
 export type SipConnectivityDetails = {
     /**
@@ -5319,6 +5332,8 @@ export type SipConnectivityDetails = {
 
 /**
  * SIPRegionDetails
+ *
+ * Inbound and outbound SIP details for one provider region.
  */
 export type SipRegionDetails = {
     /**
@@ -5337,6 +5352,8 @@ export type SipRegionDetails = {
 
 /**
  * SIPTransportDetails
+ *
+ * Connection details for one supported inbound SIP transport.
  */
 export type SipTransportDetails = {
     /**
@@ -5527,6 +5544,12 @@ export type ServiceKeyResponse = {
 
 /**
  * SetupStep
+ *
+ * One thing the customer must do before a configuration can carry calls.
+ *
+ * ``blocks_outbound`` separates "not done yet" from "outbound calls will
+ * fail". Inbound-only steps are reported so the checklist is complete
+ * without making them gate the Phone Call button.
  */
 export type SetupStep = {
     /**

@@ -9,7 +9,7 @@ behind the code that produces the dispositions.
 Three kinds of built-in value feed that field:
 
 * the pipeline, via ``PipecatEngine.end_call_with_reason`` /
-  ``record_call_disposition`` — an ``EndTaskReason`` value;
+  ``set_call_disposition`` — an ``EndTaskReason`` value;
 * the telephony status callback, via ``status_processor`` and
   ``mark_workflow_run_failed`` — a ``TelephonyCallStatus`` value, for calls
   that never connected;

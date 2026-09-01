@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import List, Literal, Optional, TypedDict, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from api.db import db_client
 from api.db.models import (
@@ -13,8 +13,10 @@ from api.errors.mps import MPSUnavailableError
 from api.schemas.onboarding_state import OnboardingState, OnboardingStateUpdate
 from api.schemas.widget_texts import WidgetTexts
 from api.schemas.workflow_configurations import (
+    CallDispositionOption,
     TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
+    get_default_call_disposition_options,
     get_default_workflow_configurations,
 )
 from api.services.auth.depends import get_user
@@ -58,6 +60,12 @@ class DefaultConfigurationsResponse(BaseModel):
     realtime: dict[str, dict]
     default_providers: dict[str, str]
     workflow_configurations: WorkflowConfigurationDefaults
+    default_call_dispositions: list[CallDispositionOption] = Field(
+        description=(
+            "Built-in suggestions for call-disposition extraction. They do not "
+            "enable extraction until saved in workflow_configurations.call_dispositions."
+        )
+    )
     text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints
     widget_text_defaults: WidgetTexts
 
@@ -87,6 +95,7 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
         },
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
         "workflow_configurations": get_default_workflow_configurations(),
+        "default_call_dispositions": get_default_call_disposition_options(),
         "text_chat_inactivity_timeout_constraints": (
             TextChatInactivityTimeoutConstraints()
         ),

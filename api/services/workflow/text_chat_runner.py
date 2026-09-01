@@ -490,13 +490,16 @@ async def execute_text_chat_pending_turn(
     call_dispositions = WorkflowConfigurationDefaults.model_validate(
         {"call_dispositions": run_configs.get("call_dispositions") or []}
     ).call_dispositions
+    needs_extraction_llm = workflow_graph.uses_variable_extraction() or bool(
+        call_dispositions
+    )
     variable_extraction_llm = (
         create_llm_service(
             user_config,
             correlation_id=mps_correlation_id,
             usage_context="variable_extraction",
         )
-        if (workflow_graph.uses_variable_extraction() or call_dispositions)
+        if needs_extraction_llm
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else llm
     )

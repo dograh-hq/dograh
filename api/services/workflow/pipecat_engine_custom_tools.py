@@ -519,7 +519,7 @@ class CustomToolManager:
                     reason = raw_reason.strip() if isinstance(raw_reason, str) else ""
                     if reason:
                         logger.info(f"End call reason: {reason}")
-                        self._engine.record_call_disposition(reason)
+                        self._engine.set_call_disposition(reason)
                     else:
                         logger.info(
                             "No end call reason provided; using call status as "
@@ -761,7 +761,7 @@ class CustomToolManager:
                             # delay below is over. Stamp the disposition now, or
                             # that handler records this completed transfer as a
                             # user hangup.
-                            self._engine.record_call_disposition(transfer_disposition)
+                            self._engine.set_call_disposition(transfer_disposition)
                             await db_client.update_workflow_run(
                                 run_id=self._engine._workflow_run_id,
                                 gathered_context={
@@ -1015,7 +1015,7 @@ class CustomToolManager:
             # fallback only once the destination has actually answered. Stamping
             # it before teardown also prevents final extraction from replacing it.
             if success_disposition:
-                self._engine.record_call_disposition(success_disposition)
+                self._engine.set_call_disposition(success_disposition)
 
             # End pipeline - providers complete bridge swap/conference join as final transfer leg
             await self._engine.end_call_with_reason(

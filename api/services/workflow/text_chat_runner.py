@@ -31,6 +31,7 @@ from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
+from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.pipeline_builder import create_pipeline_task
@@ -486,14 +487,16 @@ async def execute_text_chat_pending_turn(
 
     llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
     inference_llm = llm
-    call_disposition_prompt = run_configs.get("call_disposition_prompt")
+    call_dispositions = WorkflowConfigurationDefaults.model_validate(
+        {"call_dispositions": run_configs.get("call_dispositions") or []}
+    ).call_dispositions
     variable_extraction_llm = (
         create_llm_service(
             user_config,
             correlation_id=mps_correlation_id,
             usage_context="variable_extraction",
         )
-        if (workflow_graph.uses_variable_extraction() or call_disposition_prompt)
+        if (workflow_graph.uses_variable_extraction() or call_dispositions)
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else llm
     )
@@ -615,7 +618,7 @@ async def execute_text_chat_pending_turn(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
-        call_disposition_prompt=call_disposition_prompt,
+        call_dispositions=call_dispositions,
         # Each text turn owns a short-lived pipeline. Complete extraction before
         # leaving a node so teardown cannot discard the result before checkpointing.
         run_transition_variable_extraction_in_background=False,

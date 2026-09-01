@@ -27,7 +27,31 @@ DEFAULT_TURN_START_MIN_WORDS = 3
 DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5
 DEFAULT_TURN_STOP_STRATEGY = "transcription"
 DEFAULT_CONTEXT_COMPACTION_ENABLED = False
-MAX_CALL_DISPOSITION_PROMPT_LENGTH = 4_000
+MAX_CALL_DISPOSITIONS = 50
+MAX_CALL_DISPOSITION_CODE_LENGTH = 64
+MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH = 1_000
+MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH = 4_000
+
+
+class CallDispositionOption(BaseModel):
+    """One business outcome the terminal classifier may select."""
+
+    code: str = Field(
+        min_length=1,
+        max_length=MAX_CALL_DISPOSITION_CODE_LENGTH,
+        pattern=r"^[A-Za-z][A-Za-z0-9_-]*$",
+        description="Stable code recorded when this outcome is selected.",
+    )
+    description: str = Field(
+        min_length=1,
+        max_length=MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH,
+        description="Business criteria for selecting this disposition.",
+    )
+
+    @field_validator("code", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class ExternalPBXFieldMapping(BaseModel):
@@ -98,13 +122,12 @@ class WorkflowConfigurationDefaults(BaseModel):
     )
     dictionary: str = ""
     context_compaction_enabled: bool = DEFAULT_CONTEXT_COMPACTION_ENABLED
-    call_disposition_prompt: str | None = Field(
-        default=None,
-        max_length=MAX_CALL_DISPOSITION_PROMPT_LENGTH,
+    call_dispositions: list[CallDispositionOption] = Field(
+        default_factory=list,
+        max_length=MAX_CALL_DISPOSITIONS,
         description=(
-            "Optional workflow-wide instructions for deriving a call's business "
-            "outcome after it ends. When unset, Dograh does not run a dedicated "
-            "call-disposition extraction."
+            "Allowed business outcomes for terminal call classification. Each "
+            "entry defines the exact stored code and the criteria for selecting it."
         ),
     )
     text_chat_inactivity_timeout_seconds: int = Field(
@@ -121,13 +144,24 @@ class WorkflowConfigurationDefaults(BaseModel):
         max_length=MAX_EXTERNAL_PBX_LEAD_HEADERS,
     )
 
-    @field_validator("call_disposition_prompt", mode="before")
+    @field_validator("call_dispositions")
     @classmethod
-    def normalize_call_disposition_prompt(cls, value: object) -> object:
-        """Treat an empty editor value as the feature being disabled."""
-        if isinstance(value, str):
-            value = value.strip()
-            return value or None
+    def validate_call_dispositions(
+        cls, value: list[CallDispositionOption]
+    ) -> list[CallDispositionOption]:
+        seen: set[str] = set()
+        for option in value:
+            normalized_code = option.code.casefold()
+            if normalized_code in seen:
+                raise ValueError("call disposition codes must be unique")
+            seen.add(normalized_code)
+
+        total_description_length = sum(len(option.description) for option in value)
+        if total_description_length > MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH:
+            raise ValueError(
+                "call disposition descriptions must total at most "
+                f"{MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH} characters"
+            )
         return value
 
     @field_validator("external_pbx_lead_headers", mode="before")

@@ -39,8 +39,7 @@ def test_transfer_call_normalizes_blank_call_disposition():
 def test_transfer_call_disposition_has_a_bounded_size():
     with pytest.raises(ValueError, match="at most 64 characters"):
         TransferCallConfig(
-            call_disposition="x"
-            * (MAX_TRANSFER_CALL_DISPOSITION_LENGTH + 1)
+            call_disposition="x" * (MAX_TRANSFER_CALL_DISPOSITION_LENGTH + 1)
         )
 
 

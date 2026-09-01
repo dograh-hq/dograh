@@ -1,5 +1,6 @@
 import type {
     AmbientNoiseConfigurationDefaults,
+    CallDispositionOption as GeneratedCallDispositionOption,
     OrganizationAiModelConfigurationV2,
     WorkflowConfigurationDefaults as GeneratedWorkflowConfigurationDefaults,
 } from "@/client/types.gen";
@@ -69,6 +70,8 @@ export interface ExternalPBXFieldMapping {
     destination_field: string;
 }
 
+export type CallDispositionOption = GeneratedCallDispositionOption;
+
 export const DEFAULT_TRANSCRIPT_CONFIGURATION: TranscriptConfiguration = {
     include_end_timestamps: false,
 };
@@ -115,6 +118,7 @@ type WorkflowConfigurationBase = Omit<
     | "turn_stop_strategy"
     | "dictionary"
     | "context_compaction_enabled"
+    | "call_dispositions"
     | "text_chat_inactivity_timeout_seconds"
     | "external_pbx_field_mappings"
     | "external_pbx_lead_headers"
@@ -133,7 +137,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     voicemail_detection?: VoicemailDetectionConfiguration;
     transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
-    call_disposition_prompt?: string;  // Workflow-wide terminal call-outcome extraction instructions
+    call_dispositions: CallDispositionOption[];  // Allowed terminal business outcomes
     text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
     external_pbx_field_mappings: ExternalPBXFieldMapping[];
     external_pbx_lead_headers: string[];  // Extra lead fields to capture from the inbound INVITE
@@ -157,6 +161,7 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     dictionary: '',
     transcript_configuration: DEFAULT_TRANSCRIPT_CONFIGURATION,
     context_compaction_enabled: false,
+    call_dispositions: [],
     external_pbx_field_mappings: [],
     external_pbx_lead_headers: [],
 };
@@ -210,10 +215,10 @@ export function resolveWorkflowConfigurations(
             configurations?.context_compaction_enabled
             ?? defaults?.context_compaction_enabled
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
-        call_disposition_prompt:
-            configurations?.call_disposition_prompt
-            ?? defaults?.call_disposition_prompt
-            ?? undefined,
+        call_dispositions:
+            configurations?.call_dispositions
+            ?? defaults?.call_dispositions
+            ?? FALLBACK_WORKFLOW_CONFIGURATIONS.call_dispositions,
         text_chat_inactivity_timeout_seconds:
             configurations?.text_chat_inactivity_timeout_seconds
             ?? defaults?.text_chat_inactivity_timeout_seconds,

@@ -62,6 +62,13 @@ import {
 
 import { EmbedDialog } from "../components/EmbedDialog";
 import { useWorkflowState } from "../hooks/useWorkflowState";
+import {
+    CallDispositionEditor,
+    type CallDispositionRow,
+    createCallDispositionRows,
+    normalizeCallDispositions,
+    validateCallDispositionRows,
+} from "./components/CallDispositionEditor";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -301,8 +308,8 @@ function GeneralSection({
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
         workflowConfigurations.context_compaction_enabled,
     );
-    const [callDispositionPrompt, setCallDispositionPrompt] = useState(
-        workflowConfigurations.call_disposition_prompt ?? "",
+    const [callDispositionRows, setCallDispositionRows] = useState<CallDispositionRow[]>(
+        () => createCallDispositionRows(workflowConfigurations.call_dispositions),
     );
     const [includeTranscriptEndTimestamps, setIncludeTranscriptEndTimestamps] = useState(
         workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false,
@@ -331,6 +338,14 @@ function GeneralSection({
     );
     const externalPbxSettingsValid =
         externalPbxFieldMappingsValid && externalPbxLeadHeadersValid;
+    const normalizedCallDispositions = useMemo(
+        () => normalizeCallDispositions(callDispositionRows),
+        [callDispositionRows],
+    );
+    const callDispositionsValid = useMemo(
+        () => validateCallDispositionRows(callDispositionRows).isValid,
+        [callDispositionRows],
+    );
 
     const isDirty = useMemo(() => {
         const initAmbient = workflowConfigurations.ambient_noise_configuration;
@@ -345,7 +360,8 @@ function GeneralSection({
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
-            callDispositionPrompt !== (workflowConfigurations.call_disposition_prompt ?? "") ||
+            JSON.stringify(normalizedCallDispositions) !==
+                JSON.stringify(workflowConfigurations.call_dispositions) ||
             includeTranscriptEndTimestamps !==
             (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false) ||
             JSON.stringify(externalPbxFieldMappings) !==
@@ -353,7 +369,7 @@ function GeneralSection({
             JSON.stringify(externalPbxLeadHeaders) !==
             JSON.stringify(workflowConfigurations.external_pbx_lead_headers)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, callDispositionPrompt, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -417,6 +433,7 @@ function GeneralSection({
 
     const handleSave = async () => {
         setIsSaving(true);
+        const callDispositionRowsAtSave = callDispositionRows;
         try {
             await onSave(
                 {
@@ -430,7 +447,7 @@ function GeneralSection({
                     provisional_vad_pause_secs: provisionalVadPauseSecs,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
-                    call_disposition_prompt: callDispositionPrompt.trim() || undefined,
+                    call_dispositions: normalizedCallDispositions,
                     transcript_configuration: {
                         ...(workflowConfigurations.transcript_configuration ?? {}),
                         include_end_timestamps: includeTranscriptEndTimestamps,
@@ -440,6 +457,14 @@ function GeneralSection({
                 },
                 name,
             );
+            setCallDispositionRows((current) => (
+                current === callDispositionRowsAtSave
+                    ? current.map((row, index) => ({
+                        ...row,
+                        ...normalizedCallDispositions[index],
+                    }))
+                    : current
+            ));
             toast.success(`General settings saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save general settings:", error);
@@ -786,30 +811,10 @@ function GeneralSection({
 
                 <Separator />
 
-                {/* Call disposition */}
-                <div className="space-y-4">
-                    <div>
-                        <h3 className="text-sm font-medium">Call Disposition</h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                            Define how an LLM should classify the business outcome once an eligible call has ended. Leave this blank to disable dedicated disposition extraction.
-                        </p>
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="call-disposition-prompt" className="text-sm">
-                            Instructions
-                        </Label>
-                        <Textarea
-                            id="call-disposition-prompt"
-                            value={callDispositionPrompt}
-                            onChange={(event) => setCallDispositionPrompt(event.target.value)}
-                            placeholder="Return call_rescheduled when the caller agrees to a specific future conversation; otherwise return qualified, not_interested, or wrong_number."
-                            rows={6}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            The outcome is recorded before organization-level disposition mapping is applied.
-                        </p>
-                    </div>
-                </div>
+                <CallDispositionEditor
+                    rows={callDispositionRows}
+                    onChange={setCallDispositionRows}
+                />
 
                 <Separator />
 
@@ -1000,7 +1005,12 @@ function GeneralSection({
                 {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
                 <Button
                     onClick={handleSave}
-                    disabled={isSaving || !isDirty || (externalPbxIntegrationsEnabled && !externalPbxSettingsValid)}
+                    disabled={
+                        isSaving
+                        || !isDirty
+                        || !callDispositionsValid
+                        || (externalPbxIntegrationsEnabled && !externalPbxSettingsValid)
+                    }
                 >
                     {isSaving ? "Saving..." : "Save General Settings"}
                 </Button>

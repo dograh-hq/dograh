@@ -313,6 +313,22 @@ export interface components {
             disposition_codes: string[];
         };
         /**
+         * CallDispositionOption
+         * @description One business outcome the terminal classifier may select.
+         */
+        CallDispositionOption: {
+            /**
+             * Code
+             * @description Stable code recorded when this outcome is selected.
+             */
+            code: string;
+            /**
+             * Description
+             * @description Business criteria for selecting this disposition.
+             */
+            description: string;
+        };
+        /**
          * ContextDestinationMappingConfig
          * @description Resolve a transfer destination from gathered or initial context.
          *
@@ -1314,10 +1330,10 @@ export interface components {
              */
             context_compaction_enabled: boolean;
             /**
-             * Call Disposition Prompt
-             * @description Optional workflow-wide instructions for deriving a call's business outcome after it ends. When unset, Dograh does not run a dedicated call-disposition extraction.
+             * Call Dispositions
+             * @description Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
              */
-            call_disposition_prompt?: string | null;
+            call_dispositions?: components["schemas"]["CallDispositionOption"][];
             /**
              * Text Chat Inactivity Timeout Seconds
              * @default 1800
@@ -1400,6 +1416,7 @@ export interface components {
 export type AmbientNoiseConfigurationDefaults = components['schemas']['AmbientNoiseConfigurationDefaults'];
 export type CalculatorToolDefinition = components['schemas']['CalculatorToolDefinition'];
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
+export type CallDispositionOption = components['schemas']['CallDispositionOption'];
 export type ContextDestinationMappingConfig = components['schemas']['ContextDestinationMappingConfig'];
 export type ContextDestinationRoute = components['schemas']['ContextDestinationRoute'];
 export type ContextDestinationRule = components['schemas']['ContextDestinationRule'];

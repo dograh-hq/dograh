@@ -41,6 +41,7 @@ from pipecat.turns.user_mute import (
 from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory
+from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_VARIABLE,
     END_REASON_CONTEXT_KEY,
@@ -119,7 +120,7 @@ async def create_engine_with_tracking(
     mock_llm: MockLLMService,
     test_helper: EndCallTestHelper,
     generate_audio: bool = True,
-    call_disposition_prompt: str | None = None,
+    call_dispositions: list[CallDispositionOption] | None = None,
 ) -> tuple[PipecatEngine, MockTTSService, MockTransport, PipelineWorker]:
     """Create a PipecatEngine with tracking for end call behavior.
 
@@ -158,7 +159,7 @@ async def create_engine_with_tracking(
         workflow=workflow,
         call_context_vars={"customer_name": "Test User"},
         workflow_run_id=1,
-        call_disposition_prompt=call_disposition_prompt,
+        call_dispositions=call_dispositions,
     )
 
     # Track variable extraction calls
@@ -278,11 +279,16 @@ class TestEndCallViaNodeTransition:
             simple_workflow,
             llm,
             test_helper,
-            call_disposition_prompt="Return voicemail_detected when the call reaches voicemail.",
+            call_dispositions=[
+                CallDispositionOption(
+                    code="voicemail_detected",
+                    description="The call reached voicemail rather than a person.",
+                )
+            ],
         )
 
         # A legacy node-level `end_reason` extraction must not be able to
-        # replace call mechanics; the workflow-level disposition prompt owns
+        # replace call mechanics; the workflow-level disposition config owns
         # the separate terminal request.
         end_node = next(node for node in simple_workflow.nodes.values() if node.is_end)
         end_node.extraction_enabled = True

@@ -6,6 +6,7 @@ import pytest
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.utils.enums import EndTaskReason
 
+from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_VARIABLE,
     CALL_STATUS_CONTEXT_KEY,
@@ -20,14 +21,25 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 
+_DISPOSITIONS = (
+    CallDispositionOption(
+        code="call_rescheduled",
+        description="The caller booked another conversation.",
+    ),
+    CallDispositionOption(
+        code="not_interested",
+        description="The caller clearly declined the offer.",
+    ),
+)
+
 
 def _engine(
-    *, prompt: str | None = None, has_user_turns=True, **context
+    *, dispositions=_DISPOSITIONS, has_user_turns=True, **context
 ) -> PipecatEngine:
     engine = PipecatEngine(
         workflow=None,
         call_context_vars={},
-        call_disposition_prompt=prompt,
+        call_dispositions=dispositions,
     )
     engine._gathered_context.update(context)
     engine._variable_extraction_manager = MagicMock()
@@ -63,18 +75,19 @@ def test_call_disposition_is_reserved_from_node_extraction():
     assert [variable.name for variable in result] == ["state"]
 
 
-def test_call_disposition_variable_uses_the_workflow_prompt():
-    variable = build_disposition_variable(
-        "Return call_rescheduled after a booked follow-up."
-    )
+def test_call_disposition_variable_builds_prompt_from_configured_options():
+    variable = build_disposition_variable(_DISPOSITIONS)
 
     assert variable.name == CALL_DISPOSITION_VARIABLE
-    assert variable.prompt == "Return call_rescheduled after a booked follow-up."
+    assert "Return the code exactly as written" in variable.prompt
+    assert '"code": "call_rescheduled"' in variable.prompt
+    assert '"description": "The caller booked another conversation."' in variable.prompt
+    assert '"code": "not_interested"' in variable.prompt
 
 
 @pytest.mark.asyncio
 async def test_unconfigured_workflow_does_not_run_dedicated_disposition_extraction():
-    engine = _engine(prompt=None)
+    engine = _engine(dispositions=())
 
     result = await engine._perform_final_disposition_extraction()
 
@@ -84,8 +97,7 @@ async def test_unconfigured_workflow_does_not_run_dedicated_disposition_extracti
 
 @pytest.mark.asyncio
 async def test_configured_workflow_runs_one_dedicated_disposition_extraction():
-    prompt = "Return call_rescheduled when the caller books another conversation."
-    engine = _engine(prompt=prompt)
+    engine = _engine()
 
     result = await engine._perform_final_disposition_extraction()
 
@@ -94,12 +106,12 @@ async def test_configured_workflow_runs_one_dedicated_disposition_extraction():
         0
     ]
     assert [variable.name for variable in variables] == [CALL_DISPOSITION_VARIABLE]
-    assert variables[0].prompt == prompt
+    assert '"code": "call_rescheduled"' in variables[0].prompt
 
 
 @pytest.mark.asyncio
 async def test_no_user_speech_skips_the_configured_disposition_extraction():
-    engine = _engine(prompt="classify the outcome", has_user_turns=False)
+    engine = _engine(has_user_turns=False)
 
     result = await engine._perform_final_disposition_extraction()
 
@@ -109,7 +121,7 @@ async def test_no_user_speech_skips_the_configured_disposition_extraction():
 
 @pytest.mark.asyncio
 async def test_disposition_extraction_failure_keeps_the_technical_fallback():
-    engine = _engine(prompt="classify the outcome")
+    engine = _engine()
     engine._variable_extraction_manager._perform_extraction.side_effect = RuntimeError(
         "provider unavailable"
     )
@@ -121,7 +133,7 @@ async def test_disposition_extraction_failure_keeps_the_technical_fallback():
 
 @pytest.mark.asyncio
 async def test_final_extraction_only_runs_the_disposition_prompt_when_requested():
-    engine = _engine(prompt="Return call_rescheduled after a booked follow-up.")
+    engine = _engine()
     engine._perform_variable_extraction_if_needed = AsyncMock(return_value=None)
     engine._await_pending_extractions = AsyncMock()
 
@@ -161,6 +173,29 @@ def test_usable_disposition_is_kept(value, expected):
 )
 def test_non_answers_are_rejected(value):
     assert coerce_disposition(value) is None
+
+
+def test_configured_disposition_is_canonicalized_case_insensitively():
+    assert coerce_disposition(" Qualified ", ["qualified", "not_interested"]) == (
+        "qualified"
+    )
+
+
+def test_unconfigured_disposition_is_rejected():
+    assert (
+        coerce_disposition("highly_qualified", ["qualified", "not_interested"]) is None
+    )
+
+
+def test_unconfigured_model_result_keeps_the_technical_fallback():
+    engine = _engine(call_disposition=EndTaskReason.USER_HANGUP.value)
+
+    engine.refine_call_disposition(
+        EndTaskReason.USER_HANGUP.value,
+        {CALL_DISPOSITION_VARIABLE: "highly_qualified"},
+    )
+
+    assert engine._gathered_context["call_disposition"] == "user_hangup"
 
 
 def test_final_disposition_replaces_a_mechanical_fallback_and_remaps_it():

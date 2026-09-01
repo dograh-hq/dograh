@@ -18,8 +18,7 @@ class AgentNode_Extraction_variablesRow:
     """
     Each entry declares one variable to capture, with its name, data type,
     and extraction hint. Call outcomes are configured separately in workflow
-    settings; `call_disposition` is reserved and cannot be extracted by a
-    node.
+    settings.
     """
 
     name: str
@@ -84,8 +83,7 @@ class AgentNode(TypedNode):
     """
     Each entry declares one variable to capture, with its name, data type,
     and extraction hint. Call outcomes are configured separately in workflow
-    settings; `call_disposition` is reserved and cannot be extracted by a
-    node.
+    settings.
     """
 
     tool_uuids: list[str] = field(default_factory=list)
@@ -97,3 +95,4 @@ class AgentNode(TypedNode):
     """
     Documents the agent can reference during this step.
     """
+

@@ -1309,7 +1309,8 @@ export interface components {
              */
             context_compaction_enabled: boolean;
             /**
-             * Optional workflow-wide instructions for deriving a call's business outcome after it ends. When unset, Dograh does not run a dedicated call-disposition extraction.
+             * Call Disposition Prompt
+             * @description Optional workflow-wide instructions for deriving a call's business outcome after it ends. When unset, Dograh does not run a dedicated call-disposition extraction.
              */
             call_disposition_prompt?: string | null;
             /**

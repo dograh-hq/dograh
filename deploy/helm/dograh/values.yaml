@@ -161,6 +161,9 @@ secrets:
   langfusePublicKey: ""
   langfuseHost: ""
   langfuseProjectId: ""
+  # Traces are private by default. "true" makes them readable by anyone holding
+  # the trace URL, with no Langfuse login.
+  langfuseTracesPublic: ""
 
   # Signs the telephony media WebSocket URL the carrier dials back, so the ids
   # in that URL are no longer enough on their own to open the socket. Empty
@@ -280,6 +283,33 @@ workers:
     periodSeconds: 30
     timeoutSeconds: 5
     failureThreshold: 3
+
+  # Gates rolling updates. Without it a container is Ready as soon as it is
+  # Running, so a crashlooping pod still counts as Available and the Deployment
+  # scales down healthy pods despite maxUnavailable: 0.
+  #
+  # Both checks are per-pod. `arq --check` is not used: its health key is
+  # per-queue, so a healthy sibling would mask a broken pod. Importing
+  # api.tasks.arq is not used either - it pulls in pipecat and re-initialises
+  # S3 storage, ~13s per probe.
+  readinessProbe:
+    exec:
+      command:
+        - sh
+        - -c
+        - |
+          grep -qa api.tasks.arq.WorkerSettings /proc/1/cmdline || exit 1
+          python -c "import os, socket
+          from urllib.parse import urlparse
+          u = urlparse(os.environ['REDIS_URL'])
+          socket.create_connection((u.hostname, u.port or 6379), timeout=3).close()"
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Must hold Ready this long before counting as Available.
+  minReadySeconds: 15
 
   podAnnotations: {}
   nodeSelector: {}

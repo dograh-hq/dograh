@@ -791,6 +791,26 @@ export type CallDispositionCodes = {
 };
 
 /**
+ * CallDispositionOption
+ *
+ * One business outcome the terminal classifier may select.
+ */
+export type CallDispositionOption = {
+    /**
+     * Code
+     *
+     * Stable code recorded when this outcome is selected.
+     */
+    code: string;
+    /**
+     * Description
+     *
+     * Business criteria for selecting this disposition.
+     */
+    description: string;
+};
+
+/**
  * CallType
  */
 export type CallType = 'inbound' | 'outbound';
@@ -4842,11 +4862,6 @@ export type PropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multi_
 
 /**
  * ProviderSetupChecklist
- *
- * A configuration's setup progress, as computed by its provider.
- *
- * ``ready_for_outbound`` is derived rather than reported independently so a
- * provider cannot claim readiness while leaving a blocking step incomplete.
  */
 export type ProviderSetupChecklist = {
     /**
@@ -5290,8 +5305,6 @@ export type S3SignedUrlResponse = {
 
 /**
  * SIPConnectivityDetails
- *
- * Provider-supplied SIP connection details displayed to customers.
  */
 export type SipConnectivityDetails = {
     /**
@@ -5306,8 +5319,6 @@ export type SipConnectivityDetails = {
 
 /**
  * SIPRegionDetails
- *
- * Inbound and outbound SIP details for one provider region.
  */
 export type SipRegionDetails = {
     /**
@@ -5326,8 +5337,6 @@ export type SipRegionDetails = {
 
 /**
  * SIPTransportDetails
- *
- * Connection details for one supported inbound SIP transport.
  */
 export type SipTransportDetails = {
     /**
@@ -5518,12 +5527,6 @@ export type ServiceKeyResponse = {
 
 /**
  * SetupStep
- *
- * One thing the customer must do before a configuration can carry calls.
- *
- * ``blocks_outbound`` separates "not done yet" from "outbound calls will
- * fail". Inbound-only steps are reported so the checklist is complete
- * without making them gate the Phone Call button.
  */
 export type SetupStep = {
     /**
@@ -7412,11 +7415,11 @@ export type WorkflowConfigurationDefaults = {
      */
     context_compaction_enabled?: boolean;
     /**
-     * Call Disposition Prompt
+     * Call Dispositions
      *
-     * Optional workflow-wide instructions for deriving a call's business outcome after it ends. When unset, Dograh does not run a dedicated call-disposition extraction.
+     * Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
      */
-    call_disposition_prompt?: string | null;
+    call_dispositions?: Array<CallDispositionOption>;
     /**
      * Text Chat Inactivity Timeout Seconds
      */

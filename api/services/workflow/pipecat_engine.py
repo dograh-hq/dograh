@@ -7,6 +7,7 @@ from typing import (
     Literal,
     Mapping,
     Optional,
+    Sequence,
     Union,
 )
 
@@ -33,6 +34,7 @@ from api.errors.failure import (
     failure_metadata_for_processor,
     log_failure,
 )
+from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.pipecat.audio_playback import play_audio
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
@@ -131,7 +133,7 @@ class PipecatEngine:
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
         run_transition_variable_extraction_in_background: bool = True,
-        call_disposition_prompt: str | None = None,
+        call_dispositions: Sequence[CallDispositionOption] | None = None,
     ):
         self.task = task
         self.llm = llm
@@ -152,7 +154,7 @@ class PipecatEngine:
         self._run_transition_variable_extraction_in_background = (
             run_transition_variable_extraction_in_background
         )
-        self._call_disposition_prompt = call_disposition_prompt
+        self._call_dispositions = tuple(call_dispositions or ())
         self._initialized = False
         self._call_disposed = False
         self._current_node: Optional[Node] = None
@@ -661,7 +663,7 @@ class PipecatEngine:
 
     async def _perform_final_disposition_extraction(self) -> Optional[dict]:
         """Derive the configured call-level outcome once the conversation ends."""
-        if not self._call_disposition_prompt or not self._variable_extraction_manager:
+        if not self._call_dispositions or not self._variable_extraction_manager:
             return None
         if not self._variable_extraction_manager.has_user_turns():
             logger.debug(
@@ -670,9 +672,13 @@ class PipecatEngine:
             return None
 
         try:
-            variable = build_disposition_variable(
-                self._format_prompt(self._call_disposition_prompt)
-            )
+            options = [
+                option.model_copy(
+                    update={"description": self._format_prompt(option.description)}
+                )
+                for option in self._call_dispositions
+            ]
+            variable = build_disposition_variable(options)
             return await self._variable_extraction_manager._perform_extraction(
                 [variable], self._get_otel_context()
             )
@@ -1010,7 +1016,8 @@ class PipecatEngine:
             return
 
         disposition = coerce_disposition(
-            (final_extraction or {}).get(CALL_DISPOSITION_VARIABLE)
+            (final_extraction or {}).get(CALL_DISPOSITION_VARIABLE),
+            allowed_codes=(option.code for option in self._call_dispositions),
         )
         if disposition is None:
             return

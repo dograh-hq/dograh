@@ -8,7 +8,10 @@ from api.constants import (
 )
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
-    MAX_CALL_DISPOSITION_PROMPT_LENGTH,
+    MAX_CALL_DISPOSITION_CODE_LENGTH,
+    MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH,
+    MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH,
+    MAX_CALL_DISPOSITIONS,
     MAX_CALL_DURATION_SECONDS,
     MAX_EXTERNAL_PBX_LEAD_HEADERS,
     TextChatInactivityTimeoutConstraints,
@@ -101,23 +104,90 @@ def test_null_values_treated_as_unset():
     assert config.model_dump(exclude_unset=True) == {}
 
 
-def test_call_disposition_prompt_is_trimmed_and_blank_is_unset():
+def test_call_dispositions_are_trimmed():
     configured = WorkflowConfigurationDefaults(
-        call_disposition_prompt="  Return call_rescheduled after a booked follow-up.  "
+        call_dispositions=[
+            {
+                "code": "  call_rescheduled  ",
+                "description": "  The caller booked another conversation.  ",
+            }
+        ]
     )
-    blank = WorkflowConfigurationDefaults(call_disposition_prompt="  ")
 
-    assert (
-        configured.call_disposition_prompt
-        == "Return call_rescheduled after a booked follow-up."
+    assert configured.call_dispositions[0].code == "call_rescheduled"
+    assert configured.call_dispositions[0].description == (
+        "The caller booked another conversation."
     )
-    assert blank.call_disposition_prompt is None
 
 
-def test_call_disposition_prompt_has_a_bounded_size():
+def test_call_dispositions_have_a_bounded_row_count():
     with pytest.raises(ValidationError):
         WorkflowConfigurationDefaults(
-            call_disposition_prompt="x" * (MAX_CALL_DISPOSITION_PROMPT_LENGTH + 1)
+            call_dispositions=[
+                {"code": f"outcome_{index}", "description": "Description."}
+                for index in range(MAX_CALL_DISPOSITIONS + 1)
+            ]
+        )
+
+
+def test_call_disposition_code_has_a_bounded_size():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {
+                    "code": "x" * (MAX_CALL_DISPOSITION_CODE_LENGTH + 1),
+                    "description": "A valid description.",
+                }
+            ]
+        )
+
+
+def test_call_disposition_description_has_a_bounded_size():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {
+                    "code": "qualified",
+                    "description": "x" * (MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH + 1),
+                }
+            ]
+        )
+
+
+def test_call_disposition_descriptions_have_a_total_budget():
+    full_description = "x" * MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH
+    overflow = "x" * (
+        MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH
+        - (4 * MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH)
+        + 1
+    )
+    with pytest.raises(ValidationError, match="descriptions must total"):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": f"outcome_{index}", "description": full_description}
+                for index in range(4)
+            ]
+            + [
+                {"code": "overflow", "description": overflow},
+            ]
+        )
+
+
+def test_call_disposition_codes_are_unique_case_insensitively():
+    with pytest.raises(ValidationError, match="codes must be unique"):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": "qualified", "description": "Qualified."},
+                {"code": "QUALIFIED", "description": "Also qualified."},
+            ]
+        )
+
+
+@pytest.mark.parametrize("code", ["not interested", "123", "qualified!"])
+def test_call_disposition_codes_use_machine_safe_format(code):
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[{"code": code, "description": "Description."}]
         )
 
 

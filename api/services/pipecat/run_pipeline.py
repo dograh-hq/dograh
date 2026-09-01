@@ -14,6 +14,7 @@ from api.schemas.workflow_configurations import (
     DEFAULT_SMART_TURN_STOP_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_TURN_START_STRATEGY,
+    WorkflowConfigurationDefaults,
 )
 from api.services.call_concurrency import call_concurrency
 from api.services.configuration.registry import ServiceProviders
@@ -654,9 +655,11 @@ async def _run_pipeline_impl(
         ReactFlowDTO.model_validate(run_workflow_json),
         skip_instance_constraints_for={"trigger"},
     )
-    call_disposition_prompt = run_configs.get("call_disposition_prompt")
+    call_dispositions = WorkflowConfigurationDefaults.model_validate(
+        {"call_dispositions": run_configs.get("call_dispositions") or []}
+    ).call_dispositions
     uses_variable_extraction = workflow_graph.uses_variable_extraction() or bool(
-        call_disposition_prompt
+        call_dispositions
     )
 
     from api.services.managed_model_services import (
@@ -863,7 +866,7 @@ async def _run_pipeline_impl(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
-        call_disposition_prompt=call_disposition_prompt,
+        call_dispositions=call_dispositions,
     )
 
     # Create pipeline components

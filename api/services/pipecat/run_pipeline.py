@@ -886,11 +886,23 @@ async def _run_pipeline_impl(
 
     # Fired now so they resolve while the rest of the pipeline is still being
     # built; awaited before the first turn in event_handlers.
-    integration_pre_call_tasks = [
-        asyncio.create_task(capability.run_pre_call())
-        for capability in integration_capabilities
-        if capability.run_pre_call is not None
-    ]
+    integration_pre_call_tasks = []
+    for capability in integration_capabilities:
+        if capability.run_pre_call is None:
+            continue
+        try:
+            integration_pre_call_tasks.append(
+                asyncio.create_task(capability.run_pre_call())
+            )
+        except Exception as e:
+            # Starting the hook is part of building the pipeline, so anything
+            # raised here would abort call setup rather than degrade. A hook
+            # that is synchronous, or that raises on the way in, costs the
+            # caller its enrichment and nothing more.
+            logger.warning(
+                f"[{capability.name}] pre-call hook could not be started, "
+                f"continuing without it: {e}"
+            )
     if integration_pre_call_tasks:
         logger.info(
             f"Started {len(integration_pre_call_tasks)} integration pre-call "

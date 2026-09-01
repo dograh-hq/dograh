@@ -158,6 +158,39 @@ def test_an_async_factory_mistake_is_skipped_not_stored(fake_packages):
     assert coroutine.cr_frame is None  # closed, not left dangling
 
 
+@pytest.mark.parametrize("field", ["run_pre_call", "prompt_addendum"])
+@pytest.mark.parametrize(
+    "junk", ["not-callable", 42, {"a": 1}], ids=["str", "int", "dict"]
+)
+def test_a_non_callable_hook_is_skipped(fake_packages, field, junk):
+    """The dataclass only type-hints these as callables; nothing enforces it.
+
+    run_pre_call is invoked while the pipeline is still being built, so a
+    non-callable there would raise TypeError and abort call setup rather than
+    cost the caller only its enrichment.
+    """
+    healthy = IntegrationCallCapabilities(name="healthy")
+    broken = IntegrationCallCapabilities(name="broken", **{field: junk})
+    fake_packages(
+        _package("broken", lambda _ctx: broken),
+        _package("healthy", lambda _ctx: healthy),
+    )
+
+    assert registry.create_call_capabilities(context=_runtime_context()) == [healthy]
+
+
+def test_a_callable_hook_is_kept(fake_packages):
+    """The guard rejects non-callables only — real hooks must still pass."""
+    capability = IntegrationCallCapabilities(
+        name="memory",
+        run_pre_call=lambda: None,
+        prompt_addendum=lambda _vars: "block",
+    )
+    fake_packages(_package("memory", lambda _ctx: capability))
+
+    assert registry.create_call_capabilities(context=_runtime_context()) == [capability]
+
+
 # ──────────────────────────── prompt composition ────────────────────────────
 
 

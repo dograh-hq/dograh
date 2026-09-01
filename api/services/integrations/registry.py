@@ -96,6 +96,22 @@ def create_runtime_sessions(
     return sessions
 
 
+def _first_non_callable_hook(
+    capability: IntegrationCallCapabilities,
+) -> tuple[str, Any] | None:
+    """Return the first hook that is set but not callable, or ``None``.
+
+    ``IntegrationCallCapabilities`` is a plain dataclass, so its ``Callable``
+    annotations are documentation, not enforcement — a package can set a hook
+    to any object at all.
+    """
+    for field in ("run_pre_call", "prompt_addendum"):
+        value = getattr(capability, field, None)
+        if value is not None and not callable(value):
+            return field, value
+    return None
+
+
 def create_call_capabilities(
     context: IntegrationRuntimeContext,
 ) -> list[IntegrationCallCapabilities]:
@@ -136,6 +152,18 @@ def create_call_capabilities(
                 # never awaited, so close it explicitly or Python warns
                 # about it later at an unrelated garbage-collection point.
                 capability.close()
+            continue
+        invalid_hook = _first_non_callable_hook(capability)
+        if invalid_hook is not None:
+            # The dataclass only *type-hints* these as callables; nothing
+            # enforces it at runtime. run_pre_call in particular is invoked
+            # while the pipeline is still being built, where a TypeError
+            # would abort call setup rather than degrade.
+            field, value = invalid_hook
+            logger.warning(
+                f"Integration {capability.name!r} set {field} to "
+                f"{type(value).__name__}, which is not callable; skipping"
+            )
             continue
         capabilities.append(capability)
     return capabilities

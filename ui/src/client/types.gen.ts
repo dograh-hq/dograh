@@ -2008,6 +2008,12 @@ export type DispositionCodesResponse = {
      * Disposition codes defined by Pipecat's EndTaskReason enum.
      */
     end_task_reason_codes: Array<string>;
+    /**
+     * System Codes
+     *
+     * Only the platform's built-in dispositions, without the custom codes this organization's runs have produced. This is the set a disposition mapping translates *from*, so the mapping editor seeds its rows here: `codes` also contains mapped codes, which are the targets of a mapping rather than its sources.
+     */
+    system_codes: Array<string>;
 };
 
 /**
@@ -4382,6 +4388,18 @@ export type OrganizationPreferences = {
      * External Pbx Integrations Enabled
      */
     external_pbx_integrations_enabled?: boolean;
+    /**
+     * Disposition Mapping Enabled
+     */
+    disposition_mapping_enabled?: boolean;
+    /**
+     * Disposition Mapping
+     *
+     * Dograh disposition -> the code this organization uses for it. Applied when writing `gathered_context.mapped_call_disposition`, so webhooks, run filters, reports and external-PBX write-backs all read the organization's own vocabulary. Dispositions absent from the mapping pass through unchanged.
+     */
+    disposition_mapping?: {
+        [key: string]: string;
+    };
 };
 
 /**
@@ -7387,6 +7405,12 @@ export type WorkflowConfigurationDefaults = {
      * Context Compaction Enabled
      */
     context_compaction_enabled?: boolean;
+    /**
+     * Call Disposition Prompt
+     *
+     * Optional workflow-wide instructions for deriving a call's business outcome after it ends. When unset, Dograh does not run a dedicated call-disposition extraction.
+     */
+    call_disposition_prompt?: string | null;
     /**
      * Text Chat Inactivity Timeout Seconds
      */

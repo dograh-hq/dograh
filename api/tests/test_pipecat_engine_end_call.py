@@ -41,9 +41,14 @@ from pipecat.turns.user_mute import (
 from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory
+from api.services.workflow.disposition_extraction import (
+    CALL_DISPOSITION_VARIABLE,
+    END_REASON_CONTEXT_KEY,
+)
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
+    ExtractionVariableDTO,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
@@ -92,6 +97,7 @@ class MockEndCallToolModel:
         description: str = "End the current call",
         message_type: str = "none",
         custom_message: str = "",
+        end_call_reason: bool = False,
     ):
         self.tool_uuid = tool_uuid
         self.name = name
@@ -103,6 +109,7 @@ class MockEndCallToolModel:
             "config": {
                 "messageType": message_type,
                 "customMessage": custom_message,
+                "endCallReason": end_call_reason,
             },
         }
 
@@ -112,6 +119,7 @@ async def create_engine_with_tracking(
     mock_llm: MockLLMService,
     test_helper: EndCallTestHelper,
     generate_audio: bool = True,
+    call_disposition_prompt: str | None = None,
 ) -> tuple[PipecatEngine, MockTTSService, MockTransport, PipelineWorker]:
     """Create a PipecatEngine with tracking for end call behavior.
 
@@ -150,6 +158,7 @@ async def create_engine_with_tracking(
         workflow=workflow,
         call_context_vars={"customer_name": "Test User"},
         workflow_run_id=1,
+        call_disposition_prompt=call_disposition_prompt,
     )
 
     # Track variable extraction calls
@@ -164,14 +173,20 @@ async def create_engine_with_tracking(
                 "run_in_background": run_in_background,
             }
         )
-        await original_perform_extraction(node, run_in_background=run_in_background)
+        return await original_perform_extraction(
+            node,
+            run_in_background=run_in_background,
+        )
 
     engine._perform_variable_extraction_if_needed = tracked_perform_extraction
 
     # Track end_call_with_reason calls
     original_end_call = engine.end_call_with_reason
 
-    async def tracked_end_call(reason: str, abort_immediately: bool = False):
+    async def tracked_end_call(
+        reason: str,
+        abort_immediately: bool = False,
+    ):
         # Record state before end_call_with_reason modifies it
         test_helper.end_call_reasons.append(reason)
         await original_end_call(reason, abort_immediately)
@@ -260,8 +275,37 @@ class TestEndCallViaNodeTransition:
         llm = MockLLMService(mock_steps=mock_steps, chunk_delay=0.001)
 
         engine, tts, transport, task = await create_engine_with_tracking(
-            simple_workflow, llm, test_helper
+            simple_workflow,
+            llm,
+            test_helper,
+            call_disposition_prompt="Return voicemail_detected when the call reaches voicemail.",
         )
+
+        # A legacy node-level `end_reason` extraction must not be able to
+        # replace call mechanics; the workflow-level disposition prompt owns
+        # the separate terminal request.
+        end_node = next(node for node in simple_workflow.nodes.values() if node.is_end)
+        end_node.extraction_enabled = True
+        end_node.extraction_prompt = "Extract the final call outcome."
+        end_node.extraction_variables = [
+            ExtractionVariableDTO(
+                name=END_REASON_CONTEXT_KEY,
+                type="string",
+                prompt="Why the call ended",
+            )
+        ]
+        requested_variables: list[list[str]] = []
+
+        async def extract_variables(variables, *_args):
+            names = [variable.name for variable in variables]
+            requested_variables.append(names)
+            if CALL_DISPOSITION_VARIABLE in names:
+                return {
+                    CALL_DISPOSITION_VARIABLE: "voicemail_detected",
+                    # Even an unexpected model key cannot overwrite mechanics.
+                    END_REASON_CONTEXT_KEY: "voicemail",
+                }
+            return {"user_intent": "end call"}
 
         # Patch DB calls and extraction manager
         with patch(
@@ -272,16 +316,29 @@ class TestEndCallViaNodeTransition:
             with patch.object(
                 VariableExtractionManager,
                 "_perform_extraction",
-                new_callable=AsyncMock,
-                return_value={"user_intent": "end call"},
+                side_effect=extract_variables,
             ):
-                await run_engine_test_pipeline(task, engine, transport)
+                with patch.object(
+                    VariableExtractionManager,
+                    "has_user_turns",
+                    return_value=True,
+                ):
+                    await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called
         assert len(test_helper.end_call_reasons) >= 1, (
             "end_call_with_reason should have been called"
         )
-        assert EndTaskReason.USER_QUALIFIED.value in test_helper.end_call_reasons
+        assert EndTaskReason.END_CALL.value in test_helper.end_call_reasons
+
+        gathered_context = await engine.get_gathered_context()
+        assert gathered_context["call_status"] == EndTaskReason.END_CALL.value
+        assert gathered_context[END_REASON_CONTEXT_KEY] == EndTaskReason.END_CALL.value
+        assert gathered_context["call_disposition"] == "voicemail_detected"
+        assert END_REASON_CONTEXT_KEY not in gathered_context.get(
+            "extracted_variables", {}
+        )
+        assert [CALL_DISPOSITION_VARIABLE] in requested_variables
 
         # Verify pipeline was muted
         assert any(test_helper.mute_pipeline_state), "Pipeline should be muted"
@@ -370,7 +427,7 @@ class TestEndCallViaNodeTransition:
 
         # Verify end_call_with_reason was called
         assert len(test_helper.end_call_reasons) >= 1
-        assert EndTaskReason.USER_QUALIFIED.value in test_helper.end_call_reasons
+        assert EndTaskReason.END_CALL.value in test_helper.end_call_reasons
 
         # Verify pipeline was muted and call disposed
         assert any(test_helper.mute_pipeline_state), "Pipeline should be muted"
@@ -391,9 +448,19 @@ class TestEndCallViaNodeTransition:
 class TestEndCallViaCustomTool:
     """Test end call behavior when using custom end_call tool."""
 
+    @pytest.mark.parametrize(
+        ("arguments", "expected_disposition"),
+        [
+            ({}, EndTaskReason.END_CALL.value),
+            ({"reason": "not_interested"}, "not_interested"),
+        ],
+    )
     @pytest.mark.asyncio
     async def test_end_call_tool_without_message_ends_immediately(
-        self, simple_workflow: WorkflowGraph
+        self,
+        simple_workflow: WorkflowGraph,
+        arguments: dict[str, str],
+        expected_disposition: str,
     ):
         """Test that end_call tool without custom message ends call immediately.
 
@@ -408,7 +475,7 @@ class TestEndCallViaCustomTool:
         # Step 0: call end_call tool
         step_0_chunks = MockLLMService.create_function_call_chunks(
             function_name="end_call_tool",
-            arguments={},
+            arguments=arguments,
             tool_call_id="call_end_tool_1",
         )
 
@@ -422,6 +489,9 @@ class TestEndCallViaCustomTool:
         # Create end call tool
         end_call_tool = MockEndCallToolModel(
             message_type="none",  # No message, immediate end
+            # Missing semantic reason must fall back to the mechanical status,
+            # not resurrect the removed `end_call_tool` disposition.
+            end_call_reason=True,
         )
 
         # Create CustomToolManager and register the end call handler
@@ -448,11 +518,15 @@ class TestEndCallViaCustomTool:
             ):
                 await run_engine_test_pipeline(task, engine, transport)
 
-        # Verify end_call_with_reason was called with END_CALL_TOOL_REASON
+        # Verify end_call_with_reason was called with END_CALL
         assert len(test_helper.end_call_reasons) >= 1, (
             "end_call_with_reason should have been called"
         )
-        assert EndTaskReason.END_CALL_TOOL_REASON.value in test_helper.end_call_reasons
+        assert EndTaskReason.END_CALL.value in test_helper.end_call_reasons
+
+        gathered_context = await engine.get_gathered_context()
+        assert gathered_context["call_status"] == EndTaskReason.END_CALL.value
+        assert gathered_context["call_disposition"] == expected_disposition
 
         # Verify pipeline was muted
         assert any(test_helper.mute_pipeline_state), "Pipeline should be muted"
@@ -528,7 +602,7 @@ class TestEndCallViaCustomTool:
         assert len(test_helper.end_call_reasons) >= 1, (
             "end_call_with_reason should have been called"
         )
-        assert EndTaskReason.END_CALL_TOOL_REASON.value in test_helper.end_call_reasons
+        assert EndTaskReason.END_CALL.value in test_helper.end_call_reasons
 
         # Verify pipeline was muted
         assert any(test_helper.mute_pipeline_state), "Pipeline should be muted"
@@ -683,11 +757,11 @@ class TestEndCallRaceConditions:
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True
                         ),
                         engine.end_call_with_reason(
-                            EndTaskReason.END_CALL_TOOL_REASON.value,
+                            EndTaskReason.END_CALL.value,
                             abort_immediately=True,
                         ),
                         engine.end_call_with_reason(
-                            EndTaskReason.USER_QUALIFIED.value,
+                            EndTaskReason.CALL_DURATION_EXCEEDED.value,
                             abort_immediately=False,
                         ),
                     )
@@ -1008,7 +1082,359 @@ class TestEndCallExtractionBehavior:
         # but VariableExtractionManager._perform_extraction should not be called
         extraction_mock.assert_not_called()
 
+        gathered_context = await engine.get_gathered_context()
+        assert gathered_context["call_status"] == EndTaskReason.USER_HANGUP.value
+        assert (
+            gathered_context[END_REASON_CONTEXT_KEY] == EndTaskReason.USER_HANGUP.value
+        )
+        assert gathered_context["call_disposition"] == gathered_context["call_status"]
+
         # Even without extraction, user muting should still be active
         assert any(test_helper.should_mute_user_calls), (
             "should_mute_user should return True after end call (even without extraction)"
         )
+
+    @pytest.mark.asyncio
+    async def test_disposition_is_recorded_before_extraction_finishes(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """The outcome must be on the engine's context before the extraction returns.
+
+        The terminal extraction is an LLM round-trip, and on a call whose socket
+        has already dropped it has been measured at 16s+. It is bounded now, and
+        in-pipeline cancellations funnel back through ``end_call_with_reason``
+        so nothing snapshots the context mid-teardown -- but the extraction can
+        still time out, be interrupted, or come back with nothing. Stamping the
+        mechanism first is what guarantees the call carries an outcome in every
+        one of those cases; ``refine_call_disposition`` upgrades it afterwards.
+        """
+        test_helper = EndCallTestHelper()
+        seen_during_extraction: List[Dict[str, Any]] = []
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        async def recording_extraction(*_args, **_kwargs):
+            # Exactly what on_pipeline_finished would snapshot if it ran now.
+            # get_gathered_context is a shallow copy, so call_tags still aliases
+            # the engine's live list -- copy it or this reads post-hoc state.
+            snapshot = await engine.get_gathered_context()
+            snapshot["call_tags"] = list(snapshot.get("call_tags") or [])
+            seen_during_extraction.append(snapshot)
+            assert not engine._final_extraction_done, (
+                "snapshot must be taken while the extraction is still running"
+            )
+            await asyncio.sleep(0.05)
+            return {"user_intent": "extracted"}
+
+        with patch(
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
+            new_callable=AsyncMock,
+            return_value=1,
+        ):
+            with patch(
+                "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+            ) as update_run:
+                with patch.object(
+                    VariableExtractionManager,
+                    "_perform_extraction",
+                    side_effect=recording_extraction,
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task,
+                        engine,
+                        transport,
+                        on_ready=end_after_response,
+                    )
+
+        assert seen_during_extraction, "the terminal extraction never ran"
+        early = seen_during_extraction[-1]
+        assert early["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert early["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert EndTaskReason.USER_HANGUP.value in early["call_tags"]
+
+        # The extraction still enriches the context afterwards, and stamping
+        # early does not duplicate the disposition into the tag list.
+        final = await engine.get_gathered_context()
+        assert final["user_intent"] == "extracted"
+        assert final["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["call_tags"].count(EndTaskReason.USER_HANGUP.value) == 1
+
+        # Teardown no longer persists the context itself. It used to, because
+        # the pipeline could be cancelled out from under it and whatever
+        # `on_pipeline_finished` wrote would be a snapshot taken too early.
+        # Terminations funnel through the engine now, so that handler runs
+        # strictly after this and its single write is the whole story.
+        context_writes = [
+            call
+            for call in update_run.await_args_list
+            if "gathered_context" in call.kwargs
+        ]
+        assert context_writes == [], (
+            f"teardown should not persist the context, got {len(context_writes)} writes"
+        )
+
+    @pytest.mark.asyncio
+    async def test_extraction_cannot_desync_the_disposition_pair(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """Extraction reaches the outcome only through the engine, never directly.
+
+        A node ``call_disposition`` variable is ignored. Workflow-level
+        call settings own the final outcome, and ordinary extraction must never
+        write either engine-owned disposition field directly.
+
+        This call has no user speech, so refinement declines and the recorded
+        mechanism stands. The point here is the merge, not the refinement;
+        ``test_disposition_extraction.py`` covers when refinement applies.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        async def hostile_extraction(*_args, **_kwargs):
+            return {
+                "call_disposition": "extracted_impostor",
+                # Deliberately different from the line above: if either key
+                # could be merged straight in, the pair would end up disagreeing.
+                "mapped_call_disposition": "a_third_value",
+                "call_tags": ["extracted_impostor"],
+                "call_status": "extracted_impostor",
+                "user_intent": "ME",
+            }
+
+        with patch(
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
+            new_callable=AsyncMock,
+            return_value=1,
+        ):
+            with patch("api.db:db_client.update_workflow_run", new_callable=AsyncMock):
+                with patch.object(
+                    VariableExtractionManager,
+                    "_perform_extraction",
+                    side_effect=hostile_extraction,
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task,
+                        engine,
+                        transport,
+                        on_ready=end_after_response,
+                    )
+
+        final = await engine.get_gathered_context()
+        assert final["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["call_status"] == EndTaskReason.USER_HANGUP.value
+        assert "extracted_impostor" not in final["call_tags"]
+        # Whatever the disposition ends up being, the mapped value describes
+        # that same disposition and not some third thing.
+        assert "a_third_value" not in final.values()
+
+        # Ordinary variables are untouched, while engine-owned values are not
+        # carried into the generic extraction record at all.
+        assert final["user_intent"] == "ME"
+        assert "call_disposition" not in final["extracted_variables"]
+
+    @pytest.mark.asyncio
+    async def test_a_stuck_extraction_does_not_hold_the_call_open(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """The extraction is bounded, because nothing else will end the call.
+
+        In-pipeline cancellations funnel back through ``end_call_with_reason``,
+        so this coroutine is the only thing that queues a terminal frame. An
+        LLM that never answers would otherwise keep the pipeline, the telephony
+        channel and every service behind it open indefinitely -- the failed-write
+        watchdog used to cap that at ~4.5s by accident.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        async def never_returns(*_args, **_kwargs):
+            await asyncio.sleep(30)
+
+        with patch(
+            "api.services.workflow.pipecat_engine.FINAL_EXTRACTION_TIMEOUT_SECONDS",
+            0.05,
+        ):
+            with patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                with patch(
+                    "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+                ):
+                    with patch.object(
+                        VariableExtractionManager,
+                        "_perform_extraction",
+                        side_effect=never_returns,
+                    ):
+
+                        async def end_after_response():
+                            await engine.set_node(engine.workflow.start_node_id)
+                            await engine.llm.queue_frame(
+                                LLMContextFrame(engine.context)
+                            )
+                            await asyncio.sleep(0.1)
+                            await asyncio.wait_for(
+                                engine.end_call_with_reason(
+                                    EndTaskReason.USER_HANGUP.value,
+                                    abort_immediately=True,
+                                ),
+                                timeout=5,
+                            )
+
+                        await run_engine_test_pipeline(
+                            task, engine, transport, on_ready=end_after_response
+                        )
+
+        # The floor stands: there is no extracted outcome to refine it with.
+        final = await engine.get_gathered_context()
+        assert final["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert final["call_status"] == EndTaskReason.USER_HANGUP.value
+
+
+class TestOrganizationDispositionMapping:
+    """`mapped_call_disposition` speaks the organization's own vocabulary."""
+
+    @pytest.mark.asyncio
+    async def test_teardown_stamps_the_organizations_mapped_code(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """The mapping is applied where the disposition is written.
+
+        Every downstream consumer -- outbound webhooks, the dispositionCode run
+        filter, reports, the external-PBX lead write-back -- reads this one
+        field, so translating here is what lets all of them speak the
+        customer's vocabulary without each growing its own lookup.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine.get_disposition_mapping",
+            new_callable=AsyncMock,
+            return_value={EndTaskReason.USER_HANGUP.value: "HUNGUP"},
+        ):
+            with patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                with patch(
+                    "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task, engine, transport, on_ready=end_after_response
+                    )
+
+        final = await engine.get_gathered_context()
+        assert final["mapped_call_disposition"] == "HUNGUP"
+        # The untranslated outcome stays beside it: `call_disposition` is the
+        # record of what Dograh observed, and the call tags are Dograh's own
+        # vocabulary, which reporting reads when a mapping is not wanted.
+        assert final["call_disposition"] == EndTaskReason.USER_HANGUP.value
+        assert EndTaskReason.USER_HANGUP.value in final["call_tags"]
+        assert "HUNGUP" not in final["call_tags"]
+
+    @pytest.mark.asyncio
+    async def test_an_unmapped_disposition_survives_a_failed_mapping_load(
+        self, simple_workflow: WorkflowGraph
+    ):
+        """A mapping that cannot be read must not take the call down with it.
+
+        Recording the untranslated disposition is worse than the mapped one and
+        far better than failing the call, so the load is best-effort and leaves
+        the identity mapping in place.
+        """
+        test_helper = EndCallTestHelper()
+
+        llm = MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello!")], chunk_delay=0.001
+        )
+
+        engine, tts, transport, task = await create_engine_with_tracking(
+            simple_workflow, llm, test_helper
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine.get_disposition_mapping",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("configuration store unreachable"),
+        ):
+            with patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                with patch(
+                    "api.db:db_client.update_workflow_run", new_callable=AsyncMock
+                ):
+
+                    async def end_after_response():
+                        await engine.set_node(engine.workflow.start_node_id)
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await asyncio.sleep(0.1)
+                        await engine.end_call_with_reason(
+                            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+                        )
+
+                    await run_engine_test_pipeline(
+                        task, engine, transport, on_ready=end_after_response
+                    )
+
+        final = await engine.get_gathered_context()
+        assert final["mapped_call_disposition"] == EndTaskReason.USER_HANGUP.value

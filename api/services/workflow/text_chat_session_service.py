@@ -13,6 +13,7 @@ from api.db.workflow_run_text_session_client import (
     WorkflowRunTextSessionRevisionConflictError,
 )
 from api.enums import WorkflowRunState
+from api.services.workflow.disposition_mapping import map_disposition
 from api.services.workflow.text_chat_logs import (
     build_text_chat_realtime_feedback_events,
 )
@@ -209,6 +210,9 @@ async def complete_text_chat_session(
     completed_session_data["status"] = "completed"
     completed_at = completed_at or datetime.now(UTC)
     disposition = completion_reason
+    mapped_disposition = await map_disposition(
+        workflow_run.workflow.organization_id, disposition
+    )
     gathered_context = workflow_run.gathered_context or {}
     call_tags = list(gathered_context.get("call_tags") or [])
     if disposition not in call_tags:
@@ -229,7 +233,10 @@ async def complete_text_chat_session(
             usage_info=usage_info,
             gathered_context={
                 "call_disposition": disposition,
-                "mapped_call_disposition": disposition,
+                "mapped_call_disposition": mapped_disposition,
+                # Text chats end on an explicit completion reason rather than a
+                # teardown Dograh observed, so mechanism and outcome coincide.
+                "call_status": disposition,
                 "call_tags": call_tags,
             },
             logs={"realtime_feedback_events": feedback_events},

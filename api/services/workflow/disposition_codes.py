@@ -6,13 +6,15 @@ value the platform can write there. Keeping the list here — rather than
 duplicated in the frontend — is what stops the filter dropdown from drifting
 behind the code that produces the dispositions.
 
-Two writers feed that field:
+Three kinds of built-in value feed that field:
 
 * the pipeline, via ``PipecatEngine.end_call_with_reason`` /
   ``record_call_disposition`` — an ``EndTaskReason`` value;
 * the telephony status callback, via ``status_processor`` and
   ``mark_workflow_run_failed`` — a ``TelephonyCallStatus`` value, for calls
-  that never connected.
+  that never connected;
+* terminal variable extraction — one of Dograh's default business outcomes,
+  such as ``do_not_call`` or ``callback_requested``.
 
 Organizations that map dispositions to their own codes (``XFER``, ``DNC``, …)
 produce values outside this catalog. Those are learned per workflow by
@@ -23,6 +25,7 @@ produce values outside this catalog. Those are learned per workflow by
 from pipecat.utils.enums import EndTaskReason
 
 from api.enums import TelephonyCallStatus
+from api.services.workflow.disposition_extraction import DEFAULT_DISPOSITION_CODES
 
 # Keep this derived directly from the enum so every pipeline disposition is
 # available to clients without maintaining a second list.
@@ -39,6 +42,12 @@ _TELEPHONY_DISPOSITIONS: tuple[str, ...] = (
     TelephonyCallStatus.ERROR.value,
 )
 
-SYSTEM_DISPOSITION_CODES: tuple[str, ...] = (
-    END_TASK_REASON_DISPOSITION_CODES + _TELEPHONY_DISPOSITIONS
+SYSTEM_DISPOSITION_CODES: tuple[str, ...] = tuple(
+    # Preserve the useful grouping/order while preventing a duplicate row if a
+    # future Pipecat reason or telephony status adopts a business-outcome name.
+    dict.fromkeys(
+        END_TASK_REASON_DISPOSITION_CODES
+        + _TELEPHONY_DISPOSITIONS
+        + DEFAULT_DISPOSITION_CODES
+    )
 )

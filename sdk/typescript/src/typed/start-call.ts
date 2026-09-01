@@ -5,7 +5,7 @@
 // from `/api/v1/node-types`.
 
 /**
- * Each entry declares one variable to capture, with its name, data type, and extraction hint.
+ * Each entry declares one variable to capture, with its name, data type, and extraction hint. Call outcomes are configured separately in workflow settings.
  */
 export interface StartCallExtraction_variablesRow {
     /**
@@ -76,7 +76,7 @@ export interface StartCall {
      */
     extraction_prompt?: string;
     /**
-     * Each entry declares one variable to capture, with its name, data type, and extraction hint.
+     * Each entry declares one variable to capture, with its name, data type, and extraction hint. Call outcomes are configured separately in workflow settings.
      */
     extraction_variables?: Array<StartCallExtraction_variablesRow>;
     /**

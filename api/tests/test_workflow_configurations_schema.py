@@ -8,6 +8,7 @@ from api.constants import (
 )
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
+    MAX_CALL_DISPOSITION_PROMPT_LENGTH,
     MAX_CALL_DURATION_SECONDS,
     MAX_EXTERNAL_PBX_LEAD_HEADERS,
     TextChatInactivityTimeoutConstraints,
@@ -98,6 +99,26 @@ def test_null_values_treated_as_unset():
     assert config.max_call_duration == DEFAULT_MAX_CALL_DURATION_SECONDS
     # Nulls count as unset, so a sparse round-trip drops them entirely.
     assert config.model_dump(exclude_unset=True) == {}
+
+
+def test_call_disposition_prompt_is_trimmed_and_blank_is_unset():
+    configured = WorkflowConfigurationDefaults(
+        call_disposition_prompt="  Return call_rescheduled after a booked follow-up.  "
+    )
+    blank = WorkflowConfigurationDefaults(call_disposition_prompt="  ")
+
+    assert (
+        configured.call_disposition_prompt
+        == "Return call_rescheduled after a booked follow-up."
+    )
+    assert blank.call_disposition_prompt is None
+
+
+def test_call_disposition_prompt_has_a_bounded_size():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_disposition_prompt="x" * (MAX_CALL_DISPOSITION_PROMPT_LENGTH + 1)
+        )
 
 
 def test_exclude_unset_round_trip_stays_sparse():

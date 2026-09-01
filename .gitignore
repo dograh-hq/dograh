@@ -1,8 +1,12 @@
 __pycache__
 .DS_Store
-.env
-.env.prod
-.env.test
+# Environment files. Glob rather than exact names, so variants like
+# .env.prod.server or .env.local are covered too. Only the committed
+# *.example templates are exempt.
+.env*
+!.env.example
+!.env.test.example
+!*.env.example
 
 # Conductor personal/per-machine overrides (settings.toml IS committed)
 .conductor/settings.local.toml

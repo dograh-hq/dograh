@@ -12,7 +12,9 @@ from api.tasks.function_names import FunctionNames
 
 
 @pytest.mark.asyncio
-async def test_initialized_no_answer_enqueues_workflow_completion():
+async def test_initialized_no_answer_enqueues_workflow_completion(
+    no_disposition_mapping,
+):
     workflow_run = SimpleNamespace(
         id=123,
         campaign_id=None,
@@ -21,6 +23,7 @@ async def test_initialized_no_answer_enqueues_workflow_completion():
         is_completed=False,
         logs={"telephony_status_callbacks": []},
         gathered_context={"call_tags": ["existing"]},
+        workflow=SimpleNamespace(organization_id=7),
     )
     status = StatusCallbackRequest(
         call_id="call-123",
@@ -57,6 +60,10 @@ async def test_initialized_no_answer_enqueues_workflow_completion():
         "call_tags": ["existing", "not_connected", "telephony_no-answer"],
         "call_disposition": "no-answer",
         "mapped_call_disposition": "no-answer",
+        # No conversation happened, so how the call ended is also the whole
+        # outcome. Recorded so `call_status` covers every run, not just the
+        # ones that reached the engine.
+        "call_status": "no-answer",
         "call_id": "call-123",
     }
     mock_enqueue.assert_awaited_once_with(
@@ -66,7 +73,9 @@ async def test_initialized_no_answer_enqueues_workflow_completion():
 
 
 @pytest.mark.asyncio
-async def test_running_terminal_status_does_not_enqueue_workflow_completion():
+async def test_running_terminal_status_does_not_enqueue_workflow_completion(
+    no_disposition_mapping,
+):
     workflow_run = SimpleNamespace(
         id=456,
         campaign_id=None,
@@ -75,6 +84,7 @@ async def test_running_terminal_status_does_not_enqueue_workflow_completion():
         is_completed=False,
         logs={"telephony_status_callbacks": []},
         gathered_context={"call_tags": ["not_connected"]},
+        workflow=SimpleNamespace(organization_id=7),
     )
     status = StatusCallbackRequest(
         call_id="call-456",

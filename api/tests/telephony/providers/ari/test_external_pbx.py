@@ -3,13 +3,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import redis.asyncio as aioredis
+from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
+from api.enums import TelephonyCallStatus
 from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.providers.ari.external_pbx import (
     ExternalPBXResult,
     create_adapter,
 )
+from api.services.telephony.providers.ari.provider import ARIProvider
 from api.services.telephony.providers.ari.strategies import ARIHangupStrategy
 from api.services.workflow.tools import transfer_resolver
 
@@ -788,7 +791,14 @@ async def test_context_mapping_is_available_without_external_pbx_configuration()
 
 
 @pytest.mark.asyncio
-async def test_hangup_strategy_updates_lead_before_customer_leg(monkeypatch):
+async def test_hangup_strategy_ends_the_customer_leg_without_writing_the_lead(
+    monkeypatch,
+):
+    """The lead write-back moved to workflow completion.
+
+    This strategy only runs when Dograh ends the call, so a write here misses
+    every call the customer hung up on first.
+    """
     redis = AsyncMock()
     redis.get.return_value = "11"
     monkeypatch.setattr(aioredis, "from_url", lambda *args, **kwargs: redis)
@@ -820,6 +830,8 @@ async def test_hangup_strategy_updates_lead_before_customer_leg(monkeypatch):
     )
     adapter = SimpleNamespace(
         type="vicidial",
+        hangup_bye_wait_seconds=0.0,
+        disposition_fields=lambda _disposition: {},
         update_fields=AsyncMock(
             return_value=ExternalPBXResult(True, "update_lead", "ok")
         ),
@@ -828,9 +840,7 @@ async def test_hangup_strategy_updates_lead_before_customer_leg(monkeypatch):
 
     await ARIHangupStrategy(adapter)._terminate_external_pbx_if_any("channel-1")
 
-    adapter.update_fields.assert_awaited_once_with(
-        run.initial_context["external_pbx_call"], {"address3": "yes"}
-    )
+    adapter.update_fields.assert_not_awaited()
     adapter.hangup.assert_awaited_once_with(run.initial_context["external_pbx_call"])
     redis.aclose.assert_awaited_once_with()
 
@@ -844,3 +854,399 @@ async def test_hangup_strategy_closes_redis_when_channel_has_no_run(monkeypatch)
     await ARIHangupStrategy()._terminate_external_pbx_if_any("missing-channel")
 
     redis.aclose.assert_awaited_once_with()
+
+
+class _ChannelResponse:
+    def __init__(self, status: int):
+        self.status = status
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def text(self):
+        return ""
+
+
+class _ARISession:
+    """ARI stub whose channel disappears after ``gone_after`` reads."""
+
+    def __init__(self, *, gone_after: int | None = None):
+        self._gone_after = gone_after
+        self.get_calls: list[str] = []
+        self.delete_calls: list[str] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def get(self, endpoint, *, auth):
+        self.get_calls.append(endpoint)
+        gone = self._gone_after is not None and len(self.get_calls) > self._gone_after
+        return _ChannelResponse(404 if gone else 200)
+
+    def delete(self, endpoint, *, auth):
+        self.delete_calls.append(endpoint)
+        return _ChannelResponse(204)
+
+
+def _external_pbx_run(**gathered) -> SimpleNamespace:
+    return SimpleNamespace(
+        initial_context={
+            "external_pbx_call": {
+                "type": "vicidial",
+                "callerid": "M123",
+                "agent_user": "agent",
+                "lead_id": "42",
+            }
+        },
+        gathered_context=gathered,
+        workflow=SimpleNamespace(organization_id=7),
+    )
+
+
+def _hangup_adapter(*, ok: bool = True, wait: float = 1.0) -> SimpleNamespace:
+    return SimpleNamespace(
+        type="vicidial",
+        hangup_bye_wait_seconds=wait,
+        hangup=AsyncMock(return_value=ExternalPBXResult(ok, "hangup", "ok")),
+    )
+
+
+def _stub_run_lookup(monkeypatch, run) -> AsyncMock:
+    redis = AsyncMock()
+    redis.get.return_value = "11"
+    monkeypatch.setattr(aioredis, "from_url", lambda *args, **kwargs: redis)
+    monkeypatch.setattr(
+        db_client, "get_workflow_run_by_id", AsyncMock(return_value=run)
+    )
+    return redis
+
+
+_HANGUP_CONTEXT = {
+    "channel_id": "channel-1",
+    "ari_endpoint": "http://asterisk.test:8088",
+    "app_name": "dograh",
+    "app_password": "secret",
+}
+
+
+@pytest.mark.asyncio
+async def test_hangup_lets_the_external_pbx_send_the_bye(monkeypatch):
+    """The PBX placed the call, so it -- not Asterisk -- ends it."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter()
+    session = _ARISession(gone_after=2)
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert len(session.get_calls) == 3
+    # Deleting the channel here is exactly what the PBX reports as Dograh
+    # dropping a live call, so the whole point is that it never happens.
+    assert session.delete_calls == []
+
+
+@pytest.mark.asyncio
+async def test_hangup_falls_back_when_the_external_pbx_never_sends_the_bye(monkeypatch):
+    """A queued hangup the PBX drops must not strand the channel."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter(wait=0.1)
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert session.get_calls
+    assert session.delete_calls == ["http://asterisk.test:8088/ari/channels/channel-1"]
+
+
+@pytest.mark.asyncio
+async def test_hangup_does_not_wait_when_the_external_pbx_rejects_it(monkeypatch):
+    """A rejected hangup leaves no BYE coming; Dograh has to end the call."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter(ok=False)
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert session.get_calls == []
+    assert len(session.delete_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_hangup_does_not_wait_for_a_call_already_transferred_away(monkeypatch):
+    """The customer leg has moved on -- we never asked the PBX to hang up."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run(external_pbx_transferred=True))
+    adapter = _hangup_adapter()
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    adapter.hangup.assert_not_awaited()
+    assert session.get_calls == []
+    assert len(session.delete_calls) == 1
+
+
+def test_vicidial_adapter_waits_for_the_bye_by_default():
+    assert create_adapter(_vicidial_config()).hangup_bye_wait_seconds == 3.0
+    assert (
+        create_adapter(
+            {**_vicidial_config(), "hangup_bye_wait_seconds": 0}
+        ).hangup_bye_wait_seconds
+        == 0.0
+    )
+    # Capped well inside pipecat's 20s CancelFrame budget, which also has to
+    # cover the agent-API round trip that precedes the wait.
+    assert (
+        create_adapter(
+            {**_vicidial_config(), "hangup_bye_wait_seconds": 90}
+        ).hangup_bye_wait_seconds
+        == 10.0
+    )
+
+
+# --------------------------------------------------------------------------
+# Disposition -> VICIdial lead status
+# --------------------------------------------------------------------------
+
+
+def test_vicidial_adapter_writes_a_mapped_disposition_as_the_lead_status():
+    """The organization's mapping has already translated what arrives here."""
+    adapter = create_adapter(_vicidial_config())
+
+    assert adapter.disposition_fields("XFER") == {"status": "XFER"}
+    assert adapter.disposition_fields("DNC") == {"status": "DNC"}
+    # Casing is the organization's to choose: it configured the exact code.
+    assert adapter.disposition_fields("callbk") == {"status": "callbk"}
+    # Surrounding whitespace survives a hand-typed mapping entry.
+    assert adapter.disposition_fields("  A  ") == {"status": "A"}
+
+
+def test_vicidial_adapter_drops_a_disposition_the_column_cannot_hold():
+    """``vicidial_list.status`` is VARCHAR(6); a longer code would truncate.
+
+    An unmapped Dograh disposition lands here verbatim, and VICIdial writes
+    RAXFER when it hands a lead to a remote agent -- so leaving the status alone
+    keeps a missing mapping visible in the customer's reports instead of
+    recording a truncated code that reads like a real disposition.
+    """
+    adapter = create_adapter(_vicidial_config())
+
+    assert adapter.disposition_fields(EndTaskReason.USER_HANGUP.value) == {}
+    assert adapter.disposition_fields("voicemail_detected") == {}
+    assert adapter.disposition_fields(TelephonyCallStatus.NO_ANSWER.value) == {}
+    assert adapter.disposition_fields("") == {}
+    assert adapter.disposition_fields(None) == {}
+
+
+def _writeback_run(disposition: str, extracted: dict | None = None):
+    identity = {"type": "vicidial", "callerid": "M123", "lead_id": "42"}
+    gathered = {
+        "call_disposition": disposition,
+        "mapped_call_disposition": disposition,
+    }
+    if extracted:
+        gathered["extracted_variables"] = extracted
+    return identity, SimpleNamespace(
+        initial_context={"external_pbx_call": identity},
+        gathered_context=gathered,
+        workflow=SimpleNamespace(organization_id=7),
+    )
+
+
+def _patch_writeback(monkeypatch, run, mappings):
+    """Point the completion write-back at a stub adapter and this run."""
+    from api.services.telephony import external_pbx_writeback
+
+    adapter = create_adapter(_vicidial_config())
+    adapter.update_fields = AsyncMock(
+        return_value=ExternalPBXResult(True, "update_lead", "ok")
+    )
+    monkeypatch.setattr(
+        db_client, "get_workflow_run_by_id", AsyncMock(return_value=run)
+    )
+    monkeypatch.setattr(
+        db_client,
+        "get_workflow_run_configurations",
+        AsyncMock(return_value={"external_pbx_field_mappings": mappings}),
+    )
+    monkeypatch.setattr(
+        db_client,
+        "list_telephony_configurations_by_provider",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(id=1, credentials={"external_pbx": _vicidial_config()})
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        external_pbx_writeback,
+        "external_pbx_integrations_enabled",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        external_pbx_writeback, "create_adapter", lambda _config: adapter
+    )
+    return adapter
+
+
+@pytest.mark.asyncio
+async def test_completion_records_the_disposition_without_any_workflow_mapping(
+    monkeypatch,
+):
+    """The status write is not opt-in: an unconfigured workflow still reports.
+
+    The run carries the code the organization's disposition mapping produced,
+    which is what the write-back reads -- the adapter no longer translates.
+    """
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    identity, run = _writeback_run("AA")
+    adapter = _patch_writeback(monkeypatch, run, [])
+
+    await sync_external_pbx_call_record(11)
+
+    adapter.update_fields.assert_awaited_once_with(identity, {"status": "AA"})
+
+
+@pytest.mark.asyncio
+async def test_completion_uses_the_runs_telephony_configuration(monkeypatch):
+    """Multiple ARI configs must not send the update to the first PBX listed."""
+    from api.services.telephony import external_pbx_writeback
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    identity, run = _writeback_run("AA")
+    run.initial_context["telephony_configuration_id"] = 22
+    adapter = _patch_writeback(monkeypatch, run, [])
+    selected_external_pbx = _vicidial_config()
+    scoped_lookup = AsyncMock(
+        return_value=SimpleNamespace(
+            id=22,
+            provider="ari",
+            credentials={"external_pbx": selected_external_pbx},
+        )
+    )
+    monkeypatch.setattr(db_client, "get_telephony_configuration_for_org", scoped_lookup)
+
+    def create_selected_adapter(configuration):
+        assert configuration is selected_external_pbx
+        return adapter
+
+    monkeypatch.setattr(
+        external_pbx_writeback, "create_adapter", create_selected_adapter
+    )
+
+    await sync_external_pbx_call_record(11)
+
+    scoped_lookup.assert_awaited_once_with(22, 7, active_only=True)
+    db_client.list_telephony_configurations_by_provider.assert_not_awaited()
+    adapter.update_fields.assert_awaited_once_with(identity, {"status": "AA"})
+
+
+@pytest.mark.asyncio
+async def test_completion_does_not_fall_back_from_an_unavailable_run_config(
+    monkeypatch,
+):
+    """Only a legacy run with no config id may search the organization's PBXs."""
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    _identity, run = _writeback_run("AA")
+    run.initial_context["telephony_configuration_id"] = 22
+    adapter = _patch_writeback(monkeypatch, run, [])
+    scoped_lookup = AsyncMock(return_value=None)
+    monkeypatch.setattr(db_client, "get_telephony_configuration_for_org", scoped_lookup)
+
+    await sync_external_pbx_call_record(11)
+
+    scoped_lookup.assert_awaited_once_with(22, 7, active_only=True)
+    db_client.list_telephony_configurations_by_provider.assert_not_awaited()
+    adapter.update_fields.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_completion_write_back_lets_a_workflow_mapping_win(monkeypatch):
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    identity, run = _writeback_run("A", {"vici_status": "NMDCAR"})
+    adapter = _patch_writeback(
+        monkeypatch,
+        run,
+        [{"context_path": "vici_status", "destination_field": "status"}],
+    )
+
+    await sync_external_pbx_call_record(11)
+
+    adapter.update_fields.assert_awaited_once_with(identity, {"status": "NMDCAR"})
+
+
+@pytest.mark.asyncio
+async def test_completion_write_back_skips_a_transferred_call(monkeypatch):
+    """XFER was written before the handoff; the closer owns the lead now."""
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    _identity, run = _writeback_run(EndTaskReason.CALL_TRANSFERRED.value)
+    run.gathered_context["external_pbx_transferred"] = True
+    adapter = _patch_writeback(monkeypatch, run, [])
+
+    await sync_external_pbx_call_record(11)
+
+    adapter.update_fields.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transfer_records_xfer_before_handing_the_customer_over():
+    """The transfer path cannot read the disposition: it is stamped afterwards.
+
+    ``_create_transfer_call_handler`` resolves its field mappings while the call
+    is still in progress and only records CALL_TRANSFERRED once the transfer has
+    returned, by which point VICIdial already owns the customer leg. It passes
+    the mapped code in instead, resolved through the same organization mapping
+    the engine stamps on the run.
+    """
+    provider = ARIProvider(
+        {
+            "ari_endpoint": "http://pbx.example.com:8088",
+            "app_name": "dograh",
+            "app_password": "s3cr3t",
+            "external_pbx": _vicidial_config(),
+        }
+    )
+    adapter = provider.external_pbx_adapter
+    adapter.update_fields = AsyncMock(
+        return_value=ExternalPBXResult(True, "update_lead", "ok")
+    )
+    adapter.transfer = AsyncMock(return_value=ExternalPBXResult(True, "transfer", "ok"))
+    identity = {"type": "vicidial", "callerid": "M123", "lead_id": "42"}
+
+    result = await provider.transfer_external_pbx_call(
+        identity=identity,
+        destination="900",
+        field_updates={"Medicaid": "yes"},
+        disposition="XFER",
+    )
+
+    assert result["status"] == "success"
+    adapter.update_fields.assert_awaited_once_with(
+        identity, {"status": "XFER", "Medicaid": "yes"}
+    )

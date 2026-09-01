@@ -571,6 +571,15 @@ class DispositionCodesResponse(BaseModel):
     end_task_reason_codes: List[str] = Field(
         description="Disposition codes defined by Pipecat's EndTaskReason enum."
     )
+    system_codes: List[str] = Field(
+        description=(
+            "Only the platform's built-in dispositions, without the custom "
+            "codes this organization's runs have produced. This is the set a "
+            "disposition mapping translates *from*, so the mapping editor seeds "
+            "its rows here: `codes` also contains mapped codes, which are the "
+            "targets of a mapping rather than its sources."
+        )
+    )
 
 
 @router.get("/disposition-codes", response_model=DispositionCodesResponse)
@@ -593,6 +602,7 @@ async def get_disposition_codes(
             *sorted(code for code in custom_codes if code not in known),
         ],
         end_task_reason_codes=list(END_TASK_REASON_DISPOSITION_CODES),
+        system_codes=list(SYSTEM_DISPOSITION_CODES),
     )
 
 

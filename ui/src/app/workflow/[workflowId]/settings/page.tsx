@@ -301,6 +301,9 @@ function GeneralSection({
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
         workflowConfigurations.context_compaction_enabled,
     );
+    const [callDispositionPrompt, setCallDispositionPrompt] = useState(
+        workflowConfigurations.call_disposition_prompt ?? "",
+    );
     const [includeTranscriptEndTimestamps, setIncludeTranscriptEndTimestamps] = useState(
         workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false,
     );
@@ -342,6 +345,7 @@ function GeneralSection({
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
+            callDispositionPrompt !== (workflowConfigurations.call_disposition_prompt ?? "") ||
             includeTranscriptEndTimestamps !==
             (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false) ||
             JSON.stringify(externalPbxFieldMappings) !==
@@ -349,7 +353,7 @@ function GeneralSection({
             JSON.stringify(externalPbxLeadHeaders) !==
             JSON.stringify(workflowConfigurations.external_pbx_lead_headers)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, callDispositionPrompt, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -426,6 +430,7 @@ function GeneralSection({
                     provisional_vad_pause_secs: provisionalVadPauseSecs,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
+                    call_disposition_prompt: callDispositionPrompt.trim() || undefined,
                     transcript_configuration: {
                         ...(workflowConfigurations.transcript_configuration ?? {}),
                         include_end_timestamps: includeTranscriptEndTimestamps,
@@ -776,6 +781,33 @@ function GeneralSection({
                             checked={contextCompactionEnabled}
                             onCheckedChange={setContextCompactionEnabled}
                         />
+                    </div>
+                </div>
+
+                <Separator />
+
+                {/* Call disposition */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Call Disposition</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Define how an LLM should classify the business outcome once an eligible call has ended. Leave this blank to disable dedicated disposition extraction.
+                        </p>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="call-disposition-prompt" className="text-sm">
+                            Instructions
+                        </Label>
+                        <Textarea
+                            id="call-disposition-prompt"
+                            value={callDispositionPrompt}
+                            onChange={(event) => setCallDispositionPrompt(event.target.value)}
+                            placeholder="Return call_rescheduled when the caller agrees to a specific future conversation; otherwise return qualified, not_interested, or wrong_number."
+                            rows={6}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            The outcome is recorded before organization-level disposition mapping is applied.
+                        </p>
                     </div>
                 </div>
 

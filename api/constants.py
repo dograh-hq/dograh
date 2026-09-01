@@ -121,6 +121,16 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
 
+# Whether the end-of-call audio recordings (mixed / user / bot tracks) are
+# uploaded to object storage. Deployments that must not retain call audio, or
+# that simply do not want to pay for the storage, can turn this off. The
+# transcript upload and every other artifact are unaffected. Audio is still
+# buffered in memory during the call (integrations such as Noveum consume it);
+# only the upload and the recording_url / recordings metadata are skipped.
+ENABLE_CALL_RECORDING_UPLOAD = (
+    os.getenv("ENABLE_CALL_RECORDING_UPLOAD", "true").lower() == "true"
+)
+
 # Telephony media WebSocket authentication.
 # The carrier/connector dials back the media socket
 # /api/v1/telephony/ws/{workflow_id}/{organization_id}/{workflow_run_id}, whose

@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import aiohttp
 from fastapi import HTTPException
 from loguru import logger
+from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
 from api.enums import TelephonyCallStatus, WorkflowRunMode
@@ -389,6 +390,7 @@ class ARIProvider(TelephonyProvider):
         identity: Dict[str, Any],
         destination: str,
         field_updates: Optional[Dict[str, str]] = None,
+        disposition: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Delegate a PBX-owned customer leg to the configured adapter."""
 
@@ -408,9 +410,23 @@ class ARIProvider(TelephonyProvider):
                 "reason": "external_pbx_identity_mismatch",
             }
 
+        # The outcome is known here by construction -- this method exists to
+        # perform a transfer -- and that is what lets it be recorded before the
+        # PBX pulls the customer off our leg. It cannot be read out of
+        # gathered_context, which the caller resolves `field_updates` from while
+        # the call is still in progress, before the transfer has been stamped.
+        # The caller passes `disposition` so the code written here is the same
+        # one the organization's mapping puts on the run; falling back to the
+        # raw reason covers callers with no mapping to consult.
+        update_fields = {
+            **adapter.disposition_fields(
+                disposition or EndTaskReason.CALL_TRANSFERRED.value
+            ),
+            **(field_updates or {}),
+        }
         update_result = None
-        if field_updates:
-            update_result = await adapter.update_fields(identity, field_updates)
+        if update_fields:
+            update_result = await adapter.update_fields(identity, update_fields)
             if not update_result.ok:
                 logger.warning(
                     "[ARI External PBX] Field update failed; continuing transfer "

@@ -17,7 +17,8 @@ from dograh_sdk.typed._base import TypedNode
 class AgentNode_Extraction_variablesRow:
     """
     Each entry declares one variable to capture, with its name, data type,
-    and extraction hint.
+    and extraction hint. Call outcomes are configured separately in workflow
+    settings.
     """
 
     name: str
@@ -81,7 +82,8 @@ class AgentNode(TypedNode):
     extraction_variables: list[AgentNode_Extraction_variablesRow] = field(default_factory=list)
     """
     Each entry declares one variable to capture, with its name, data type,
-    and extraction hint.
+    and extraction hint. Call outcomes are configured separately in workflow
+    settings.
     """
 
     tool_uuids: list[str] = field(default_factory=list)

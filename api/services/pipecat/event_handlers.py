@@ -110,7 +110,7 @@ def register_event_handlers(
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
-    integration_pre_call_tasks: list[asyncio.Task] | None = None,
+    integration_pre_call_tasks: list[asyncio.Future] | None = None,
     include_transcript_end_timestamps: bool = False,
 ):
     """Register all event handlers for transport and task events.
@@ -161,7 +161,7 @@ def register_event_handlers(
             # Wait for pre-call work if in progress, playing ringer meanwhile.
             # The start node's fetch and any integration pre-call hooks resolve
             # concurrently, so the caller waits for the slowest, not the sum.
-            pre_call_sources: list[tuple[str, asyncio.Task]] = []
+            pre_call_sources: list[tuple[str, asyncio.Future]] = []
             if pre_call_fetch_task is not None:
                 pre_call_sources.append(("pre-call fetch", pre_call_fetch_task))
             for index, task in enumerate(integration_pre_call_tasks or []):

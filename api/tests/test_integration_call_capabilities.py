@@ -162,24 +162,79 @@ def test_an_async_factory_mistake_is_skipped_not_stored(fake_packages):
 @pytest.mark.parametrize(
     "junk", ["not-callable", 42, {"a": 1}], ids=["str", "int", "dict"]
 )
-def test_a_non_callable_hook_is_skipped(fake_packages, field, junk):
+def test_a_non_callable_hook_is_dropped(fake_packages, field, junk):
     """The dataclass only type-hints these as callables; nothing enforces it.
 
     run_pre_call is invoked while the pipeline is still being built, so a
     non-callable there would raise TypeError and abort call setup rather than
     cost the caller only its enrichment.
     """
-    healthy = IntegrationCallCapabilities(name="healthy")
-    broken = IntegrationCallCapabilities(name="broken", **{field: junk})
     fake_packages(
-        _package("broken", lambda _ctx: broken),
-        _package("healthy", lambda _ctx: healthy),
+        _package(
+            "broken",
+            lambda _ctx: IntegrationCallCapabilities(name="broken", **{field: junk}),
+        )
     )
 
-    assert registry.create_call_capabilities(context=_runtime_context()) == [healthy]
+    (capability,) = registry.create_call_capabilities(context=_runtime_context())
+
+    assert getattr(capability, field) is None
 
 
-def test_a_callable_hook_is_kept(fake_packages):
+def test_only_the_malformed_hook_is_dropped(fake_packages):
+    """A bad addendum must not cost the caller its pre-call recall.
+
+    Both consumers already degrade a bad hook on their own, so discarding the
+    whole capability would throw away working enrichment over a typo.
+    """
+
+    async def recall():
+        return {"known": True}
+
+    fake_packages(
+        _package(
+            "memory",
+            lambda _ctx: IntegrationCallCapabilities(
+                name="memory",
+                run_pre_call=recall,
+                prompt_addendum="not-callable",
+            ),
+        )
+    )
+
+    (capability,) = registry.create_call_capabilities(context=_runtime_context())
+
+    assert capability.run_pre_call is recall  # the good half survives
+    assert capability.prompt_addendum is None
+
+
+def test_a_coroutine_valued_hook_is_closed(fake_packages):
+    """`run_pre_call=fetch()` instead of `run_pre_call=fetch`.
+
+    A coroutine object is not callable, so it is dropped — and it was never
+    awaited, so it must be closed rather than left to warn at collection time.
+    """
+
+    async def fetch():
+        return {}
+
+    coroutine = fetch()
+    fake_packages(
+        _package(
+            "memory",
+            lambda _ctx: IntegrationCallCapabilities(
+                name="memory", run_pre_call=coroutine
+            ),
+        )
+    )
+
+    (capability,) = registry.create_call_capabilities(context=_runtime_context())
+
+    assert capability.run_pre_call is None
+    assert coroutine.cr_frame is None  # closed, not left dangling
+
+
+def test_callable_hooks_are_kept(fake_packages):
     """The guard rejects non-callables only — real hooks must still pass."""
     capability = IntegrationCallCapabilities(
         name="memory",

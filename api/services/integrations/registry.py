@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from typing import Any
 
@@ -96,20 +97,41 @@ def create_runtime_sessions(
     return sessions
 
 
-def _first_non_callable_hook(
+def _sanitize_hooks(
     capability: IntegrationCallCapabilities,
-) -> tuple[str, Any] | None:
-    """Return the first hook that is set but not callable, or ``None``.
+) -> IntegrationCallCapabilities:
+    """Drop any hook that is set but not callable, keeping the rest.
 
     ``IntegrationCallCapabilities`` is a plain dataclass, so its ``Callable``
     annotations are documentation, not enforcement — a package can set a hook
     to any object at all.
+
+    Only the malformed hook is discarded. A package that gets its addendum
+    wrong should still get its pre-call recall, which is the more valuable
+    half; dropping the whole capability would cost the caller more than the
+    mistake does.
     """
-    for field in ("run_pre_call", "prompt_addendum"):
-        value = getattr(capability, field, None)
-        if value is not None and not callable(value):
-            return field, value
-    return None
+    invalid = {
+        field: value
+        for field in ("run_pre_call", "prompt_addendum")
+        if (value := getattr(capability, field, None)) is not None
+        and not callable(value)
+    }
+    if not invalid:
+        return capability
+
+    for field, value in invalid.items():
+        logger.warning(
+            f"Integration {capability.name!r} set {field} to "
+            f"{type(value).__name__}, which is not callable; ignoring that hook"
+        )
+        if inspect.iscoroutine(value):
+            # `run_pre_call=fetch()` instead of `run_pre_call=fetch` — the
+            # coroutine is never awaited, so close it here rather than let it
+            # surface as a warning at an unrelated collection point.
+            value.close()
+
+    return dataclasses.replace(capability, **dict.fromkeys(invalid))
 
 
 def create_call_capabilities(
@@ -153,19 +175,7 @@ def create_call_capabilities(
                 # about it later at an unrelated garbage-collection point.
                 capability.close()
             continue
-        invalid_hook = _first_non_callable_hook(capability)
-        if invalid_hook is not None:
-            # The dataclass only *type-hints* these as callables; nothing
-            # enforces it at runtime. run_pre_call in particular is invoked
-            # while the pipeline is still being built, where a TypeError
-            # would abort call setup rather than degrade.
-            field, value = invalid_hook
-            logger.warning(
-                f"Integration {capability.name!r} set {field} to "
-                f"{type(value).__name__}, which is not callable; skipping"
-            )
-            continue
-        capabilities.append(capability)
+        capabilities.append(_sanitize_hooks(capability))
     return capabilities
 
 

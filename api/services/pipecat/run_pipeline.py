@@ -886,13 +886,16 @@ async def _run_pipeline_impl(
 
     # Fired now so they resolve while the rest of the pipeline is still being
     # built; awaited before the first turn in event_handlers.
-    integration_pre_call_tasks = []
+    integration_pre_call_tasks: list[asyncio.Future] = []
     for capability in integration_capabilities:
         if capability.run_pre_call is None:
             continue
         try:
+            # ensure_future, not create_task: the hook is declared to return an
+            # Awaitable, and create_task accepts only coroutines — it would
+            # reject a Future that satisfies that contract.
             integration_pre_call_tasks.append(
-                asyncio.create_task(capability.run_pre_call())
+                asyncio.ensure_future(capability.run_pre_call())
             )
         except Exception as e:
             # Starting the hook is part of building the pipeline, so anything

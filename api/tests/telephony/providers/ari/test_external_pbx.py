@@ -1123,6 +1123,64 @@ async def test_completion_records_the_disposition_without_any_workflow_mapping(
 
 
 @pytest.mark.asyncio
+async def test_completion_uses_the_runs_telephony_configuration(monkeypatch):
+    """Multiple ARI configs must not send the update to the first PBX listed."""
+    from api.services.telephony import external_pbx_writeback
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    identity, run = _writeback_run("AA")
+    run.initial_context["telephony_configuration_id"] = 22
+    adapter = _patch_writeback(monkeypatch, run, [])
+    selected_external_pbx = _vicidial_config()
+    scoped_lookup = AsyncMock(
+        return_value=SimpleNamespace(
+            id=22,
+            provider="ari",
+            credentials={"external_pbx": selected_external_pbx},
+        )
+    )
+    monkeypatch.setattr(db_client, "get_telephony_configuration_for_org", scoped_lookup)
+
+    def create_selected_adapter(configuration):
+        assert configuration is selected_external_pbx
+        return adapter
+
+    monkeypatch.setattr(
+        external_pbx_writeback, "create_adapter", create_selected_adapter
+    )
+
+    await sync_external_pbx_call_record(11)
+
+    scoped_lookup.assert_awaited_once_with(22, 7, active_only=True)
+    db_client.list_telephony_configurations_by_provider.assert_not_awaited()
+    adapter.update_fields.assert_awaited_once_with(identity, {"status": "AA"})
+
+
+@pytest.mark.asyncio
+async def test_completion_does_not_fall_back_from_an_unavailable_run_config(
+    monkeypatch,
+):
+    """Only a legacy run with no config id may search the organization's PBXs."""
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    _identity, run = _writeback_run("AA")
+    run.initial_context["telephony_configuration_id"] = 22
+    adapter = _patch_writeback(monkeypatch, run, [])
+    scoped_lookup = AsyncMock(return_value=None)
+    monkeypatch.setattr(db_client, "get_telephony_configuration_for_org", scoped_lookup)
+
+    await sync_external_pbx_call_record(11)
+
+    scoped_lookup.assert_awaited_once_with(22, 7, active_only=True)
+    db_client.list_telephony_configurations_by_provider.assert_not_awaited()
+    adapter.update_fields.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_completion_write_back_lets_a_workflow_mapping_win(monkeypatch):
     from api.services.telephony.external_pbx_writeback import (
         sync_external_pbx_call_record,

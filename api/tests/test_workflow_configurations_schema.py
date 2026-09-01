@@ -107,7 +107,10 @@ def test_call_disposition_prompt_is_trimmed_and_blank_is_unset():
     )
     blank = WorkflowConfigurationDefaults(call_disposition_prompt="  ")
 
-    assert configured.call_disposition_prompt == "Return call_rescheduled after a booked follow-up."
+    assert (
+        configured.call_disposition_prompt
+        == "Return call_rescheduled after a booked follow-up."
+    )
     assert blank.call_disposition_prompt is None
 
 

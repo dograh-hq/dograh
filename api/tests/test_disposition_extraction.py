@@ -21,7 +21,9 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
 )
 
 
-def _engine(*, prompt: str | None = None, has_user_turns=True, **context) -> PipecatEngine:
+def _engine(
+    *, prompt: str | None = None, has_user_turns=True, **context
+) -> PipecatEngine:
     engine = PipecatEngine(
         workflow=None,
         call_context_vars={},
@@ -62,7 +64,9 @@ def test_call_disposition_is_reserved_from_node_extraction():
 
 
 def test_call_disposition_variable_uses_the_workflow_prompt():
-    variable = build_disposition_variable("Return call_rescheduled after a booked follow-up.")
+    variable = build_disposition_variable(
+        "Return call_rescheduled after a booked follow-up."
+    )
 
     assert variable.name == CALL_DISPOSITION_VARIABLE
     assert variable.prompt == "Return call_rescheduled after a booked follow-up."
@@ -86,7 +90,9 @@ async def test_configured_workflow_runs_one_dedicated_disposition_extraction():
     result = await engine._perform_final_disposition_extraction()
 
     assert result == {CALL_DISPOSITION_VARIABLE: "call_rescheduled"}
-    variables = engine._variable_extraction_manager._perform_extraction.await_args.args[0]
+    variables = engine._variable_extraction_manager._perform_extraction.await_args.args[
+        0
+    ]
     assert [variable.name for variable in variables] == [CALL_DISPOSITION_VARIABLE]
     assert variables[0].prompt == prompt
 
@@ -256,7 +262,9 @@ async def test_node_extraction_never_asks_for_the_disposition():
 
     await engine._perform_variable_extraction_if_needed(node, run_in_background=False)
 
-    variables = engine._variable_extraction_manager._perform_extraction.await_args.args[0]
+    variables = engine._variable_extraction_manager._perform_extraction.await_args.args[
+        0
+    ]
     assert [variable.name for variable in variables] == ["state"]
 
 

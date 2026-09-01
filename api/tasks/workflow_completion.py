@@ -1,7 +1,6 @@
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
-from api.db import db_client
 from api.services.telephony.external_pbx_writeback import (
     sync_external_pbx_call_record,
 )
@@ -57,13 +56,5 @@ async def process_workflow_completion(
         logger.error(
             f"Error writing back to external PBX for workflow {workflow_run_id}: {e}"
         )
-
-    # Stamped last, and unconditionally: its presence means this job ran to the
-    # end, so the runs without it are the ones whose job never ran at all. That
-    # set is otherwise unknowable -- the job exists only in Redis until it does.
-    try:
-        await db_client.mark_workflow_run_completion_processed(workflow_run_id)
-    except Exception as e:
-        logger.error(f"Error stamping completion for workflow {workflow_run_id}: {e}")
 
     logger.info(f"Completed workflow completion processing for run {workflow_run_id}")

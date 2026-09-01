@@ -664,7 +664,9 @@ class PipecatEngine:
         if not self._call_disposition_prompt or not self._variable_extraction_manager:
             return None
         if not self._variable_extraction_manager.has_user_turns():
-            logger.debug("No user speech in the conversation; skipping disposition extraction")
+            logger.debug(
+                "No user speech in the conversation; skipping disposition extraction"
+            )
             return None
 
         try:

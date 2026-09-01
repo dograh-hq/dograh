@@ -32,13 +32,53 @@ def _disposition_of(gathered: dict[str, Any]) -> str | None:
 
 async def _adapter_for_organization(
     organization_id: int,
+    telephony_configuration_id: int | str | None = None,
 ) -> ExternalPBXAdapter | None:
-    """Build the org's configured external-PBX adapter, or None if it has none."""
+    """Build the run's external-PBX adapter, or None if it has none.
+
+    Current runs carry the exact telephony configuration that handled the call.
+    Only runs created before that context was added fall back to searching the
+    organization's ARI configurations.
+    """
     if not await external_pbx_integrations_enabled(organization_id):
         return None
-    configurations = await db_client.list_telephony_configurations_by_provider(
-        organization_id, "ari"
-    )
+
+    if telephony_configuration_id is not None:
+        try:
+            resolved_configuration_id = int(telephony_configuration_id)
+        except (TypeError, ValueError):
+            logger.warning(
+                f"[External PBX] invalid telephony configuration id "
+                f"{telephony_configuration_id!r} for organization {organization_id}"
+            )
+            return None
+
+        configuration = await db_client.get_telephony_configuration_for_org(
+            resolved_configuration_id,
+            organization_id,
+            active_only=True,
+        )
+        if configuration is None:
+            logger.warning(
+                f"[External PBX] telephony configuration "
+                f"{resolved_configuration_id} is unavailable for organization "
+                f"{organization_id}"
+            )
+            return None
+        if configuration.provider != "ari":
+            logger.warning(
+                f"[External PBX] telephony configuration "
+                f"{resolved_configuration_id} uses provider "
+                f"{configuration.provider!r}, not 'ari'"
+            )
+            return None
+        configurations = [configuration]
+    else:
+        # Runs created before multi-config routing did not record a config id.
+        configurations = await db_client.list_telephony_configurations_by_provider(
+            organization_id, "ari"
+        )
+
     for configuration in configurations:
         external_pbx = (configuration.credentials or {}).get("external_pbx")
         if not external_pbx:
@@ -85,7 +125,10 @@ async def sync_external_pbx_call_record(workflow_run_id: int) -> None:
             return
 
         organization_id = run.workflow.organization_id
-        adapter = await _adapter_for_organization(organization_id)
+        adapter = await _adapter_for_organization(
+            organization_id,
+            initial_context.get("telephony_configuration_id"),
+        )
         if adapter is None:
             return
         identity_type = identity.get("type") or identity.get("provider")

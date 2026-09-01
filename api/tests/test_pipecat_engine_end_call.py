@@ -335,7 +335,9 @@ class TestEndCallViaNodeTransition:
         assert gathered_context["call_status"] == EndTaskReason.END_CALL.value
         assert gathered_context[END_REASON_CONTEXT_KEY] == EndTaskReason.END_CALL.value
         assert gathered_context["call_disposition"] == "voicemail_detected"
-        assert END_REASON_CONTEXT_KEY not in gathered_context.get("extracted_variables", {})
+        assert END_REASON_CONTEXT_KEY not in gathered_context.get(
+            "extracted_variables", {}
+        )
         assert [CALL_DISPOSITION_VARIABLE] in requested_variables
 
         # Verify pipeline was muted

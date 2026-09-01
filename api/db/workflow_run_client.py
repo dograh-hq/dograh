@@ -1,8 +1,7 @@
 import uuid
-from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func, text
+from sqlalchemy import func
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -349,31 +348,6 @@ class WorkflowRunClient(BaseDBClient):
                 for run in result.scalars().all()
             ]
             return runs, total_count
-
-    async def mark_workflow_run_completion_processed(self, run_id: int) -> None:
-        """Record on the run itself that the completion job reached the end.
-
-        Kept in ``extra`` rather than a column of its own: this table is hot and
-        176MB, and the marker does not justify DDL on it. Merged in SQL instead
-        of read-modify-write because other writers merge into ``extra`` too, and
-        a round trip here would drop whatever landed in between.
-
-        Nothing reads this at runtime. It exists so that a completion job which
-        never ran at all is answerable after the fact -- on 2026-08-26 every ARQ
-        worker died on a Redis blip and 2,757 runs lost their lead write-back
-        and integrations with no record anywhere of which ones. Runs missing the
-        marker are that set, recoverable by a one-off script.
-        """
-        async with self.async_session() as session:
-            await session.execute(
-                text(
-                    "UPDATE workflow_runs SET extra = ((extra::jsonb) || "
-                    "jsonb_build_object('completion_processed_at', "
-                    "CAST(:stamp AS text)))::json WHERE id = :run_id"
-                ),
-                {"stamp": datetime.now(UTC).isoformat(), "run_id": run_id},
-            )
-            await session.commit()
 
     async def update_workflow_run(
         self,

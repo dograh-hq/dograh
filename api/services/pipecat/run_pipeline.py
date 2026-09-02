@@ -327,12 +327,6 @@ async def _run_pipeline_telephony_impl(
         raise HTTPException(status_code=404, detail="Workflow not found")
     set_current_org_id(workflow.organization_id)
 
-    ambient_noise_config = None
-    if workflow.workflow_configurations:
-        ambient_noise_config = workflow.workflow_configurations.get(
-            "ambient_noise_configuration"
-        )
-
     # The telephony config id is stamped on the workflow run when it's created
     # (test call, campaign dispatch, inbound). Transports use it to load creds
     # from the right config row. Falls back to None for legacy runs (transports
@@ -358,7 +352,11 @@ async def _run_pipeline_telephony_impl(
         get_effective_ai_model_configuration_for_workflow,
     )
 
+    # Read every setting from the run's pinned definition. The workflow row's
+    # workflow_configurations column tracks the latest *draft*, so reading it
+    # here would let unpublished edits change live call behaviour.
     run_configs = workflow_run.definition.workflow_configurations or {}
+    ambient_noise_config = run_configs.get("ambient_noise_configuration")
     user_config = await get_effective_ai_model_configuration_for_workflow(
         organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
@@ -460,13 +458,6 @@ async def _run_pipeline_smallwebrtc_impl(
     if workflow:
         set_current_org_id(workflow.organization_id)
 
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
     # Create audio configuration for WebRTC
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
 
@@ -486,9 +477,11 @@ async def _run_pipeline_smallwebrtc_impl(
             detail="workflow_run_workflow_mismatch",
         )
 
+    # Pinned definition, not the workflow row (which mirrors the draft).
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
+    ambient_noise_config = run_configs.get("ambient_noise_configuration")
     user_config = await get_effective_ai_model_configuration_for_workflow(
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
@@ -841,9 +834,7 @@ async def _run_pipeline_impl(
     # include recording response mode instructions in all node prompts.
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
 
-    context_compaction_enabled = (workflow.workflow_configurations or {}).get(
-        "context_compaction_enabled", False
-    )
+    context_compaction_enabled = run_configs.get("context_compaction_enabled", False)
     # Context compaction doesn't apply in realtime mode: the speech-to-speech
     # service manages its own conversation state server-side.
     if is_realtime and context_compaction_enabled:
@@ -993,9 +984,7 @@ async def _run_pipeline_impl(
     )
     engine.set_fetch_recording_audio(fetch_audio)
 
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
+    voicemail_config = run_configs.get("voicemail_detection", {})
     if is_realtime and voicemail_config.get("enabled", False):
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"

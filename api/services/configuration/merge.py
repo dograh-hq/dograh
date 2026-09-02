@@ -11,6 +11,7 @@ from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
     MODEL_OVERRIDE_FIELDS,
     SERVICE_SECRET_FIELDS,
+    VOICEMAIL_DETECTION_KEY,
     contains_masked_key,
     resolve_masked_api_keys,
 )
@@ -116,6 +117,26 @@ def merge_user_configurations(
     return EffectiveAIModelConfiguration.model_validate(merged)
 
 
+def _merge_voicemail_secret(merged: dict, existing_config: dict) -> None:
+    """Restore the stored voicemail_detection.api_key in place.
+
+    Responses mask the key, and the settings dialog re-sends the whole
+    ``voicemail_detection`` object (sometimes without ``api_key`` at all when
+    toggling ``use_workflow_llm``), so a masked or missing key means "keep the
+    stored one"; only a new plain value replaces it.
+    """
+    incoming = merged.get(VOICEMAIL_DETECTION_KEY)
+    existing = existing_config.get(VOICEMAIL_DETECTION_KEY)
+    if not isinstance(incoming, dict) or not isinstance(existing, dict):
+        return
+    existing_key = existing.get("api_key")
+    if not existing_key:
+        return
+    incoming_key = incoming.get("api_key")
+    if incoming_key is None or contains_masked_key(incoming_key):
+        incoming["api_key"] = existing_key
+
+
 def merge_workflow_configuration_secrets(
     incoming_config: dict | None,
     existing_config: dict | None,
@@ -134,6 +155,8 @@ def merge_workflow_configuration_secrets(
         return incoming_config
 
     merged = copy.deepcopy(incoming_config)
+    _merge_voicemail_secret(merged, existing_config)
+
     incoming_overrides = merged.get("model_overrides")
     existing_overrides = existing_config.get("model_overrides")
     if not isinstance(incoming_overrides, dict) or not isinstance(

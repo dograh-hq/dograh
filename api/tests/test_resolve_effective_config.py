@@ -551,6 +551,66 @@ class TestWorkflowConfigurationSecrets:
         assert masked["ambient_noise_configuration"] == {"enabled": True}
         assert configs["model_overrides"]["llm"]["api_key"] == "sk-real-llm-key"
 
+    def test_masks_voicemail_detection_api_key(self):
+        configs = {
+            "voicemail_detection": {
+                "enabled": True,
+                "use_workflow_llm": False,
+                "provider": "openai",
+                "model": "gpt-4.1",
+                "api_key": "sk-real-voicemail-key",
+            },
+            "max_call_duration": 300,
+        }
+
+        masked = mask_workflow_configurations(configs)
+
+        assert masked["voicemail_detection"]["api_key"] != "sk-real-voicemail-key"
+        assert contains_masked_key(masked["voicemail_detection"]["api_key"])
+        assert masked["voicemail_detection"]["api_key"].endswith("-key")
+        assert masked["voicemail_detection"]["provider"] == "openai"
+        assert masked["max_call_duration"] == 300
+        assert configs["voicemail_detection"]["api_key"] == "sk-real-voicemail-key"
+
+    def test_masking_leaves_voicemail_without_key_untouched(self):
+        configs = {"voicemail_detection": {"enabled": True, "use_workflow_llm": True}}
+
+        assert mask_workflow_configurations(configs) == configs
+
+    @pytest.mark.parametrize(
+        "incoming_key",
+        ["MASKED", None, "ABSENT"],
+        ids=["masked", "null", "absent"],
+    )
+    def test_restores_stored_voicemail_api_key(self, incoming_key):
+        existing = {
+            "voicemail_detection": {
+                "enabled": True,
+                "use_workflow_llm": False,
+                "api_key": "sk-real-voicemail-key",
+            }
+        }
+        incoming = mask_workflow_configurations(existing)
+        incoming["voicemail_detection"]["enabled"] = False
+        if incoming_key is None:
+            incoming["voicemail_detection"]["api_key"] = None
+        elif incoming_key == "ABSENT":
+            del incoming["voicemail_detection"]["api_key"]
+
+        merged = merge_workflow_configuration_secrets(incoming, existing)
+
+        assert merged["voicemail_detection"]["api_key"] == "sk-real-voicemail-key"
+        assert merged["voicemail_detection"]["enabled"] is False
+        assert incoming["voicemail_detection"].get("api_key") != "sk-real-voicemail-key"
+
+    def test_new_voicemail_api_key_replaces_stored_one(self):
+        existing = {"voicemail_detection": {"api_key": "sk-old-voicemail-key"}}
+        incoming = {"voicemail_detection": {"api_key": "sk-new-voicemail-key"}}
+
+        merged = merge_workflow_configuration_secrets(incoming, existing)
+
+        assert merged["voicemail_detection"]["api_key"] == "sk-new-voicemail-key"
+
     def test_restores_masked_model_override_secrets_from_existing_config(self):
         existing = {
             "model_overrides": {

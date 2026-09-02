@@ -1138,6 +1138,21 @@ async def update_workflow(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ExternalPBXConfigurationDisabledError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
+        if workflow_configurations:
+            # Responses mask secrets, and clients send the whole document back,
+            # so masked (or omitted) secrets must be restored from what is
+            # stored before anything below validates or persists them.
+            existing_workflow = await db_client.get_workflow(
+                workflow_id, organization_id=user.selected_organization_id
+            )
+            if existing_workflow:
+                existing_draft = await db_client.get_draft_version(workflow_id)
+                workflow_configurations = merge_workflow_configuration_secrets(
+                    workflow_configurations,
+                    existing_draft.workflow_configurations
+                    if existing_draft
+                    else existing_workflow.released_definition.workflow_configurations,
+                )
         if workflow_configurations and workflow_configurations.get(
             WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
         ):

@@ -2,11 +2,13 @@
 
 Document conversion and chunking live in the Model Proxy Service (MPS);
 this task downloads the file from S3, calls MPS, then handles the embedding
-and DB writes locally.
+and DB writes locally. Plain text is the exception -- see
+PLAIN_TEXT_EXTENSIONS.
 """
 
 import os
 import tempfile
+from pathlib import Path
 
 from loguru import logger
 
@@ -18,6 +20,97 @@ from api.services.storage import storage_fs
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 EMBEDDING_BATCH_SIZE = 64
+
+# Document conversion has no plain-text backend, so text routed through it
+# comes back corrupted -- non-ASCII scripts lose characters outright (#634).
+# Reading text files here restores the bypass that PR #244 removed. ".json"
+# probably needs this too but is unverified, so it stays out for now.
+PLAIN_TEXT_EXTENSIONS = {".txt"}
+
+
+def _size(ascii_chars: int, other_chars: int) -> int:
+    """Approximate a BPE token count: ASCII ~4 chars/token, CJK ~1."""
+    return ascii_chars // 4 + other_chars
+
+
+def _estimate_size(text: str) -> int:
+    """Approximate token count of ``text``. Not a real tokenizer.
+
+    Only picks chunk boundaries and fills the advisory token_count column,
+    so being off by a factor costs nothing.
+    """
+    ascii_chars = sum(char.isascii() for char in text)
+    return _size(ascii_chars, len(text) - ascii_chars)
+
+
+def _fit_pieces(line: str, budget: int):
+    """Yield consecutive slices of ``line`` that each fit inside ``budget``.
+
+    Walks the line once, counting as it goes, so a newline-free file costs
+    one pass rather than a rescan per chunk. Counting the real prefix (not
+    the line's average character density) keeps every piece inside budget
+    even where scripts are mixed.
+    """
+    if _estimate_size(line) <= budget:
+        yield line
+        return
+
+    start = index = ascii_chars = other_chars = 0
+    while index < len(line):
+        if line[index].isascii():
+            ascii_chars += 1
+        else:
+            other_chars += 1
+        index += 1
+        if _size(ascii_chars, other_chars) >= budget:
+            yield line[start:index]
+            start, ascii_chars, other_chars = index, 0, 0
+
+    if start < len(line):
+        yield line[start:]
+
+
+def _split_plain_text(text: str, budget: int) -> list[str]:
+    """Split into chunks of at most ``budget`` estimated tokens, on line
+    boundaries where possible.
+
+    Invariant: ``"".join(_split_plain_text(t, n)) == t``. Silent text
+    mutation is the bug this exists to avoid.
+    """
+    budget = max(budget, 1)
+    chunks: list[str] = []
+    buffer: list[str] = []
+    buffered_ascii = buffered_other = 0
+
+    for line in text.splitlines(keepends=True):
+        for piece in _fit_pieces(line, budget):
+            ascii_chars = sum(char.isascii() for char in piece)
+            other_chars = len(piece) - ascii_chars
+
+            if buffer and (
+                _size(buffered_ascii + ascii_chars, buffered_other + other_chars)
+                > budget
+            ):
+                chunks.append("".join(buffer))
+                buffer, buffered_ascii, buffered_other = [], 0, 0
+
+            buffer.append(piece)
+            buffered_ascii += ascii_chars
+            buffered_other += other_chars
+
+    if buffer:
+        chunks.append("".join(buffer))
+    return chunks
+
+
+def _read_plain_text(file_path: str) -> str:
+    """Read a UTF-8 text file exactly as uploaded.
+
+    ``utf-8-sig`` drops a leading BOM only; ``newline=""`` keeps CRLF from
+    being rewritten to LF. Invalid UTF-8 raises rather than substituting
+    replacement characters.
+    """
+    return Path(file_path).read_text(encoding="utf-8-sig", newline="")
 
 
 async def _embed_texts_in_batches(
@@ -174,21 +267,41 @@ async def process_knowledge_base_document(
                     f"model={embeddings_model}"
                 )
 
-        logger.info(f"Delegating document processing to MPS (mode={retrieval_mode})")
-        mps_response = await mps_service_key_client.process_document(
-            file_path=temp_file_path,
-            filename=filename,
-            content_type=mime_type or "application/octet-stream",
-            retrieval_mode=retrieval_mode,
-            max_tokens=max_tokens,
-            organization_id=organization_id,
-            created_by=created_by_provider_id,
-        )
+        is_plain_text = file_extension.lower() in PLAIN_TEXT_EXTENSIONS
+        mps_response: dict = {}
 
-        docling_metadata = mps_response.get("docling_metadata", {})
+        if is_plain_text:
+            logger.info(f"Reading {file_extension} file directly (bypassing MPS)")
+            try:
+                full_text = _read_plain_text(temp_file_path)
+            except UnicodeDecodeError as e:
+                error_message = (
+                    f"'{filename}' is not valid UTF-8 text and could not be read "
+                    f"({e.reason}). Re-save the file as UTF-8 and upload it again."
+                )
+                logger.warning(f"Document {document_id}: {error_message}")
+                await db_client.update_document_status(
+                    document_id, "failed", error_message=error_message
+                )
+                return
+            docling_metadata = {"num_pages": None, "document_type": "PlainText"}
+        else:
+            logger.info(
+                f"Delegating document processing to MPS (mode={retrieval_mode})"
+            )
+            mps_response = await mps_service_key_client.process_document(
+                file_path=temp_file_path,
+                filename=filename,
+                content_type=mime_type or "application/octet-stream",
+                retrieval_mode=retrieval_mode,
+                max_tokens=max_tokens,
+                organization_id=organization_id,
+                created_by=created_by_provider_id,
+            )
+            docling_metadata = mps_response.get("docling_metadata", {})
+            full_text = mps_response.get("full_text") or ""
 
         if retrieval_mode == "full_document":
-            full_text = mps_response.get("full_text") or ""
             await db_client.update_document_full_text(document_id, full_text)
             await db_client.update_document_status(
                 document_id,
@@ -226,13 +339,27 @@ async def process_knowledge_base_document(
             resolve_correlation=True,
         )
 
-        mps_chunks = mps_response.get("chunks", [])
-        if not mps_chunks:
-            logger.warning(f"Document {document_id}: MPS returned zero chunks")
+        if is_plain_text:
+            source_chunks = [
+                {
+                    "chunk_text": chunk_text,
+                    "chunk_index": index,
+                    "token_count": _estimate_size(chunk_text),
+                }
+                for index, chunk_text in enumerate(
+                    _split_plain_text(full_text, max_tokens)
+                )
+            ]
+            if not source_chunks:
+                logger.warning(f"Document {document_id}: file contains no text")
+        else:
+            source_chunks = mps_response.get("chunks", [])
+            if not source_chunks:
+                logger.warning(f"Document {document_id}: MPS returned zero chunks")
 
         chunk_records = []
         chunk_texts = []
-        for chunk in mps_chunks:
+        for chunk in source_chunks:
             contextualized = chunk.get("contextualized_text") or chunk["chunk_text"]
             chunk_records.append(
                 KnowledgeBaseChunkModel(

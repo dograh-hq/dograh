@@ -133,7 +133,11 @@ class HttpApiConfig(BaseModel):
         description="Request timeout in milliseconds.",
     )
     customMessage: str | None = Field(
-        default=None, description="Custom message to play after tool execution."
+        default=None,
+        description=(
+            "Custom message to play before the tool executes, while the "
+            "request is in flight."
+        ),
     )
     customMessageType: Literal["text", "audio"] | None = Field(
         default=None, description="Type of custom message."

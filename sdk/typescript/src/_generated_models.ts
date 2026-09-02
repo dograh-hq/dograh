@@ -692,7 +692,7 @@ export interface components {
             timeout_ms: number | null;
             /**
              * Custommessage
-             * @description Custom message to play after tool execution.
+             * @description Custom message to play before the tool executes, while the request is in flight.
              */
             customMessage?: string | null;
             /**

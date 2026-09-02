@@ -99,26 +99,28 @@ async def duplicate_workflow(
         old_key = ambient_cfg["storage_key"]
         filename = posixpath.basename(old_key)
         new_key = f"ambient-noise/{organization_id}/{new_workflow.id}/{filename}"
+        copied = False
         try:
-            if await _copy_storage_object(
+            copied = await _copy_storage_object(
                 old_key, new_key, ambient_cfg.get("storage_backend", "")
-            ):
-                ambient_cfg["storage_key"] = new_key
-                await db_client.update_workflow(
-                    workflow_id=new_workflow.id,
-                    name=None,
-                    workflow_definition=None,
-                    template_context_variables=None,
-                    workflow_configurations=source_wc,
-                    organization_id=organization_id,
-                )
-                await db_client.publish_workflow_draft(new_workflow.id)
-            else:
-                logger.warning(
-                    f"Failed to copy ambient noise file {old_key}, keeping original reference"
-                )
+            )
         except Exception as e:
             logger.error(f"Error copying ambient noise file: {e}")
+        if copied:
+            ambient_cfg["storage_key"] = new_key
+            await db_client.update_workflow(
+                workflow_id=new_workflow.id,
+                name=None,
+                workflow_definition=None,
+                template_context_variables=None,
+                workflow_configurations=source_wc,
+                organization_id=organization_id,
+            )
+            await db_client.publish_workflow_draft(new_workflow.id)
+        else:
+            logger.warning(
+                f"Failed to copy ambient noise file {old_key}, keeping original reference"
+            )
 
     # 6. Sync triggers for the new workflow
     if workflow_definition:

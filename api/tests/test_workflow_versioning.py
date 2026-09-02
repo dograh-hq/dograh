@@ -800,7 +800,9 @@ class TestDuplicate:
         ):
             copied = await duplicate_workflow(source.id, org.id, user.id)
 
-        published = copied.released_definition
+        versions = await db_session.get_workflow_versions(copied.id)
+        assert sorted(v.status for v in versions) == ["archived", "published"]
+        published = next(v for v in versions if v.status == "published")
         assert published.version_number == 2
         assert (
             published.workflow_configurations["ambient_noise_configuration"][
@@ -808,4 +810,5 @@ class TestDuplicate:
             ]
             == f"ambient-noise/{org.id}/{copied.id}/office.wav"
         )
-        assert await db_session.get_draft_version(copied.id) is None
+        refreshed = await db_session.get_workflow_by_id(copied.id)
+        assert refreshed.released_definition_id == published.id

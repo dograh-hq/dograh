@@ -477,8 +477,10 @@ async def execute_http_tool(
             except Exception:
                 response_data = {"raw_response": response.text}
 
+            # A 4xx/5xx is a failed call: report it as such so the LLM does
+            # not treat an error body as a successful result.
             result = {
-                "status": "success",
+                "status": "error" if response.status_code >= 400 else "success",
                 "status_code": response.status_code,
                 "data": response_data,
             }

@@ -85,5 +85,7 @@ def test_gpt5_model_does_not_hardcode_reasoning_effort():
 
     assert settings.model == "gpt-5"
 
+    # Strictly verify that reasoning_effort is absent and verbosity='low' is preserved
     extra_args = getattr(settings, "extra", None) or {}
     assert "reasoning_effort" not in extra_args
+    assert extra_args == {"verbosity": "low"}

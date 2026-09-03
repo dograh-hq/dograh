@@ -38,6 +38,7 @@ def build_pipeline(
     termination_funnel,
     voicemail_detector=None,
     recording_router=None,
+    user_speech_monitor=None,
 ):
     """Build the main pipeline with all components.
 
@@ -49,6 +50,9 @@ def build_pipeline(
         recording_router: Optional RecordingRouterProcessor. When provided,
             inserts between callback processor and TTS to route between
             pre-recorded audio playback and dynamic TTS.
+        user_speech_monitor: Optional UserSpeechMonitor. When provided, sits
+            right after STT so the voicemail-message step can wait for the
+            far end's greeting to finish before speaking.
     """
     # Build processors list with optional voicemail detection.
     #
@@ -61,6 +65,8 @@ def build_pipeline(
         termination_funnel,
         stt,
     ]
+    if user_speech_monitor:
+        processors.append(user_speech_monitor)
 
     # Insert voicemail detector after STT if enabled
     # Note: We intentionally do NOT use voicemail_detector.gate() to allow TTS

@@ -80,6 +80,7 @@ from api.services.workflow.tools.knowledge_base import (
     retrieve_from_knowledge_base,
 )
 from api.utils.template_renderer import render_template
+from api.services.workflow.end_reasons import VOICEMAIL_MESSAGE_LEFT
 
 CALL_STATUS_CONTEXT_KEY = "call_status"
 
@@ -188,6 +189,12 @@ class PipecatEngine:
         # "nothing started yet", so both events start cleared.
         self._speech_playback_started: asyncio.Event = asyncio.Event()
         self._speech_playback_finished: asyncio.Event = asyncio.Event()
+
+        # Set once the native voicemail detector classifies the far end as a
+        # machine. Idle handling consults it: an answering machine is never
+        # "quiet", so the are-you-still-there escalation (and its hangup)
+        # must not fire while a voicemail message is being left.
+        self._voicemail_detected: bool = False
 
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
@@ -320,6 +327,24 @@ class PipecatEngine:
         """Delegate prompt formatting to the shared workflow.utils implementation."""
 
         return render_template(prompt, self._call_context_vars)
+
+    def render_call_text(self, text: str) -> str:
+        """Render ``{{…}}`` call-context variables in caller-facing text — the
+        same substitution node prompts and greetings receive."""
+        return self._format_prompt(text)
+
+    def mark_voicemail_detected(self) -> None:
+        """Record that the native detector classified the far end as a machine."""
+        self._voicemail_detected = True
+
+    @property
+    def voicemail_detected(self) -> bool:
+        return self._voicemail_detected
+
+    @property
+    def speech_playback_started(self) -> bool:
+        """True once speech armed via ``arm_speech_playback`` has begun playing."""
+        return self._speech_playback_started.is_set()
 
     async def _create_transition_func(
         self,
@@ -1059,6 +1084,7 @@ class PipecatEngine:
         if call_status not in (
             EndTaskReason.PIPELINE_ERROR.value,
             EndTaskReason.VOICEMAIL_DETECTED.value,
+            VOICEMAIL_MESSAGE_LEFT,
         ):
             # Finish ordinary node extraction, then classify the call outcome
             # independently when the mechanical status is only a fallback.

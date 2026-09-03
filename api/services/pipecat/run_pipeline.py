@@ -57,6 +57,11 @@ from api.services.pipecat.recording_audio_cache import (
     warm_recording_cache,
 )
 from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
+from api.services.pipecat.voicemail_message import (
+    UserSpeechMonitor,
+    VoicemailMessageConfig,
+    handle_voicemail_detected,
+)
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_llm_service_from_provider,
@@ -984,6 +989,7 @@ async def _run_pipeline_impl(
 
     voicemail_detector = None
     recording_router = None
+    user_speech_monitor = None
 
     # Create recording audio fetcher (used by recording router, audio greetings,
     # and audio transition speech)
@@ -1027,14 +1033,41 @@ async def _run_pipeline_impl(
             custom_system_prompt=custom_system_prompt,
         )
 
-        # Register event handler to end task when voicemail is detected
+        # What to do once a machine is recognised: end the call on the spot
+        # (the default), or wait for the greeting to finish, leave the
+        # configured message and then hang up (see voicemail_message.py).
+        voicemail_message_config = VoicemailMessageConfig.from_voicemail_config(
+            voicemail_config
+        )
+        if voicemail_message_config.active:
+            user_speech_monitor = UserSpeechMonitor()
+            logger.info(
+                f"Voicemail message configured for workflow run {workflow_run_id}; "
+                "it will be left after the greeting ends"
+            )
+        voicemail_tasks: set[asyncio.Task] = set()
+
         @voicemail_detector.event_handler("on_voicemail_detected")
         async def _on_voicemail_detected(_processor):
-            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-            await engine.end_call_with_reason(
-                call_status=EndTaskReason.VOICEMAIL_DETECTED.value,
-                abort_immediately=True,
+            if not voicemail_message_config.active:
+                await handle_voicemail_detected(
+                    engine, None, voicemail_message_config, workflow_run_id=workflow_run_id
+                )
+                return
+            # This runs inside the classifier branch's frame processing. The
+            # message path waits on the far end and then on playback, so it
+            # must not block frame flow: hand it to a task and keep a
+            # reference so it is not garbage-collected mid-wait.
+            task = asyncio.create_task(
+                handle_voicemail_detected(
+                    engine,
+                    user_speech_monitor,
+                    voicemail_message_config,
+                    workflow_run_id=workflow_run_id,
+                )
             )
+            voicemail_tasks.add(task)
+            task.add_done_callback(voicemail_tasks.discard)
 
     # Recording router is only meaningful in non-realtime mode (it routes between
     # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
@@ -1080,6 +1113,7 @@ async def _run_pipeline_impl(
             termination_funnel,
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
+            user_speech_monitor=user_speech_monitor,
         )
 
     # Create pipeline task with audio configuration

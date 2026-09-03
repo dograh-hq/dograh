@@ -45,6 +45,14 @@ export const TURN_START_STRATEGY_OPTIONS: Array<{
     },
 ];
 
+export interface VoicemailLeaveMessageConfiguration {
+    enabled: boolean;
+    text?: string;  // rendered with the run's call context ({{first_name | there}} …)
+    greeting_end_silence_secs?: number;  // quiet period after the greeting before speaking (default 2)
+    max_greeting_wait_secs?: number;  // give up and just hang up if the far end never goes quiet (default 30)
+    playback_timeout_secs?: number;  // give up waiting for the message's own playback (default 60)
+}
+
 export interface VoicemailDetectionConfiguration {
     enabled: boolean;
     use_workflow_llm: boolean;
@@ -53,6 +61,7 @@ export interface VoicemailDetectionConfiguration {
     api_key?: string;
     system_prompt?: string;
     long_speech_timeout: number;  // seconds cutoff for long speech detection
+    leave_message?: VoicemailLeaveMessageConfiguration;  // speak a message after the greeting, then hang up
 }
 
 export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfiguration = {

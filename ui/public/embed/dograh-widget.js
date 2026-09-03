@@ -1651,7 +1651,7 @@
     endConfirmation.setAttribute('aria-label', 'Confirm ending chat');
 
     const endConfirmationText = document.createElement('span');
-    endConfirmationText.textContent = 'End this chat?';
+    endConfirmationText.textContent = widgetText('endChatConfirmText');
     endConfirmation.appendChild(endConfirmationText);
 
     const endConfirmActions = document.createElement('div');
@@ -1660,7 +1660,7 @@
     const cancelEndBtn = document.createElement('button');
     cancelEndBtn.className = 'dograh-chat-end-confirm-cancel';
     cancelEndBtn.type = 'button';
-    cancelEndBtn.textContent = 'Cancel';
+    cancelEndBtn.textContent = widgetText('endChatCancelText');
     cancelEndBtn.onclick = () => {
       state.chat.confirmingEnd = false;
       renderChat();
@@ -2289,7 +2289,7 @@
     );
     endBtn.style.display = hasActiveSession ? 'inline-flex' : 'none';
     endBtn.disabled = state.chat.ending || state.chat.confirmingEnd || state.chat.status !== 'ready';
-    endBtn.textContent = state.chat.ending ? 'Ending…' : widgetText('endChatText');
+    endBtn.textContent = state.chat.ending ? widgetText('endingChatText') : widgetText('endChatText');
   }
 
   // Public API

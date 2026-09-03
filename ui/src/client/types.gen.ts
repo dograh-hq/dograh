@@ -7319,6 +7319,18 @@ export type WidgetTexts = {
      */
     endChatText?: string;
     /**
+     * Endchatconfirmtext
+     */
+    endChatConfirmText?: string;
+    /**
+     * Endchatcanceltext
+     */
+    endChatCancelText?: string;
+    /**
+     * Endingchattext
+     */
+    endingChatText?: string;
+    /**
      * Conversationendedtext
      */
     conversationEndedText?: string;

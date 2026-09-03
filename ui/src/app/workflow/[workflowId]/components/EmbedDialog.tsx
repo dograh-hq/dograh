@@ -81,6 +81,9 @@ interface WidgetTextField {
 
 const CHAT_TEXT_FIELDS: WidgetTextField[] = [
     { key: "endChatText", label: "End Chat Button" },
+    { key: "endChatConfirmText", label: "End Chat Confirmation" },
+    { key: "endChatCancelText", label: "Cancel Button", hint: "shown next to the confirmation" },
+    { key: "endingChatText", label: "Ending Chat Status" },
     { key: "conversationEndedText", label: "Conversation Ended Message" },
     { key: "startNewChatText", label: "Start New Chat Button" },
     { key: "chatRetryText", label: "Retry Button" },

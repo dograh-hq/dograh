@@ -20,6 +20,7 @@ from api.services.call_concurrency import call_concurrency
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations import (
     IntegrationRuntimeContext,
+    create_call_capabilities,
     create_runtime_sessions,
 )
 from api.services.observability.active_calls import (
@@ -872,21 +873,52 @@ async def _run_pipeline_impl(
     # Create pipeline components
     audio_buffer, context = create_pipeline_components(audio_config)
 
-    integration_runtime_sessions = create_runtime_sessions(
-        IntegrationRuntimeContext(
-            workflow_run_id=workflow_run_id,
-            workflow_run=workflow_run,
-            workflow_graph=workflow_graph,
-            run_definition=run_definition,
-            user_config=user_config,
-            is_realtime=is_realtime,
-            context_messages_provider=lambda: context.messages,
-        )
+    integration_runtime_context = IntegrationRuntimeContext(
+        workflow_run_id=workflow_run_id,
+        workflow_run=workflow_run,
+        workflow_graph=workflow_graph,
+        run_definition=run_definition,
+        user_config=user_config,
+        is_realtime=is_realtime,
+        context_messages_provider=lambda: context.messages,
     )
+
+    integration_runtime_sessions = create_runtime_sessions(integration_runtime_context)
+
+    integration_capabilities = create_call_capabilities(integration_runtime_context)
+
+    # Fired now so they resolve while the rest of the pipeline is still being
+    # built; awaited before the first turn in event_handlers.
+    integration_pre_call_tasks: list[asyncio.Future] = []
+    for capability in integration_capabilities:
+        if capability.run_pre_call is None:
+            continue
+        try:
+            # ensure_future, not create_task: the hook is declared to return an
+            # Awaitable, and create_task accepts only coroutines — it would
+            # reject a Future that satisfies that contract.
+            integration_pre_call_tasks.append(
+                asyncio.ensure_future(capability.run_pre_call())
+            )
+        except Exception as e:
+            # Starting the hook is part of building the pipeline, so anything
+            # raised here would abort call setup rather than degrade. A hook
+            # that is synchronous, or that raises on the way in, costs the
+            # caller its enrichment and nothing more.
+            logger.warning(
+                f"[{capability.name}] pre-call hook could not be started, "
+                f"continuing without it: {e}"
+            )
+    if integration_pre_call_tasks:
+        logger.info(
+            f"Started {len(integration_pre_call_tasks)} integration pre-call "
+            f"hook(s) for workflow run {workflow_run_id}"
+        )
 
     # Set the context, audio_config, and audio_buffer after creation
     engine.set_context(context)
     engine.set_audio_config(audio_config)
+    engine.set_integration_capabilities(integration_capabilities)
 
     assistant_params = LLMAssistantAggregatorParams(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
@@ -1167,6 +1199,7 @@ async def _run_pipeline_impl(
         pre_call_fetch_task=pre_call_fetch_task,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
+        integration_pre_call_tasks=integration_pre_call_tasks,
         include_transcript_end_timestamps=include_transcript_end_timestamps,
     )
 

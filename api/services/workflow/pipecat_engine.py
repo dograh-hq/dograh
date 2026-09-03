@@ -45,6 +45,8 @@ if TYPE_CHECKING:
     from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.utils.tracing.tracing_context import TracingContext
 
+    from api.services.integrations.base import IntegrationCallCapabilities
+
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
 import asyncio
@@ -227,6 +229,10 @@ class PipecatEngine:
         # True when the workflow has active recordings; enables recording
         # response mode instructions on all nodes for in-context learning.
         self._has_recordings: bool = has_recordings
+
+        # Contributions from enabled integrations, set after construction by
+        # run_pipeline once the integration runtime context exists.
+        self._integration_capabilities: list["IntegrationCallCapabilities"] = []
 
         # Background context summarization on node transitions
         self._context_compaction_enabled: bool = context_compaction_enabled
@@ -719,6 +725,7 @@ class PipecatEngine:
             workflow=self.workflow,
             format_prompt=self._format_prompt,
             has_recordings=self._has_recordings,
+            integration_addenda=self._resolve_integration_addenda(),
         )
         functions = await compose_functions_for_node(
             node=node,
@@ -1251,6 +1258,44 @@ class PipecatEngine:
     def set_audio_config(self, audio_config) -> None:
         """Set the audio configuration for the pipeline."""
         self._audio_config = audio_config
+
+    def set_integration_capabilities(self, capabilities) -> None:
+        """Set the call capabilities contributed by enabled integrations.
+
+        Set after construction, like the context: the integration runtime
+        context is built alongside the pipeline components.
+        """
+        self._integration_capabilities = list(capabilities or [])
+
+    def _resolve_integration_addenda(self) -> list[str]:
+        """Render each integration's prompt addendum for the current context."""
+        addenda: list[str] = []
+        for capability in self._integration_capabilities:
+            if capability.prompt_addendum is None:
+                continue
+            try:
+                text = capability.prompt_addendum(self._call_context_vars)
+            except Exception as e:
+                logger.warning(
+                    f"Integration {capability.name!r} prompt addendum failed, "
+                    f"skipping: {e}"
+                )
+                continue
+            if text is None:
+                continue
+            if not isinstance(text, str):
+                # Checked rather than assumed: .strip() on a non-string would
+                # raise here, outside the guard above, and take the node's
+                # prompt down with it.
+                logger.warning(
+                    f"Integration {capability.name!r} prompt addendum returned "
+                    f"{type(text).__name__}, expected str; skipping"
+                )
+                continue
+            stripped = text.strip()
+            if stripped:
+                addenda.append(stripped)
+        return addenda
 
     def set_transport_output(self, transport_output) -> None:
         """Set the transport output processor for direct audio playback.

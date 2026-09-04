@@ -990,6 +990,9 @@ async def _run_pipeline_impl(
     voicemail_detector = None
     recording_router = None
     user_speech_monitor = None
+    # Message-delivery tasks spawned by the voicemail detector's handler;
+    # cancelled with the pipeline so none outlives the call it belongs to.
+    voicemail_tasks: set[asyncio.Task] = set()
 
     # Create recording audio fetcher (used by recording router, audio greetings,
     # and audio transition speech)
@@ -999,9 +1002,10 @@ async def _run_pipeline_impl(
     )
     engine.set_fetch_recording_audio(fetch_audio)
 
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
+    # From the run's pinned definition, not the live workflow row: a
+    # republish mid-call must not change what this call detects, or says,
+    # at a mailbox.
+    voicemail_config = run_configs.get("voicemail_detection") or {}
     if is_realtime and voicemail_config.get("enabled", False):
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
@@ -1045,7 +1049,27 @@ async def _run_pipeline_impl(
                 f"Voicemail message configured for workflow run {workflow_run_id}; "
                 "it will be left after the greeting ends"
             )
-        voicemail_tasks: set[asyncio.Task] = set()
+        def _on_voicemail_task_done(task: asyncio.Task) -> None:
+            voicemail_tasks.discard(task)
+            if task.cancelled():
+                return
+            exc = task.exception()  # retrieving it also silences the loop's warning
+            if exc is None:
+                return
+            # handle_voicemail_detected catches its own failures; this is the
+            # net under that net, so even a bug there ends the call instead of
+            # leaving it open until max_call_duration.
+            logger.error(
+                f"[run {workflow_run_id}] voicemail message task failed: {exc!r}",
+                exc_info=exc,
+            )
+            if not engine.is_call_disposed():
+                asyncio.create_task(
+                    engine.end_call_with_reason(
+                        EndTaskReason.VOICEMAIL_DETECTED.value,
+                        abort_immediately=True,
+                    )
+                )
 
         @voicemail_detector.event_handler("on_voicemail_detected")
         async def _on_voicemail_detected(_processor):
@@ -1067,7 +1091,7 @@ async def _run_pipeline_impl(
                 )
             )
             voicemail_tasks.add(task)
-            task.add_done_callback(voicemail_tasks.discard)
+            task.add_done_callback(_on_voicemail_task_done)
 
     # Recording router is only meaningful in non-realtime mode (it routes between
     # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
@@ -1213,6 +1237,10 @@ async def _run_pipeline_impl(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        # A voicemail-message task still waiting on the far end has nothing
+        # left to speak into once the pipeline is gone.
+        for pending in list(voicemail_tasks):
+            pending.cancel()
         # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),

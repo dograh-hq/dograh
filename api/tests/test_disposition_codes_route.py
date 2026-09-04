@@ -76,6 +76,9 @@ def test_mapping_catalog_includes_default_business_dispositions():
     assert "do_not_call" in catalog["system_codes"]
     assert "voicemail" not in catalog["system_codes"]
     assert catalog["system_codes"].count("voicemail_detected") == 1
+    # the engine's own end reason for a delivered voicemail message
+    assert "voicemail_message_left" in catalog["system_codes"]
+    assert "voicemail_message_left" not in catalog["end_task_reason_codes"]
 
 
 def test_org_custom_codes_are_appended_without_duplicating_builtins():

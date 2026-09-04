@@ -34,6 +34,7 @@ overwhelming majority of mailboxes without any audio-analysis machinery.
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -62,7 +63,19 @@ def _positive_float(value: Any, default: float) -> float:
         parsed = float(value)
     except (TypeError, ValueError):
         return default
-    return parsed if parsed > 0 else default
+    # Infinity parses as a float and passes ``> 0``; it would make a wait
+    # unbounded, which is the one thing these knobs exist to prevent.
+    return parsed if parsed > 0 and math.isfinite(parsed) else default
+
+
+def _as_bool(value: Any) -> bool:
+    """Only a real boolean — or the unambiguous strings a form field may send —
+    switches the feature on. ``bool("false")`` is True, and nobody meant that."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    return False
 
 
 @dataclass(frozen=True)
@@ -87,7 +100,7 @@ class VoicemailMessageConfig:
             return cls()
         text = raw.get("text")
         return cls(
-            enabled=bool(raw.get("enabled", False)),
+            enabled=_as_bool(raw.get("enabled")),
             text=text.strip() if isinstance(text, str) else "",
             greeting_end_silence_secs=_positive_float(
                 raw.get("greeting_end_silence_secs"), cls.greeting_end_silence_secs
@@ -192,6 +205,35 @@ async def handle_voicemail_detected(
         await engine.end_call_with_reason(detected, abort_immediately=True)
         return detected
 
+    try:
+        return await _leave_message(
+            engine, monitor, config, workflow_run_id=workflow_run_id, detected=detected
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        # This handler is the only thing that ends the call once a machine
+        # answered: a failure anywhere in the message path (a bad template, a
+        # TTS error, a queue that is already closed) must still hang up, with
+        # the same fallback disposition every other failed step gets.
+        logger.error(
+            f"[run {workflow_run_id}] voicemail message failed ({exc!r}); "
+            "hanging up as voicemail",
+            exc_info=exc,
+        )
+        if not engine.is_call_disposed():
+            await engine.end_call_with_reason(detected, abort_immediately=True)
+        return detected
+
+
+async def _leave_message(
+    engine: "PipecatEngine",
+    monitor: UserSpeechMonitor,
+    config: VoicemailMessageConfig,
+    *,
+    workflow_run_id: int,
+    detected: str,
+) -> str:
     logger.info(
         f"[run {workflow_run_id}] voicemail detected; waiting for the greeting "
         f"to end (quiet {config.greeting_end_silence_secs}s) before leaving the message"
@@ -199,6 +241,14 @@ async def handle_voicemail_detected(
     quiet = await monitor.wait_for_silence(
         config.greeting_end_silence_secs, timeout=config.max_greeting_wait_secs
     )
+    if engine.is_call_disposed():
+        # The far end hung up (or the run was cancelled) while we waited:
+        # the call is already being torn down, so there is nothing to speak
+        # into — and queueing audio now would land in a closing pipeline.
+        logger.info(
+            f"[run {workflow_run_id}] call ended during the greeting wait; no message left"
+        )
+        return detected
     if not quiet:
         logger.warning(
             f"[run {workflow_run_id}] far end never went quiet within "
@@ -215,13 +265,22 @@ async def handle_voicemail_detected(
     played = await engine.wait_for_speech_playback(
         start_timeout=5.0, playback_timeout=config.playback_timeout_secs
     )
+    if engine.is_call_disposed():
+        # Torn down mid-message (far-end hangup, max duration): the engine
+        # already stamped that mechanical reason; nothing to add.
+        logger.info(
+            f"[run {workflow_run_id}] call ended while the message was playing"
+        )
+        return detected
     if not played:
         stage = "finish" if engine.speech_playback_started else "start"
         logger.warning(
             f"[run {workflow_run_id}] voicemail message did not {stage} playing; "
             "recording the call as voicemail, not as message left"
         )
-        await engine.end_call_with_reason(detected)
+        # Abort rather than end gracefully: an audio path that never played
+        # (or never finished) is exactly the one that may never flush.
+        await engine.end_call_with_reason(detected, abort_immediately=True)
         return detected
 
     logger.info(f"[run {workflow_run_id}] voicemail message left ({len(text)} chars)")

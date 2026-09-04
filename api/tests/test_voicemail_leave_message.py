@@ -53,8 +53,12 @@ class FakeEngine:
         self.ends: list[tuple[str, bool]] = []
         self.events: list[str] = []
         self.marked = False
+        self.disposed = False
         self._playback = playback
         self.speech_playback_started = started
+
+    def is_call_disposed(self) -> bool:
+        return self.disposed
 
     def mark_voicemail_detected(self):
         self.marked = True
@@ -116,6 +120,32 @@ class TestVoicemailMessageConfig:
         assert cfg.max_greeting_wait_secs == 30.0
         assert cfg.playback_timeout_secs == 60.0
 
+    def test_only_a_real_true_enables_it(self):
+        for value in ("false", "0", "", None, 0, [], {}):
+            cfg = VoicemailMessageConfig.from_voicemail_config(
+                {"leave_message": {"enabled": value, "text": "Hi"}}
+            )
+            assert cfg.active is False, repr(value)
+        for value in (True, "true", "1", "yes"):
+            cfg = VoicemailMessageConfig.from_voicemail_config(
+                {"leave_message": {"enabled": value, "text": "Hi"}}
+            )
+            assert cfg.active is True, repr(value)
+
+    def test_non_finite_timeouts_fall_back_to_defaults(self):
+        cfg = VoicemailMessageConfig.from_voicemail_config(
+            {
+                "leave_message": {
+                    "enabled": True,
+                    "text": "Hi",
+                    "greeting_end_silence_secs": float("inf"),
+                    "max_greeting_wait_secs": "nan",
+                    "playback_timeout_secs": "Infinity",
+                }
+            }
+        )
+        assert (cfg.greeting_end_silence_secs, cfg.max_greeting_wait_secs, cfg.playback_timeout_secs) == (2.0, 30.0, 60.0)
+
     def test_non_dict_config_is_ignored(self):
         assert VoicemailMessageConfig.from_voicemail_config({"leave_message": "yes"}).active is False
 
@@ -167,7 +197,34 @@ class TestHandleVoicemailDetected:
         )
         assert reason == DETECTED
         assert len(engine.task.frames) == 1  # it did try
-        assert engine.ends == [(DETECTED, False)]
+        # aborted, not ended gracefully: the audio path that never played is
+        # the one that may never flush
+        assert engine.ends == [(DETECTED, True)]
+
+    @pytest.mark.asyncio
+    async def test_a_failure_inside_the_message_path_still_hangs_up(self):
+        engine = FakeEngine()
+
+        async def boom(_frame):
+            raise RuntimeError("tts service is gone")
+
+        engine.task.queue_frame = boom  # type: ignore[assignment]
+        reason = await handle_voicemail_detected(
+            engine, FakeMonitor(quiet=True), ACTIVE, workflow_run_id=1
+        )
+        assert reason == DETECTED
+        assert engine.ends == [(DETECTED, True)]
+
+    @pytest.mark.asyncio
+    async def test_call_ended_during_the_greeting_wait_leaves_nothing(self):
+        engine = FakeEngine()
+        engine.disposed = True  # far end hung up while we waited
+        reason = await handle_voicemail_detected(
+            engine, FakeMonitor(quiet=True), ACTIVE, workflow_run_id=1
+        )
+        assert reason == DETECTED
+        assert engine.task.frames == []
+        assert engine.ends == []  # already torn down; nothing to end twice
 
 
 class TestUserSpeechMonitor:

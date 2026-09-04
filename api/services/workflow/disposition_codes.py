@@ -9,7 +9,9 @@ behind the code that produces the dispositions.
 Three kinds of built-in value feed that field:
 
 * the pipeline, via ``PipecatEngine.end_call_with_reason`` /
-  ``set_call_disposition`` — an ``EndTaskReason`` value;
+  ``set_call_disposition`` — an ``EndTaskReason`` value, or one of the
+  engine's own end reasons that live outside that enum
+  (``api.services.workflow.end_reasons``);
 * the telephony status callback, via ``status_processor`` and
   ``mark_workflow_run_failed`` — a ``TelephonyCallStatus`` value, for calls
   that never connected;
@@ -26,12 +28,17 @@ from pipecat.utils.enums import EndTaskReason
 
 from api.enums import TelephonyCallStatus
 from api.services.workflow.disposition_extraction import DEFAULT_DISPOSITION_CODES
+from api.services.workflow.end_reasons import VOICEMAIL_MESSAGE_LEFT
 
 # Keep this derived directly from the enum so every pipeline disposition is
 # available to clients without maintaining a second list.
 END_TASK_REASON_DISPOSITION_CODES: tuple[str, ...] = tuple(
     reason.value for reason in EndTaskReason
 )
+
+# Pipeline end reasons stamped by the engine that are not EndTaskReason
+# members (that enum lives in the pipecat submodule).
+_ENGINE_DISPOSITIONS: tuple[str, ...] = (VOICEMAIL_MESSAGE_LEFT,)
 
 # Statuses written when the call never reached the pipeline.
 _TELEPHONY_DISPOSITIONS: tuple[str, ...] = (
@@ -47,6 +54,7 @@ SYSTEM_DISPOSITION_CODES: tuple[str, ...] = tuple(
     # future Pipecat reason or telephony status adopts a business-outcome name.
     dict.fromkeys(
         END_TASK_REASON_DISPOSITION_CODES
+        + _ENGINE_DISPOSITIONS
         + _TELEPHONY_DISPOSITIONS
         + DEFAULT_DISPOSITION_CODES
     )

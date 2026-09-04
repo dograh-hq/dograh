@@ -27,7 +27,15 @@ class WorkflowClient(BaseDBClient):
         workflow_definition: dict,
         user_id: int,
         organization_id: int = None,
+        workflow_configurations: dict | None = None,
+        template_context_variables: dict | None = None,
     ) -> WorkflowModel:
+        """Create a workflow whose published V1 carries the given settings.
+
+        ``workflow_configurations`` / ``template_context_variables`` land on the
+        V1 definition (and the legacy workflow columns); passing them later via
+        ``update_workflow`` would only create an unpublished draft.
+        """
         async with self.async_session() as session:
             try:
                 new_workflow = WorkflowModel(
@@ -35,6 +43,8 @@ class WorkflowClient(BaseDBClient):
                     workflow_definition=workflow_definition,  # Keep for backwards compatibility
                     user_id=user_id,
                     organization_id=organization_id,
+                    workflow_configurations=workflow_configurations,
+                    template_context_variables=template_context_variables,
                 )
                 session.add(new_workflow)
                 await session.flush()  # Flush to get the workflow ID

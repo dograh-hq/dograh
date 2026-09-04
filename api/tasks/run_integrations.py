@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 from pipecat.utils.enums import EndTaskReason
+
+from api.services.workflow.end_reasons import VOICEMAIL_MESSAGE_LEFT
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from pydantic import ValidationError
 
@@ -57,7 +59,10 @@ def _should_skip_qa(
     if not qa_data.qa_voicemail_calls:
         gathered_context = workflow_run.gathered_context or {}
         call_disposition = gathered_context.get("call_disposition", "")
-        if call_disposition == EndTaskReason.VOICEMAIL_DETECTED.value:
+        if call_disposition in (
+            EndTaskReason.VOICEMAIL_DETECTED.value,
+            VOICEMAIL_MESSAGE_LEFT,
+        ):
             return "voicemail call and QA voicemail calls is disabled"
 
     if qa_data.qa_sample_rate < 100:

@@ -41,6 +41,12 @@ class UserIdleHandler:
 
     async def handle_idle(self, aggregator):
         """Handle user idle event with escalating prompts."""
+        if self._engine.voicemail_detected:
+            # A mailbox will never answer "are you still there?", and the
+            # second escalation hangs up — which would cut a voicemail
+            # message off mid-sentence while it is being left.
+            logger.debug("Ignoring user_idle: an answering machine answered")
+            return
         self._retry_count += 1
         logger.debug(f"Handling user_idle, attempt: {self._retry_count}")
 

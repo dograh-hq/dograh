@@ -1102,22 +1102,33 @@ async def update_workflow(
                 tool_name_errors,
                 status_code=409,
             )
-        if workflow_definition:
+        # What the user was editing (draft or published): loaded once and
+        # reused by every secret merge below.
+        existing_workflow = None
+        existing_draft = None
+        existing_configs = None
+        if workflow_definition or request.workflow_configurations is not None:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
             )
             if existing_workflow:
-                # Merge against what the user was editing (draft or published)
                 existing_draft = await db_client.get_draft_version(workflow_id)
-                existing_def = (
-                    existing_draft.workflow_json
+                existing_configs = (
+                    existing_draft.workflow_configurations
                     if existing_draft
-                    else existing_workflow.released_definition.workflow_json
+                    else existing_workflow.released_definition.workflow_configurations
                 )
-                workflow_definition = merge_workflow_api_keys(
-                    workflow_definition,
-                    existing_def,
-                )
+
+        if workflow_definition and existing_workflow:
+            existing_def = (
+                existing_draft.workflow_json
+                if existing_draft
+                else existing_workflow.released_definition.workflow_json
+            )
+            workflow_definition = merge_workflow_api_keys(
+                workflow_definition,
+                existing_def,
+            )
 
         # Validate model overrides. v2 uses a complete workflow-level model
         # configuration; legacy v1 uses partial service overlays.
@@ -1138,37 +1149,21 @@ async def update_workflow(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ExternalPBXConfigurationDisabledError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
-        if workflow_configurations:
+        if workflow_configurations and existing_workflow:
             # Responses mask secrets, and clients send the whole document back,
             # so masked (or omitted) secrets must be restored from what is
             # stored before anything below validates or persists them.
-            existing_workflow = await db_client.get_workflow(
-                workflow_id, organization_id=user.selected_organization_id
+            workflow_configurations = merge_workflow_configuration_secrets(
+                workflow_configurations,
+                existing_configs,
             )
-            if existing_workflow:
-                existing_draft = await db_client.get_draft_version(workflow_id)
-                workflow_configurations = merge_workflow_configuration_secrets(
-                    workflow_configurations,
-                    existing_draft.workflow_configurations
-                    if existing_draft
-                    else existing_workflow.released_definition.workflow_configurations,
-                )
         if workflow_configurations and workflow_configurations.get(
             WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
         ):
-            existing_workflow = await db_client.get_workflow(
-                workflow_id, organization_id=user.selected_organization_id
-            )
             if existing_workflow is None:
                 raise HTTPException(
                     status_code=404, detail=f"Workflow with id {workflow_id} not found"
                 )
-            existing_draft = await db_client.get_draft_version(workflow_id)
-            existing_configs = (
-                existing_draft.workflow_configurations
-                if existing_draft
-                else existing_workflow.released_definition.workflow_configurations
-            )
             existing_v2_override = (existing_configs or {}).get(
                 WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
             )
@@ -1217,23 +1212,10 @@ async def update_workflow(
             }
             workflow_configurations.pop("model_overrides", None)
         elif workflow_configurations and workflow_configurations.get("model_overrides"):
-            existing_workflow = await db_client.get_workflow(
-                workflow_id, organization_id=user.selected_organization_id
-            )
             if existing_workflow is None:
                 raise HTTPException(
                     status_code=404, detail=f"Workflow with id {workflow_id} not found"
                 )
-            existing_draft = await db_client.get_draft_version(workflow_id)
-            existing_configs = (
-                existing_draft.workflow_configurations
-                if existing_draft
-                else existing_workflow.released_definition.workflow_configurations
-            )
-            workflow_configurations = merge_workflow_configuration_secrets(
-                workflow_configurations,
-                existing_configs,
-            )
             resolved_config = await get_resolved_ai_model_configuration(
                 organization_id=user.selected_organization_id,
             )

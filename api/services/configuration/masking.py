@@ -169,8 +169,8 @@ def mask_workflow_configurations(config: Optional[Dict]) -> Optional[Dict]:
     # Voicemail detection can carry its own provider key when it does not
     # reuse the workflow LLM (use_workflow_llm=False).
     voicemail = masked.get(VOICEMAIL_DETECTION_KEY)
-    if isinstance(voicemail, dict) and voicemail.get("api_key"):
-        voicemail["api_key"] = _mask_secret_value(voicemail["api_key"])
+    if isinstance(voicemail, dict) and isinstance(voicemail.get("api_key"), str):
+        voicemail["api_key"] = mask_key(voicemail["api_key"])
 
     return masked
 

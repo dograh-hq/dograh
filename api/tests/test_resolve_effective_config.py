@@ -611,6 +611,35 @@ class TestWorkflowConfigurationSecrets:
 
         assert merged["voicemail_detection"]["api_key"] == "sk-new-voicemail-key"
 
+    def test_masked_voicemail_key_is_restored_only_for_the_same_provider(self):
+        existing = {
+            "voicemail_detection": {"provider": "openai", "api_key": "sk-openai-key"}
+        }
+        same = mask_workflow_configurations(existing)
+        assert (
+            merge_workflow_configuration_secrets(same, existing)["voicemail_detection"][
+                "api_key"
+            ]
+            == "sk-openai-key"
+        )
+
+        # Switching provider while still sending the masked placeholder must
+        # not carry the OpenAI key over to Groq.
+        switched = mask_workflow_configurations(existing)
+        switched["voicemail_detection"]["provider"] = "groq"
+        merged = merge_workflow_configuration_secrets(switched, existing)
+        assert "api_key" not in merged["voicemail_detection"]
+        assert merged["voicemail_detection"]["provider"] == "groq"
+
+    @pytest.mark.parametrize("bad_key", [123, ["sk-a", 5], {"nested": True}])
+    def test_non_string_voicemail_key_is_neither_masked_nor_merged(self, bad_key):
+        stored = {"voicemail_detection": {"api_key": bad_key}}
+        assert mask_workflow_configurations(stored) == stored
+
+        existing = {"voicemail_detection": {"api_key": "sk-real-voicemail-key"}}
+        merged = merge_workflow_configuration_secrets(stored, existing)
+        assert merged["voicemail_detection"]["api_key"] == bad_key
+
     def test_restores_masked_model_override_secrets_from_existing_config(self):
         existing = {
             "model_overrides": {

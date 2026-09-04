@@ -123,18 +123,29 @@ def _merge_voicemail_secret(merged: dict, existing_config: dict) -> None:
     Responses mask the key, and the settings dialog re-sends the whole
     ``voicemail_detection`` object (sometimes without ``api_key`` at all when
     toggling ``use_workflow_llm``), so a masked or missing key means "keep the
-    stored one"; only a new plain value replaces it.
+    stored one"; only a new plain value replaces it. The stored key belongs to
+    the stored provider: when the request names a different one, the mask is
+    dropped instead of restored so the old key never authenticates against the
+    new provider. Non-string values are left as they are (the block is
+    ``extra="allow"``, so nothing upstream typed them).
     """
     incoming = merged.get(VOICEMAIL_DETECTION_KEY)
     existing = existing_config.get(VOICEMAIL_DETECTION_KEY)
     if not isinstance(incoming, dict) or not isinstance(existing, dict):
         return
     existing_key = existing.get("api_key")
-    if not existing_key:
+    if not isinstance(existing_key, str) or not existing_key:
         return
     incoming_key = incoming.get("api_key")
-    if incoming_key is None or contains_masked_key(incoming_key):
-        incoming["api_key"] = existing_key
+    if incoming_key is not None and not (
+        isinstance(incoming_key, str) and contains_masked_key(incoming_key)
+    ):
+        return
+    incoming_provider = incoming.get("provider")
+    if incoming_provider is not None and incoming_provider != existing.get("provider"):
+        incoming.pop("api_key", None)
+        return
+    incoming["api_key"] = existing_key
 
 
 def merge_workflow_configuration_secrets(

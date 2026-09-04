@@ -108,15 +108,26 @@ async def duplicate_workflow(
             logger.error(f"Error copying ambient noise file: {e}")
         if copied:
             ambient_cfg["storage_key"] = new_key
-            await db_client.update_workflow(
-                workflow_id=new_workflow.id,
-                name=None,
-                workflow_definition=None,
-                template_context_variables=None,
-                workflow_configurations=source_wc,
-                organization_id=organization_id,
-            )
-            await db_client.publish_workflow_draft(new_workflow.id)
+            # The copy is already durable (workflow + storage object), so a
+            # failure here must not escape and leave it half-built: the V1
+            # published above keeps the source reference, exactly like the
+            # copy-failed branch below, and the copied object stays under
+            # new_key for a manual retry.
+            try:
+                await db_client.update_workflow(
+                    workflow_id=new_workflow.id,
+                    name=None,
+                    workflow_definition=None,
+                    template_context_variables=None,
+                    workflow_configurations=source_wc,
+                    organization_id=organization_id,
+                )
+                await db_client.publish_workflow_draft(new_workflow.id)
+            except Exception as e:
+                logger.error(
+                    f"Failed to publish rewritten ambient noise key {new_key} for "
+                    f"workflow {new_workflow.id}, keeping original reference: {e}"
+                )
         else:
             logger.warning(
                 f"Failed to copy ambient noise file {old_key}, keeping original reference"

@@ -794,12 +794,14 @@ class TestDuplicate:
         }
         source = await self._published_source(db_session, org, user, configurations)
 
-        with patch(
-            "api.services.workflow.duplicate._copy_storage_object",
-            AsyncMock(return_value=True),
-        ):
+        copy_object = AsyncMock(return_value=True)
+        with patch("api.services.workflow.duplicate._copy_storage_object", copy_object):
             copied = await duplicate_workflow(source.id, org.id, user.id)
 
+        new_key = f"ambient-noise/{org.id}/{copied.id}/office.wav"
+        copy_object.assert_awaited_once_with(
+            "ambient-noise/1/1/office.wav", new_key, ""
+        )
         versions = await db_session.get_workflow_versions(copied.id)
         assert sorted(v.status for v in versions) == ["archived", "published"]
         published = next(v for v in versions if v.status == "published")
@@ -808,7 +810,37 @@ class TestDuplicate:
             published.workflow_configurations["ambient_noise_configuration"][
                 "storage_key"
             ]
-            == f"ambient-noise/{org.id}/{copied.id}/office.wav"
+            == new_key
         )
         refreshed = await db_session.get_workflow_by_id(copied.id)
         assert refreshed.released_definition_id == published.id
+
+    async def test_duplicate_survives_failed_ambient_noise_republish(
+        self, db_session, org_and_user
+    ):
+        """The workflow and the copied object are durable before the rewritten
+        key is published; a failure there degrades to the source reference
+        instead of surfacing as a failed duplicate."""
+        org, user = org_and_user
+        configurations = {
+            "ambient_noise_configuration": {
+                "enabled": True,
+                "storage_key": "ambient-noise/1/1/office.wav",
+            }
+        }
+        source = await self._published_source(db_session, org, user, configurations)
+
+        with (
+            patch(
+                "api.services.workflow.duplicate._copy_storage_object",
+                AsyncMock(return_value=True),
+            ),
+            patch(
+                "api.services.workflow.duplicate.db_client.publish_workflow_draft",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+        ):
+            copied = await duplicate_workflow(source.id, org.id, user.id)
+
+        assert copied.released_definition.version_number == 1
+        assert copied.released_definition.workflow_configurations == configurations

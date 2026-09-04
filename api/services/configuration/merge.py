@@ -11,6 +11,7 @@ from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
     MODEL_OVERRIDE_FIELDS,
     SERVICE_SECRET_FIELDS,
+    VOICEMAIL_DETECTION_KEY,
     contains_masked_key,
     resolve_masked_api_keys,
 )
@@ -116,6 +117,37 @@ def merge_user_configurations(
     return EffectiveAIModelConfiguration.model_validate(merged)
 
 
+def _merge_voicemail_secret(merged: dict, existing_config: dict) -> None:
+    """Restore the stored voicemail_detection.api_key in place.
+
+    Responses mask the key, and the settings dialog re-sends the whole
+    ``voicemail_detection`` object (sometimes without ``api_key`` at all when
+    toggling ``use_workflow_llm``), so a masked or missing key means "keep the
+    stored one"; only a new plain value replaces it. The stored key belongs to
+    the stored provider: when the request names a different one, the mask is
+    dropped instead of restored so the old key never authenticates against the
+    new provider. Non-string values are left as they are (the block is
+    ``extra="allow"``, so nothing upstream typed them).
+    """
+    incoming = merged.get(VOICEMAIL_DETECTION_KEY)
+    existing = existing_config.get(VOICEMAIL_DETECTION_KEY)
+    if not isinstance(incoming, dict) or not isinstance(existing, dict):
+        return
+    existing_key = existing.get("api_key")
+    if not isinstance(existing_key, str) or not existing_key:
+        return
+    incoming_key = incoming.get("api_key")
+    if incoming_key is not None and not (
+        isinstance(incoming_key, str) and contains_masked_key(incoming_key)
+    ):
+        return
+    incoming_provider = incoming.get("provider")
+    if incoming_provider is not None and incoming_provider != existing.get("provider"):
+        incoming.pop("api_key", None)
+        return
+    incoming["api_key"] = existing_key
+
+
 def merge_workflow_configuration_secrets(
     incoming_config: dict | None,
     existing_config: dict | None,
@@ -134,6 +166,8 @@ def merge_workflow_configuration_secrets(
         return incoming_config
 
     merged = copy.deepcopy(incoming_config)
+    _merge_voicemail_secret(merged, existing_config)
+
     incoming_overrides = merged.get("model_overrides")
     existing_overrides = existing_config.get("model_overrides")
     if not isinstance(incoming_overrides, dict) or not isinstance(

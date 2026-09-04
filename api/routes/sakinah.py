@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -30,6 +31,41 @@ from api.services.sakinah.workflow import ensure_sakinah_workflow
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 router = APIRouter(prefix="/sakinah", tags=["sakinah"])
+
+ARTIFACT_RECONCILIATION_ATTEMPTS = 20
+ARTIFACT_RECONCILIATION_DELAY_SECONDS = 0.25
+
+
+def _has_workflow_artifacts(artifacts: dict[str, Any] | None) -> bool:
+    if not artifacts:
+        return False
+    return bool(
+        artifacts.get("recording_url")
+        or artifacts.get("transcript_url")
+        or artifacts.get("recording_file_reference")
+    )
+
+
+async def _wait_for_workflow_artifacts(
+    user_id: int, workflow_run_id: int
+) -> dict[str, Any] | None:
+    """Give the pipeline completion handler time to publish its artifacts.
+
+    The browser can observe the WebRTC socket closing just before the pipeline's
+    final event handler has uploaded the recording/transcript. Returning the
+    Sakinah row before that handler finishes leaves a permanently incomplete
+    white-label summary unless the later reconciliation wins the race.
+    """
+    artifacts: dict[str, Any] | None = None
+    for attempt in range(ARTIFACT_RECONCILIATION_ATTEMPTS):
+        artifacts = await db_client.get_workflow_run_artifacts_for_user(
+            user_id, workflow_run_id
+        )
+        if artifacts is None or _has_workflow_artifacts(artifacts):
+            return artifacts
+        if attempt + 1 < ARTIFACT_RECONCILIATION_ATTEMPTS:
+            await asyncio.sleep(ARTIFACT_RECONCILIATION_DELAY_SECONDS)
+    return artifacts
 
 
 class ScenarioResponse(ScenarioWriteRequest):
@@ -378,7 +414,7 @@ async def end_session(
     persisted_session = await db_client.get_sakinah_run(user.id, str(session_id))
     if persisted_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    workflow_artifacts = await db_client.get_workflow_run_artifacts_for_user(
+    workflow_artifacts = await _wait_for_workflow_artifacts(
         user.id, persisted_session.run_id
     )
     transcript = _format_transcript(
@@ -403,6 +439,10 @@ async def end_session(
     )
     if persisted_run is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    # The pipeline handler also performs this reconciliation after uploading
+    # artifacts. Keep an explicit final pass here for the common browser-close
+    # race, so a saved session immediately exposes its media metadata.
+    await db_client.sync_sakinah_run_artifacts(persisted_session.run_id)
     try:
         finish_session(
             session_id=str(session_id),

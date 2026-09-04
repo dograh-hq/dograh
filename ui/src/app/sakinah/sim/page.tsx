@@ -20,6 +20,7 @@ import { listSakinahScenarios } from "@/lib/sakinahPersistence";
 import { compileScenarioPrompt } from "@/lib/sakinahScenarios";
 import { cn } from "@/lib/utils";
 
+import { SakinahRunHistory } from "../components/RunHistory";
 import { CalmEvaluationPanel } from "./CalmEvaluationPanel";
 import { type CalmAnalysis, CalmScoringPanel } from "./CalmScoringPanel";
 import type { CalmEvaluationResult, TurnEvaluation } from "./calmTypes";
@@ -59,6 +60,7 @@ export default function SakinahSimulationPage() {
     const [showScoringPanel, setShowScoringPanel] = useState(true);
     const [experimentMode, setExperimentMode] = useState<ExperimentMode>("full_calm_prompt");
     const [calmAnalysis, setCalmAnalysis] = useState<CalmAnalysis | null>(null);
+    const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
     const wsRef = useRef<WebSocket | null>(null);
     const audioWsRef = useRef<WebSocket | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -324,6 +326,9 @@ export default function SakinahSimulationPage() {
                 );
             }
             setSimulation(response.data);
+            if (["completed", "failed"].includes(response.data.status)) {
+                setHistoryRefreshKey((previous) => previous + 1);
+            }
         } catch (stopError) {
             setError(
                 stopError instanceof Error
@@ -518,6 +523,7 @@ export default function SakinahSimulationPage() {
                 </section>
             </div>
             {showScoringPanel ? <div className="lg:ml-[calc(33.333%+0.5rem)]"><CalmScoringPanel analysis={calmAnalysis} /></div> : null}
+            <SakinahRunHistory refreshKey={historyRefreshKey} />
         </main>
     );
 }

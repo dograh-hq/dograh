@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.45.5 (2026-09-04)
+
+- Persist Sakinah live and AI-to-AI runs with transcript, conversation preview, and recording/transcript artifact references available after completion.
+- Add saved-run history with preview and signed download controls to both Sakinah consoles, including fallback support for nested simulation artifacts.
+- Reconcile artifacts after pipeline shutdown and wait briefly for browser WebRTC completion uploads before marking a session saved.
+
 ## 1.45.4 (2026-09-04)
 
 - Added administrator-only staged bulk Sakinah scenario import with ZIP safety checks, validation preview, duplicate policies, and per-file outcomes.

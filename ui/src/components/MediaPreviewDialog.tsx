@@ -158,6 +158,8 @@ export function MediaPreviewButton({
         <Button
             variant="outline"
             size="icon"
+            aria-label="Preview recording and transcript"
+            title="Preview recording and transcript"
             onClick={handleOpen}
         >
             <Headphones className="h-4 w-4" />

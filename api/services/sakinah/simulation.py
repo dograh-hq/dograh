@@ -800,6 +800,20 @@ class SimulationManager:
         for agent in simulation.agents.values():
             unregister_ws_sender(agent.workflow_run_id)
 
+        # Pipeline completion uploads artifacts before its task exits, but an
+        # explicit reconciliation makes the durable Sakinah row correct even
+        # if the upload handler and task teardown complete in adjacent event
+        # loop turns.
+        if simulation.user_id is not None:
+            for agent in simulation.agents.values():
+                try:
+                    await db_client.sync_sakinah_run_artifacts(agent.workflow_run_id)
+                except Exception as e:
+                    logger.warning(
+                        f"Simulation {simulation.id}: failed to reconcile "
+                        f"{agent.role} artifacts: {e}"
+                    )
+
         turns = simulation.aggregated_turns()
         try:
             finish_session(

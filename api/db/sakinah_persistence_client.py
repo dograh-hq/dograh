@@ -288,9 +288,24 @@ class SakinahPersistenceClient(BaseDBClient):
                 else "sakinah"
             )
             references = dict(white_label_run.recording_file_reference or {})
-            references[role] = (workflow_run.extra or {}).get("recordings", {})
+            role_recordings = (workflow_run.extra or {}).get("recordings", {})
+            # Artifact fields are written independently. Do not replace a
+            # previously saved reference with an empty object if reconciliation
+            # runs between the recording URL update and the recordings metadata
+            # update.
+            if role_recordings:
+                existing_role_recordings = references.get(role)
+                if isinstance(existing_role_recordings, dict):
+                    references[role] = {
+                        **existing_role_recordings,
+                        **role_recordings,
+                    }
+                else:
+                    references[role] = role_recordings
             white_label_run.recording_file_reference = references
             if role == "sakinah":
-                white_label_run.recording_url = workflow_run.recording_url
-                white_label_run.transcript_url = workflow_run.transcript_url
+                if workflow_run.recording_url:
+                    white_label_run.recording_url = workflow_run.recording_url
+                if workflow_run.transcript_url:
+                    white_label_run.transcript_url = workflow_run.transcript_url
             await session.commit()

@@ -122,6 +122,20 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 > **Featured On & Community Validation:** Dograh was named **[#1 Product of the Day on Product Hunt](https://www.producthunt.com/products/dograh)**.
 
+## CALMOS / Sakinah Scenario Console
+
+This fork includes the CALMOS Sakinah Scenario Console at `/sakinah` and its
+AI-to-AI simulation console at `/sakinah/sim`. Completed runs are saved to the
+authenticated account using Dograh's existing workflow-run database and
+storage. Both consoles show a durable run history with a conversation preview
+and signed download controls for available recordings and transcripts.
+
+Administrators can open `/sakinah/scenarios` to bulk-import scenario JSON files
+from a ZIP or from multiple individual files. The importer validates every JSON
+independently, previews duplicates before committing, and preserves UTF-8 text,
+Arabic content, and intentional leading metadata such as `***` in scenario
+titles. See [`SAKINAH.md`](SAKINAH.md) for local setup and deployment details.
+
 ## Build Agents with MCP
 
 Dograh ships with an MCP server, so coding agents can work directly inside your Dograh workspace.

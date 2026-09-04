@@ -877,12 +877,19 @@ class TestExecuteHttpTool:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "status_code,expected_status",
-        [(200, "success"), (204, "success"), (400, "error"), (500, "error")],
+        [
+            (200, "success"),
+            (204, "success"),
+            (302, "error"),
+            (400, "error"),
+            (500, "error"),
+        ],
     )
     async def test_http_status_code_drives_result_status(
         self, status_code, expected_status
     ):
-        """4xx/5xx responses are reported as errors, not successes."""
+        """Only 2xx is a success: 4xx/5xx are errors, and so is an unfollowed
+        3xx (the client does not follow redirects)."""
         tool = MockToolModel(
             tool_uuid="test-uuid",
             name="Status API",
@@ -901,8 +908,15 @@ class TestExecuteHttpTool:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = status_code
-            mock_response.text = '{"detail": "boom"}'
-            mock_response.json.return_value = {"detail": "boom"}
+            if status_code == 204:
+                # No Content: an empty body that does not parse as JSON.
+                mock_response.text = ""
+                mock_response.json.side_effect = ValueError("no content")
+                expected_data = {"raw_response": ""}
+            else:
+                mock_response.text = '{"detail": "boom"}'
+                mock_response.json.return_value = {"detail": "boom"}
+                expected_data = {"detail": "boom"}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
@@ -910,7 +924,7 @@ class TestExecuteHttpTool:
 
             assert result["status"] == expected_status
             assert result["status_code"] == status_code
-            assert result["data"] == {"detail": "boom"}
+            assert result["data"] == expected_data
 
     @pytest.mark.asyncio
     async def test_request_includes_custom_headers(self):

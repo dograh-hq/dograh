@@ -832,7 +832,7 @@ class HttpApiConfig(BaseModel):
     """
     customMessage: Annotated[str | None, Field(title='Custommessage')] = None
     """
-    Custom message to play after tool execution.
+    Custom message to play before the tool executes, while the request is in flight.
     """
     customMessageType: Annotated[
         CustomMessageType | None, Field(title='Custommessagetype')

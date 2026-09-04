@@ -1,3 +1,8 @@
+import {
+    type BulkScenarioImportResponse as ApiBulkScenarioImportResponse,
+    commitBulkScenariosApiV1SakinahScenariosBulkImportCommitPost,
+    previewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPost,
+} from "@/client";
 import { client } from "@/client/client.gen";
 
 import {
@@ -9,6 +14,31 @@ import {
 
 type RunList = { runs: PersistedSakinahRun[] };
 type SuccessfulResponse<T> = { 200: T };
+
+export type BulkScenarioDuplicatePolicy = "skip_existing" | "replace_existing" | "import_as_new";
+
+export interface BulkScenarioImportItem {
+    item_index: number;
+    source_filename: string;
+    scenario_title: string | null;
+    status: string;
+    validation_status: string;
+    validation_error: string | null;
+    existing_scenario_id: string | null;
+    scenario_id: string | null;
+}
+
+export interface BulkScenarioImportResponse {
+    preview_token: string | null;
+    files_detected: number;
+    valid: number;
+    invalid: number;
+    duplicates: number;
+    already_existing: number;
+    imported: number;
+    failed: number;
+    items: BulkScenarioImportItem[];
+}
 
 type ScenarioApiResponse = Omit<Scenario, "communicationStyle" | "initialInformation" | "hiddenInformation" | "additionalFactors" | "freestylePrompt" | "createdAt" | "updatedAt"> & {
     communication_style: string;
@@ -75,6 +105,31 @@ function normalizeScenario(scenario: ScenarioApiResponse): Scenario {
     };
 }
 
+function normalizeBulkImportResponse(
+    response: ApiBulkScenarioImportResponse,
+): BulkScenarioImportResponse {
+    return {
+        preview_token: response.preview_token ?? null,
+        files_detected: response.files_detected,
+        valid: response.valid,
+        invalid: response.invalid,
+        duplicates: response.duplicates,
+        already_existing: response.already_existing,
+        imported: response.imported ?? 0,
+        failed: response.failed ?? 0,
+        items: response.items.map((item) => ({
+            item_index: item.item_index,
+            source_filename: item.source_filename,
+            scenario_title: item.scenario_title ?? null,
+            status: item.status,
+            validation_status: item.validation_status,
+            validation_error: item.validation_error ?? null,
+            existing_scenario_id: item.existing_scenario_id ?? null,
+            scenario_id: item.scenario_id ?? null,
+        })),
+    };
+}
+
 function draftPayload(draft: ScenarioDraft) {
     return {
         title: draft.title,
@@ -109,6 +164,36 @@ export async function listSakinahScenarios(): Promise<Scenario[]> {
     const response = await client.get<SuccessfulResponse<{ scenarios: ScenarioApiResponse[] }>>({ url: "/api/v1/sakinah/scenarios" });
     if (response.error || !response.data) throw requestError(response.error, "Unable to load scenarios.");
     return response.data.scenarios.map(normalizeScenario);
+}
+
+export async function previewBulkSakinahScenarios(
+    files: File[],
+): Promise<BulkScenarioImportResponse> {
+    const response = await previewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPost({
+        body: { files },
+    });
+    if (response.error || !response.data) {
+        throw requestError(response.error, "Unable to preview the scenario import.");
+    }
+    return normalizeBulkImportResponse(response.data);
+}
+
+export async function commitBulkSakinahScenarios(
+    previewToken: string,
+    duplicatePolicy: BulkScenarioDuplicatePolicy,
+    itemIndexes?: number[],
+): Promise<BulkScenarioImportResponse> {
+    const response = await commitBulkScenariosApiV1SakinahScenariosBulkImportCommitPost({
+        body: {
+            preview_token: previewToken,
+            duplicate_policy: duplicatePolicy,
+            item_indexes: itemIndexes,
+        },
+    });
+    if (response.error || !response.data) {
+        throw requestError(response.error, "Unable to import the scenarios.");
+    }
+    return normalizeBulkImportResponse(response.data);
 }
 
 export async function saveSakinahScenario(

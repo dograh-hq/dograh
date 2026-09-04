@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketState
@@ -10,7 +10,14 @@ from starlette.websockets import WebSocketState
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import CallType, WorkflowRunMode
+from api.schemas.sakinah import SCENARIO_FIELDS, ScenarioWriteRequest
 from api.services.auth.depends import get_user, get_user_ws
+from api.services.sakinah.bulk_import import (
+    BulkImportError,
+    DuplicatePolicy,
+    build_preview,
+    commit_preview_state,
+)
 from api.services.sakinah.session_store import (
     create_pending_session,
     finish_session,
@@ -23,45 +30,6 @@ from api.services.sakinah.workflow import ensure_sakinah_workflow
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 router = APIRouter(prefix="/sakinah", tags=["sakinah"])
-
-
-SCENARIO_FIELDS = (
-    "title",
-    "mode",
-    "persona",
-    "age",
-    "gender",
-    "language",
-    "emotion",
-    "communication_style",
-    "initial_information",
-    "hidden_information",
-    "disclosure",
-    "behaviour",
-    "background",
-    "additional_factors",
-    "notes",
-    "freestyle_prompt",
-)
-
-
-class ScenarioWriteRequest(BaseModel):
-    title: str = Field(default="Untitled scenario", max_length=500)
-    mode: Literal["structured", "freestyle"] = "structured"
-    persona: str = Field(default="", max_length=20_000)
-    age: str = Field(default="", max_length=200)
-    gender: str = Field(default="", max_length=200)
-    language: str = Field(default="", max_length=200)
-    emotion: str = Field(default="", max_length=500)
-    communication_style: str = Field(default="", max_length=20_000)
-    initial_information: str = Field(default="", max_length=20_000)
-    hidden_information: str = Field(default="", max_length=20_000)
-    disclosure: str = Field(default="", max_length=20_000)
-    behaviour: str = Field(default="", max_length=20_000)
-    background: str = Field(default="", max_length=20_000)
-    additional_factors: str = Field(default="", max_length=20_000)
-    notes: str = Field(default="", max_length=20_000)
-    freestyle_prompt: str = Field(default="", max_length=20_000)
 
 
 class ScenarioResponse(ScenarioWriteRequest):
@@ -168,6 +136,84 @@ async def delete_scenario(
 ) -> None:
     if not await db_client.delete_sakinah_scenario(user.id, scenario_id):
         raise HTTPException(status_code=404, detail="Scenario not found")
+
+
+class BulkScenarioImportItemResponse(BaseModel):
+    item_index: int
+    source_filename: str
+    scenario_title: str | None = None
+    status: str
+    validation_status: str
+    validation_error: str | None = None
+    existing_scenario_id: str | None = None
+    scenario_id: str | None = None
+
+
+class BulkScenarioImportResponse(BaseModel):
+    preview_token: str | None = None
+    files_detected: int
+    valid: int
+    invalid: int
+    duplicates: int
+    already_existing: int
+    imported: int = 0
+    failed: int = 0
+    items: list[BulkScenarioImportItemResponse]
+
+
+class BulkScenarioImportCommitRequest(BaseModel):
+    preview_token: str = Field(min_length=1, max_length=100)
+    duplicate_policy: DuplicatePolicy = "skip_existing"
+    item_indexes: list[int] | None = None
+
+
+async def require_sakinah_bulk_admin(
+    user: UserModel = Depends(get_user),
+) -> UserModel:
+    if not user.is_superuser:
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator privileges are required for bulk scenario imports.",
+        )
+    return user
+
+
+@router.post(
+    "/scenarios/bulk-import/preview",
+    response_model=BulkScenarioImportResponse,
+    summary="Preview a bulk Sakinah scenario import",
+)
+async def preview_bulk_scenarios(
+    files: list[UploadFile] = File(...),
+    user: UserModel = Depends(require_sakinah_bulk_admin),
+) -> BulkScenarioImportResponse:
+    try:
+        _, response = await build_preview(files, user.id, db_client)
+    except BulkImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BulkScenarioImportResponse(**response)
+
+
+@router.post(
+    "/scenarios/bulk-import/commit",
+    response_model=BulkScenarioImportResponse,
+    summary="Commit a previewed bulk Sakinah scenario import",
+)
+async def commit_bulk_scenarios(
+    request: BulkScenarioImportCommitRequest,
+    user: UserModel = Depends(require_sakinah_bulk_admin),
+) -> BulkScenarioImportResponse:
+    try:
+        response = await commit_preview_state(
+            request.preview_token,
+            user.id,
+            request.duplicate_policy,
+            db_client,
+            request.item_indexes,
+        )
+    except BulkImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BulkScenarioImportResponse(**response)
 
 
 class SakinahRunResponse(BaseModel):

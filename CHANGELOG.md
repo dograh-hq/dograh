@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.45.4 (2026-09-04)
+
+- Added administrator-only staged bulk Sakinah scenario import with ZIP safety checks, validation preview, duplicate policies, and per-file outcomes.
+
 ## 1.45.3 (2026-08-31)
 
 ### Persistence

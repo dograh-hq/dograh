@@ -4,6 +4,7 @@ import { Copy, Library, Pencil, Play, Plus, Trash2, Upload } from "lucide-react"
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { getAuthUserApiV1UserAuthUserGet } from "@/client";
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -19,7 +20,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/auth";
 import {
+    type BulkScenarioImportResponse,
     deleteSakinahScenario, loadSakinahScenariosWithLegacyMigration,
     saveSakinahScenario,
 } from "@/lib/sakinahPersistence";
@@ -28,6 +31,8 @@ import {
     parseScenarioImport, type Scenario, type ScenarioDraft, type ScenarioMode,
     scenarioToDraft,
 } from "@/lib/sakinahScenarios";
+
+import { BulkScenarioImport } from "./BulkScenarioImport";
 
 const LANGUAGES = ["English", "Arabic", "French", "Spanish", "Urdu", "Hindi", "Other"];
 const GENDERS = ["Female", "Male", "Non-binary", "Not specified", "Custom"];
@@ -106,6 +111,7 @@ function ScenarioEditor({ open, scenario, onOpenChange, onSave }: { open: boolea
 
 export default function ScenarioLibraryPage() {
     const router = useRouter();
+    const { user, loading: authLoading } = useAuth();
     const [scenarios, setScenarios] = useState<Scenario[]>([]);
     const [loaded, setLoaded] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
@@ -113,9 +119,28 @@ export default function ScenarioLibraryPage() {
     const [deleting, setDeleting] = useState<Scenario | null>(null);
     const [importMessage, setImportMessage] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
+    const [bulkImportOpen, setBulkImportOpen] = useState(false);
+    const [isAdmin, setIsAdmin] = useState(false);
     const importInputRef = useRef<HTMLInputElement | null>(null);
+
     useEffect(() => {
         let cancelled = false;
+        if (authLoading || !user) {
+            setIsAdmin(false);
+            return () => { cancelled = true; };
+        }
+        void getAuthUserApiV1UserAuthUserGet()
+            .then((response) => {
+                if (!cancelled) setIsAdmin(response.data?.is_superuser === true);
+            })
+            .catch(() => {
+                if (!cancelled) setIsAdmin(false);
+            });
+        return () => { cancelled = true; };
+    }, [authLoading, user]);
+    useEffect(() => {
+        let cancelled = false;
+        if (authLoading || !user) return () => { cancelled = true; };
         void loadSakinahScenariosWithLegacyMigration()
             .then((loadedScenarios) => { if (!cancelled) setScenarios(loadedScenarios); })
             .catch((loadError) => {
@@ -123,7 +148,7 @@ export default function ScenarioLibraryPage() {
             })
             .finally(() => { if (!cancelled) setLoaded(true); });
         return () => { cancelled = true; };
-    }, []);
+    }, [authLoading, user]);
     const openCreate = () => { setEditing(null); setEditorOpen(true); };
     const handleImport = async (file: File | undefined) => {
         if (!file) return;
@@ -184,12 +209,19 @@ export default function ScenarioLibraryPage() {
             setSaving(false);
         }
     };
+    const handleBulkImportCommitted = (response: BulkScenarioImportResponse) => {
+        setImportMessage(`Imported ${response.imported} scenario${response.imported === 1 ? "" : "s"}; ${response.failed} failed.`);
+        void loadSakinahScenariosWithLegacyMigration()
+            .then(setScenarios)
+            .catch((loadError) => setImportMessage(loadError instanceof Error ? loadError.message : "Unable to refresh scenarios."));
+    };
     return <main className="mx-auto w-full max-w-6xl space-y-6 p-4 md:p-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-2"><p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Sakinah</p><h1 className="text-3xl font-bold tracking-tight">Scenario Library</h1><p className="text-muted-foreground">Create and manage simulated service-user scenarios for Sakinah testing.</p></div><div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImport(event.target.files?.[0])} /><Button variant="outline" disabled={saving} onClick={() => importInputRef.current?.click()}><Upload />Import JSON</Button><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></div></header>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-2"><p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Sakinah</p><h1 className="text-3xl font-bold tracking-tight">Scenario Library</h1><p className="text-muted-foreground">Create and manage simulated service-user scenarios for Sakinah testing.</p></div><div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImport(event.target.files?.[0])} />{isAdmin ? <Button variant="outline" disabled={saving} onClick={() => setBulkImportOpen(true)}><Upload />Bulk Import Scenarios</Button> : null}<Button variant="outline" disabled={saving} onClick={() => importInputRef.current?.click()}><Upload />Import JSON</Button><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></div></header>
         {importMessage ? <p role="status" className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">{importMessage}</p> : null}
         {loaded && scenarios.length === 0 ? <Card className="py-14 text-center"><CardContent className="space-y-4"><Library className="mx-auto size-10 text-muted-foreground" /><div><h2 className="font-semibold">No scenarios yet.</h2><p className="text-sm text-muted-foreground">Create a reusable scenario to begin testing Sakinah.</p></div><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></CardContent></Card> : null}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{scenarios.map((scenario) => <Card key={scenario.id} className="flex flex-col"><CardHeader><div className="flex items-center justify-between gap-3"><Badge variant="secondary">{formatScenarioNumber(scenario.sequence)}</Badge><Badge variant="outline" className="capitalize">{scenario.mode}</Badge></div><CardTitle className="mt-2">{scenario.title}</CardTitle><CardDescription className="line-clamp-3">{scenario.mode === "freestyle" ? scenario.freestylePrompt : scenario.persona}</CardDescription></CardHeader><CardContent className="flex-1 space-y-1 text-sm text-muted-foreground">{scenario.language ? <p>Language: {scenario.language}</p> : null}{scenario.emotion ? <p>Emotion: {scenario.emotion}</p> : null}</CardContent><CardFooter className="flex flex-wrap gap-2"><Button size="sm" disabled={saving} onClick={() => router.push(`/sakinah/sim?scenario=${encodeURIComponent(scenario.id)}`)}><Play />Use in Simulation</Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Edit ${scenario.title}`} onClick={() => { setEditing(scenario); setEditorOpen(true); }}><Pencil /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Duplicate ${scenario.title}`} onClick={() => void handleDuplicate(scenario)}><Copy /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Delete ${scenario.title}`} onClick={() => setDeleting(scenario)}><Trash2 /></Button></CardFooter></Card>)}</div>
         <ScenarioEditor open={editorOpen} scenario={editing} onOpenChange={setEditorOpen} onSave={handleSave} />
+        <BulkScenarioImport open={bulkImportOpen} onOpenChange={setBulkImportOpen} onCommitted={handleBulkImportCommitted} />
         <AlertDialog open={deleting !== null} onOpenChange={(open) => { if (!open && !saving) setDeleting(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete scenario?</AlertDialogTitle><AlertDialogDescription>This permanently removes {deleting ? formatScenarioNumber(deleting.sequence) : "this scenario"}. Other scenario numbers will not change.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel><AlertDialogAction disabled={saving} className="bg-destructive text-white hover:bg-destructive/90" onClick={() => void handleDelete()}>Delete Scenario</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </main>;
 }

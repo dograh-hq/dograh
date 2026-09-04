@@ -9,6 +9,7 @@ import ChatwootWidget from "@/components/ChatwootWidget";
 import AppLayout from "@/components/layout/AppLayout";
 import MetaPixel from "@/components/MetaPixel";
 import PostHogIdentify from "@/components/PostHogIdentify";
+import ReoProvider from "@/components/ReoProvider";
 import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";
 import SpinLoader from "@/components/SpinLoader";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -42,6 +43,7 @@ export default function RootLayout({
 }) {
   const gtmId = process.env.NEXT_PUBLIC_GTM_ID?.trim();
   const metaPixelId = process.env.NEXT_PUBLIC_META_PIXEL_ID?.trim();
+  const reoClientId = process.env.NEXT_PUBLIC_REO_CLIENT_ID?.trim();
 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
@@ -80,6 +82,7 @@ export default function RootLayout({
                     <TelephonyConfigWarningsProvider>
                       <OnboardingProvider>
                         <PostHogIdentify />
+                        {reoClientId ? <ReoProvider clientId={reoClientId} /> : null}
                         <AppLayout>
                           {children}
                         </AppLayout>

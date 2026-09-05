@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Library, Pencil, Play, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Copy, Pencil, Play, Plus, Search, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 

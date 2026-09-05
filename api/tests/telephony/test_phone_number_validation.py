@@ -457,7 +457,7 @@ async def test_create_phone_number_uses_provider_provisioning_when_supported():
             return_value=provider,
         ),
         patch(
-            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            "api.routes.organization.assert_no_inbound_routing_conflict",
             new_callable=AsyncMock,
             return_value=None,
         ),
@@ -508,7 +508,7 @@ async def test_create_phone_number_aborts_when_provider_provisioning_fails():
             return_value=provider,
         ),
         patch(
-            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            "api.routes.organization.assert_no_inbound_routing_conflict",
             new_callable=AsyncMock,
             return_value=None,
         ),
@@ -555,7 +555,7 @@ async def test_create_rejects_unowned_number_before_database_insert():
         )
     )
     create_local = AsyncMock()
-    find_conflict = AsyncMock(return_value=None)
+    routing_guard = AsyncMock(return_value=None)
 
     with (
         patch(
@@ -569,8 +569,8 @@ async def test_create_rejects_unowned_number_before_database_insert():
             return_value=provider,
         ),
         patch(
-            "api.routes.organization.db_client.find_inbound_routing_conflict",
-            find_conflict,
+            "api.routes.organization.assert_no_inbound_routing_conflict",
+            routing_guard,
         ),
         patch("api.routes.organization.db_client.create_phone_number", create_local),
         pytest.raises(HTTPException) as exc_info,
@@ -583,7 +583,7 @@ async def test_create_rejects_unowned_number_before_database_insert():
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "not owned"
-    find_conflict.assert_awaited_once()
+    routing_guard.assert_awaited_once()
     create_local.assert_not_awaited()
 
 
@@ -608,7 +608,7 @@ async def test_create_surfaces_provider_lookup_failure_as_bad_gateway():
             return_value=provider,
         ),
         patch(
-            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            "api.routes.organization.assert_no_inbound_routing_conflict",
             new_callable=AsyncMock,
             return_value=None,
         ),
@@ -645,7 +645,7 @@ async def test_create_validates_country_hinted_number_in_canonical_form():
             return_value=provider,
         ),
         patch(
-            "api.routes.organization.db_client.find_inbound_routing_conflict",
+            "api.routes.organization.assert_no_inbound_routing_conflict",
             new_callable=AsyncMock,
             return_value=None,
         ),

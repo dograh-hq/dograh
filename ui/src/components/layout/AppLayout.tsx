@@ -17,6 +17,7 @@ import { GitHubStarBadge } from "./GitHubStarBadge";
 
 function AppHeader() {
   const { toggleSidebar } = useSidebar();
+  const { config } = useAppConfig();
 
   return (
     <header className="sticky top-0 z-50 flex items-center justify-between border-b border-border/60 bg-background/70 px-4 py-2 backdrop-blur-md supports-[backdrop-filter]:bg-background/55">
@@ -25,11 +26,16 @@ function AppHeader() {
           <Menu className="h-5 w-5" />
         </Button>
         <Link href="/" className="text-lg font-bold md:hidden">CALMOS</Link>
+        {config?.uiVersion && (
+          <span className="text-xs font-normal text-muted-foreground md:hidden">
+            v{config.uiVersion}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <a
-            href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g"
+            href="https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ"
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => posthog.capture(PostHogEvent.SLACK_COMMUNITY_CLICKED, { source: "app_header" })}

@@ -12,8 +12,6 @@ import type {
     EndCallToolDefinition,
     HttpApiToolDefinition,
     McpToolDefinition,
-    PresetToolParameter,
-    ToolParameter,
     TransferCallConfig,
     TransferCallToolDefinition,
 } from "@/client/types.gen";
@@ -77,23 +75,6 @@ export function ruleRowsToContextMappingRules(
             destination: route.destination.trim(),
         })),
     }));
-}
-
-export interface TransferResolverConfig {
-    type: "http";
-    url: string;
-    headers?: Record<string, string> | null;
-    credential_uuid?: string | null;
-    timeout_ms: number;
-    wait_message?: string | null;
-    parameters?: ToolParameter[] | null;
-    preset_parameters?: PresetToolParameter[] | null;
-}
-
-export interface ExtendedTransferCallConfig extends Omit<TransferCallConfig, "context_mapping"> {
-    destination_source?: TransferDestinationSource;
-    resolver?: TransferResolverConfig | null;
-    context_mapping?: ContextDestinationMappingConfig | null;
 }
 
 export interface ToolCategoryConfig {

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.46.1 (2026-09-05)
+
+- Sync the CALMOS Connect white-label build with upstream Dograh 1.46.0 features and fixes.
+- Retain the white-label Sakinah scenario and simulation updates while carrying forward upstream telephony, disposition, tracing, and observability improvements.
+
+## 1.46.0 (2026-09-03)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+### Features
+* Better telephony setup UX, structured call dispositions, custom transfer dispositions, Cartesia sonic-3.6, Google Tag Manager, Tuner simulation, and telephony phone-ID copy.
+
+### Bug Fixes
+* Transfer disposition and Vicidial lead sync, dynamic disposition filters, unique ARI Stasis app names, private Langfuse traces, structured JSON logging, and Helm worker readiness.
+
 ## 1.45.5 (2026-09-04)
 
 - Persist Sakinah live and AI-to-AI runs with transcript, conversation preview, and recording/transcript artifact references available after completion.

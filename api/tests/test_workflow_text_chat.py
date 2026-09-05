@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
+from pipecat.utils.enums import EndTaskReason
 
 from api.db.models import OrganizationModel, UserModel, organization_users_association
 from api.enums import OrganizationConfigurationKey
@@ -353,7 +354,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
                     "add_global_prompt": False,
                     "greeting_type": "text",
                     "greeting": "Welcome {{customer_name}} ({{account_tier}}).",
-                    "pre_call_fetch_enabled": True,
+                    "pre_call_fetch_mode": "always",
                     "pre_call_fetch_url": "https://example.com/customer",
                     "pre_call_fetch_credential_uuid": "credential-uuid",
                 },
@@ -910,7 +911,10 @@ async def test_text_chat_end_transition_persists_synchronous_variable_extraction
     assert run_payload["gathered_context"]["extracted_variables"] == {
         "customer_age": "45"
     }
-    assert run_payload["gathered_context"]["call_disposition"] == "user_qualified"
+    assert (
+        run_payload["gathered_context"]["call_disposition"]
+        == EndTaskReason.END_CALL.value
+    )
     enqueue.assert_awaited_once_with(
         FunctionNames.PROCESS_WORKFLOW_COMPLETION,
         session["workflow_run_id"],

@@ -14,6 +14,7 @@ from api.schemas.workflow_configurations import (
     DEFAULT_SMART_TURN_STOP_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_TURN_START_STRATEGY,
+    WorkflowConfigurationDefaults,
 )
 from api.services.call_concurrency import call_concurrency
 from api.services.configuration.registry import ServiceProviders
@@ -64,6 +65,9 @@ from api.services.pipecat.service_factory import (
     create_stt_service,
     create_tts_service,
     stt_uses_external_turns,
+)
+from api.services.pipecat.termination_funnel_processor import (
+    TerminationFunnelProcessor,
 )
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
@@ -712,7 +716,12 @@ async def _run_pipeline_impl(
         ReactFlowDTO.model_validate(run_workflow_json),
         skip_instance_constraints_for={"trigger"},
     )
-    uses_variable_extraction = workflow_graph.uses_variable_extraction()
+    call_dispositions = WorkflowConfigurationDefaults.model_validate(
+        {"call_dispositions": run_configs.get("call_dispositions") or []}
+    ).call_dispositions
+    needs_extraction_llm = workflow_graph.uses_variable_extraction() or bool(
+        call_dispositions
+    )
 
     from api.services.managed_model_services import (
         MPS_CORRELATION_ID_CONTEXT_KEY,
@@ -757,16 +766,16 @@ async def _run_pipeline_impl(
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
 
-    # A shared LLM cannot carry an extraction usage_context without also tagging
-    # normal conversation or context-summarization requests. Create a dedicated
-    # client only for the managed provider; other providers ignore usage_context.
+    # Variable and disposition extraction may share this out-of-band LLM. A
+    # shared conversation LLM cannot carry an extraction usage_context without
+    # also tagging normal conversation or context-summarization requests.
     variable_extraction_llm = (
         create_llm_service(
             user_config,
             correlation_id=mps_correlation_id,
             usage_context="variable_extraction",
         )
-        if uses_variable_extraction
+        if needs_extraction_llm
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else inference_llm or llm
     )
@@ -924,6 +933,7 @@ async def _run_pipeline_impl(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
+        call_dispositions=call_dispositions,
     )
 
     # Create pipeline components
@@ -1024,6 +1034,11 @@ async def _run_pipeline_impl(
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
 
+    # Terminations raised from inside the pipeline are handed to the engine
+    # instead of cancelling the worker directly. Its handler is registered by
+    # `register_event_handlers` once the task exists.
+    termination_funnel = TerminationFunnelProcessor()
+
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
 
@@ -1088,7 +1103,7 @@ async def _run_pipeline_impl(
         async def _on_voicemail_detected(_processor):
             logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
             await engine.end_call_with_reason(
-                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
+                call_status=EndTaskReason.VOICEMAIL_DETECTED.value,
                 abort_immediately=True,
             )
 
@@ -1127,6 +1142,7 @@ async def _run_pipeline_impl(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
+            termination_funnel,
             voicemail_detector=voicemail_detector,
             calm_prompt_processor=calm_prompt_processor,
         )
@@ -1141,6 +1157,7 @@ async def _run_pipeline_impl(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
+            termination_funnel,
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
             calm_prompt_processor=calm_prompt_processor,
@@ -1232,6 +1249,7 @@ async def _run_pipeline_impl(
         in_memory_logs_buffer=in_memory_logs_buffer,
         transcript_log_coordinator=transcript_log_coordinator,
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
+        termination_funnel=termination_funnel,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
         user_provider_id=user_provider_id,

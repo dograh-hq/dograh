@@ -11,6 +11,8 @@ import type { ReactNode } from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
 
+import packageJson from "../../../package.json";
+
 const HIGHLIGHTS = [
   "Speech-to-speech",
   "MCP-native",
@@ -32,8 +34,9 @@ export function AuthShell({
         <div className="flex min-h-full items-center justify-center p-6 sm:p-10">
           <div className="w-full max-w-md space-y-6 rounded-2xl border border-border/60 bg-card p-6 shadow-lg sm:p-8">
             {/* Mobile-only wordmark (brand panel is hidden) */}
-            <div className="lg:hidden">
+            <div className="flex items-center gap-2 lg:hidden">
               <BrandLogo className="text-2xl" />
+              <span className="text-xs text-muted-foreground">v{packageJson.version}</span>
             </div>
             {children}
           </div>
@@ -49,8 +52,9 @@ export function AuthShell({
           style={{ background: "radial-gradient(circle, var(--cta), transparent 70%)" }}
         />
 
-        <div className="relative">
+        <div className="relative flex items-center gap-2">
           <BrandLogo inverse className="text-3xl" />
+          <span className="text-xs text-zinc-500">v{packageJson.version}</span>
         </div>
 
         <div className="relative max-w-md space-y-5">

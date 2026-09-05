@@ -19,6 +19,7 @@ from api.services.pipecat.realtime_feedback_events import (
     build_pipeline_error_event,
     stamp_realtime_feedback_event,
 )
+from api.services.workflow.disposition_mapping import map_disposition
 from api.tasks.function_names import FunctionNames
 
 
@@ -40,6 +41,13 @@ async def mark_workflow_run_failed(workflow_run_id: int, error_message: str) -> 
     )
 
     try:
+        # Inside the try because this reads the organization's disposition
+        # mapping: a failure resolving it must not mask the rejection this
+        # function is recording, same as the write below.
+        mapped_disposition = await map_disposition(
+            await db_client.get_organization_id_by_workflow_run_id(workflow_run_id),
+            error_disposition,
+        )
         await db_client.update_workflow_run(
             run_id=workflow_run_id,
             is_completed=True,
@@ -48,7 +56,10 @@ async def mark_workflow_run_failed(workflow_run_id: int, error_message: str) -> 
             gathered_context={
                 "error": error_message,
                 "call_disposition": error_disposition,
-                "mapped_call_disposition": error_disposition,
+                "mapped_call_disposition": mapped_disposition,
+                # A rejected run never had a conversation, so the mechanism is
+                # the whole story and doubles as the disposition.
+                "call_status": error_disposition,
             },
             logs={"realtime_feedback_events": [failure_event]},
         )

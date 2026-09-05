@@ -7,6 +7,27 @@ description: "Connect voice agents with telephony providers for inbound and outb
 
 Dograh AI's telephony integration system provides a unified interface for connecting with various telephony providers. The same configuration powers both outbound calls (initiated from Dograh) and inbound calls (received on a phone number you own).
 
+Dograh does not sell phone numbers or minutes. The phone service is always
+yours — there are two ways to bring it.
+
+## Two ways to connect
+
+<CardGroup cols={2}>
+  <Card title="Use a telephony provider" icon="phone">
+    Open an account with Twilio, Plivo, Telnyx, Vonage or Vobiz, paste the
+    credentials into Dograh, and call using their numbers. **Start here if you
+    don't already run phone infrastructure.** Pick your provider from the list
+    below.
+  </Card>
+  <Card title="Bring your own SIP" icon="server" href="/integrations/telephony/dograh-sip">
+    Already have a SIP trunk or a PBX? Point it at Dograh and keep your existing
+    carrier and numbers. Every organization is provisioned with a
+    **Dograh Cloudonix SIP** connection for exactly this; self-hosted
+    deployments can use [Asterisk ARI](/integrations/telephony/asterisk-ari)
+    instead.
+  </Card>
+</CardGroup>
+
 ## Supported Providers
 
 <CardGroup cols={3}>

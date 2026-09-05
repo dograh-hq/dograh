@@ -7,6 +7,7 @@ from sqlalchemy import Float, Text, and_, cast, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from api.db.models import WorkflowRunModel
+from api.enums import WORKFLOW_RUN_MODES_BY_CHANNEL, CallType
 
 
 def get_workflow_run_order_clause(
@@ -52,6 +53,8 @@ ATTRIBUTE_FIELD_MAPPING = {
     "callTags": "gathered_context.call_tags",
     "callerNumber": "initial_context.caller_number",
     "calledNumber": "initial_context.called_number",
+    "callDirection": "call_type",
+    "callChannel": "mode",
 }
 
 
@@ -73,6 +76,8 @@ def apply_workflow_run_filters(
     - callTags: Filter by gathered_context.call_tags (array of strings)
     - callerNumber: Filter by initial_context.caller_number (text search)
     - calledNumber: Filter by initial_context.called_number (text search)
+    - callDirection: Filter by call_type (inbound / outbound)
+    - callChannel: Filter by mode, grouped into telephony / web / chat
 
     Args:
         base_query: The base SQLAlchemy query to apply filters to
@@ -161,6 +166,20 @@ def apply_workflow_run_filters(
                     filter_conditions.append(WorkflowRunModel.is_completed == True)
                 elif status == "in_progress":
                     filter_conditions.append(WorkflowRunModel.is_completed == False)
+
+            elif filter_type == "radio" and field == "call_type":
+                # RadioValue carries the choice under "status" for every radio
+                # filter, not just the completion one.
+                direction = value.get("status")
+                if direction in {call_type.value for call_type in CallType}:
+                    filter_conditions.append(WorkflowRunModel.call_type == direction)
+
+            elif filter_type == "radio" and field == "mode":
+                # The UI filters by channel (telephony / web / chat); the column
+                # stores the provider-level mode, so expand to that channel's modes.
+                modes = WORKFLOW_RUN_MODES_BY_CHANNEL.get(value.get("status"))
+                if modes:
+                    filter_conditions.append(WorkflowRunModel.mode.in_(modes))
 
             elif (
                 filter_type in ("tags", "multiSelect")

@@ -7,11 +7,17 @@ from api.constants import (
     TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
 )
 from api.schemas.workflow_configurations import (
+    DEFAULT_CALL_DISPOSITION_OPTIONS,
     DEFAULT_MAX_CALL_DURATION_SECONDS,
+    MAX_CALL_DISPOSITION_CODE_LENGTH,
+    MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH,
+    MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH,
+    MAX_CALL_DISPOSITIONS,
     MAX_CALL_DURATION_SECONDS,
     MAX_EXTERNAL_PBX_LEAD_HEADERS,
     TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
+    get_default_call_disposition_options,
 )
 
 
@@ -98,6 +104,110 @@ def test_null_values_treated_as_unset():
     assert config.max_call_duration == DEFAULT_MAX_CALL_DURATION_SECONDS
     # Nulls count as unset, so a sparse round-trip drops them entirely.
     assert config.model_dump(exclude_unset=True) == {}
+
+
+def test_call_dispositions_are_trimmed():
+    configured = WorkflowConfigurationDefaults(
+        call_dispositions=[
+            {
+                "code": "  call_rescheduled  ",
+                "description": "  The caller booked another conversation.  ",
+            }
+        ]
+    )
+
+    assert configured.call_dispositions[0].code == "call_rescheduled"
+    assert configured.call_dispositions[0].description == (
+        "The caller booked another conversation."
+    )
+
+
+def test_default_call_dispositions_are_complete_and_returned_as_fresh_models():
+    first = get_default_call_disposition_options()
+    second = get_default_call_disposition_options()
+
+    assert [option.code for option in first] == [
+        "qualified",
+        "not_interested",
+        "wrong_number",
+        "voicemail_detected",
+        "do_not_call",
+        "callback_requested",
+    ]
+    assert all(option.description for option in first)
+    assert tuple(first) == DEFAULT_CALL_DISPOSITION_OPTIONS
+    assert all(left is not right for left, right in zip(first, second, strict=True))
+
+
+def test_call_dispositions_have_a_bounded_row_count():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": f"outcome_{index}", "description": "Description."}
+                for index in range(MAX_CALL_DISPOSITIONS + 1)
+            ]
+        )
+
+
+def test_call_disposition_code_has_a_bounded_size():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {
+                    "code": "x" * (MAX_CALL_DISPOSITION_CODE_LENGTH + 1),
+                    "description": "A valid description.",
+                }
+            ]
+        )
+
+
+def test_call_disposition_description_has_a_bounded_size():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {
+                    "code": "qualified",
+                    "description": "x" * (MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH + 1),
+                }
+            ]
+        )
+
+
+def test_call_disposition_descriptions_have_a_total_budget():
+    full_description = "x" * MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH
+    overflow = "x" * (
+        MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH
+        - (4 * MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH)
+        + 1
+    )
+    with pytest.raises(ValidationError, match="descriptions must total"):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": f"outcome_{index}", "description": full_description}
+                for index in range(4)
+            ]
+            + [
+                {"code": "overflow", "description": overflow},
+            ]
+        )
+
+
+def test_call_disposition_codes_are_unique_case_insensitively():
+    with pytest.raises(ValidationError, match="codes must be unique"):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": "qualified", "description": "Qualified."},
+                {"code": "QUALIFIED", "description": "Also qualified."},
+            ]
+        )
+
+
+@pytest.mark.parametrize("code", ["not interested", "123", "qualified!"])
+def test_call_disposition_codes_use_machine_safe_format(code):
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[{"code": code, "description": "Description."}]
+        )
 
 
 def test_exclude_unset_round_trip_stays_sparse():

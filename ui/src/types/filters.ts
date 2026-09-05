@@ -125,7 +125,7 @@ export const filterTemplates: FilterTemplate[] = [
       {
         attributeId: "dispositionCode",
         value: {
-          codes: ["Failed", "No Answer", "Busy"],
+          codes: ["failed", "no-answer", "busy"],
         } as MultiSelectValue,
       },
     ],

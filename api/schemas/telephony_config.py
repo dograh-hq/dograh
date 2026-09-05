@@ -15,31 +15,28 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.services.telephony.base import SIPConnectivityDetails
 from api.services.telephony.providers.ari.config import (
     ARIConfigurationRequest,
-    ARIConfigurationResponse,
 )
 from api.services.telephony.providers.cloudonix.config import (
     CloudonixConfigurationRequest,
-    CloudonixConfigurationResponse,
 )
 from api.services.telephony.providers.plivo.config import (
     PlivoConfigurationRequest,
-    PlivoConfigurationResponse,
 )
 from api.services.telephony.providers.telnyx.config import (
     TelnyxConfigurationRequest,
-    TelnyxConfigurationResponse,
 )
 from api.services.telephony.providers.twilio.config import (
     TwilioConfigurationRequest,
-    TwilioConfigurationResponse,
 )
 from api.services.telephony.providers.vobiz.config import (
     VobizConfigurationRequest,
-    VobizConfigurationResponse,
 )
 from api.services.telephony.providers.vonage.config import (
     VonageConfigurationRequest,
-    VonageConfigurationResponse,
+)
+from api.services.telephony.registry import (
+    ProviderConnectivity,
+    ProviderSetupChecklist,
 )
 
 # Discriminated union for incoming save requests. Pydantic dispatches on the
@@ -57,23 +54,6 @@ TelephonyConfigRequest = Annotated[
     ],
     Field(discriminator="provider"),
 ]
-
-
-class TelephonyConfigurationResponse(BaseModel):
-    """Top-level telephony configuration response.
-
-    Keeps the per-provider field shape that the UI client depends on. When
-    the UI moves to metadata-driven forms, this can be replaced with a
-    flat discriminated union.
-    """
-
-    twilio: Optional[TwilioConfigurationResponse] = None
-    plivo: Optional[PlivoConfigurationResponse] = None
-    vonage: Optional[VonageConfigurationResponse] = None
-    vobiz: Optional[VobizConfigurationResponse] = None
-    cloudonix: Optional[CloudonixConfigurationResponse] = None
-    ari: Optional[ARIConfigurationResponse] = None
-    telnyx: Optional[TelnyxConfigurationResponse] = None
 
 
 # ---------------------------------------------------------------------------
@@ -110,13 +90,59 @@ class TelephonyConfigurationListItem(BaseModel):
     id: int
     name: str
     provider: str
+    # Denormalized from the provider registry so clients can tell a carrier
+    # account apart from a bring-your-own-SIP connection without a second
+    # request and without a hardcoded provider list of their own.
+    connectivity: ProviderConnectivity = "api"
     is_default_outbound: bool
     inactive: bool = False
     inactive_since: datetime | None = None
     inactive_reason: str | None = None
     phone_number_count: int = 0
+    # Whether this configuration can actually place an outbound call, as
+    # reported by the provider's setup-checklist hook. Providers without one
+    # are ready as soon as their credentials are stored, hence the default.
+    is_ready_for_outbound: bool = True
+    outbound_blocked_reason: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class TrunkResponse(BaseModel):
+    """One carrier path on a configuration.
+
+    ``settings`` is the provider's own trunk schema (validated on write against
+    ``ProviderSpec.trunk_settings_cls``). The provider-side identifier is
+    Dograh's bookkeeping and is not exposed.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    enabled: bool
+    settings: dict
+    phone_number_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class TrunkCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    enabled: bool = True
+    settings: dict = Field(default_factory=dict)
+
+
+class TrunkUpdateRequest(BaseModel):
+    """Partial update — omitted fields keep their stored value."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    enabled: Optional[bool] = None
+    settings: Optional[dict] = None
+
+
+class TrunkListResponse(BaseModel):
+    trunks: List[TrunkResponse]
 
 
 class TelephonyConfigurationDetail(BaseModel):
@@ -125,12 +151,22 @@ class TelephonyConfigurationDetail(BaseModel):
     id: int
     name: str
     provider: str
+    connectivity: ProviderConnectivity = "api"
     is_default_outbound: bool
     inactive: bool = False
     inactive_since: datetime | None = None
     inactive_reason: str | None = None
     credentials: dict
     sip_connectivity: SIPConnectivityDetails | None = None
+    setup_checklist: ProviderSetupChecklist | None = None
+    # Whether the provider's Dograh integration models trunks at all. Distinct
+    # from ``trunks`` being empty, which is equally the state of a trunk-capable
+    # configuration nobody has added one to yet — the UI needs to tell those
+    # apart to know whether to offer the "add a trunk" affordance.
+    supports_trunks: bool = False
+    # Empty unless the provider's Dograh integration models trunks; the
+    # call-control integrations route through the account itself.
+    trunks: List[TrunkResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -141,19 +177,15 @@ class TelephonyConfigurationListResponse(BaseModel):
 
 __all__ = [
     "ARIConfigurationRequest",
-    "ARIConfigurationResponse",
     "CloudonixConfigurationRequest",
-    "CloudonixConfigurationResponse",
     "PlivoConfigurationRequest",
-    "PlivoConfigurationResponse",
     "TelephonyConfigRequest",
-    "TelephonyConfigurationResponse",
+    "TrunkCreateRequest",
+    "TrunkListResponse",
+    "TrunkResponse",
+    "TrunkUpdateRequest",
     "TelnyxConfigurationRequest",
-    "TelnyxConfigurationResponse",
     "TwilioConfigurationRequest",
-    "TwilioConfigurationResponse",
     "VobizConfigurationRequest",
-    "VobizConfigurationResponse",
     "VonageConfigurationRequest",
-    "VonageConfigurationResponse",
 ]

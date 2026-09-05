@@ -3,6 +3,7 @@
 This module contains the business logic for Asterisk ARI call operations.
 """
 
+import asyncio
 from typing import TYPE_CHECKING, Any, Dict
 
 from loguru import logger
@@ -10,6 +11,11 @@ from pipecat.serializers.call_strategies import HangupStrategy, TransferStrategy
 
 if TYPE_CHECKING:
     from .external_pbx import ExternalPBXAdapter
+
+# How often to re-check whether the external PBX has dropped the channel yet.
+# Short enough that a prompt BYE barely delays teardown, long enough that a PBX
+# which never sends one costs a couple of dozen ARI reads rather than hundreds.
+_BYE_POLL_INTERVAL_SECS = 0.15
 
 
 class ARIBridgeSwapStrategy(TransferStrategy):
@@ -223,14 +229,22 @@ class ARIHangupStrategy(HangupStrategy):
                 )
                 return False
 
-            # The external PBX owns the real customer leg. End it before the
-            # local ARI leg so its conference teardown cannot race our SIP BYE.
-            await self._terminate_external_pbx_if_any(channel_id)
+            # The external PBX owns the real customer leg, so it should be the
+            # one that ends the call: ask it to hang up, then wait for its BYE.
+            # Deleting the channel here instead makes Asterisk originate the
+            # BYE, and the PBX records that as Dograh dropping a call it was
+            # still running.
+            bye_wait_seconds = await self._terminate_external_pbx_if_any(channel_id)
 
             endpoint = f"{ari_endpoint}/ari/channels/{channel_id}"
             auth = BasicAuth(app_name, app_password)
 
             async with aiohttp.ClientSession() as session:
+                if bye_wait_seconds > 0 and await self._await_external_pbx_bye(
+                    session, endpoint, auth, channel_id, bye_wait_seconds
+                ):
+                    return True
+
                 async with session.delete(endpoint, auth=auth) as response:
                     if response.status in (200, 204):
                         logger.info(
@@ -254,14 +268,77 @@ class ARIHangupStrategy(HangupStrategy):
             logger.exception(f"Failed to hang up Asterisk channel: {e}")
             return False
 
-    async def _terminate_external_pbx_if_any(self, channel_id: str) -> None:
+    async def _await_external_pbx_bye(
+        self,
+        session: Any,
+        endpoint: str,
+        auth: Any,
+        channel_id: str,
+        wait_seconds: float,
+    ) -> bool:
+        """Poll ARI until the external PBX drops the channel, or time out.
+
+        True means the channel is gone -- the PBX sent the BYE and there is
+        nothing left to delete. False is the caller's cue to delete it after
+        all, so a PBX that accepts the hangup and then does nothing still ends
+        the call rather than stranding the channel until pipecat gives up on
+        the pipeline.
+        """
+        import aiohttp
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        deadline = started + wait_seconds
+        logger.info(
+            f"[ARI Hangup] External PBX accepted hangup for channel {channel_id}; "
+            f"waiting up to {wait_seconds:g}s for its BYE"
+        )
+        while True:
+            try:
+                async with session.get(endpoint, auth=auth) as response:
+                    if response.status == 404:
+                        logger.info(
+                            f"[ARI Hangup] External PBX ended channel {channel_id} "
+                            f"after {loop.time() - started:.2f}s; no local teardown needed"
+                        )
+                        return True
+                    if response.status != 200:
+                        # Without a readable channel state there is no BYE to
+                        # wait for; fall back rather than burn the whole budget.
+                        logger.warning(
+                            f"[ARI Hangup] Cannot read channel {channel_id} while "
+                            f"waiting for the external PBX BYE: status {response.status}"
+                        )
+                        return False
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.warning(
+                    f"[ARI Hangup] Failed to poll channel {channel_id} while waiting "
+                    f"for the external PBX BYE: {e}"
+                )
+                return False
+
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                logger.warning(
+                    f"[ARI Hangup] External PBX did not end channel {channel_id} "
+                    f"within {wait_seconds:g}s; tearing it down from our side"
+                )
+                return False
+            await asyncio.sleep(min(_BYE_POLL_INTERVAL_SECS, remaining))
+
+    async def _terminate_external_pbx_if_any(self, channel_id: str) -> float:
         """If configured, hang up the external PBX's customer leg first.
 
         Reuses the same channel->run lookup the transfer strategy uses
-        (Redis ``ari:channel:{id}`` -> run_id -> ``initial_context``). Best-effort:
-        never blocks dograh's own hangup if the upstream call fails.
+        (Redis ``ari:channel:{id}`` -> run_id -> ``initial_context``).
+
+        Returns how long the caller should wait for the PBX to send its own BYE
+        before deleting the channel. Zero whenever Dograh has to end the call
+        itself: no external PBX, a call already transferred away, a rejected
+        hangup, or a lookup that failed -- none of those leave a BYE coming.
         """
         redis = None
+        wait_seconds = 0.0
         try:
             import redis.asyncio as aioredis
 
@@ -271,10 +348,10 @@ class ARIHangupStrategy(HangupStrategy):
             redis = aioredis.from_url(REDIS_URL, decode_responses=True)
             run_id = await redis.get(f"ari:channel:{channel_id}")
             if not run_id:
-                return
+                return 0.0
             run = await db_client.get_workflow_run_by_id(int(run_id))
             if not run:
-                return
+                return 0.0
             identity = (run.initial_context or {}).get("external_pbx_call")
             # Read the legacy key for calls created before this refactor.
             identity = identity or (run.initial_context or {}).get("upstream_pbx")
@@ -286,35 +363,22 @@ class ARIHangupStrategy(HangupStrategy):
                 "upstream_transferred"
             )
             if identity and not transferred and self._external_pbx_adapter:
-                from api.services.telephony.external_pbx import (
-                    resolve_external_pbx_field_mappings,
-                )
-
-                workflow_configurations = (
-                    await db_client.get_workflow_run_configurations(
-                        int(run_id), run.workflow.organization_id
-                    )
-                )
-                field_updates = resolve_external_pbx_field_mappings(
-                    run.gathered_context,
-                    workflow_configurations.get("external_pbx_field_mappings", []),
-                )
-                if field_updates:
-                    update_result = await self._external_pbx_adapter.update_fields(
-                        identity, field_updates
-                    )
-                    if not update_result.ok:
-                        logger.warning(
-                            "[ARI Hangup] External PBX field update failed; "
-                            f"continuing hangup: {update_result.message}"
-                        )
+                # The lead write-back deliberately does not happen here. This
+                # strategy only runs when Dograh ends the call; when the
+                # customer hangs up first Asterisk tears the channel down
+                # through StasisEnd and nothing below executes. Disposition and
+                # lead fields are written from the workflow completion job
+                # instead, which runs for every call -- see
+                # api/tasks/workflow_completion.py.
                 logger.info(
                     "[ARI Hangup] External PBX call "
                     f"({self._external_pbx_adapter.type}); "
-                    f"terminating customer leg via API before dropping dograh leg"
+                    f"asking it to end the customer leg"
                 )
                 result = await self._external_pbx_adapter.hangup(identity)
-                if not result.ok:
+                if result.ok:
+                    wait_seconds = self._external_pbx_adapter.hangup_bye_wait_seconds
+                else:
                     logger.warning(
                         f"[ARI Hangup] External PBX rejected hangup: {result.message}"
                     )
@@ -326,3 +390,4 @@ class ARIHangupStrategy(HangupStrategy):
                     await redis.aclose()
                 except Exception as e:
                     logger.warning(f"[ARI Hangup] failed to close Redis client: {e}")
+        return wait_seconds

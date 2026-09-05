@@ -384,6 +384,28 @@ class TestToolToFunctionSchema:
         assert schema["function"]["parameters"]["properties"] == {}
         assert schema["function"]["parameters"]["required"] == []
 
+    def test_transfer_disposition_is_not_exposed_as_a_model_argument(self):
+        """A configured transfer disposition is static tool configuration."""
+        tool = MockToolModel(
+            tool_uuid="transfer-uuid",
+            name="Transfer To Sales",
+            description="Transfer the caller to sales",
+            category="transfer_call",
+            definition={
+                "schema_version": 1,
+                "type": "transfer_call",
+                "config": {
+                    "destination": "+14155550123",
+                    "call_disposition": "transferred_to_sales",
+                },
+            },
+        )
+
+        schema = tool_to_function_schema(tool)
+
+        assert schema["function"]["parameters"]["properties"] == {}
+        assert schema["function"]["parameters"]["required"] == []
+
 
 class TestExecuteHttpTool:
     """Tests for execute_http_tool function."""

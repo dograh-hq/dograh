@@ -3,13 +3,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import redis.asyncio as aioredis
+from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
+from api.enums import TelephonyCallStatus
 from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.providers.ari.external_pbx import (
     ExternalPBXResult,
     create_adapter,
 )
+from api.services.telephony.providers.ari.provider import ARIProvider
 from api.services.telephony.providers.ari.strategies import ARIHangupStrategy
 from api.services.workflow.tools import transfer_resolver
 
@@ -145,6 +148,44 @@ async def test_vicidial_adapter_ignores_duplicate_and_invalid_lead_fields():
 
 
 @pytest.mark.asyncio
+async def test_vicidial_lead_header_log_separates_empty_from_never_requested():
+    """A blank header and an unconfigured one both vanish from ``lead``.
+
+    They need opposite fixes — one is PBX/lead data, the other a workflow
+    setting — so the log has to tell them apart.
+    """
+    adapter = create_adapter(_vicidial_config())
+    headers = {
+        "X-VICIDIAL-callerid": "M123",
+        "X-VICIDIAL-first_name": "Ada",
+        # state is configured but the PBX sends it blank
+        "X-VICIDIAL-state": "",
+    }
+    read_header, _ = _header_access(headers)
+
+    with (
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.info"
+        ) as log_info,
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+        ) as log_warning,
+    ):
+        await adapter.capture_call_identity(
+            read_header, ["first_name", "state", "bad name)"]
+        )
+
+    messages = " ".join(call.args[0] for call in log_info.call_args_list)
+    assert "requested=['first_name', 'state']" in messages
+    assert "populated=['first_name']" in messages
+    assert "empty=['state']" in messages
+    # Header values are customer PII; only names belong in the log.
+    assert "Ada" not in messages and "M123" not in messages
+    # An unusable configured name is a misconfiguration, not a PBX problem.
+    assert "bad name)" in " ".join(call.args[0] for call in log_warning.call_args_list)
+
+
+@pytest.mark.asyncio
 async def test_vicidial_adapter_returns_none_without_callerid():
     adapter = create_adapter(_vicidial_config())
     read_header, _ = _header_access({"X-VICIDIAL-first_name": "Ada"})
@@ -261,6 +302,219 @@ async def test_vicidial_update_lead_log_redacts_rejection_body():
         "private note",
     ):
         assert sensitive_value not in messages
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_asks_for_custom_fields():
+    """Without custom_fields=Y, VICIdial ignores every custom-field parameter.
+
+    No update, no error — just an empty body. Which destination fields a
+    deployment defined as custom is not knowable here, so the flag always goes.
+    """
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await adapter.update_fields({"lead_id": "42"}, {"Medicaid": "yes"})
+
+    _, kwargs = session.requests[0]
+    assert kwargs["params"]["custom_fields"] == "Y"
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_never_puts_a_mapped_field_first():
+    """VICIdial's custom-field parser ignores the first query-string parameter.
+
+    A mapped field placed there is dropped silently — no error, no update — so
+    the control parameters must lead and the mapped fields follow.
+    """
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await adapter.update_fields(
+            {"lead_id": "42"}, {"Medicaid": "yes", "MedSupp": "no"}
+        )
+
+    keys = list(session.requests[0][1]["params"])
+    assert keys[0] not in ("Medicaid", "MedSupp")
+    # Every mapped field must sit after every control parameter.
+    assert min(keys.index("Medicaid"), keys.index("MedSupp")) > keys.index(
+        "custom_fields"
+    )
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_rejects_fields_shadowing_control_params():
+    """Mapped fields are appended last, so a collision would hijack the call."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        await adapter.update_fields(
+            {"lead_id": "42"},
+            {"format": "json", "custom_fields": "N", "function": "add_lead"},
+        )
+
+    assert not session.requests, "a request with only reserved names must not be sent"
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_accepts_a_custom_fields_only_notice():
+    """A custom-fields-only write never emits a SUCCESS line, only a NOTICE."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(
+            200, "NOTICE: update_lead CUSTOM FIELDS VALUES UPDATED - |42|499|499|499|1"
+        )
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields({"lead_id": "42"}, {"Medicaid": "yes"})
+
+    assert result.ok
+    assert result.message == "VICIdial lead updated"
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_accepts_mixed_standard_and_custom_response():
+    """Standard and custom writes each announce themselves on their own line."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(
+            200,
+            "SUCCESS: update_lead LEAD HAS BEEN UPDATED - u|42|1|||\n"
+            "NOTICE: update_lead CUSTOM FIELDS VALUES UPDATED - |42|499|499|499|1",
+        )
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields(
+            {"lead_id": "42"}, {"comments": "note", "Medicaid": "yes"}
+        )
+
+    assert result.ok
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_still_rejects_an_unrelated_notice():
+    """Only the custom-field notice counts — not NOTICE lines in general."""
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(
+        _StubResponse(200, "NOTICE: update_lead NOTHING TO UPDATE - |42|")
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await adapter.update_fields({"lead_id": "42"}, {"Medicaid": "yes"})
+
+    assert not result.ok
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_rejection_names_fields_and_reason():
+    """A rejection has to say which fields were sent and why VICIdial refused.
+
+    ``response_code=empty`` alone cannot separate "VICIdial does not know this
+    field" from a missing lead or a revoked permission.
+    """
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(_StubResponse(200, ""))
+
+    with (
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+        ) as log_warning,
+    ):
+        result = await adapter.update_fields(
+            {"lead_id": "42"}, {"Medicaid": "yes", "MedSupp": "no"}
+        )
+
+    assert not result.ok
+    messages = " ".join(call.args[0] for call in log_warning.call_args_list)
+    assert "Medicaid" in messages and "MedSupp" in messages
+    assert "<empty body>" in messages
+    # Destination field names are workflow config; their values are lead data.
+    assert "yes" not in messages and "no" not in messages
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_rejection_reason_drops_echoed_parameters():
+    adapter = create_adapter(_vicidial_config())
+    # VICIdial appends the API user and search values after "|" or " - ".
+    session = _StubSession(
+        _StubResponse(
+            200,
+            "ERROR: update_lead NO MATCHES FOUND IN THE SYSTEM: |lead-api-user|42||",
+        )
+    )
+
+    with (
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+            return_value=session,
+        ),
+        patch(
+            "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+        ) as log_warning,
+    ):
+        await adapter.update_fields({"lead_id": "42"}, {"comments": "private note"})
+
+    messages = " ".join(call.args[0] for call in log_warning.call_args_list)
+    assert "NO MATCHES FOUND IN THE SYSTEM" in messages
+    for echoed in ("lead-api-user", "private note"):
+        assert echoed not in messages
+
+
+@pytest.mark.asyncio
+async def test_vicidial_update_lead_skips_are_not_silent():
+    """Every early return ends the write; none may leave the log blank."""
+    adapter = create_adapter(_vicidial_config())
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.logger.info"
+    ) as log_info:
+        result = await adapter.update_fields({"lead_id": "42"}, {})
+    assert result.ok
+    assert "no field mappings resolved" in " ".join(
+        call.args[0] for call in log_info.call_args_list
+    )
+
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.logger.warning"
+    ) as log_warning:
+        result = await adapter.update_fields({}, {"comments": "hello"})
+    assert not result.ok
+    assert "no lead_id was captured" in " ".join(
+        call.args[0] for call in log_warning.call_args_list
+    )
 
 
 def _ari_connection(monkeypatch, variables: dict[str, str]):
@@ -537,7 +791,14 @@ async def test_context_mapping_is_available_without_external_pbx_configuration()
 
 
 @pytest.mark.asyncio
-async def test_hangup_strategy_updates_lead_before_customer_leg(monkeypatch):
+async def test_hangup_strategy_ends_the_customer_leg_without_writing_the_lead(
+    monkeypatch,
+):
+    """The lead write-back moved to workflow completion.
+
+    This strategy only runs when Dograh ends the call, so a write here misses
+    every call the customer hung up on first.
+    """
     redis = AsyncMock()
     redis.get.return_value = "11"
     monkeypatch.setattr(aioredis, "from_url", lambda *args, **kwargs: redis)
@@ -569,6 +830,8 @@ async def test_hangup_strategy_updates_lead_before_customer_leg(monkeypatch):
     )
     adapter = SimpleNamespace(
         type="vicidial",
+        hangup_bye_wait_seconds=0.0,
+        disposition_fields=lambda _disposition: {},
         update_fields=AsyncMock(
             return_value=ExternalPBXResult(True, "update_lead", "ok")
         ),
@@ -577,9 +840,7 @@ async def test_hangup_strategy_updates_lead_before_customer_leg(monkeypatch):
 
     await ARIHangupStrategy(adapter)._terminate_external_pbx_if_any("channel-1")
 
-    adapter.update_fields.assert_awaited_once_with(
-        run.initial_context["external_pbx_call"], {"address3": "yes"}
-    )
+    adapter.update_fields.assert_not_awaited()
     adapter.hangup.assert_awaited_once_with(run.initial_context["external_pbx_call"])
     redis.aclose.assert_awaited_once_with()
 
@@ -593,3 +854,399 @@ async def test_hangup_strategy_closes_redis_when_channel_has_no_run(monkeypatch)
     await ARIHangupStrategy()._terminate_external_pbx_if_any("missing-channel")
 
     redis.aclose.assert_awaited_once_with()
+
+
+class _ChannelResponse:
+    def __init__(self, status: int):
+        self.status = status
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def text(self):
+        return ""
+
+
+class _ARISession:
+    """ARI stub whose channel disappears after ``gone_after`` reads."""
+
+    def __init__(self, *, gone_after: int | None = None):
+        self._gone_after = gone_after
+        self.get_calls: list[str] = []
+        self.delete_calls: list[str] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def get(self, endpoint, *, auth):
+        self.get_calls.append(endpoint)
+        gone = self._gone_after is not None and len(self.get_calls) > self._gone_after
+        return _ChannelResponse(404 if gone else 200)
+
+    def delete(self, endpoint, *, auth):
+        self.delete_calls.append(endpoint)
+        return _ChannelResponse(204)
+
+
+def _external_pbx_run(**gathered) -> SimpleNamespace:
+    return SimpleNamespace(
+        initial_context={
+            "external_pbx_call": {
+                "type": "vicidial",
+                "callerid": "M123",
+                "agent_user": "agent",
+                "lead_id": "42",
+            }
+        },
+        gathered_context=gathered,
+        workflow=SimpleNamespace(organization_id=7),
+    )
+
+
+def _hangup_adapter(*, ok: bool = True, wait: float = 1.0) -> SimpleNamespace:
+    return SimpleNamespace(
+        type="vicidial",
+        hangup_bye_wait_seconds=wait,
+        hangup=AsyncMock(return_value=ExternalPBXResult(ok, "hangup", "ok")),
+    )
+
+
+def _stub_run_lookup(monkeypatch, run) -> AsyncMock:
+    redis = AsyncMock()
+    redis.get.return_value = "11"
+    monkeypatch.setattr(aioredis, "from_url", lambda *args, **kwargs: redis)
+    monkeypatch.setattr(
+        db_client, "get_workflow_run_by_id", AsyncMock(return_value=run)
+    )
+    return redis
+
+
+_HANGUP_CONTEXT = {
+    "channel_id": "channel-1",
+    "ari_endpoint": "http://asterisk.test:8088",
+    "app_name": "dograh",
+    "app_password": "secret",
+}
+
+
+@pytest.mark.asyncio
+async def test_hangup_lets_the_external_pbx_send_the_bye(monkeypatch):
+    """The PBX placed the call, so it -- not Asterisk -- ends it."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter()
+    session = _ARISession(gone_after=2)
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert len(session.get_calls) == 3
+    # Deleting the channel here is exactly what the PBX reports as Dograh
+    # dropping a live call, so the whole point is that it never happens.
+    assert session.delete_calls == []
+
+
+@pytest.mark.asyncio
+async def test_hangup_falls_back_when_the_external_pbx_never_sends_the_bye(monkeypatch):
+    """A queued hangup the PBX drops must not strand the channel."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter(wait=0.1)
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert session.get_calls
+    assert session.delete_calls == ["http://asterisk.test:8088/ari/channels/channel-1"]
+
+
+@pytest.mark.asyncio
+async def test_hangup_does_not_wait_when_the_external_pbx_rejects_it(monkeypatch):
+    """A rejected hangup leaves no BYE coming; Dograh has to end the call."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run())
+    adapter = _hangup_adapter(ok=False)
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    assert session.get_calls == []
+    assert len(session.delete_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_hangup_does_not_wait_for_a_call_already_transferred_away(monkeypatch):
+    """The customer leg has moved on -- we never asked the PBX to hang up."""
+    _stub_run_lookup(monkeypatch, _external_pbx_run(external_pbx_transferred=True))
+    adapter = _hangup_adapter()
+    session = _ARISession()
+
+    with patch("aiohttp.ClientSession", return_value=session):
+        result = await ARIHangupStrategy(adapter).execute_hangup(_HANGUP_CONTEXT)
+
+    assert result is True
+    adapter.hangup.assert_not_awaited()
+    assert session.get_calls == []
+    assert len(session.delete_calls) == 1
+
+
+def test_vicidial_adapter_waits_for_the_bye_by_default():
+    assert create_adapter(_vicidial_config()).hangup_bye_wait_seconds == 3.0
+    assert (
+        create_adapter(
+            {**_vicidial_config(), "hangup_bye_wait_seconds": 0}
+        ).hangup_bye_wait_seconds
+        == 0.0
+    )
+    # Capped well inside pipecat's 20s CancelFrame budget, which also has to
+    # cover the agent-API round trip that precedes the wait.
+    assert (
+        create_adapter(
+            {**_vicidial_config(), "hangup_bye_wait_seconds": 90}
+        ).hangup_bye_wait_seconds
+        == 10.0
+    )
+
+
+# --------------------------------------------------------------------------
+# Disposition -> VICIdial lead status
+# --------------------------------------------------------------------------
+
+
+def test_vicidial_adapter_writes_a_mapped_disposition_as_the_lead_status():
+    """The organization's mapping has already translated what arrives here."""
+    adapter = create_adapter(_vicidial_config())
+
+    assert adapter.disposition_fields("XFER") == {"status": "XFER"}
+    assert adapter.disposition_fields("DNC") == {"status": "DNC"}
+    # Casing is the organization's to choose: it configured the exact code.
+    assert adapter.disposition_fields("callbk") == {"status": "callbk"}
+    # Surrounding whitespace survives a hand-typed mapping entry.
+    assert adapter.disposition_fields("  A  ") == {"status": "A"}
+
+
+def test_vicidial_adapter_drops_a_disposition_the_column_cannot_hold():
+    """``vicidial_list.status`` is VARCHAR(6); a longer code would truncate.
+
+    An unmapped Dograh disposition lands here verbatim, and VICIdial writes
+    RAXFER when it hands a lead to a remote agent -- so leaving the status alone
+    keeps a missing mapping visible in the customer's reports instead of
+    recording a truncated code that reads like a real disposition.
+    """
+    adapter = create_adapter(_vicidial_config())
+
+    assert adapter.disposition_fields(EndTaskReason.USER_HANGUP.value) == {}
+    assert adapter.disposition_fields("voicemail_detected") == {}
+    assert adapter.disposition_fields(TelephonyCallStatus.NO_ANSWER.value) == {}
+    assert adapter.disposition_fields("") == {}
+    assert adapter.disposition_fields(None) == {}
+
+
+def _writeback_run(disposition: str, extracted: dict | None = None):
+    identity = {"type": "vicidial", "callerid": "M123", "lead_id": "42"}
+    gathered = {
+        "call_disposition": disposition,
+        "mapped_call_disposition": disposition,
+    }
+    if extracted:
+        gathered["extracted_variables"] = extracted
+    return identity, SimpleNamespace(
+        initial_context={"external_pbx_call": identity},
+        gathered_context=gathered,
+        workflow=SimpleNamespace(organization_id=7),
+    )
+
+
+def _patch_writeback(monkeypatch, run, mappings):
+    """Point the completion write-back at a stub adapter and this run."""
+    from api.services.telephony import external_pbx_writeback
+
+    adapter = create_adapter(_vicidial_config())
+    adapter.update_fields = AsyncMock(
+        return_value=ExternalPBXResult(True, "update_lead", "ok")
+    )
+    monkeypatch.setattr(
+        db_client, "get_workflow_run_by_id", AsyncMock(return_value=run)
+    )
+    monkeypatch.setattr(
+        db_client,
+        "get_workflow_run_configurations",
+        AsyncMock(return_value={"external_pbx_field_mappings": mappings}),
+    )
+    monkeypatch.setattr(
+        db_client,
+        "list_telephony_configurations_by_provider",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(id=1, credentials={"external_pbx": _vicidial_config()})
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        external_pbx_writeback,
+        "external_pbx_integrations_enabled",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        external_pbx_writeback, "create_adapter", lambda _config: adapter
+    )
+    return adapter
+
+
+@pytest.mark.asyncio
+async def test_completion_records_the_disposition_without_any_workflow_mapping(
+    monkeypatch,
+):
+    """The status write is not opt-in: an unconfigured workflow still reports.
+
+    The run carries the code the organization's disposition mapping produced,
+    which is what the write-back reads -- the adapter no longer translates.
+    """
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    identity, run = _writeback_run("AA")
+    adapter = _patch_writeback(monkeypatch, run, [])
+
+    await sync_external_pbx_call_record(11)
+
+    adapter.update_fields.assert_awaited_once_with(identity, {"status": "AA"})
+
+
+@pytest.mark.asyncio
+async def test_completion_uses_the_runs_telephony_configuration(monkeypatch):
+    """Multiple ARI configs must not send the update to the first PBX listed."""
+    from api.services.telephony import external_pbx_writeback
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    identity, run = _writeback_run("AA")
+    run.initial_context["telephony_configuration_id"] = 22
+    adapter = _patch_writeback(monkeypatch, run, [])
+    selected_external_pbx = _vicidial_config()
+    scoped_lookup = AsyncMock(
+        return_value=SimpleNamespace(
+            id=22,
+            provider="ari",
+            credentials={"external_pbx": selected_external_pbx},
+        )
+    )
+    monkeypatch.setattr(db_client, "get_telephony_configuration_for_org", scoped_lookup)
+
+    def create_selected_adapter(configuration):
+        assert configuration is selected_external_pbx
+        return adapter
+
+    monkeypatch.setattr(
+        external_pbx_writeback, "create_adapter", create_selected_adapter
+    )
+
+    await sync_external_pbx_call_record(11)
+
+    scoped_lookup.assert_awaited_once_with(22, 7, active_only=True)
+    db_client.list_telephony_configurations_by_provider.assert_not_awaited()
+    adapter.update_fields.assert_awaited_once_with(identity, {"status": "AA"})
+
+
+@pytest.mark.asyncio
+async def test_completion_does_not_fall_back_from_an_unavailable_run_config(
+    monkeypatch,
+):
+    """Only a legacy run with no config id may search the organization's PBXs."""
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    _identity, run = _writeback_run("AA")
+    run.initial_context["telephony_configuration_id"] = 22
+    adapter = _patch_writeback(monkeypatch, run, [])
+    scoped_lookup = AsyncMock(return_value=None)
+    monkeypatch.setattr(db_client, "get_telephony_configuration_for_org", scoped_lookup)
+
+    await sync_external_pbx_call_record(11)
+
+    scoped_lookup.assert_awaited_once_with(22, 7, active_only=True)
+    db_client.list_telephony_configurations_by_provider.assert_not_awaited()
+    adapter.update_fields.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_completion_write_back_lets_a_workflow_mapping_win(monkeypatch):
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    identity, run = _writeback_run("A", {"vici_status": "NMDCAR"})
+    adapter = _patch_writeback(
+        monkeypatch,
+        run,
+        [{"context_path": "vici_status", "destination_field": "status"}],
+    )
+
+    await sync_external_pbx_call_record(11)
+
+    adapter.update_fields.assert_awaited_once_with(identity, {"status": "NMDCAR"})
+
+
+@pytest.mark.asyncio
+async def test_completion_write_back_skips_a_transferred_call(monkeypatch):
+    """XFER was written before the handoff; the closer owns the lead now."""
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    _identity, run = _writeback_run(EndTaskReason.CALL_TRANSFERRED.value)
+    run.gathered_context["external_pbx_transferred"] = True
+    adapter = _patch_writeback(monkeypatch, run, [])
+
+    await sync_external_pbx_call_record(11)
+
+    adapter.update_fields.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transfer_records_xfer_before_handing_the_customer_over():
+    """The transfer path cannot read the disposition: it is stamped afterwards.
+
+    ``_create_transfer_call_handler`` resolves its field mappings while the call
+    is still in progress and only records CALL_TRANSFERRED once the transfer has
+    returned, by which point VICIdial already owns the customer leg. It passes
+    the mapped code in instead, resolved through the same organization mapping
+    the engine stamps on the run.
+    """
+    provider = ARIProvider(
+        {
+            "ari_endpoint": "http://pbx.example.com:8088",
+            "app_name": "dograh",
+            "app_password": "s3cr3t",
+            "external_pbx": _vicidial_config(),
+        }
+    )
+    adapter = provider.external_pbx_adapter
+    adapter.update_fields = AsyncMock(
+        return_value=ExternalPBXResult(True, "update_lead", "ok")
+    )
+    adapter.transfer = AsyncMock(return_value=ExternalPBXResult(True, "transfer", "ok"))
+    identity = {"type": "vicidial", "callerid": "M123", "lead_id": "42"}
+
+    result = await provider.transfer_external_pbx_call(
+        identity=identity,
+        destination="900",
+        field_updates={"Medicaid": "yes"},
+        disposition="XFER",
+    )
+
+    assert result["status"] == "success"
+    adapter.update_fields.assert_awaited_once_with(
+        identity, {"status": "XFER", "Medicaid": "yes"}
+    )

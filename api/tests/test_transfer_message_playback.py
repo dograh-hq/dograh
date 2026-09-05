@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     TTSSpeakFrame,
 )
+from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory, WorkflowRunMode
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -100,6 +101,7 @@ class RecordingEngine:
         self._call_context_vars: Dict[str, Any] = {}
         self._audio_config = None
         self._fetch_recording_audio = None
+        self._transport_output = SimpleNamespace(queue_frame=AsyncMock())
         self.task = SimpleNamespace(queue_frame=self._queue_frame)
 
     async def _queue_frame(self, frame):
@@ -121,15 +123,27 @@ class RecordingEngine:
     async def flush_variable_extraction(self):
         return None
 
-    async def end_call_with_reason(self, reason, abort_immediately=False):
-        self.events.append(("end_call", reason))
+    def set_call_disposition(self, disposition):
+        self.events.append(("disposition", disposition))
+
+    def map_disposition(self, disposition):
+        # This stub stands in for an organization with no disposition mapping,
+        # so every disposition passes through as itself.
+        return disposition
+
+    async def end_call_with_reason(self, call_status, abort_immediately=False):
+        self.events.append(("end_call", call_status))
 
     def set_mute_pipeline(self, value):
         return None
 
 
 class TransferToolModel:
-    def __init__(self, custom_message: str = "Transferring you now."):
+    def __init__(
+        self,
+        custom_message: str = "Transferring you now.",
+        call_disposition: str | None = None,
+    ):
         self.tool_uuid = "transfer-uuid"
         self.name = "Transfer Call"
         self.description = "Transfer the call"
@@ -142,6 +156,7 @@ class TransferToolModel:
                 "resolver": {"type": "context_mapping"},
                 "messageType": "custom",
                 "customMessage": custom_message,
+                "call_disposition": call_disposition,
             },
         }
 
@@ -278,3 +293,313 @@ async def test_external_pbx_transfer_without_message_does_not_wait():
 
     assert "wait_for_playback" not in engine.events
     assert "pbx_transfer" in engine.events
+
+
+class TestTransferDispositionRace:
+    """The PBX drops our media leg ~100ms after its transfer API returns.
+
+    ``on_client_disconnected`` therefore fires while the transfer handler is
+    still waiting out ``_TRANSFER_POST_HANDOFF_DELAY_SECS``, and whichever path
+    reaches ``end_call_with_reason`` first wins the disposition -- the other is
+    a no-op. Every transferred call was being recorded as ``user_hangup``
+    because of it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_recorded_disposition_survives_a_later_hangup(self):
+        """A disconnect after the stamp must not relabel the call."""
+        engine = make_engine()
+        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+
+        engine.set_call_disposition(EndTaskReason.CALL_TRANSFERRED.value)
+
+        with (
+            patch.object(
+                PipecatEngine, "perform_final_variable_extraction", AsyncMock()
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine.db_client.update_workflow_run",
+                AsyncMock(),
+            ),
+        ):
+            await engine.end_call_with_reason(
+                EndTaskReason.USER_HANGUP.value, abort_immediately=True
+            )
+
+        context = await engine.get_gathered_context()
+        assert context["call_disposition"] == EndTaskReason.CALL_TRANSFERRED.value
+        assert context["mapped_call_disposition"] == (
+            EndTaskReason.CALL_TRANSFERRED.value
+        )
+        assert EndTaskReason.USER_HANGUP.value not in context["call_tags"]
+
+    @pytest.mark.asyncio
+    async def test_an_untransferred_disconnect_is_still_a_user_hangup(self):
+        """The fallback must stay intact for calls the caller really drops."""
+        engine = make_engine()
+        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+
+        with (
+            patch.object(
+                PipecatEngine, "perform_final_variable_extraction", AsyncMock()
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine.db_client.update_workflow_run",
+                AsyncMock(),
+            ),
+        ):
+            await engine.end_call_with_reason(
+                EndTaskReason.USER_HANGUP.value, abort_immediately=True
+            )
+
+        context = await engine.get_gathered_context()
+        assert context["call_disposition"] == EndTaskReason.USER_HANGUP.value
+
+    @pytest.mark.asyncio
+    async def test_destination_answered_uses_configured_disposition(self):
+        engine = RecordingEngine()
+        manager = CustomToolManager(engine)
+        params = SimpleNamespace(arguments={}, result_callback=AsyncMock())
+
+        await manager._handle_transfer_result(
+            {"action": "destination_answered", "conference_id": "conference-1"},
+            params,
+            properties=None,
+            success_disposition="transferred_to_sales",
+        )
+
+        assert ("disposition", "transferred_to_sales") in engine.events
+        assert ("end_call", EndTaskReason.TRANSFER_CALL.value) in engine.events
+
+    @pytest.mark.asyncio
+    async def test_failed_transfer_does_not_use_configured_disposition(self):
+        engine = RecordingEngine()
+        manager = CustomToolManager(engine)
+        params = SimpleNamespace(arguments={}, result_callback=AsyncMock())
+
+        await manager._handle_transfer_result(
+            {"action": "transfer_failed", "reason": "no_answer"},
+            params,
+            properties=None,
+            success_disposition="transferred_to_sales",
+        )
+
+        assert not any(
+            isinstance(event, tuple) and event[0] == "disposition"
+            for event in engine.events
+        )
+        assert not any(
+            isinstance(event, tuple) and event[0] == "end_call"
+            for event in engine.events
+        )
+
+    @pytest.mark.asyncio
+    async def test_transfer_stamps_disposition_before_the_settle_delay(self):
+        """Stamping after the delay loses the race with the disconnect."""
+        engine = RecordingEngine()
+        manager = CustomToolManager(engine)
+        tool = TransferToolModel()
+        handler = manager._create_transfer_call_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.ARI.value,
+            initial_context={
+                "external_pbx_call": {"type": "vicidial", "lead_id": "42"}
+            },
+            gathered_context={"call_id": "1786379595.10"},
+        )
+
+        async def fake_transfer_external_pbx_call(**_kwargs):
+            engine.events.append("pbx_transfer")
+            return {"status": "success", "action": "external_pbx_transfer"}
+
+        provider = SimpleNamespace(
+            transfer_external_pbx_call=fake_transfer_external_pbx_call,
+            supports_transfers=lambda: True,
+            validate_config=lambda: True,
+        )
+        params = SimpleNamespace(arguments={}, result_callback=AsyncMock())
+
+        async def recording_sleep(_seconds):
+            engine.events.append("settle_delay")
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_configurations",
+                AsyncMock(return_value={"external_pbx_field_mappings": []}),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.update_workflow_run",
+                AsyncMock(),
+            ) as update_run,
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_telephony_provider_for_run",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.resolve_transfer_config",
+                AsyncMock(
+                    return_value=ResolvedTransferConfig(
+                        destination="Florida",
+                        timeout_seconds=30,
+                        source="context_mapping",
+                    )
+                ),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.asyncio.sleep",
+                recording_sleep,
+            ),
+        ):
+            await handler(params)
+
+        assert engine.events.index(("disposition", "call_transferred")) < (
+            engine.events.index("settle_delay")
+        ), f"disposition must be stamped before the delay: {engine.events}"
+        assert ("end_call", "call_transferred") in engine.events
+        # It also has to reach the DB, since integrations read the run row.
+        persisted = update_run.await_args.kwargs["gathered_context"]
+        assert persisted["call_disposition"] == "call_transferred"
+        assert persisted["mapped_call_disposition"] == "call_transferred"
+
+    @pytest.mark.asyncio
+    async def test_external_pbx_transfer_uses_configured_disposition(self):
+        engine = RecordingEngine()
+        manager = CustomToolManager(engine)
+        tool = TransferToolModel(call_disposition="transferred_to_sales")
+        handler = manager._create_transfer_call_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.ARI.value,
+            initial_context={
+                "external_pbx_call": {"type": "vicidial", "lead_id": "42"}
+            },
+            gathered_context={"call_id": "1786379595.10"},
+        )
+        provider = SimpleNamespace(
+            transfer_external_pbx_call=AsyncMock(
+                return_value={"status": "success", "action": "external_pbx_transfer"}
+            ),
+            supports_transfers=lambda: True,
+            validate_config=lambda: True,
+        )
+        params = SimpleNamespace(
+            arguments={},
+            result_callback=AsyncMock(),
+        )
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_configurations",
+                AsyncMock(return_value={"external_pbx_field_mappings": []}),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.update_workflow_run",
+                AsyncMock(),
+            ) as update_run,
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_telephony_provider_for_run",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.resolve_transfer_config",
+                AsyncMock(
+                    return_value=ResolvedTransferConfig(
+                        destination="Florida",
+                        timeout_seconds=30,
+                        source="context_mapping",
+                    )
+                ),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.asyncio.sleep",
+                AsyncMock(),
+            ),
+        ):
+            await handler(params)
+
+        assert ("disposition", "transferred_to_sales") in engine.events
+        assert provider.transfer_external_pbx_call.await_args.kwargs["disposition"] == (
+            "transferred_to_sales"
+        )
+        persisted = update_run.await_args.kwargs["gathered_context"]
+        assert persisted["call_disposition"] == "transferred_to_sales"
+
+    @pytest.mark.asyncio
+    async def test_normal_provider_handler_uses_configured_disposition_on_success(self):
+        engine = RecordingEngine()
+        manager = CustomToolManager(engine)
+        tool = TransferToolModel(call_disposition="transferred_to_support")
+        handler = manager._create_transfer_call_handler(tool, "transfer_call")
+
+        workflow_run = SimpleNamespace(
+            mode=WorkflowRunMode.TWILIO.value,
+            initial_context={},
+            gathered_context={"call_id": "original-call-sid"},
+        )
+        provider = SimpleNamespace(
+            transfer_call=AsyncMock(return_value={"call_sid": "transfer-call-sid"}),
+            supports_transfers=lambda: True,
+            validate_config=lambda: True,
+        )
+        transfer_event = SimpleNamespace(
+            to_result_dict=lambda: {
+                "status": "success",
+                "action": "destination_answered",
+                "conference_id": "conference-1",
+                "original_call_sid": "original-call-sid",
+                "transfer_call_sid": "transfer-call-sid",
+            }
+        )
+        transfer_manager = SimpleNamespace(
+            store_transfer_context=AsyncMock(),
+            wait_for_transfer_completion=AsyncMock(return_value=transfer_event),
+        )
+        params = SimpleNamespace(
+            arguments={},
+            result_callback=AsyncMock(),
+        )
+        resolve_config = AsyncMock(
+            return_value=ResolvedTransferConfig(
+                destination="+14155550123",
+                timeout_seconds=30,
+                source="static",
+            )
+        )
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.db_client.get_workflow_run_by_id",
+                AsyncMock(return_value=workflow_run),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_telephony_provider_for_run",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.get_call_transfer_manager",
+                AsyncMock(return_value=transfer_manager),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.resolve_transfer_config",
+                resolve_config,
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.play_audio_loop",
+                AsyncMock(),
+            ),
+        ):
+            await handler(params)
+
+        assert ("disposition", "transferred_to_support") in engine.events
+        assert ("end_call", EndTaskReason.TRANSFER_CALL.value) in engine.events
+        assert resolve_config.await_args.kwargs["arguments"] == {}
+        params.result_callback.assert_awaited_once()

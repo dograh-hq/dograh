@@ -77,6 +77,8 @@ async def test_managed_configuration_is_created_from_mps_provisioning(monkeypatc
         name=provisioning.MANAGED_CONFIGURATION_NAME,
         provider="cloudonix",
         credentials=processed,
+        # Never the org default: Dograh provisions this row, and it cannot
+        # carry a call until the customer connects their own carrier.
         is_default_outbound=False,
     )
 

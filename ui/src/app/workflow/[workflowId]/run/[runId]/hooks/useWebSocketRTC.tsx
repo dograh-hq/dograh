@@ -39,6 +39,11 @@ const HANDLED_SERVICE_ERROR_TYPES = new Set([
     'quota_check_failed',
 ]);
 
+// Errors meaning this run can never be called again. Retrying reaches the same
+// refusal, so the session is closed out as completed and the caller is left to
+// start a fresh run rather than being offered a retry that cannot succeed.
+const SPENT_RUN_ERROR_TYPES = new Set(['workflow_run_already_completed']);
+
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables, onNodeTransition }: UseWebSocketRTCProps) => {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
     const [connectionActive, setConnectionActive] = useState(false);
@@ -395,6 +400,15 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
                                 // Stop the connection and surface the handled service error.
                                 cleanupConnection({ graceful: false, status: 'failed' });
+                            } else if (SPENT_RUN_ERROR_TYPES.has(message.payload?.error_type)) {
+                                logger.info('Run is no longer callable:', message.payload.message);
+                                setPermissionError(
+                                    message.payload?.message || 'This test run has already finished.'
+                                );
+                                // Completed rather than failed: the run did its
+                                // work, so the footer offers a new test instead
+                                // of a retry that would be refused again.
+                                cleanupConnection({ graceful: true, status: 'idle' });
                             } else {
                                 const serverErrorMessage = message.payload?.message || 'Server error';
                                 logger.error('Server error:', message.payload);

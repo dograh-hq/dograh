@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from loguru import logger
+
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations.base import (
     IntegrationRuntimeContext,
     IntegrationRuntimeSession,
 )
 
-from .collector import DeferredTunerObserver, mode_to_tuner_call_type
+from .collector import (
+    DeferredTunerObserver,
+    extract_inbound_sip_metadata,
+    mode_to_tuner_call_type,
+)
 
 
 def _format_model_label(provider: str | None, model: str | None) -> str:
@@ -90,6 +96,16 @@ def create_runtime_sessions(
 
     asr_model, llm_model, tts_model = _resolve_model_labels(context)
 
+    # Carried through to Tuner so a call it originated is linked back to the
+    # simulation that placed it rather than logged as production traffic.
+    sip_call_id, sip_headers = extract_inbound_sip_metadata(context.workflow_run)
+    if sip_call_id:
+        logger.info(
+            "[tuner] inbound call carries SIP correlation id {} for run {}",
+            sip_call_id,
+            context.workflow_run_id,
+        )
+
     observer = DeferredTunerObserver(
         workflow_run_id=context.workflow_run_id,
         call_type=mode_to_tuner_call_type(context.workflow_run.mode),
@@ -97,6 +113,8 @@ def create_runtime_sessions(
         llm_model=llm_model,
         tts_model=tts_model,
         agent_version=getattr(context.run_definition, "version_number", None),
+        sip_call_id=sip_call_id,
+        sip_headers=sip_headers,
     )
 
     return [TunerRuntimeSession(observer)]

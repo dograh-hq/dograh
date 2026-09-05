@@ -14,8 +14,8 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { PostHogEvent } from '@/constants/posthog-events';
-import { downloadFile, getSignedUrl } from '@/lib/files';
 import { getCallReplay } from '@/lib/callHistory';
+import { downloadFile, getSignedUrl } from '@/lib/files';
 
 export function MediaPreviewDialog() {
     const [isOpen, setIsOpen] = useState(false);

@@ -62,15 +62,6 @@ def _base_timeout(config: dict[str, Any]) -> int:
     return min(max(timeout_int, 5), 120)
 
 
-def _mask_destination(destination: Any) -> str:
-    value = "" if destination is None else str(destination).strip()
-    if not value:
-        return ""
-    if len(value) <= 4:
-        return "***"
-    return f"***{value[-4:]}"
-
-
 _SENSITIVE_LOG_KEY_PARTS = (
     "authorization",
     "auth",
@@ -430,7 +421,7 @@ async def resolve_transfer_config(
             f"rule_index={resolved.metadata.get('rule_index')} "
             f"fallback={bool(resolved.metadata.get('fallback'))} "
             f"source={resolved.source} "
-            f"destination={_mask_destination(resolved.destination)}"
+            f"destination={resolved.destination}"
         )
         return resolved
 
@@ -443,7 +434,7 @@ async def resolve_transfer_config(
         )
         logger.info(
             "Transfer destination resolved "
-            f"source={resolved.source} destination={_mask_destination(resolved.destination)} "
+            f"source={resolved.source} destination={resolved.destination} "
             f"timeout={resolved.timeout_seconds}"
         )
         return resolved
@@ -477,7 +468,7 @@ async def resolve_transfer_config(
     logger.info(
         "Transfer destination resolved "
         f"resolution_id={resolution_id} source={resolved.source} "
-        f"destination={_mask_destination(resolved.destination)} "
+        f"destination={resolved.destination} "
         f"timeout={resolved.timeout_seconds} "
         f"custom_message_present={bool(resolved.message)}"
     )

@@ -83,17 +83,6 @@ function seedValues(
     const d = data as unknown as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const prop of spec.properties) {
-        if (
-            spec.name === "startCall" &&
-            prop.name === "pre_call_fetch_mode" &&
-            d.pre_call_fetch_mode == null
-        ) {
-            // Old workflow definitions stored only the enable switch. Present
-            // those as Always so opening and resaving an existing node cannot
-            // silently disable its fetch.
-            out[prop.name] = d.pre_call_fetch_enabled === true ? "always" : "disabled";
-            continue;
-        }
         out[prop.name] = d[prop.name] ?? prop.default ?? undefined;
     }
     return out;
@@ -131,12 +120,20 @@ function resolveIntegrationSummary(
     spec: NodeSpec,
     data: FlowNodeData,
 ): string {
+    let hasSecret = false;
     for (const prop of spec.properties) {
-        if (
-            prop.name === "name" ||
-            prop.name.endsWith("enabled") ||
-            /api[_-]?key|token|secret/i.test(prop.name)
-        ) {
+        if (prop.name === "name" || prop.name.endsWith("enabled")) {
+            continue;
+        }
+        // A configured API key/token/secret is never displayed, but it does
+        // prove the node is set up. Remember that so a node whose only real
+        // config is a secret (e.g. an integration identified solely by its key)
+        // isn't mislabelled "Not configured".
+        if (/api[_-]?key|token|secret/i.test(prop.name)) {
+            const secret = data[prop.name];
+            if (typeof secret === "string" && secret.trim().length > 0) {
+                hasSecret = true;
+            }
             continue;
         }
 
@@ -148,7 +145,7 @@ function resolveIntegrationSummary(
             return String(value);
         }
     }
-    return "Not configured";
+    return hasSecret ? "Configured" : "Not configured";
 }
 
 function getBadgeForSpec(

@@ -31,6 +31,12 @@ from api.services.telephony.failure_reporting import (
     classify_telephony_exception,
     instrument_telephony_provider,
 )
+from api.services.telephony.registry import (
+    ConfigurationSetupState,
+    ProviderConnectivity,
+    ProviderSetupChecklist,
+    caller_id_only_checklist,
+)
 
 
 async def load_telephony_config_by_id(
@@ -244,13 +250,74 @@ def get_sip_connectivity_details(
     return provider.get_sip_connectivity_details()
 
 
+def get_provider_connectivity(provider_name: str) -> ProviderConnectivity:
+    """How a customer gets phone service through this provider.
+
+    Falls back to "api" for an unregistered name so a stale stored provider
+    can't break a list response.
+    """
+    spec = registry.get_optional(provider_name)
+    return spec.connectivity if spec else "api"
+
+
+def get_setup_checklist(
+    provider_name: str,
+    credentials: dict[str, Any],
+    *,
+    active_phone_number_count: int,
+    inbound_routed_phone_number_count: int,
+    enabled_trunk_count: int = 0,
+    unassigned_active_phone_number_count: int = 0,
+) -> ProviderSetupChecklist | None:
+    """Report what setup a stored configuration still needs.
+
+    A provider's own resolver wins. Otherwise every provider that needs a
+    caller ID gets the shared one-step checklist, so "credentials are saved"
+    is never mistaken for "this can place a call". Returns None only for
+    providers that can dial with nothing but credentials.
+
+    Phone-number and trunk counts are passed in rather than queried here so
+    list endpoints, which have already loaded them, don't pay per row.
+    """
+    spec = registry.get_optional(provider_name)
+    if spec is None:
+        return None
+
+    if spec.setup_checklist_resolver is not None:
+        return spec.setup_checklist_resolver(
+            credentials,
+            ConfigurationSetupState(
+                active_phone_number_count=active_phone_number_count,
+                inbound_routed_phone_number_count=inbound_routed_phone_number_count,
+                enabled_trunk_count=enabled_trunk_count,
+                unassigned_active_phone_number_count=(
+                    unassigned_active_phone_number_count
+                ),
+            ),
+        )
+
+    if not spec.requires_caller_id:
+        return None
+
+    return caller_id_only_checklist(
+        display_name=(spec.ui_metadata.display_name if spec.ui_metadata else spec.name),
+        has_caller_id=active_phone_number_count > 0,
+        docs_url=spec.ui_metadata.docs_url if spec.ui_metadata else None,
+    )
+
+
 async def _normalize_with_phone_numbers(
     row: TelephonyConfigurationModel,
 ) -> Dict[str, Any]:
     """Run the provider's config_loader over the credentials, then attach the
     active phone numbers as a ``from_numbers`` list (raw address strings) and
     the default caller ID (when one is flagged and active) as
-    ``default_from_number``."""
+    ``default_from_number``.
+
+    Providers with trunks also get ``trunks`` and ``trunk_id_by_number`` so the
+    route a call takes follows from the caller ID it presents, rather than
+    being picked from a separate pool.
+    """
     spec = registry.get(row.provider)
     raw = dict(row.credentials or {})
     raw["provider"] = row.provider
@@ -264,6 +331,22 @@ async def _normalize_with_phone_numbers(
     # flag left on a deactivated number.
     if default_row and default_row.address_normalized in addresses:
         base["default_from_number"] = default_row.address_normalized
+
+    if spec.supports_trunks:
+        trunks = await db_client.list_trunks_for_config(row.id)
+        base["trunks"] = [
+            {
+                "id": trunk.id,
+                "name": trunk.name,
+                "enabled": trunk.enabled,
+                "settings": dict(trunk.settings or {}),
+                "external_id": trunk.external_id,
+            }
+            for trunk in trunks
+        ]
+        base[
+            "trunk_id_by_number"
+        ] = await db_client.get_trunk_ids_by_address_for_config(row.id)
     return base
 
 

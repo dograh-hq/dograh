@@ -1,6 +1,9 @@
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
+from api.services.telephony.external_pbx_writeback import (
+    sync_external_pbx_call_record,
+)
 from api.services.workflow_run_billing import (
     report_completed_workflow_run_platform_usage,
 )
@@ -38,6 +41,20 @@ async def process_workflow_completion(
     except Exception as e:
         logger.error(
             f"Error reporting platform usage for workflow {workflow_run_id}: {e}"
+        )
+
+    # Deliberately last. The write-back reads the run's gathered context to
+    # resolve the workflow's mapped lead fields, and on an abrupt hangup the
+    # final variable extraction can still be in flight when this job starts --
+    # it is an LLM call on a dead socket. The steps above are themselves slow
+    # (QA is another LLM round-trip), so running after them gives that
+    # extraction time to land instead of writing the lead without it. No-ops
+    # for runs that never had a PBX leg.
+    try:
+        await sync_external_pbx_call_record(workflow_run_id)
+    except Exception as e:
+        logger.error(
+            f"Error writing back to external PBX for workflow {workflow_run_id}: {e}"
         )
 
     logger.info(f"Completed workflow completion processing for run {workflow_run_id}")

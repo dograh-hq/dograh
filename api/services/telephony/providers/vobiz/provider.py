@@ -689,7 +689,8 @@ class VobizProvider(TelephonyProvider):
                         if response.status != 200:
                             body = await response.text()
                             raise ProviderPhoneNumberLookupError(
-                                f"Vobiz API {response.status}: {body}"
+                                f"Vobiz API {response.status}: {body}",
+                                status_code=response.status,
                             )
                         data = await response.json()
 

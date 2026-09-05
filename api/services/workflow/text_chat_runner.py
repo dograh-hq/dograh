@@ -50,7 +50,10 @@ from api.services.pipecat.worker_runner import (
     wait_for_pipeline_worker_started,
 )
 from api.services.workflow.dto import ReactFlowDTO
-from api.services.workflow.initial_context import merge_external_initial_context
+from api.services.workflow.initial_context import (
+    WORKFLOW_RUN_ID_CONTEXT_KEY,
+    merge_external_initial_context,
+)
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 
@@ -511,6 +514,9 @@ async def execute_text_chat_pending_turn(
     initial_context = {
         **base_initial_context,
         "runtime_configuration": runtime_configuration,
+        # Text sessions share the tool handlers with the voice pipeline, so the
+        # run id has to be injected here too for tools to render it.
+        WORKFLOW_RUN_ID_CONTEXT_KEY: workflow_run_id,
     }
     if mps_correlation_id:
         initial_context[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id

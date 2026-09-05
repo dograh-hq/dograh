@@ -18,6 +18,7 @@ from api.errors.failure import (
     redact_failure_message,
 )
 from api.services.configuration.masking import mask_key
+from api.services.workflow.initial_context import run_owned_template_vars
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import (
     get_nested_value,
@@ -441,9 +442,13 @@ async def execute_http_tool(
         if body_template is None:
             body = resolved_arguments
         else:
+            # Run-owned keys sit underneath the arguments, so a tool that
+            # declares a parameter of the same name still wins - the top level
+            # stays the argument namespace.
             body = render_body_template(
                 body_template,
                 {
+                    **run_owned_template_vars(initial_context),
                     **resolved_arguments,
                     "initial_context": initial_context,
                     "gathered_context": gathered_context,

@@ -85,6 +85,8 @@ function normalizeScenario(scenario: ScenarioApiResponse): Scenario {
         id: scenario.id,
         sequence: scenario.sequence,
         title: scenario.title,
+        category: scenario.category ?? "",
+        tags: scenario.tags ?? [],
         mode: scenario.mode,
         persona: scenario.persona,
         age: scenario.age,
@@ -133,6 +135,8 @@ function normalizeBulkImportResponse(
 function draftPayload(draft: ScenarioDraft) {
     return {
         title: draft.title,
+        category: draft.category,
+        tags: draft.tags,
         mode: draft.mode,
         persona: draft.persona,
         age: draft.age,
@@ -160,8 +164,11 @@ async function createScenarioOnServer(draft: ScenarioDraft): Promise<Scenario> {
     return normalizeScenario(response.data);
 }
 
-export async function listSakinahScenarios(): Promise<Scenario[]> {
-    const response = await client.get<SuccessfulResponse<{ scenarios: ScenarioApiResponse[] }>>({ url: "/api/v1/sakinah/scenarios" });
+export async function listSakinahScenarios(search = ""): Promise<Scenario[]> {
+    const response = await client.get<SuccessfulResponse<{ scenarios: ScenarioApiResponse[] }>>({
+        url: "/api/v1/sakinah/scenarios",
+        query: search.trim() ? { search: search.trim() } : undefined,
+    });
     if (response.error || !response.data) throw requestError(response.error, "Unable to load scenarios.");
     return response.data.scenarios.map(normalizeScenario);
 }
@@ -232,8 +239,9 @@ export async function migrateLegacySakinahScenarios(
     return saved;
 }
 
-export async function loadSakinahScenariosWithLegacyMigration(): Promise<Scenario[]> {
-    const serverScenarios = await listSakinahScenarios();
+export async function loadSakinahScenariosWithLegacyMigration(search = ""): Promise<Scenario[]> {
+    const serverScenarios = await listSakinahScenarios(search);
+    if (search.trim()) return serverScenarios;
     if (serverScenarios.length > 0 || typeof window === "undefined") return serverScenarios;
     const legacy = parseStoredScenarios(window.localStorage.getItem("calmos.sakinah.scenario-library.v1"));
     if (legacy.length > 0) return migrateLegacySakinahScenarios(legacy);

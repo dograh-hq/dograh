@@ -13,6 +13,7 @@ from api.db.models import (
     OrganizationConfigurationModel,
     OrganizationModel,
     OrganizationUsageCycleModel,
+    CallScoreModel,
     WorkflowModel,
     WorkflowRunModel,
 )
@@ -186,13 +187,27 @@ class OrganizationUsageClient(BaseDBClient):
             )
             runs = results.scalars().all()
 
+            score_by_run: dict[int, CallScoreModel] = {}
+            if runs:
+                score_result = await session.execute(
+                    select(CallScoreModel).where(
+                        CallScoreModel.agent_run_id.in_([run.id for run in runs])
+                    )
+                )
+                score_by_run = {
+                    score.agent_run_id: score for score in score_result.scalars().all()
+                }
+
             # Format runs
             formatted_runs = []
             total_tokens = 0
             total_duration_seconds = 0
             for run in runs:
                 dograh_tokens = 0
-                call_duration = (run.usage_info or {}).get("call_duration_seconds", 0)
+                call_duration = run.duration_seconds
+                if call_duration is None:
+                    call_duration = (run.usage_info or {}).get("call_duration_seconds") or 0
+                call_duration = float(call_duration)
                 total_tokens += dograh_tokens
                 total_duration_seconds += int(round(call_duration))
 
@@ -212,6 +227,7 @@ class OrganizationUsageClient(BaseDBClient):
                 disposition = None
                 if run.gathered_context:
                     disposition = run.gathered_context.get("mapped_call_disposition")
+                scores = score_by_run.get(run.id)
 
                 run_data = {
                     "id": run.id,
@@ -235,6 +251,23 @@ class OrganizationUsageClient(BaseDBClient):
                     "disposition": disposition,
                     "initial_context": run.initial_context,
                     "gathered_context": run.gathered_context,
+                    "call_id": run.call_id,
+                    "agent_run_id": run.id,
+                    "service_user_id": run.service_user_id,
+                    "service_user_label": (
+                        f"Service user {run.service_user_id[:8]}"
+                        if run.service_user_id
+                        else "Anonymous"
+                    ),
+                    "scenario_id": run.scenario_id,
+                    "scenario_name": run.scenario_name,
+                    "call_status": run.call_status,
+                    "started_at": run.started_at.isoformat() if run.started_at else None,
+                    "connected_at": run.connected_at.isoformat() if run.connected_at else None,
+                    "ended_at": run.ended_at.isoformat() if run.ended_at else None,
+                    "calm_score": scores.calm_score if scores else None,
+                    "safety_score": scores.safety_score if scores else None,
+                    "clinical_evaluation": scores.clinical_evaluation if scores else None,
                 }
 
                 # Add USD cost if available in cost_info

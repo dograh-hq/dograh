@@ -59,7 +59,11 @@ def _extract_org_id_from_key(key: str) -> Optional[int]:
         and parts[1].isdigit()
     ):
         return int(parts[1])
-    recording_match = re.fullmatch(r"recordings/(\d+)/[a-zA-Z0-9_-]+/.+", key)
+    # Organization-scoped workflow recording keys have exactly four path
+    # segments. CALMOS call keys include year/month and are authorized by their
+    # database row below, so a year such as ``2026`` must never be treated as
+    # an organization ID.
+    recording_match = re.fullmatch(r"recordings/(\d+)/[a-zA-Z0-9_-]+/[^/]+", key)
     if recording_match:
         return int(recording_match.group(1))
     return None
@@ -203,9 +207,20 @@ async def get_signed_url(
     else:
         # Legacy workflow-run-based auth
         run_id = _extract_legacy_workflow_run_id(key)
-        if run_id is None:
-            raise HTTPException(status_code=400, detail="Invalid key format")
-        workflow_run = await _authorize_and_get_workflow_run(run_id, user)
+        if run_id is not None:
+            workflow_run = await _authorize_and_get_workflow_run(run_id, user)
+        elif user.is_superuser:
+            # Superusers retain the existing administrative ability to sign a
+            # known object key even when it uses a newer artifact layout.
+            workflow_run = None
+        else:
+            workflow_run = await db_client.get_workflow_run_by_artifact_key(key)
+            if (
+                workflow_run is None
+                or workflow_run.workflow is None
+                or workflow_run.workflow.organization_id != user.selected_organization_id
+            ):
+                raise HTTPException(status_code=403, detail="Access denied")
 
     # ------------------------------------------------------------------
     # 2. Resolve storage backend
@@ -255,7 +270,18 @@ async def get_file_metadata(
     """
 
     # Validate key and extract workflow_run_id (allow special paths for metadata)
-    run_id = await _validate_and_extract_workflow_run_id(key, allow_special_paths=True)
+    try:
+        run_id = await _validate_and_extract_workflow_run_id(key, allow_special_paths=True)
+    except HTTPException:
+        if user.is_superuser:
+            run_id = None
+        else:
+            workflow_run_by_key = await db_client.get_workflow_run_by_artifact_key(key)
+            if workflow_run_by_key is None or workflow_run_by_key.workflow is None:
+                raise
+            if workflow_run_by_key.workflow.organization_id != user.selected_organization_id:
+                raise HTTPException(status_code=403, detail="Access denied")
+            run_id = workflow_run_by_key.id
 
     # Authorize and get workflow run (for special paths, run_id might be None)
     workflow_run = await _authorize_and_get_workflow_run(

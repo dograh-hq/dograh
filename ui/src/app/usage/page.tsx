@@ -400,6 +400,12 @@ export default function UsagePage() {
         return `${minutes}m ${remainingSeconds}s`;
     };
 
+    const scoreLabel = (score: Record<string, unknown> | null | undefined) => {
+        if (!score) return '-';
+        const value = score.score ?? score.overall_score ?? score.total ?? score.value;
+        return typeof value === 'number' || typeof value === 'string' ? String(value) : 'Available';
+    };
+
     return (
         <div className="container mx-auto p-6 space-y-6">
             <div>
@@ -546,9 +552,12 @@ export default function UsagePage() {
                                             <TableRow className="bg-muted/50">
                                                 <TableHead className="font-semibold">Run ID</TableHead>
                                                 <TableHead className="font-semibold">Agent Name</TableHead>
+                                                <TableHead className="font-semibold">Scenario / Caller</TableHead>
                                                 <TableHead className="font-semibold">Call Type</TableHead>
                                                 <TableHead className="font-semibold">Phone Number</TableHead>
                                                 <TableHead className="font-semibold">Disposition</TableHead>
+                                                <TableHead className="font-semibold">Status</TableHead>
+                                                <TableHead className="font-semibold">Scores</TableHead>
                                                 <TableHead className="font-semibold">Date</TableHead>
                                                 <TableHead className="font-semibold text-right">Duration</TableHead>
                                                 {organizationPricing?.price_per_second_usd && (
@@ -569,6 +578,10 @@ export default function UsagePage() {
                                                         #{run.id}
                                                     </TableCell>
                                                     <TableCell>{run.workflow_name || 'Unknown'}</TableCell>
+                                                    <TableCell className="text-sm">
+                                                        <div>{run.scenario_name || '-'}</div>
+                                                        <div className="text-xs text-muted-foreground">{run.service_user_label || 'Anonymous'}</div>
+                                                    </TableCell>
                                                     <TableCell>
                                                         <CallTypeCell mode={run.mode} callType={run.call_type} />
                                                     </TableCell>
@@ -586,6 +599,12 @@ export default function UsagePage() {
                                                             <span className="text-sm text-muted-foreground">-</span>
                                                         )}
                                                     </TableCell>
+                                                    <TableCell><Badge variant={run.call_status === 'completed' ? 'secondary' : 'outline'}>{run.call_status || 'unknown'}</Badge></TableCell>
+                                                    <TableCell className="text-xs whitespace-nowrap">
+                                                        <div>CALM {scoreLabel(run.calm_score)}</div>
+                                                        <div>Safety {scoreLabel(run.safety_score)}</div>
+                                                        {run.clinical_evaluation ? <div>Clinical {scoreLabel(run.clinical_evaluation)}</div> : null}
+                                                    </TableCell>
                                                     <TableCell>{formatDateTime(run.created_at, effectiveTimezone)}</TableCell>
                                                     <TableCell className="text-right">
                                                         {formatDuration(run.call_duration_seconds)}
@@ -599,12 +618,18 @@ export default function UsagePage() {
                                                         </TableCell>
                                                     )}
                                                     <TableCell>
-                                                        <MediaPreviewButton
-                                                            recordingUrl={run.recording_url}
-                                                            transcriptUrl={run.transcript_url}
-                                                            runId={run.id}
-                                                            onOpenPreview={mediaPreview.openPreview}
-                                                        />
+                                                        <div className="flex gap-2">
+                                                            <Button variant="outline" size="sm" onClick={() => handleRowClick(run)}>
+                                                                Details
+                                                            </Button>
+                                                            <MediaPreviewButton
+                                                                recordingUrl={run.recording_url}
+                                                                transcriptUrl={run.transcript_url}
+                                                                runId={run.id}
+                                                                callId={run.call_id}
+                                                                onOpenPreview={mediaPreview.openPreview}
+                                                            />
+                                                        </div>
                                                     </TableCell>
                                                 </TableRow>
                                             ))}

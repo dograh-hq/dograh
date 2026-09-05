@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, or_
+from sqlalchemy import Text, cast, delete, func, or_
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
@@ -16,6 +16,8 @@ from api.db.models import (
 
 SCENARIO_FIELDS = (
     "title",
+    "category",
+    "tags",
     "mode",
     "persona",
     "age",
@@ -39,6 +41,8 @@ def _scenario_dict(scenario: SakinahScenarioModel) -> dict[str, Any]:
         "id": scenario.id,
         "sequence": scenario.sequence,
         "title": scenario.title,
+        "category": scenario.category,
+        "tags": scenario.tags or [],
         "mode": scenario.mode,
         "persona": scenario.persona,
         "age": scenario.age,
@@ -60,11 +64,36 @@ def _scenario_dict(scenario: SakinahScenarioModel) -> dict[str, Any]:
 
 
 class SakinahPersistenceClient(BaseDBClient):
-    async def get_sakinah_scenarios(self, user_id: int) -> list[dict[str, Any]]:
+    async def get_sakinah_scenarios(
+        self, user_id: int, search: str | None = None
+    ) -> list[dict[str, Any]]:
         async with self.async_session() as session:
+            query = select(SakinahScenarioModel).where(
+                SakinahScenarioModel.user_id == user_id
+            )
+            if search and search.strip():
+                pattern = f"%{search.strip()}%"
+                search_text = func.concat_ws(
+                    " ",
+                    SakinahScenarioModel.id,
+                    SakinahScenarioModel.title,
+                    SakinahScenarioModel.category,
+                    cast(SakinahScenarioModel.tags, Text),
+                    SakinahScenarioModel.persona,
+                    SakinahScenarioModel.language,
+                    SakinahScenarioModel.communication_style,
+                    SakinahScenarioModel.initial_information,
+                    SakinahScenarioModel.hidden_information,
+                    SakinahScenarioModel.disclosure,
+                    SakinahScenarioModel.behaviour,
+                    SakinahScenarioModel.background,
+                    SakinahScenarioModel.additional_factors,
+                    SakinahScenarioModel.notes,
+                    SakinahScenarioModel.freestyle_prompt,
+                )
+                query = query.where(search_text.ilike(pattern))
             result = await session.execute(
-                select(SakinahScenarioModel)
-                .where(SakinahScenarioModel.user_id == user_id)
+                query
                 .order_by(
                     SakinahScenarioModel.sequence.asc(),
                     SakinahScenarioModel.created_at.asc(),
@@ -103,7 +132,10 @@ class SakinahPersistenceClient(BaseDBClient):
                 sequence=sequence,
                 created_at=created_at or now,
                 updated_at=updated_at or now,
-                **{field: scenario.get(field, "") for field in SCENARIO_FIELDS},
+                **{
+                    field: scenario.get(field, [] if field == "tags" else "")
+                    for field in SCENARIO_FIELDS
+                },
             )
             session.add(item)
             await session.commit()
@@ -124,7 +156,7 @@ class SakinahPersistenceClient(BaseDBClient):
             if item is None:
                 return None
             for field in SCENARIO_FIELDS:
-                setattr(item, field, scenario.get(field, ""))
+                setattr(item, field, scenario.get(field, [] if field == "tags" else ""))
             item.updated_at = datetime.now(UTC)
             await session.commit()
             await session.refresh(item)

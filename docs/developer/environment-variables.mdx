@@ -97,12 +97,27 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 |---|---|---|
 | `ENABLE_AWS_S3` | `false` | Set to `true` to use AWS S3 instead of MinIO |
 | `S3_BUCKET` | `null` | S3 bucket name |
-| `S3_REGION` | `us-east-1` | AWS region |
+| `AWS_RECORDINGS_BUCKET` | `null` | Private S3 bucket for durable CALMOS call recordings. Falls back to `S3_BUCKET` |
+| `AWS_REGION` | `eu-west-2` | AWS region. `S3_REGION` remains supported as a legacy alias |
+| `S3_KMS_KEY_ID` | `null` | Optional customer-managed KMS key ID/ARN. Recordings use server-side `aws:kms` encryption |
+| `S3_SERVER_SIDE_ENCRYPTION` | `aws:kms` | S3 server-side encryption setting |
 | `S3_ENDPOINT_URL` | `null` | Custom S3 endpoint for S3-compatible servers (e.g. `https://s3.example.com`). Leave unset for AWS. |
 | `S3_SIGNATURE_VERSION` | `null` | Signing version. Unset uses botocore's default; set `s3v4` for servers that require SigV4. |
 | `S3_ADDRESSING_STYLE` | `null` | `auto` (default), `path`, or `virtual`. Many S3-compatible servers and TLS setups require `path`. |
 
 Credentials come from the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables.
+
+### Durable call data and Sakinah memory
+
+CALMOS Connect stores structured call data in the configured PostgreSQL database/RDS instance, audio in the private S3 bucket, and Sakinah memory vectors in PostgreSQL `pgvector`. Database connections should use the existing TLS-enabled `DATABASE_URL`; AWS deployments should use IAM task roles with least-privilege access to the recordings bucket and KMS key.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MEMORY_ENABLED` | `true` | Enable privacy-bounded Sakinah caller lookup and asynchronous memory extraction |
+| `MEMORY_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model used when the organization has embeddings configured |
+| `MEMORY_MAX_RESULTS` | `5` | Maximum permitted memories added to a Sakinah context |
+| `MEMORY_MIN_SIMILARITY` | `0.72` | Minimum cosine similarity for vector memory retrieval |
+| `RECORD_CALLS` | `true` | Capture and persist call recordings; transcripts remain structured call data |
 
 #### S3-compatible servers (MinIO, rustfs, Ceph, ...)
 

@@ -112,6 +112,19 @@ class WorkflowRunUsageResponse(BaseModel):
     disposition: Optional[str] = None
     initial_context: Optional[Dict[str, Any]] = None
     gathered_context: Optional[Dict[str, Any]] = None
+    call_id: Optional[str] = None
+    agent_run_id: Optional[int] = None
+    service_user_id: Optional[str] = None
+    service_user_label: Optional[str] = None
+    scenario_id: Optional[str] = None
+    scenario_name: Optional[str] = None
+    call_status: Optional[str] = None
+    started_at: Optional[str] = None
+    connected_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    calm_score: Optional[Dict[str, Any]] = None
+    safety_score: Optional[Dict[str, Any]] = None
+    clinical_evaluation: Optional[Dict[str, Any]] = None
     # New USD field
     charge_usd: Optional[float] = None
 

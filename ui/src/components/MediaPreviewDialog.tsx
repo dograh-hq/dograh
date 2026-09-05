@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { downloadFile, getSignedUrl } from '@/lib/files';
+import { getCallReplay } from '@/lib/callHistory';
 
 export function MediaPreviewDialog() {
     const [isOpen, setIsOpen] = useState(false);
@@ -26,15 +27,33 @@ export function MediaPreviewDialog() {
     const [mediaLoading, setMediaLoading] = useState(false);
 
     const openPreview = useCallback(
-        async (recordingUrl: string | null, transcriptUrl: string | null, runId: number) => {
-            if (!recordingUrl && !transcriptUrl) return;
+        async (recordingUrl: string | null, transcriptUrl: string | null, runId: number, callId?: string | null) => {
+            if (!recordingUrl && !transcriptUrl && !callId) return;
             setMediaLoading(true);
             setAudioSignedUrl(null);
             setTranscriptContent(null);
-            setRecordingKey(recordingUrl);
+            setRecordingKey(callId ? null : recordingUrl);
             setTranscriptKey(transcriptUrl);
             setSelectedRunId(runId);
             setIsOpen(true);
+
+            if (callId) {
+                try {
+                    const replay = await getCallReplay(callId);
+                    setAudioSignedUrl(replay.recording_signed_url);
+                    setTranscriptContent(replay.transcript);
+                    posthog.capture(PostHogEvent.TRANSCRIPT_VIEWED, {
+                        run_id: runId,
+                        source: 'call_replay',
+                        transcript_length: replay.transcript?.length ?? 0,
+                    });
+                } catch (error) {
+                    console.error('Error loading call replay:', error);
+                } finally {
+                    setMediaLoading(false);
+                }
+                return;
+            }
 
             const [audioResult, transcriptResult] = await Promise.all([
                 recordingUrl ? getSignedUrl(recordingUrl) : null,
@@ -136,7 +155,8 @@ interface MediaPreviewButtonProps {
     recordingUrl: string | null | undefined;
     transcriptUrl: string | null | undefined;
     runId: number;
-    onOpenPreview: (recordingUrl: string | null, transcriptUrl: string | null, runId: number) => void;
+    onOpenPreview: (recordingUrl: string | null, transcriptUrl: string | null, runId: number, callId?: string | null) => void;
+    callId?: string | null;
     onSelect?: (runId: number) => void;
 }
 
@@ -146,12 +166,13 @@ export function MediaPreviewButton({
     runId,
     onOpenPreview,
     onSelect,
+    callId,
 }: MediaPreviewButtonProps) {
-    if (!recordingUrl && !transcriptUrl) return null;
+    if (!recordingUrl && !transcriptUrl && !callId) return null;
 
     const handleOpen = () => {
         onSelect?.(runId);
-        onOpenPreview(recordingUrl ?? null, transcriptUrl ?? null, runId);
+        onOpenPreview(recordingUrl ?? null, transcriptUrl ?? null, runId, callId);
     };
 
     return (

@@ -232,12 +232,20 @@ def normalize_import_candidate(candidate: Any) -> dict[str, Any]:
     if mode not in ("structured", "freestyle"):
         raise BulkImportError("mode must be structured or freestyle")
 
+    raw_tags = candidate.get("tags", [])
+    if raw_tags is None:
+        raw_tags = []
+    if not isinstance(raw_tags, list) or any(not isinstance(tag, str) for tag in raw_tags):
+        raise BulkImportError('field "tags" must be an array of strings')
+
     payload = {
         "title": _string_value(
             candidate,
             ("title", "scenario_title"),
             "Imported scenario" if prompt.strip() else "",
         ),
+        "category": _string_value(candidate, "category"),
+        "tags": raw_tags,
         "mode": mode,
         "persona": _string_value(candidate, "persona"),
         "age": _string_value(candidate, ("age", "service_user_age")),

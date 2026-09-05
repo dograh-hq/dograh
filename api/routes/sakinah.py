@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketState
@@ -88,6 +88,8 @@ def _scenario_response(value: dict[str, Any]) -> ScenarioResponse:
         id=value["id"],
         sequence=value["sequence"],
         title=value["title"],
+        category=value.get("category", ""),
+        tags=value.get("tags", []),
         mode=value["mode"],
         persona=value["persona"],
         age=value["age"],
@@ -122,8 +124,11 @@ def _format_transcript(turns: list[dict[str, Any]]) -> str:
 
 
 @router.get("/scenarios", response_model=ScenarioListResponse)
-async def list_scenarios(user: UserModel = Depends(get_user)) -> ScenarioListResponse:
-    scenarios = await db_client.get_sakinah_scenarios(user.id)
+async def list_scenarios(
+    search: str | None = Query(default=None, max_length=200),
+    user: UserModel = Depends(get_user),
+) -> ScenarioListResponse:
+    scenarios = await db_client.get_sakinah_scenarios(user.id, search=search)
     return ScenarioListResponse(
         scenarios=[_scenario_response(item) for item in scenarios]
     )
@@ -323,12 +328,15 @@ async def get_sakinah_run(
 class CreateSessionRequest(BaseModel):
     scenario: str = Field(min_length=1, max_length=20_000)
     name: str | None = Field(default=None, max_length=200)
+    scenario_id: str | None = Field(default=None, max_length=128)
+    scenario_name: str | None = Field(default=None, max_length=500)
 
 
 class CreateSessionResponse(BaseModel):
     session_id: uuid.UUID
     workflow_id: int
     workflow_run_id: int
+    call_id: str
     started_at: datetime
 
 
@@ -365,6 +373,8 @@ async def create_session(
         "scenario": scenario,
         "session_id": str(session_id),
         "direction": CallType.INBOUND.value,
+        "scenario_id": request.scenario_id,
+        "scenario_name": request.scenario_name,
     }
     run_inputs = await prepare_workflow_run_inputs(
         db_client, workflow, initial_context=initial_context
@@ -400,6 +410,7 @@ async def create_session(
         session_id=session_id,
         workflow_id=workflow.id,
         workflow_run_id=run.id,
+        call_id=run.call_id,
         started_at=started_at,
     )
 
@@ -460,6 +471,8 @@ async def end_session(
 
 class StartSimulationRequest(BaseModel):
     scenario: str = Field(min_length=1, max_length=20_000)
+    scenario_id: str | None = Field(default=None, max_length=128)
+    scenario_name: str | None = Field(default=None, max_length=500)
     max_duration_seconds: int | None = Field(default=None, ge=30, le=900)
     experiment_mode: Literal[
         "baseline", "scores_only", "scores_and_trends", "full_calm_prompt"
@@ -506,6 +519,8 @@ async def start_simulation(
             scenario,
             max_duration_seconds=request.max_duration_seconds,
             experiment_mode=request.experiment_mode,
+            scenario_id=request.scenario_id,
+            scenario_name=request.scenario_name,
         )
     except SimulationAuthorizationError as e:
         raise HTTPException(status_code=402, detail=str(e)) from None

@@ -1778,6 +1778,10 @@ export type CreateSessionRequest = {
      * Name
      */
     name?: string | null;
+    /** Scenario identifier from the scenario library */
+    scenario_id?: string | null;
+    /** Scenario title from the scenario library */
+    scenario_name?: string | null;
 };
 
 /**
@@ -1796,6 +1800,8 @@ export type CreateSessionResponse = {
      * Workflow Run Id
      */
     workflow_run_id: number;
+    /** Canonical internal call identifier */
+    call_id: string;
     /**
      * Started At
      */
@@ -1916,6 +1922,8 @@ export type CreateWorkflowRunResponse = {
      * Id
      */
     id: number;
+    /** Canonical internal call identifier */
+    call_id: string;
     /**
      * Workflow Id
      */
@@ -5818,6 +5826,10 @@ export type ScenarioResponse = {
      * Title
      */
     title?: string;
+    /** Category */
+    category?: string;
+    /** Search tags */
+    tags?: Array<string>;
     /**
      * Mode
      */
@@ -5904,6 +5916,10 @@ export type ScenarioWriteRequest = {
      * Title
      */
     title?: string;
+    /** Category */
+    category?: string;
+    /** Search tags */
+    tags?: Array<string>;
     /**
      * Mode
      */
@@ -6346,6 +6362,10 @@ export type StartSimulationRequest = {
      * Scenario
      */
     scenario: string;
+    /** Scenario identifier from the scenario library */
+    scenario_id?: string | null;
+    /** Scenario title from the scenario library */
+    scenario_name?: string | null;
     /**
      * Max Duration Seconds
      */
@@ -8539,6 +8559,25 @@ export type WorkflowRunUsageResponse = {
      * Gathered Context
      */
     gathered_context?: {
+        [key: string]: unknown;
+    } | null;
+    call_id?: string | null;
+    agent_run_id?: number | null;
+    service_user_id?: string | null;
+    service_user_label?: string | null;
+    scenario_id?: string | null;
+    scenario_name?: string | null;
+    call_status?: string | null;
+    started_at?: string | null;
+    connected_at?: string | null;
+    ended_at?: string | null;
+    calm_score?: {
+        [key: string]: unknown;
+    } | null;
+    safety_score?: {
+        [key: string]: unknown;
+    } | null;
+    clinical_evaluation?: {
         [key: string]: unknown;
     } | null;
     /**
@@ -14228,7 +14267,10 @@ export type ListScenariosApiV1SakinahScenariosGetData = {
         'X-API-Key'?: string | null;
     };
     path?: never;
-    query?: never;
+    query?: {
+        /** Case-insensitive partial scenario search */
+        search?: string | null;
+    };
     url: '/api/v1/sakinah/scenarios';
 };
 

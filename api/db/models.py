@@ -224,6 +224,39 @@ class OrganizationConfigurationModel(Base):
     )
 
 
+class ServiceUserModel(Base):
+    """Stable, organization-scoped identity for a person using the service.
+
+    The inbound caller identifier is stored as a one-way lookup hash here;
+    individual call rows retain the provider identifier for audit/replay.  A
+    matching telephone number is only a candidate identity, never proof of
+    identity or permission to disclose sensitive memories.
+    """
+
+    __tablename__ = "service_users"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    caller_identifier_hash = Column(String(128), nullable=False)
+    preferred_name = Column(String(200), nullable=True)
+    first_seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    first_use_explanation_shown = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "caller_identifier_hash",
+            name="uq_service_users_org_caller_hash",
+        ),
+        Index("ix_service_users_org_caller_hash", "organization_id", "caller_identifier_hash"),
+    )
+
+
 class TelephonyConfigurationModel(Base):
     __tablename__ = "telephony_configurations"
 
@@ -530,6 +563,16 @@ class WorkflowTemplates(Base):
 class WorkflowRunModel(Base):
     __tablename__ = "workflow_runs"
     id = Column(Integer, primary_key=True, index=True)
+    # Canonical internal call identifier. Provider call IDs remain in
+    # ``gathered_context`` for backwards-compatible webhook correlation.
+    call_id = Column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+        server_default=text("gen_random_uuid()::text"),
+    )
     name = Column(String, nullable=False)
     workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=False)
     workflow = relationship("WorkflowModel", back_populates="runs")
@@ -547,6 +590,24 @@ class WorkflowRunModel(Base):
         default=CallType.OUTBOUND.value,
         server_default=text("'outbound'::workflow_call_type"),
     )
+    scenario_id = Column(String(128), nullable=True, index=True)
+    scenario_name = Column(String, nullable=True)
+    service_user_id = Column(
+        String(36), ForeignKey("service_users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    caller_identifier = Column(String(255), nullable=True)
+    telephone_number = Column(String(255), nullable=True)
+    direction = Column(String(32), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    connected_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    duration_seconds = Column(Float, nullable=True)
+    call_status = Column(String(64), nullable=True, index=True)
+    telephony_provider = Column(String(64), nullable=True)
+    model_provider = Column(String(128), nullable=True)
+    stt_provider = Column(String(128), nullable=True)
+    tts_provider = Column(String(128), nullable=True)
+    avatar_provider = Column(String(128), nullable=True)
     state = Column(
         Enum(*[state.value for state in WorkflowRunState], name="workflow_run_state"),
         nullable=False,
@@ -556,6 +617,15 @@ class WorkflowRunModel(Base):
     is_completed = Column(Boolean, default=False)
     recording_url = Column(String, nullable=True)
     transcript_url = Column(String, nullable=True)
+    recording_object_key = Column(String, nullable=True)
+    recording_duration_seconds = Column(Float, nullable=True)
+    recording_format = Column(String(32), nullable=True)
+    recording_size_bytes = Column(Integer, nullable=True)
+    full_transcript = Column(Text, nullable=True)
+    termination_reason = Column(String(255), nullable=True)
+    debug_metadata = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
     extra = Column(
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
     )
@@ -578,6 +648,7 @@ class WorkflowRunModel(Base):
     queued_run_id = Column(Integer, ForeignKey("queued_runs.id"), nullable=True)
     queued_run = relationship("QueuedRunModel", foreign_keys=[queued_run_id])
     public_access_token = Column(String(36), nullable=True)
+    service_user = relationship("ServiceUserModel")
     text_session = relationship(
         "WorkflowRunTextSessionModel",
         back_populates="workflow_run",
@@ -600,6 +671,8 @@ class WorkflowRunModel(Base):
         ),
         Index("idx_workflow_runs_workflow_id", "workflow_id"),
         Index("idx_workflow_runs_campaign_id", "campaign_id"),
+        Index("idx_workflow_runs_service_user_started_at", "service_user_id", "started_at"),
+        Index("idx_workflow_runs_direction_status", "direction", "call_status"),
     )
 
 
@@ -614,6 +687,8 @@ class SakinahScenarioModel(Base):
     )
     sequence = Column(Integer, nullable=False)
     title = Column(String, nullable=False)
+    category = Column(String(128), nullable=False, default="", server_default=text("''"))
+    tags = Column(JSON, nullable=False, default=list, server_default=text("'[]'::json"))
     mode = Column(String(32), nullable=False)
     persona = Column(Text, nullable=False, default="")
     age = Column(String, nullable=False, default="")
@@ -681,6 +756,155 @@ class SakinahRunModel(Base):
 
     __table_args__ = (
         Index("ix_sakinah_runs_user_started_at", "user_id", "started_at"),
+    )
+
+
+class CallUtteranceModel(Base):
+    """One immutable, speaker-labelled utterance from an agent run."""
+
+    __tablename__ = "utterances"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    speaker = Column(String(32), nullable=False)
+    sequence_number = Column(Integer, nullable=False)
+    start_ms = Column(Integer, nullable=True)
+    end_ms = Column(Integer, nullable=True)
+    transcript = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    calm_score = Column(Float, nullable=True)
+    safety_score = Column(Float, nullable=True)
+    clinical_score = Column(Float, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", "sequence_number", name="uq_utterances_run_sequence"),
+        Index("ix_utterances_agent_run_id", "agent_run_id"),
+    )
+
+
+class CallRecordingModel(Base):
+    """Private object-storage metadata for a call recording."""
+
+    __tablename__ = "recordings"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    storage_backend = Column(String(32), nullable=False)
+    object_key = Column(String, nullable=False)
+    duration_seconds = Column(Float, nullable=True)
+    format = Column(String(32), nullable=False, default="wav")
+    size_bytes = Column(Integer, nullable=True)
+    track = Column(String(32), nullable=False, default="mixed")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", "track", name="uq_recordings_run_track"),
+        Index("ix_recordings_agent_run_id", "agent_run_id"),
+    )
+
+
+class CallScoreModel(Base):
+    """Preserved CALM, safety and clinical scoring output for a call."""
+
+    __tablename__ = "call_scores"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    calm_score = Column(JSON, nullable=False, default=dict, server_default=text("'{}'::json"))
+    safety_score = Column(JSON, nullable=False, default=dict, server_default=text("'{}'::json"))
+    clinical_evaluation = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    __table_args__ = (Index("ix_call_scores_agent_run_id", "agent_run_id"),)
+
+
+class CallEventModel(Base):
+    """Structured risk, escalation, termination and debugging events."""
+
+    __tablename__ = "call_events"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type = Column(String(64), nullable=False)
+    occurred_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    severity = Column(String(32), nullable=True)
+    payload = Column(JSON, nullable=False, default=dict, server_default=text("'{}'::json"))
+
+    __table_args__ = (
+        Index("ix_call_events_agent_run_id", "agent_run_id"),
+        Index("ix_call_events_type_occurred_at", "event_type", "occurred_at"),
+    )
+
+
+class MemoryModel(Base):
+    """A bounded, provenance-linked long-term memory for a service user."""
+
+    __tablename__ = "memories"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    service_user_id = Column(
+        String(36), ForeignKey("service_users.id", ondelete="CASCADE"), nullable=False
+    )
+    memory_type = Column(String(64), nullable=False)
+    memory_text = Column(Text, nullable=False)
+    embedding = Column(Vector(1536), nullable=True)
+    importance = Column(Float, nullable=False, default=0.5)
+    confidence = Column(Float, nullable=False, default=0.5)
+    sensitivity = Column(String(32), nullable=False, default="normal")
+    source_agent_run_id = Column(Integer, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True)
+    source_utterance_id = Column(String(36), ForeignKey("utterances.id", ondelete="SET NULL"), nullable=True)
+    internal_context_allowed = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    verbal_reference_allowed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    explicit_detail_allowed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    __table_args__ = (
+        Index("ix_memories_service_user_id", "service_user_id"),
+        Index("ix_memories_source_agent_run_id", "source_agent_run_id"),
+        Index("ix_memories_source_utterance_id", "source_utterance_id"),
+        Index("ix_memories_type_active", "memory_type", "active"),
+        Index("ix_memories_active", "active", postgresql_where=text("active = true")),
+        Index(
+            "ix_memories_embedding_ivfflat",
+            "embedding",
+            postgresql_using="ivfflat",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+
+class MemorySourceModel(Base):
+    """Additional provenance rows for memory facts extracted from a call."""
+
+    __tablename__ = "memory_sources"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    memory_id = Column(
+        String(36), ForeignKey("memories.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    utterance_id = Column(String(36), ForeignKey("utterances.id", ondelete="SET NULL"), nullable=True)
+    source_excerpt = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        Index("ix_memory_sources_memory_id", "memory_id"),
+        Index("ix_memory_sources_agent_run_id", "agent_run_id"),
     )
 
 

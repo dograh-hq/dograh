@@ -21,6 +21,7 @@ from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
 )
+from api.services.memory.orchestrator import prepare_memory_context
 from api.services.observability.active_calls import (
     register_active_call as register_worker_active_call,
 )
@@ -653,6 +654,60 @@ async def _run_pipeline_impl(
     else:
         user_config = resolved_user_config
 
+    # Resolve Sakinah continuity before the first conversational turn. The
+    # orchestrator is privacy-bounded and timeout-protected; persistence must
+    # never prevent a live call from connecting.
+    if workflow.name != "Sakinah Scenario Console":
+        caller_identifier = (
+            merged_call_context_vars.get("caller_identifier")
+            or merged_call_context_vars.get("caller_number")
+            or merged_call_context_vars.get("from_number")
+        )
+        if caller_identifier and workflow.organization_id:
+            try:
+                service_user, _ = await db_client.get_or_create_service_user(
+                    workflow.organization_id, str(caller_identifier)
+                )
+                await db_client.update_workflow_run(
+                    workflow_run_id, service_user_id=service_user.id
+                )
+            except Exception:
+                logger.warning("Unable to associate a service user with workflow run {}", workflow_run_id)
+    else:
+        try:
+            memory_context = await asyncio.wait_for(
+                prepare_memory_context(
+                    organization_id=workflow.organization_id,
+                    call_context=merged_call_context_vars,
+                ),
+                timeout=2.0,
+            )
+        except Exception:
+            logger.warning("Sakinah memory context unavailable; using UNKNOWN caller context")
+            memory_context = await prepare_memory_context(
+                organization_id=None,
+                call_context={},
+            )
+        merged_call_context_vars.update(
+            {
+                "caller_status": memory_context["caller_status"],
+                "memory_context": memory_context["prompt_context"],
+                "greeting_override": memory_context["greeting_override"],
+                "memory_available": memory_context["memory_available"],
+                "memory_authorisation_level": memory_context[
+                    "memory_authorisation_level"
+                ],
+            }
+        )
+        if memory_context.get("service_user_id"):
+            try:
+                await db_client.update_workflow_run(
+                    workflow_run_id,
+                    service_user_id=memory_context["service_user_id"],
+                )
+            except Exception:
+                logger.warning("Unable to persist Sakinah service-user association for run {}", workflow_run_id)
+
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(run_workflow_json),
         skip_instance_constraints_for={"trigger"},
@@ -743,7 +798,13 @@ async def _run_pipeline_impl(
         "runtime_configuration": runtime_configuration,
     }
     await db_client.update_workflow_run(
-        workflow_run_id, initial_context=merged_call_context_vars
+        workflow_run_id,
+        initial_context=merged_call_context_vars,
+        model_provider=runtime_configuration.get("llm_provider")
+        or runtime_configuration.get("realtime_provider"),
+        stt_provider=runtime_configuration.get("stt_provider"),
+        tts_provider=runtime_configuration.get("tts_provider"),
+        call_status="in_progress",
     )
 
     # Pre-call fetch: fire early so it runs concurrently with remaining setup

@@ -51,6 +51,8 @@ const ROLE_LABELS: Record<string, string> = {
 export default function SakinahSimulationPage() {
     const { getAccessToken } = useAuth();
     const [scenario, setScenario] = useState("");
+    const [scenarioId, setScenarioId] = useState<string | null>(null);
+    const [scenarioName, setScenarioName] = useState<string | null>(null);
     const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
     const [turns, setTurns] = useState<SimTurn[]>([]);
     const [starting, setStarting] = useState(false);
@@ -74,7 +76,11 @@ export default function SakinahSimulationPage() {
         void listSakinahScenarios()
             .then((savedScenarios) => {
                 const savedScenario = savedScenarios.find((item) => item.id === scenarioId);
-                if (savedScenario) setScenario(compileScenarioPrompt(savedScenario));
+                if (savedScenario) {
+                    setScenarioId(savedScenario.id);
+                    setScenarioName(savedScenario.title);
+                    setScenario(compileScenarioPrompt(savedScenario));
+                }
             })
             .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load scenario."));
     }, []);
@@ -291,7 +297,12 @@ export default function SakinahSimulationPage() {
             // needed for the events WebSocket, which cannot use the interceptor.
             const token = await getAccessToken();
             const response = await startSimulationApiV1SakinahSimulationsPost({
-                body: { scenario: scenario.trim(), experiment_mode: experimentMode },
+                body: {
+                    scenario: scenario.trim(),
+                    scenario_id: scenarioId,
+                    scenario_name: scenarioName,
+                    experiment_mode: experimentMode,
+                },
             });
             if (response.error || !response.data) {
                 throw new Error(

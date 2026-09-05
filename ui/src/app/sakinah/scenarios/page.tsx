@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Library, Pencil, Play, Plus, Trash2, Upload } from "lucide-react";
+import { Copy, Library, Pencil, Play, Plus, Search, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -23,7 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
 import {
     type BulkScenarioImportResponse,
-    deleteSakinahScenario, loadSakinahScenariosWithLegacyMigration,
+    deleteSakinahScenario, listSakinahScenarios, loadSakinahScenariosWithLegacyMigration,
     saveSakinahScenario,
 } from "@/lib/sakinahPersistence";
 import {
@@ -38,7 +38,7 @@ const LANGUAGES = ["English", "Arabic", "French", "Spanish", "Urdu", "Hindi", "O
 const GENDERS = ["Female", "Male", "Non-binary", "Not specified", "Custom"];
 const EMOTIONS = ["Neutral", "Anxious", "Low mood", "Distressed", "Fearful", "Angry", "Irritable", "Guarded", "Suspicious", "Tearful", "Overwhelmed", "Agitated", "Withdrawn", "Hopeful", "Mixed", "Other"];
 
-type TextFieldName = keyof Pick<ScenarioDraft, "title" | "persona" | "age" | "communicationStyle" | "initialInformation" | "hiddenInformation" | "disclosure" | "behaviour" | "background" | "additionalFactors" | "notes" | "freestylePrompt">;
+type TextFieldName = keyof Pick<ScenarioDraft, "title" | "category" | "persona" | "age" | "communicationStyle" | "initialInformation" | "hiddenInformation" | "disclosure" | "behaviour" | "background" | "additionalFactors" | "notes" | "freestylePrompt">;
 
 function Field({ name, label, value, onChange, textarea = false, required = false, helper }: {
     name: TextFieldName;
@@ -86,7 +86,9 @@ function ScenarioEditor({ open, scenario, onOpenChange, onSave }: { open: boolea
             <Tabs value={draft.mode} onValueChange={(value) => update("mode", value as ScenarioMode)}>
                 <TabsList><TabsTrigger value="structured">Structured</TabsTrigger><TabsTrigger value="freestyle">Freestyle</TabsTrigger></TabsList>
                 <TabsContent value="structured" className="mt-4 space-y-5">
-                    <div className="grid gap-4 sm:grid-cols-2"><Field name="title" label="Scenario title" value={draft.title} onChange={update} required /><Field name="age" label="Service-user age or age range" value={draft.age} onChange={update} /></div>
+                    <div className="grid gap-4 sm:grid-cols-2"><Field name="title" label="Scenario title" value={draft.title} onChange={update} required /><Field name="category" label="Category" value={draft.category} onChange={update} /></div>
+                    <div className="space-y-2"><Label htmlFor="scenario-tags">Tags</Label><Input id="scenario-tags" value={draft.tags.join(", ")} onChange={(event) => update("tags", event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean))} placeholder="e.g. anxiety, housing, first contact" /></div>
+                    <Field name="age" label="Service-user age or age range" value={draft.age} onChange={update} />
                     <Field name="persona" label="Persona" value={draft.persona} onChange={update} textarea required />
                     <div className="grid gap-4 sm:grid-cols-2"><ChoiceField label="Gender" value={draft.gender} options={GENDERS} onChange={(value) => update("gender", value)} /><ChoiceField label="Language" value={draft.language} options={LANGUAGES} onChange={(value) => update("language", value)} /></div>
                     <div className="grid gap-4 sm:grid-cols-2"><ChoiceField label="Emotional state / emotion" value={draft.emotion} options={EMOTIONS} onChange={(value) => update("emotion", value)} /><Field name="communicationStyle" label="Communication style" value={draft.communicationStyle} onChange={update} /></div>
@@ -99,7 +101,8 @@ function ScenarioEditor({ open, scenario, onOpenChange, onSave }: { open: boolea
                     <Field name="notes" label="Optional free notes" value={draft.notes} onChange={update} textarea />
                 </TabsContent>
                 <TabsContent value="freestyle" className="mt-4 space-y-5">
-                    <Field name="title" label="Title (optional)" value={draft.title} onChange={update} />
+                    <div className="grid gap-4 sm:grid-cols-2"><Field name="title" label="Title (optional)" value={draft.title} onChange={update} /><Field name="category" label="Category" value={draft.category} onChange={update} /></div>
+                    <div className="space-y-2"><Label htmlFor="scenario-tags-freestyle">Tags</Label><Input id="scenario-tags-freestyle" value={draft.tags.join(", ")} onChange={(event) => update("tags", event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean))} placeholder="e.g. wellbeing, safeguarding" /></div>
                     <div className="grid gap-4 sm:grid-cols-2"><ChoiceField label="Language" value={draft.language} options={LANGUAGES} onChange={(value) => update("language", value)} /><ChoiceField label="Gender" value={draft.gender} options={GENDERS} onChange={(value) => update("gender", value)} /></div>
                     <Field name="freestylePrompt" label="Scenario instructions" value={draft.freestylePrompt} onChange={update} textarea required helper="Describe the service user, their background, what they initially disclose, what they keep hidden, their emotional state, and how their behaviour should change in response to Sakinah." />
                 </TabsContent>
@@ -121,6 +124,9 @@ export default function ScenarioLibraryPage() {
     const [saving, setSaving] = useState(false);
     const [bulkImportOpen, setBulkImportOpen] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
+    const [search, setSearch] = useState("");
+    const [appliedSearch, setAppliedSearch] = useState("");
+    const [searching, setSearching] = useState(false);
     const importInputRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
@@ -150,6 +156,22 @@ export default function ScenarioLibraryPage() {
         return () => { cancelled = true; };
     }, [authLoading, user]);
     const openCreate = () => { setEditing(null); setEditorOpen(true); };
+    const runScenarioSearch = async (value = search) => {
+        setSearching(true);
+        try {
+            const term = value.trim();
+            setScenarios(await listSakinahScenarios(term));
+            setAppliedSearch(term);
+        } catch (searchError) {
+            setImportMessage(searchError instanceof Error ? searchError.message : "Unable to search scenarios.");
+        } finally {
+            setSearching(false);
+        }
+    };
+    const clearScenarioSearch = () => {
+        setSearch("");
+        void runScenarioSearch("");
+    };
     const handleImport = async (file: File | undefined) => {
         if (!file) return;
         if (!file.name.toLowerCase().endsWith(".json")) {
@@ -175,7 +197,8 @@ export default function ScenarioLibraryPage() {
         setSaving(true);
         try {
             const saved = await saveSakinahScenario(editing, draft);
-            setScenarios((current) => editing
+            if (appliedSearch) setScenarios(await listSakinahScenarios(appliedSearch));
+            else setScenarios((current) => editing
                 ? current.map((item) => item.id === editing.id ? saved : item)
                 : [...current, saved]);
             setEditorOpen(false);
@@ -211,15 +234,16 @@ export default function ScenarioLibraryPage() {
     };
     const handleBulkImportCommitted = (response: BulkScenarioImportResponse) => {
         setImportMessage(`Imported ${response.imported} scenario${response.imported === 1 ? "" : "s"}; ${response.failed} failed.`);
-        void loadSakinahScenariosWithLegacyMigration()
+        void loadSakinahScenariosWithLegacyMigration(appliedSearch)
             .then(setScenarios)
             .catch((loadError) => setImportMessage(loadError instanceof Error ? loadError.message : "Unable to refresh scenarios."));
     };
     return <main className="mx-auto w-full max-w-6xl space-y-6 p-4 md:p-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-2"><p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Sakinah</p><h1 className="text-3xl font-bold tracking-tight">Scenario Library</h1><p className="text-muted-foreground">Create and manage simulated service-user scenarios for Sakinah testing.</p></div><div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImport(event.target.files?.[0])} />{isAdmin ? <Button variant="outline" disabled={saving} onClick={() => setBulkImportOpen(true)}><Upload />Bulk Import Scenarios</Button> : null}<Button variant="outline" disabled={saving} onClick={() => importInputRef.current?.click()}><Upload />Import JSON</Button><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></div></header>
         {importMessage ? <p role="status" className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">{importMessage}</p> : null}
-        {loaded && scenarios.length === 0 ? <Card className="py-14 text-center"><CardContent className="space-y-4"><Library className="mx-auto size-10 text-muted-foreground" /><div><h2 className="font-semibold">No scenarios yet.</h2><p className="text-sm text-muted-foreground">Create a reusable scenario to begin testing Sakinah.</p></div><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></CardContent></Card> : null}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{scenarios.map((scenario) => <Card key={scenario.id} className="flex flex-col"><CardHeader><div className="flex items-center justify-between gap-3"><Badge variant="secondary">{formatScenarioNumber(scenario.sequence)}</Badge><Badge variant="outline" className="capitalize">{scenario.mode}</Badge></div><CardTitle className="mt-2">{scenario.title}</CardTitle><CardDescription className="line-clamp-3">{scenario.mode === "freestyle" ? scenario.freestylePrompt : scenario.persona}</CardDescription></CardHeader><CardContent className="flex-1 space-y-1 text-sm text-muted-foreground">{scenario.language ? <p>Language: {scenario.language}</p> : null}{scenario.emotion ? <p>Emotion: {scenario.emotion}</p> : null}</CardContent><CardFooter className="flex flex-wrap gap-2"><Button size="sm" disabled={saving} onClick={() => router.push(`/sakinah/sim?scenario=${encodeURIComponent(scenario.id)}`)}><Play />Use in Simulation</Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Edit ${scenario.title}`} onClick={() => { setEditing(scenario); setEditorOpen(true); }}><Pencil /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Duplicate ${scenario.title}`} onClick={() => void handleDuplicate(scenario)}><Copy /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Delete ${scenario.title}`} onClick={() => setDeleting(scenario)}><Trash2 /></Button></CardFooter></Card>)}</div>
+        <form className="flex flex-col gap-2 sm:flex-row" onSubmit={(event) => { event.preventDefault(); void runScenarioSearch(); }}><div className="relative flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search scenarios..." aria-label="Search scenarios" className="pl-9" /></div><Button type="submit" disabled={searching}><Search />Search</Button>{appliedSearch ? <Button type="button" variant="outline" disabled={searching} onClick={clearScenarioSearch}>Clear / Show all</Button> : null}</form>
+        {loaded ? <p className="text-sm text-muted-foreground">{appliedSearch ? `${scenarios.length} match${scenarios.length === 1 ? "" : "es"}` : `${scenarios.length} scenario${scenarios.length === 1 ? "" : "s"}`}</p> : null}
+        {loaded && scenarios.length === 0 ? <p role="status" className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">{appliedSearch ? `No scenarios found for “${appliedSearch}”.` : "No scenarios found. Create or import a scenario to get started."}</p> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{scenarios.map((scenario) => <Card key={scenario.id} className="flex flex-col"><CardHeader><div className="flex items-center justify-between gap-3"><Badge variant="secondary">{formatScenarioNumber(scenario.sequence)}</Badge><Badge variant="outline" className="capitalize">{scenario.mode}</Badge></div><CardTitle className="mt-2">{scenario.title}</CardTitle><CardDescription className="line-clamp-3">{scenario.mode === "freestyle" ? scenario.freestylePrompt : scenario.persona}</CardDescription></CardHeader><CardContent className="flex-1 space-y-1 text-sm text-muted-foreground">{scenario.category ? <p>Category: {scenario.category}</p> : null}{scenario.tags.length ? <p>Tags: {scenario.tags.join(", ")}</p> : null}{scenario.language ? <p>Language: {scenario.language}</p> : null}{scenario.emotion ? <p>Emotion: {scenario.emotion}</p> : null}</CardContent><CardFooter className="flex flex-wrap gap-2"><Button size="sm" disabled={saving} onClick={() => router.push(`/sakinah/sim?scenario=${encodeURIComponent(scenario.id)}`)}><Play />Use in Simulation</Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Edit ${scenario.title}`} onClick={() => { setEditing(scenario); setEditorOpen(true); }}><Pencil /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Duplicate ${scenario.title}`} onClick={() => void handleDuplicate(scenario)}><Copy /></Button><Button size="icon" variant="outline" disabled={saving} aria-label={`Delete ${scenario.title}`} onClick={() => setDeleting(scenario)}><Trash2 /></Button></CardFooter></Card>)}</div>}
         <ScenarioEditor open={editorOpen} scenario={editing} onOpenChange={setEditorOpen} onSave={handleSave} />
         <BulkScenarioImport open={bulkImportOpen} onOpenChange={setBulkImportOpen} onCommitted={handleBulkImportCommitted} />
         <AlertDialog open={deleting !== null} onOpenChange={(open) => { if (!open && !saving) setDeleting(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete scenario?</AlertDialogTitle><AlertDialogDescription>This permanently removes {deleting ? formatScenarioNumber(deleting.sequence) : "this scenario"}. Other scenario numbers will not change.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel><AlertDialogAction disabled={saving} className="bg-destructive text-white hover:bg-destructive/90" onClick={() => void handleDelete()}>Delete Scenario</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

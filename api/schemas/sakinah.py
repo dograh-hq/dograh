@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 
 SCENARIO_FIELDS = (
     "title",
+    "category",
+    "tags",
     "mode",
     "persona",
     "age",
@@ -25,6 +27,8 @@ SCENARIO_FIELDS = (
 
 class ScenarioWriteRequest(BaseModel):
     title: str = Field(default="Untitled scenario", max_length=500)
+    category: str = Field(default="", max_length=128)
+    tags: list[str] = Field(default_factory=list, max_length=50)
     mode: Literal["structured", "freestyle"] = "structured"
     persona: str = Field(default="", max_length=20_000)
     age: str = Field(default="", max_length=200)

@@ -166,11 +166,12 @@ services:
       # tunnel's URL at runtime instead (see api/utils/common.py).
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-}"
 
-      # Database configuration (using containerized postgres)
-      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres"
+      # Database configuration. Local defaults use bundled Postgres; AWS/RDS
+      # deployments can override DATABASE_URL in the Compose .env file.
+      DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres}"
 
-      # Redis configuration (using containerized redis)
-      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+      # Redis configuration. Keep the bundled Redis default unless overridden.
+      REDIS_URL: "${REDIS_URL:-redis://:${REDIS_PASSWORD:-redissecret}@redis:6379}"
 
       # Storage configuration - bundled MinIO by default. Set ENABLE_AWS_S3=true
       # in .env to make the API use AWS S3 or another S3-compatible server.
@@ -182,8 +183,12 @@ services:
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
       AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      AWS_REGION: "${AWS_REGION:-eu-west-2}"
+      AWS_RECORDINGS_BUCKET: "${AWS_RECORDINGS_BUCKET:-}"
       S3_BUCKET: "${S3_BUCKET:-}"
-      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_REGION: "${S3_REGION:-eu-west-2}"
+      S3_KMS_KEY_ID: "${S3_KMS_KEY_ID:-}"
+      S3_SERVER_SIDE_ENCRYPTION: "${S3_SERVER_SIDE_ENCRYPTION:-aws:kms}"
 
       # For a non-AWS S3-compatible server, also set these in Compose's .env
       # S3_ENDPOINT_URL        e.g. https://s3.example.com
@@ -193,6 +198,12 @@ services:
       S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-}"
       S3_SIGNATURE_VERSION: "${S3_SIGNATURE_VERSION:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-}"
+
+      MEMORY_ENABLED: "${MEMORY_ENABLED:-true}"
+      MEMORY_EMBEDDING_MODEL: "${MEMORY_EMBEDDING_MODEL:-text-embedding-3-small}"
+      MEMORY_MAX_RESULTS: "${MEMORY_MAX_RESULTS:-5}"
+      MEMORY_MIN_SIMILARITY: "${MEMORY_MIN_SIMILARITY:-0.72}"
+      RECORD_CALLS: "${RECORD_CALLS:-true}"
 
       # MinIO
       MINIO_ENDPOINT: "minio:9000"

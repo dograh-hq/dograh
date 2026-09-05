@@ -30,3 +30,26 @@ class WorkflowRunResponseSchema(BaseModel):
     call_type: CallType
     logs: Dict[str, Any] | None = None
     annotations: Dict[str, Any] | None = None
+    call_id: str | None = None
+    scenario_id: str | None = None
+    scenario_name: str | None = None
+    service_user_id: str | None = None
+    caller_identifier: str | None = None
+    telephone_number: str | None = None
+    direction: str | None = None
+    started_at: datetime | None = None
+    connected_at: datetime | None = None
+    ended_at: datetime | None = None
+    duration_seconds: float | None = None
+    call_status: str | None = None
+    telephony_provider: str | None = None
+    model_provider: str | None = None
+    stt_provider: str | None = None
+    tts_provider: str | None = None
+    avatar_provider: str | None = None
+    recording_object_key: str | None = None
+    recording_duration_seconds: float | None = None
+    recording_format: str | None = None
+    recording_size_bytes: int | None = None
+    full_transcript: str | None = None
+    termination_reason: str | None = None

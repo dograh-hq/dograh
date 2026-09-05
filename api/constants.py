@@ -96,8 +96,16 @@ MINIO_BUCKET = os.getenv("MINIO_BUCKET", "voice-audio")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 # AWS S3 Configuration
-S3_BUCKET = os.environ.get("S3_BUCKET")
-S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("S3_REGION", "eu-west-2")
+# ``AWS_RECORDINGS_BUCKET`` is the white-label name. Keep ``S3_BUCKET`` as the
+# existing generic storage setting so existing deployments continue to work.
+AWS_RECORDINGS_BUCKET = os.environ.get("AWS_RECORDINGS_BUCKET")
+S3_BUCKET = AWS_RECORDINGS_BUCKET or os.environ.get("S3_BUCKET")
+S3_REGION = AWS_REGION
+S3_KMS_KEY_ID = os.environ.get("S3_KMS_KEY_ID") or None
+S3_SERVER_SIDE_ENCRYPTION = os.environ.get(
+    "S3_SERVER_SIDE_ENCRYPTION", "aws:kms"
+)
 # Optional overrides for S3-compatible backends (e.g. MinIO, rustfs, Ceph).
 # S3_ENDPOINT_URL: full URL of a custom S3 endpoint (e.g. "https://s3.example.com").
 #   Leave unset to use AWS's default endpoint resolution.
@@ -109,6 +117,18 @@ S3_REGION = os.environ.get("S3_REGION", "us-east-1")
 S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
 S3_SIGNATURE_VERSION = os.environ.get("S3_SIGNATURE_VERSION")
 S3_ADDRESSING_STYLE = os.environ.get("S3_ADDRESSING_STYLE")
+
+# Durable call and Sakinah memory persistence. These are intentionally
+# environment-driven so the call path remains usable in local/OSS installs
+# without AWS credentials.
+MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "true").lower() == "true"
+MEMORY_EMBEDDING_MODEL = os.getenv(
+    "MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"
+)
+MEMORY_EMBEDDING_DIMENSIONS = int(os.getenv("MEMORY_EMBEDDING_DIMENSIONS", "1536"))
+MEMORY_MAX_RESULTS = max(1, int(os.getenv("MEMORY_MAX_RESULTS", "5")))
+MEMORY_MIN_SIMILARITY = float(os.getenv("MEMORY_MIN_SIMILARITY", "0.72"))
+RECORD_CALLS = os.getenv("RECORD_CALLS", "true").lower() == "true"
 
 # Sentry configuration
 SENTRY_DSN = os.getenv("SENTRY_DSN")

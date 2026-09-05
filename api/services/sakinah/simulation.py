@@ -256,6 +256,8 @@ class SimulationManager:
         scenario: str,
         max_duration_seconds: Optional[int] = None,
         experiment_mode: str = "full_calm_prompt",
+        scenario_id: str | None = None,
+        scenario_name: str | None = None,
     ) -> Simulation:
         from api.constants import FASTAPI_WORKERS
 
@@ -310,6 +312,8 @@ class SimulationManager:
                 "simulation_role": role,
                 "experiment_mode": experiment_mode,
                 "direction": CallType.INBOUND.value,
+                "scenario_id": scenario_id,
+                "scenario_name": scenario_name,
             }
             if role == SERVICE_USER_ROLE:
                 # The service user must not speak first: it stays silent until

@@ -274,6 +274,10 @@ TURN_SECRET = os.getenv("TURN_SECRET")
 # Host browsers dial for TURN/ICE. Derives from PUBLIC_HOST; set explicitly only
 # when the TURN server runs on a separate host from the app.
 TURN_HOST = os.getenv("TURN_HOST") or PUBLIC_HOST or "localhost"
+# Docker Desktop local deployments can require a different name from the API
+# container than from the browser. The browser uses TURN_HOST; aiortc uses this
+# optional container-side name to reach the host-published TURN service.
+TURN_SERVER_HOST = os.getenv("TURN_SERVER_HOST") or ""
 TURN_PORT = int(os.getenv("TURN_PORT", "3478"))
 TURN_TLS_PORT = int(os.getenv("TURN_TLS_PORT", "5349"))
 TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))

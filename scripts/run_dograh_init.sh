@@ -21,7 +21,7 @@ if [[ "${ENVIRONMENT:-local}" == "production" ]]; then
     [[ -f "$CERTS_DIR/local.crt" ]] || dograh_fail "certs/local.crt not found"
     [[ -f "$CERTS_DIR/local.key" ]] || dograh_fail "certs/local.key not found"
 
-    export TURN_EXTERNAL_IP="$SERVER_IP"
+    export TURN_EXTERNAL_IP="${TURN_EXTERNAL_IP:-$SERVER_IP}"
     dograh_render_remote_nginx_conf "$WORKSPACE_DIR" "$NGINX_OUTPUT_DIR/default.conf"
     dograh_render_remote_turn_conf "$WORKSPACE_DIR" "$COTURN_OUTPUT_DIR/turnserver.conf"
     dograh_success "✓ dograh-init rendered remote nginx and coturn config"
@@ -29,7 +29,7 @@ if [[ "${ENVIRONMENT:-local}" == "production" ]]; then
 fi
 
 if [[ -n "${TURN_SECRET:-}" && -n "${TURN_HOST:-}" ]]; then
-    export TURN_EXTERNAL_IP="$TURN_HOST"
+    export TURN_EXTERNAL_IP="${TURN_EXTERNAL_IP:-$TURN_HOST}"
     dograh_render_remote_turn_conf "$WORKSPACE_DIR" "$COTURN_OUTPUT_DIR/turnserver.conf"
     dograh_success "✓ dograh-init rendered local TURN config"
     exit 0

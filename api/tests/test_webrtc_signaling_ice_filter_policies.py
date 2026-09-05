@@ -113,6 +113,28 @@ def test_get_ice_servers_keeps_public_stun_when_not_relay_only(monkeypatch):
     assert _urls(webrtc_signaling.get_ice_servers()) == ["stun:stun.l.google.com:19302"]
 
 
+def test_get_ice_servers_uses_container_turn_host_when_configured(monkeypatch):
+    monkeypatch.setattr(webrtc_signaling, "FORCE_TURN_RELAY", True)
+    monkeypatch.setattr(webrtc_signaling, "TURN_HOST", "localhost")
+    monkeypatch.setattr(webrtc_signaling, "TURN_SERVER_HOST", "host.docker.internal")
+    monkeypatch.setattr(webrtc_signaling, "ENABLE_COTURN", True)
+    monkeypatch.setattr(webrtc_signaling, "TURN_SECRET", "s3cret")
+    monkeypatch.setattr(
+        webrtc_signaling,
+        "generate_turn_credentials",
+        lambda user_id: {
+            "uris": ["turn:localhost:3478", "turns:localhost:5349"],
+            "username": "user",
+            "password": "pass",
+            "ttl": 86400,
+        },
+    )
+
+    urls = _urls(webrtc_signaling.get_ice_servers(user_id="1"))
+
+    assert urls == ["turn:host.docker.internal:3478", "turns:host.docker.internal:5349"]
+
+
 def test_get_ice_servers_relay_only_without_turn_returns_no_servers(monkeypatch):
     # No silent fallback to STUN when TURN is missing: an empty list is the
     # honest answer (the connection genuinely cannot succeed), and the error

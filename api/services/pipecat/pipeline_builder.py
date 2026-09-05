@@ -3,6 +3,7 @@ import os
 from loguru import logger
 
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.audio_path_diagnostics import AudioPathDiagnosticsProcessor
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -53,6 +54,7 @@ def build_pipeline(
     # Build processors list with optional voicemail detection
     processors = [
         transport.input(),  # Transport user input
+        AudioPathDiagnosticsProcessor(stage="input"),
         stt,
     ]
 
@@ -87,6 +89,7 @@ def build_pipeline(
             *post_llm,
             tts,  # TTS
             transport.output(),  # Transport bot output
+            AudioPathDiagnosticsProcessor(stage="output"),
             audio_buffer,  # AudioBufferProcessor - records both input and output audio
             assistant_context_aggregator,  # Assistant spoken responses
             pipeline_metrics_aggregator,
@@ -134,6 +137,7 @@ def build_realtime_pipeline(
     """
     processors = [
         transport.input(),
+        AudioPathDiagnosticsProcessor(stage="input"),
         user_context_aggregator,
         *([calm_prompt_processor] if calm_prompt_processor else []),
         realtime_llm,
@@ -147,6 +151,7 @@ def build_realtime_pipeline(
         [
             pipeline_engine_callback_processor,
             transport.output(),
+            AudioPathDiagnosticsProcessor(stage="output"),
             audio_buffer,
             assistant_context_aggregator,
             pipeline_metrics_aggregator,

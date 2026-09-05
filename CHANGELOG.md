@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.47.0 (2026-09-05)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: optional Reo.dev integration by @chewwbaka in https://github.com/dograh-hq/dograh/pull/728
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.46.0...dograh-v1.47.0
+
 ## 1.46.0 (2026-09-03)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

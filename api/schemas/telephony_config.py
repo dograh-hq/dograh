@@ -22,6 +22,9 @@ from api.services.telephony.providers.cloudonix.config import (
 from api.services.telephony.providers.plivo.config import (
     PlivoConfigurationRequest,
 )
+from api.services.telephony.providers.smartflo.config import (
+    SmartfloConfigurationRequest,
+)
 from api.services.telephony.providers.telnyx.config import (
     TelnyxConfigurationRequest,
 )
@@ -47,6 +50,7 @@ TelephonyConfigRequest = Annotated[
         ARIConfigurationRequest,
         CloudonixConfigurationRequest,
         PlivoConfigurationRequest,
+        SmartfloConfigurationRequest,
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
         VobizConfigurationRequest,

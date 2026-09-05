@@ -574,6 +574,8 @@ class WorkflowClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    get_workflow_by_id_unscoped = get_workflow_by_id
+
     async def get_workflow_by_uuid(
         self, workflow_uuid: str, organization_id: int
     ) -> WorkflowModel | None:

@@ -68,6 +68,7 @@ class UserConfigurationValidator:
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
             ServiceProviders.XAI.value: self._check_xai_api_key,
             ServiceProviders.LMNT.value: self._check_lmnt_api_key,
+            ServiceProviders.MURF.value: self._check_murf_api_key,
         }
 
     async def validate(
@@ -440,6 +441,28 @@ class UserConfigurationValidator:
                 "Invalid LMNT API key. The key was rejected by the LMNT API. "
                 "Please check that your API key is correct and active. "
                 "You can find your key at https://app.lmnt.com."
+            )
+        return True
+
+    def _check_murf_api_key(self, model: str, api_key: str) -> bool:
+        # Best-effort smoke test against Murf's voice list. Only a clear auth
+        # failure rejects the save; other statuses stay inconclusive.
+        try:
+            response = httpx.get(
+                "https://api.murf.ai/v1/speech/voices",
+                headers={"api-key": api_key},
+                timeout=10.0,
+            )
+        except httpx.RequestError:
+            raise ValueError(
+                "Could not connect to the Murf API. Please check your network "
+                "connection and try again."
+            )
+        if response.status_code in (401, 403):
+            raise ValueError(
+                "Invalid Murf API key. The key was rejected by the Murf API. "
+                "Please check that your API key is correct and active. "
+                "You can find your key at https://murf.ai/api/docs."
             )
         return True
 

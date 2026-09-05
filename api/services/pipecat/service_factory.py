@@ -22,6 +22,7 @@ from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
+from api.services.pipecat.murf_tts import MurfTTSService
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
@@ -182,6 +183,29 @@ def _resolve_elevenlabs_stt_language(
         return Language(language_code)
     except ValueError:
         return language_code
+
+
+MURF_STREAM_PATH = "/v1/speech/stream-input"
+MURF_DEFAULT_BASE_URL = "https://global.api.murf.ai"
+
+
+def _murf_websocket_url(base_url: str | None) -> str:
+    """Normalize a Murf API host or URL to the streaming WebSocket endpoint."""
+    base_url = (base_url or MURF_DEFAULT_BASE_URL).strip()
+    parsed = urlparse(base_url)
+    if not parsed.netloc:
+        return base_url.rstrip("/")
+
+    websocket_scheme = {
+        "http": "ws",
+        "https": "wss",
+    }.get(parsed.scheme, parsed.scheme or "wss")
+    path = parsed.path.rstrip("/")
+    if not path:
+        path = MURF_STREAM_PATH
+    elif not path.endswith("/speech/stream-input"):
+        path = f"{path}{MURF_STREAM_PATH}"
+    return urlunparse(parsed._replace(scheme=websocket_scheme, path=path))
 
 
 def _elevenlabs_websocket_url(base_url: str) -> str:
@@ -908,6 +932,33 @@ def create_tts_service(
                 voice=voice,
                 language=pipecat_language,
                 model=model,
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.MURF.value:
+        voice = getattr(user_config.tts, "voice", None) or "Will"
+        model = getattr(user_config.tts, "model", None) or "falcon-2"
+        locale = getattr(user_config.tts, "locale", None) or "en-US"
+        base_url = getattr(user_config.tts, "base_url", None)
+        _validate_runtime_service_url(base_url or MURF_DEFAULT_BASE_URL, "base_url")
+        sample_rate = audio_config.transport_out_sample_rate
+        return MurfTTSService(
+            api_key=user_config.tts.api_key,
+            url=_murf_websocket_url(base_url),
+            sample_rate=sample_rate,
+            params=MurfTTSService.InputParams(
+                voice_id=voice,
+                model=model,
+                multi_native_locale=locale,
+                sample_rate=sample_rate,
+                format="PCM",
+                channel_type="MONO",
+                # Pipeline already sends sentence-sized chunks; don't re-buffer
+                # on Murf's side (plugin defaults are 40 / 300ms).
+                min_buffer_size=2,
+                max_buffer_delay_in_ms=0,
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],

@@ -1,47 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { createSessionApiV1SakinahSessionsPost } from "@/client";
-import { MediaPreviewButton, MediaPreviewDialog } from "@/components/MediaPreviewDialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
-import { listSakinahRuns, type PersistedSakinahRun } from "@/lib/sakinahPersistence";
 
 import { ActiveSession } from "./components/ActiveSession";
+import { SakinahRunHistory } from "./components/RunHistory";
 import { ScenarioForm } from "./components/ScenarioForm";
 import { TranscriptPanel } from "./components/TranscriptPanel";
 import type { SakinahSession } from "./components/types";
-
-function SakinahRunHistory() {
-    const [runs, setRuns] = useState<PersistedSakinahRun[]>([]);
-    const [error, setError] = useState<string | null>(null);
-    const mediaPreview = MediaPreviewDialog();
-
-    useEffect(() => {
-        void listSakinahRuns().then(setRuns).catch((loadError) => {
-            setError(loadError instanceof Error ? loadError.message : "Unable to load previous runs.");
-        });
-    }, []);
-
-    return <Card>
-        <CardHeader><CardTitle>Previous agent runs</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            {!error && runs.length === 0 ? <p className="text-sm text-muted-foreground">Completed sessions will appear here for this account.</p> : null}
-            {runs.map((run) => <article key={run.session_id} className="space-y-2 rounded-lg border p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div><p className="font-medium">{run.scenario.slice(0, 120)}{run.scenario.length > 120 ? "…" : ""}</p><p className="text-xs text-muted-foreground">Run #{run.run_id} · {new Date(run.started_at).toLocaleString()} · {run.status}</p></div>
-                    <MediaPreviewButton recordingUrl={run.recording_url} transcriptUrl={run.transcript_url} runId={run.run_id} onOpenPreview={mediaPreview.openPreview} />
-                </div>
-                {run.transcript ? <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-3 text-xs">{run.transcript}</pre> : <p className="text-sm text-muted-foreground">Transcript is not available for this run.</p>}
-            </article>)}
-        </CardContent>
-        {mediaPreview.dialog}
-    </Card>;
-}
 
 export default function SakinahPage() {
     const { getAccessToken } = useAuth();
@@ -51,6 +21,7 @@ export default function SakinahPage() {
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
+    const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
     const startScenario = async () => {
         setStarting(true);
@@ -81,6 +52,7 @@ export default function SakinahPage() {
         setSavedSessionId(sessionId);
         setSession(null);
         setAccessToken(null);
+        setHistoryRefreshKey((previous) => previous + 1);
     };
 
     return (
@@ -120,7 +92,7 @@ export default function SakinahPage() {
                     </div>
                 )}
             </div>
-            <SakinahRunHistory />
+            <SakinahRunHistory refreshKey={historyRefreshKey} />
         </main>
     );
 }

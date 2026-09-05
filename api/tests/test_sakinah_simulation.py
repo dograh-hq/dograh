@@ -184,6 +184,13 @@ async def test_simulation_lifecycle_start_events_stop(
     sakinah_turn = next(t for t in saved["turns"] if t["role"] == SAKINAH_ROLE)
     assert sakinah_turn["text"] == f"chunk-{sakinah_run}-a chunk-{sakinah_run}-b"
 
+    persisted_run = await db_session.get_sakinah_run(user.id, simulation_id)
+    assert persisted_run is not None
+    assert persisted_run.status == "completed"
+    assert "assistant:" in persisted_run.transcript
+    assert persisted_run.conversation
+    assert persisted_run.preview_data["turns"]
+
     # Senders are unregistered after finalization.
     for role in (SAKINAH_ROLE, SERVICE_USER_ROLE):
         assert get_ws_sender(snapshot["agents"][role]["workflow_run_id"]) is None

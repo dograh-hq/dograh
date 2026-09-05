@@ -5,9 +5,11 @@ import {
     createScenario,
     duplicateScenario,
     EMPTY_SCENARIO_DRAFT,
+    filterSakinahScenarios,
     nextScenarioSequence,
     parseScenarioImport,
     parseStoredScenarios,
+    scenarioMatchesSearch,
 } from "./sakinahScenarios";
 
 describe("Sakinah scenario helpers", () => {
@@ -36,6 +38,20 @@ describe("Sakinah scenario helpers", () => {
         expect(parseStoredScenarios("not-json")).toEqual([]);
         expect(parseStoredScenarios('{"unexpected":true}')).toEqual([]);
         expect(parseStoredScenarios('[{"id":"incomplete"}]')).toEqual([]);
+    });
+
+    it("matches partial names, categories, tags, and scenario text case-insensitively", () => {
+        const scenario = createScenario({
+            ...EMPTY_SCENARIO_DRAFT,
+            title: "Housing support",
+            category: "Safeguarding",
+            tags: ["urgent", "rent arrears"],
+            behaviour: "Discloses more after a gentle question.",
+        }, [], "2026-01-01T00:00:00.000Z");
+        expect(scenarioMatchesSearch(scenario, "housing")).toBe(true);
+        expect(scenarioMatchesSearch(scenario, "SAFEGUARD")).toBe(true);
+        expect(scenarioMatchesSearch(scenario, "rent arr")).toBe(true);
+        expect(filterSakinahScenarios([scenario], "not present")).toEqual([]);
     });
 
     it("duplicates with a new identity, sequence, and timestamps", () => {

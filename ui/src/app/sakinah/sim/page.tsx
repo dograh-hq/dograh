@@ -20,6 +20,7 @@ import { listSakinahScenarios } from "@/lib/sakinahPersistence";
 import { compileScenarioPrompt } from "@/lib/sakinahScenarios";
 import { cn } from "@/lib/utils";
 
+import { SakinahRunHistory } from "../components/RunHistory";
 import { CalmEvaluationPanel } from "./CalmEvaluationPanel";
 import { type CalmAnalysis, CalmScoringPanel } from "./CalmScoringPanel";
 import type { CalmEvaluationResult, TurnEvaluation } from "./calmTypes";
@@ -50,6 +51,8 @@ const ROLE_LABELS: Record<string, string> = {
 export default function SakinahSimulationPage() {
     const { getAccessToken } = useAuth();
     const [scenario, setScenario] = useState("");
+    const [scenarioId, setScenarioId] = useState<string | null>(null);
+    const [scenarioName, setScenarioName] = useState<string | null>(null);
     const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
     const [turns, setTurns] = useState<SimTurn[]>([]);
     const [starting, setStarting] = useState(false);
@@ -59,6 +62,7 @@ export default function SakinahSimulationPage() {
     const [showScoringPanel, setShowScoringPanel] = useState(true);
     const [experimentMode, setExperimentMode] = useState<ExperimentMode>("full_calm_prompt");
     const [calmAnalysis, setCalmAnalysis] = useState<CalmAnalysis | null>(null);
+    const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
     const wsRef = useRef<WebSocket | null>(null);
     const audioWsRef = useRef<WebSocket | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -72,7 +76,11 @@ export default function SakinahSimulationPage() {
         void listSakinahScenarios()
             .then((savedScenarios) => {
                 const savedScenario = savedScenarios.find((item) => item.id === scenarioId);
-                if (savedScenario) setScenario(compileScenarioPrompt(savedScenario));
+                if (savedScenario) {
+                    setScenarioId(savedScenario.id);
+                    setScenarioName(savedScenario.title);
+                    setScenario(compileScenarioPrompt(savedScenario));
+                }
             })
             .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load scenario."));
     }, []);
@@ -289,7 +297,12 @@ export default function SakinahSimulationPage() {
             // needed for the events WebSocket, which cannot use the interceptor.
             const token = await getAccessToken();
             const response = await startSimulationApiV1SakinahSimulationsPost({
-                body: { scenario: scenario.trim(), experiment_mode: experimentMode },
+                body: {
+                    scenario: scenario.trim(),
+                    scenario_id: scenarioId,
+                    scenario_name: scenarioName,
+                    experiment_mode: experimentMode,
+                },
             });
             if (response.error || !response.data) {
                 throw new Error(
@@ -324,6 +337,9 @@ export default function SakinahSimulationPage() {
                 );
             }
             setSimulation(response.data);
+            if (["completed", "failed"].includes(response.data.status)) {
+                setHistoryRefreshKey((previous) => previous + 1);
+            }
         } catch (stopError) {
             setError(
                 stopError instanceof Error
@@ -518,6 +534,7 @@ export default function SakinahSimulationPage() {
                 </section>
             </div>
             {showScoringPanel ? <div className="lg:ml-[calc(33.333%+0.5rem)]"><CalmScoringPanel analysis={calmAnalysis} /></div> : null}
+            <SakinahRunHistory refreshKey={historyRefreshKey} />
         </main>
     );
 }

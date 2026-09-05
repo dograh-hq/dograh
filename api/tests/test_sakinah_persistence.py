@@ -2,7 +2,9 @@
 
 import uuid
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
+from api.routes.sakinah import _wait_for_workflow_artifacts
 from api.services.sakinah.simulation import SAKINAH_ROLE
 
 
@@ -135,3 +137,26 @@ async def test_run_summary_persists_transcript_preview_and_recording_refs(
         assert (
             await client.get(f"/api/v1/sakinah/runs/{session_id}")
         ).status_code == 404
+
+
+async def test_end_session_artifact_lookup_waits_for_pipeline_upload():
+    delayed_lookup = AsyncMock(
+        side_effect=[
+            {},
+            {"recording_url": "recordings/303.wav", "transcript_url": None},
+        ]
+    )
+    with (
+        patch(
+            "api.routes.sakinah.db_client.get_workflow_run_artifacts_for_user",
+            new=delayed_lookup,
+        ),
+        patch("api.routes.sakinah.asyncio.sleep", new=AsyncMock()),
+    ):
+        artifacts = await _wait_for_workflow_artifacts(7, 303)
+
+    assert artifacts == {
+        "recording_url": "recordings/303.wav",
+        "transcript_url": None,
+    }
+    assert delayed_lookup.await_count == 2

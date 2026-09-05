@@ -7,6 +7,8 @@ export interface Scenario {
     id: string;
     sequence: number;
     title: string;
+    category: string;
+    tags: string[];
     mode: ScenarioMode;
     persona: string;
     age: string;
@@ -35,6 +37,8 @@ interface ScenarioStorage {
 
 export const EMPTY_SCENARIO_DRAFT: ScenarioDraft = {
     title: "",
+    category: "",
+    tags: [],
     mode: "structured",
     persona: "",
     age: "",
@@ -89,7 +93,13 @@ export function parseStoredScenarios(raw: string | null): Scenario[] {
     if (!raw) return [];
     try {
         const parsed: unknown = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.filter(isScenario) : [];
+        return Array.isArray(parsed)
+            ? parsed.filter(isScenario).map((scenario) => ({
+                ...scenario,
+                category: typeof scenario.category === "string" ? scenario.category : "",
+                tags: Array.isArray(scenario.tags) ? scenario.tags.filter((tag) => typeof tag === "string") : [],
+            }))
+            : [];
     } catch {
         return [];
     }
@@ -101,6 +111,32 @@ export function nextScenarioSequence(scenarios: readonly Scenario[]): number {
 
 export function formatScenarioNumber(sequence: number): string {
     return `Scenario ${String(sequence).padStart(3, "0")}`;
+}
+
+export function scenarioMatchesSearch(scenario: Scenario, search: string): boolean {
+    const term = search.trim().toLocaleLowerCase();
+    if (!term) return true;
+    return [
+        scenario.id,
+        scenario.title,
+        scenario.category,
+        scenario.persona,
+        scenario.language,
+        scenario.communicationStyle,
+        scenario.initialInformation,
+        scenario.hiddenInformation,
+        scenario.disclosure,
+        scenario.behaviour,
+        scenario.background,
+        scenario.additionalFactors,
+        scenario.notes,
+        scenario.freestylePrompt,
+        ...scenario.tags,
+    ].some((value) => value.toLocaleLowerCase().includes(term));
+}
+
+export function filterSakinahScenarios(scenarios: readonly Scenario[], search: string): Scenario[] {
+    return scenarios.filter((scenario) => scenarioMatchesSearch(scenario, search));
 }
 
 export function createScenario(
@@ -120,6 +156,8 @@ export function createScenario(
 export function scenarioToDraft(scenario: Scenario): ScenarioDraft {
     return {
         title: scenario.title,
+        category: scenario.category,
+        tags: [...scenario.tags],
         mode: scenario.mode,
         persona: scenario.persona,
         age: scenario.age,
@@ -207,6 +245,8 @@ function importedDraft(value: unknown, index: number): ScenarioDraft {
     const draft: ScenarioDraft = {
         ...EMPTY_SCENARIO_DRAFT,
         title: stringValue(["title", "scenario_title"], freestylePrompt.trim() ? "Imported scenario" : ""),
+        category: stringValue("category"),
+        tags: Array.isArray(candidate.tags) ? candidate.tags.filter((tag): tag is string => typeof tag === "string") : [],
         mode,
         persona: stringValue("persona"),
         age: stringValue(["age", "service_user_age"]),

@@ -1,7 +1,8 @@
 import uuid
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -35,6 +36,7 @@ class WorkflowRunClient(BaseDBClient):
         queued_run_id: int = None,
         organization_id: int | None = None,
         definition_id: int | None = None,
+        call_id: str | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             workflow_query = (
@@ -69,19 +71,45 @@ class WorkflowRunClient(BaseDBClient):
 
             # Get the current storage backend based on ENABLE_AWS_S3 flag
             current_backend = StorageBackend.get_current_backend()
+            initial_context = initial_context or {}
+            gathered_context = gathered_context or {}
+            started_at = datetime.now(UTC)
+            direction = initial_context.get("direction") or call_type.value
+            caller_identifier = initial_context.get("caller_number") or initial_context.get(
+                "from_number"
+            )
+            telephone_number = initial_context.get("phone_number") or initial_context.get(
+                "called_number"
+            )
+            runtime_configuration = initial_context.get("runtime_configuration") or {}
 
             new_run = WorkflowRunModel(
                 name=name,
+                call_id=call_id or str(uuid.uuid4()),
                 workflow=workflow,
                 mode=mode,
                 definition_id=definition_id,
-                initial_context=initial_context or {},
-                gathered_context=gathered_context or {},
+                initial_context=initial_context,
+                gathered_context=gathered_context,
                 logs=logs or {},
                 campaign_id=campaign_id,
                 queued_run_id=queued_run_id,
                 storage_backend=current_backend.value,
                 call_type=call_type.value,
+                scenario_id=initial_context.get("scenario_id"),
+                scenario_name=initial_context.get("scenario_name")
+                or initial_context.get("scenario"),
+                caller_identifier=caller_identifier,
+                telephone_number=telephone_number,
+                direction=direction,
+                started_at=started_at,
+                call_status="initialized",
+                telephony_provider=initial_context.get("provider") or mode,
+                model_provider=runtime_configuration.get("llm_provider")
+                or runtime_configuration.get("realtime_provider"),
+                stt_provider=runtime_configuration.get("stt_provider"),
+                tts_provider=runtime_configuration.get("tts_provider"),
+                avatar_provider=runtime_configuration.get("avatar_provider"),
             )
             session.add(new_run)
             try:
@@ -351,6 +379,29 @@ class WorkflowRunClient(BaseDBClient):
         state: str | None = None,
         annotations: dict | None = None,
         extra: dict | None = None,
+        scenario_id: str | None = None,
+        scenario_name: str | None = None,
+        service_user_id: str | None = None,
+        caller_identifier: str | None = None,
+        telephone_number: str | None = None,
+        direction: str | None = None,
+        started_at: datetime | None = None,
+        connected_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        duration_seconds: float | None = None,
+        call_status: str | None = None,
+        telephony_provider: str | None = None,
+        model_provider: str | None = None,
+        stt_provider: str | None = None,
+        tts_provider: str | None = None,
+        avatar_provider: str | None = None,
+        recording_object_key: str | None = None,
+        recording_duration_seconds: float | None = None,
+        recording_format: str | None = None,
+        recording_size_bytes: int | None = None,
+        full_transcript: str | None = None,
+        termination_reason: str | None = None,
+        debug_metadata: dict | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
@@ -370,6 +421,11 @@ class WorkflowRunClient(BaseDBClient):
                 run.storage_backend = storage_backend
             if usage_info:
                 run.usage_info = usage_info
+                if (
+                    run.duration_seconds is None
+                    and usage_info.get("call_duration_seconds") is not None
+                ):
+                    run.duration_seconds = float(usage_info["call_duration_seconds"])
             if cost_info:
                 run.cost_info = cost_info
             if initial_context:
@@ -379,6 +435,16 @@ class WorkflowRunClient(BaseDBClient):
                     **(run.initial_context or {}),
                     **initial_context,
                 }
+                context_caller = run.initial_context.get("caller_number") or run.initial_context.get("from_number")
+                context_phone = run.initial_context.get("phone_number") or run.initial_context.get("called_number")
+                if run.caller_identifier is None and context_caller:
+                    run.caller_identifier = str(context_caller)
+                if run.telephone_number is None and context_phone:
+                    run.telephone_number = str(context_phone)
+                if run.direction is None and run.initial_context.get("direction"):
+                    run.direction = str(run.initial_context["direction"])
+                if run.telephony_provider is None and run.initial_context.get("provider"):
+                    run.telephony_provider = str(run.initial_context["provider"])
             if gathered_context:
                 # Lets merge the incoming gathered context keys with the existing ones
                 run.gathered_context = {
@@ -392,10 +458,50 @@ class WorkflowRunClient(BaseDBClient):
                 run.annotations = {**run.annotations, **annotations}
             if extra:
                 run.extra = {**run.extra, **extra}
+            for attribute, value in (
+                ("scenario_id", scenario_id),
+                ("scenario_name", scenario_name),
+                ("service_user_id", service_user_id),
+                ("caller_identifier", caller_identifier),
+                ("telephone_number", telephone_number),
+                ("direction", direction),
+                ("started_at", started_at),
+                ("connected_at", connected_at),
+                ("ended_at", ended_at),
+                ("duration_seconds", duration_seconds),
+                ("call_status", call_status),
+                ("telephony_provider", telephony_provider),
+                ("model_provider", model_provider),
+                ("stt_provider", stt_provider),
+                ("tts_provider", tts_provider),
+                ("avatar_provider", avatar_provider),
+                ("recording_object_key", recording_object_key),
+                ("recording_duration_seconds", recording_duration_seconds),
+                ("recording_format", recording_format),
+                ("recording_size_bytes", recording_size_bytes),
+                ("full_transcript", full_transcript),
+                ("termination_reason", termination_reason),
+            ):
+                if value is not None:
+                    setattr(run, attribute, value)
+            if debug_metadata:
+                run.debug_metadata = {**(run.debug_metadata or {}), **debug_metadata}
             if is_completed:
                 run.is_completed = is_completed
+                if run.ended_at is None:
+                    run.ended_at = datetime.now(UTC)
+                if run.started_at and run.duration_seconds is None:
+                    run.duration_seconds = max(
+                        0.0, (run.ended_at - run.started_at).total_seconds()
+                    )
+                if run.call_status is None or run.call_status == "initialized":
+                    run.call_status = "completed"
             if state:
                 run.state = state
+                if state == "running" and run.connected_at is None:
+                    run.connected_at = datetime.now(UTC)
+                    if run.call_status in {None, "initialized"}:
+                        run.call_status = "in_progress"
             try:
                 await session.commit()
             except Exception as e:
@@ -509,7 +615,10 @@ class WorkflowRunClient(BaseDBClient):
                     joinedload(WorkflowRunModel.workflow).joinedload(WorkflowModel.user)
                 )
                 .where(
-                    WorkflowRunModel.gathered_context.op("->>")("call_id") == call_id
+                    or_(
+                        WorkflowRunModel.call_id == call_id,
+                        WorkflowRunModel.gathered_context.op("->>")("call_id") == call_id,
+                    )
                 )
                 .order_by(WorkflowRunModel.created_at.desc())
                 .limit(1)

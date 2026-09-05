@@ -1,8 +1,9 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketState
@@ -10,7 +11,14 @@ from starlette.websockets import WebSocketState
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import CallType, WorkflowRunMode
+from api.schemas.sakinah import SCENARIO_FIELDS, ScenarioWriteRequest
 from api.services.auth.depends import get_user, get_user_ws
+from api.services.sakinah.bulk_import import (
+    BulkImportError,
+    DuplicatePolicy,
+    build_preview,
+    commit_preview_state,
+)
 from api.services.sakinah.session_store import (
     create_pending_session,
     finish_session,
@@ -24,44 +32,40 @@ from api.services.workflow.run_creation import prepare_workflow_run_inputs
 
 router = APIRouter(prefix="/sakinah", tags=["sakinah"])
 
-
-SCENARIO_FIELDS = (
-    "title",
-    "mode",
-    "persona",
-    "age",
-    "gender",
-    "language",
-    "emotion",
-    "communication_style",
-    "initial_information",
-    "hidden_information",
-    "disclosure",
-    "behaviour",
-    "background",
-    "additional_factors",
-    "notes",
-    "freestyle_prompt",
-)
+ARTIFACT_RECONCILIATION_ATTEMPTS = 20
+ARTIFACT_RECONCILIATION_DELAY_SECONDS = 0.25
 
 
-class ScenarioWriteRequest(BaseModel):
-    title: str = Field(default="Untitled scenario", max_length=500)
-    mode: Literal["structured", "freestyle"] = "structured"
-    persona: str = Field(default="", max_length=20_000)
-    age: str = Field(default="", max_length=200)
-    gender: str = Field(default="", max_length=200)
-    language: str = Field(default="", max_length=200)
-    emotion: str = Field(default="", max_length=500)
-    communication_style: str = Field(default="", max_length=20_000)
-    initial_information: str = Field(default="", max_length=20_000)
-    hidden_information: str = Field(default="", max_length=20_000)
-    disclosure: str = Field(default="", max_length=20_000)
-    behaviour: str = Field(default="", max_length=20_000)
-    background: str = Field(default="", max_length=20_000)
-    additional_factors: str = Field(default="", max_length=20_000)
-    notes: str = Field(default="", max_length=20_000)
-    freestyle_prompt: str = Field(default="", max_length=20_000)
+def _has_workflow_artifacts(artifacts: dict[str, Any] | None) -> bool:
+    if not artifacts:
+        return False
+    return bool(
+        artifacts.get("recording_url")
+        or artifacts.get("transcript_url")
+        or artifacts.get("recording_file_reference")
+    )
+
+
+async def _wait_for_workflow_artifacts(
+    user_id: int, workflow_run_id: int
+) -> dict[str, Any] | None:
+    """Give the pipeline completion handler time to publish its artifacts.
+
+    The browser can observe the WebRTC socket closing just before the pipeline's
+    final event handler has uploaded the recording/transcript. Returning the
+    Sakinah row before that handler finishes leaves a permanently incomplete
+    white-label summary unless the later reconciliation wins the race.
+    """
+    artifacts: dict[str, Any] | None = None
+    for attempt in range(ARTIFACT_RECONCILIATION_ATTEMPTS):
+        artifacts = await db_client.get_workflow_run_artifacts_for_user(
+            user_id, workflow_run_id
+        )
+        if artifacts is None or _has_workflow_artifacts(artifacts):
+            return artifacts
+        if attempt + 1 < ARTIFACT_RECONCILIATION_ATTEMPTS:
+            await asyncio.sleep(ARTIFACT_RECONCILIATION_DELAY_SECONDS)
+    return artifacts
 
 
 class ScenarioResponse(ScenarioWriteRequest):
@@ -84,6 +88,8 @@ def _scenario_response(value: dict[str, Any]) -> ScenarioResponse:
         id=value["id"],
         sequence=value["sequence"],
         title=value["title"],
+        category=value.get("category", ""),
+        tags=value.get("tags", []),
         mode=value["mode"],
         persona=value["persona"],
         age=value["age"],
@@ -118,8 +124,11 @@ def _format_transcript(turns: list[dict[str, Any]]) -> str:
 
 
 @router.get("/scenarios", response_model=ScenarioListResponse)
-async def list_scenarios(user: UserModel = Depends(get_user)) -> ScenarioListResponse:
-    scenarios = await db_client.get_sakinah_scenarios(user.id)
+async def list_scenarios(
+    search: str | None = Query(default=None, max_length=200),
+    user: UserModel = Depends(get_user),
+) -> ScenarioListResponse:
+    scenarios = await db_client.get_sakinah_scenarios(user.id, search=search)
     return ScenarioListResponse(
         scenarios=[_scenario_response(item) for item in scenarios]
     )
@@ -168,6 +177,84 @@ async def delete_scenario(
 ) -> None:
     if not await db_client.delete_sakinah_scenario(user.id, scenario_id):
         raise HTTPException(status_code=404, detail="Scenario not found")
+
+
+class BulkScenarioImportItemResponse(BaseModel):
+    item_index: int
+    source_filename: str
+    scenario_title: str | None = None
+    status: str
+    validation_status: str
+    validation_error: str | None = None
+    existing_scenario_id: str | None = None
+    scenario_id: str | None = None
+
+
+class BulkScenarioImportResponse(BaseModel):
+    preview_token: str | None = None
+    files_detected: int
+    valid: int
+    invalid: int
+    duplicates: int
+    already_existing: int
+    imported: int = 0
+    failed: int = 0
+    items: list[BulkScenarioImportItemResponse]
+
+
+class BulkScenarioImportCommitRequest(BaseModel):
+    preview_token: str = Field(min_length=1, max_length=100)
+    duplicate_policy: DuplicatePolicy = "skip_existing"
+    item_indexes: list[int] | None = None
+
+
+async def require_sakinah_bulk_admin(
+    user: UserModel = Depends(get_user),
+) -> UserModel:
+    if not user.is_superuser:
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator privileges are required for bulk scenario imports.",
+        )
+    return user
+
+
+@router.post(
+    "/scenarios/bulk-import/preview",
+    response_model=BulkScenarioImportResponse,
+    summary="Preview a bulk Sakinah scenario import",
+)
+async def preview_bulk_scenarios(
+    files: list[UploadFile] = File(...),
+    user: UserModel = Depends(require_sakinah_bulk_admin),
+) -> BulkScenarioImportResponse:
+    try:
+        _, response = await build_preview(files, user.id, db_client)
+    except BulkImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BulkScenarioImportResponse(**response)
+
+
+@router.post(
+    "/scenarios/bulk-import/commit",
+    response_model=BulkScenarioImportResponse,
+    summary="Commit a previewed bulk Sakinah scenario import",
+)
+async def commit_bulk_scenarios(
+    request: BulkScenarioImportCommitRequest,
+    user: UserModel = Depends(require_sakinah_bulk_admin),
+) -> BulkScenarioImportResponse:
+    try:
+        response = await commit_preview_state(
+            request.preview_token,
+            user.id,
+            request.duplicate_policy,
+            db_client,
+            request.item_indexes,
+        )
+    except BulkImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BulkScenarioImportResponse(**response)
 
 
 class SakinahRunResponse(BaseModel):
@@ -241,12 +328,15 @@ async def get_sakinah_run(
 class CreateSessionRequest(BaseModel):
     scenario: str = Field(min_length=1, max_length=20_000)
     name: str | None = Field(default=None, max_length=200)
+    scenario_id: str | None = Field(default=None, max_length=128)
+    scenario_name: str | None = Field(default=None, max_length=500)
 
 
 class CreateSessionResponse(BaseModel):
     session_id: uuid.UUID
     workflow_id: int
     workflow_run_id: int
+    call_id: str
     started_at: datetime
 
 
@@ -283,6 +373,8 @@ async def create_session(
         "scenario": scenario,
         "session_id": str(session_id),
         "direction": CallType.INBOUND.value,
+        "scenario_id": request.scenario_id,
+        "scenario_name": request.scenario_name,
     }
     run_inputs = await prepare_workflow_run_inputs(
         db_client, workflow, initial_context=initial_context
@@ -318,6 +410,7 @@ async def create_session(
         session_id=session_id,
         workflow_id=workflow.id,
         workflow_run_id=run.id,
+        call_id=run.call_id,
         started_at=started_at,
     )
 
@@ -332,7 +425,7 @@ async def end_session(
     persisted_session = await db_client.get_sakinah_run(user.id, str(session_id))
     if persisted_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    workflow_artifacts = await db_client.get_workflow_run_artifacts_for_user(
+    workflow_artifacts = await _wait_for_workflow_artifacts(
         user.id, persisted_session.run_id
     )
     transcript = _format_transcript(
@@ -357,6 +450,10 @@ async def end_session(
     )
     if persisted_run is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    # The pipeline handler also performs this reconciliation after uploading
+    # artifacts. Keep an explicit final pass here for the common browser-close
+    # race, so a saved session immediately exposes its media metadata.
+    await db_client.sync_sakinah_run_artifacts(persisted_session.run_id)
     try:
         finish_session(
             session_id=str(session_id),
@@ -374,6 +471,8 @@ async def end_session(
 
 class StartSimulationRequest(BaseModel):
     scenario: str = Field(min_length=1, max_length=20_000)
+    scenario_id: str | None = Field(default=None, max_length=128)
+    scenario_name: str | None = Field(default=None, max_length=500)
     max_duration_seconds: int | None = Field(default=None, ge=30, le=900)
     experiment_mode: Literal[
         "baseline", "scores_only", "scores_and_trends", "full_calm_prompt"
@@ -420,6 +519,8 @@ async def start_simulation(
             scenario,
             max_duration_seconds=request.max_duration_seconds,
             experiment_mode=request.experiment_mode,
+            scenario_id=request.scenario_id,
+            scenario_name=request.scenario_name,
         )
     except SimulationAuthorizationError as e:
         raise HTTPException(status_code=402, detail=str(e)) from None

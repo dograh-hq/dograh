@@ -53,6 +53,7 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         self._bot_is_speaking: bool = False
         self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
+        self._handled_conversation_item_ids: set[str] = set()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         if isinstance(frame, UserMuteStartedFrame):
@@ -302,6 +303,17 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
 
         except Exception as e:
             logger.error(f"Failed to process function call arguments: {e}")
+
+    async def _handle_evt_conversation_item_added(self, evt):
+        item_id = getattr(evt.item, "id", None)
+        if item_id is not None and item_id in self._handled_conversation_item_ids:
+            logger.debug(
+                f"{self}: ignoring repeat conversation item event for {item_id}"
+            )
+            return
+        await super()._handle_evt_conversation_item_added(evt)
+        if item_id is not None:
+            self._handled_conversation_item_ids.add(item_id)
 
     async def _handle_evt_input_audio_transcription_completed(self, evt):
         await self._call_event_handler(

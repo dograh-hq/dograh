@@ -2,7 +2,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pipecat.frames.frames import LLMMessagesAppendFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    LLMFullResponseStartFrame,
+    LLMMessagesAppendFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.xai.realtime import events
@@ -196,6 +200,73 @@ async def test_completed_input_transcription_is_broadcast_as_finalized():
     assert service.broadcast_frame.await_args.args[0].__name__ == "TranscriptionFrame"
     assert service.broadcast_frame.await_args.kwargs["text"] == "Hello there"
     assert service.broadcast_frame.await_args.kwargs["finalized"] is True
+
+
+@pytest.mark.asyncio
+async def test_repeat_conversation_item_event_does_not_restart_assistant_turn():
+    service = _make_service()
+    service._call_event_handler = AsyncMock()
+    service.push_frame = AsyncMock()
+
+    item = events.ConversationItem(id="item-1", type="message", role="assistant")
+
+    await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+    await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+
+    response_start_frames = [
+        call.args[0]
+        for call in service.push_frame.await_args_list
+        if isinstance(call.args[0], LLMFullResponseStartFrame)
+    ]
+    assert len(response_start_frames) == 1
+    assert service._current_assistant_response is item
+    service._call_event_handler.assert_awaited_once_with(
+        "on_conversation_item_created", "item-1", item
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_conversation_item_event_is_reprocessed_on_redelivery():
+    service = _make_service()
+    service._call_event_handler = AsyncMock(side_effect=[RuntimeError("boom"), None])
+    service.push_frame = AsyncMock()
+
+    item = events.ConversationItem(id="item-1", type="message", role="assistant")
+
+    with pytest.raises(RuntimeError):
+        await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+
+    assert "item-1" not in service._handled_conversation_item_ids
+
+    await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+
+    assert service._current_assistant_response is item
+    assert "item-1" in service._handled_conversation_item_ids
+
+
+@pytest.mark.asyncio
+async def test_failed_start_frame_is_retried_on_redelivery():
+    service = _make_service()
+    service._call_event_handler = AsyncMock()
+    service.push_frame = AsyncMock(side_effect=RuntimeError("boom"))
+
+    item = events.ConversationItem(id="item-1", type="message", role="assistant")
+
+    with pytest.raises(RuntimeError):
+        await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+
+    assert "item-1" not in service._handled_conversation_item_ids
+
+    service.push_frame = AsyncMock()
+    await service._handle_evt_conversation_item_added(SimpleNamespace(item=item))
+
+    response_start_frames = [
+        call.args[0]
+        for call in service.push_frame.await_args_list
+        if isinstance(call.args[0], LLMFullResponseStartFrame)
+    ]
+    assert len(response_start_frames) == 1
+    assert "item-1" in service._handled_conversation_item_ids
 
 
 def test_factory_creates_dograh_grok_realtime_service():

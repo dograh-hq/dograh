@@ -1,4 +1,4 @@
-"""Set up logging before importing anything else"""
+"""Set up logging before importing anything else."""
 
 import sentry_sdk
 
@@ -158,6 +158,13 @@ api_router.include_router(main_router)
 
 # main router with api prefix
 app.include_router(api_router, prefix=API_PREFIX)
+
+# Direct root routes for telephony providers (e.g. /smartflo/call, /smartflo_connect)
+from api.services.telephony.providers.smartflo.routes import (
+    router as smartflo_root_router,
+)
+
+app.include_router(smartflo_root_router)
 
 # Mount the MCP server — agents reach it at /api/v1/mcp over Streamable HTTP,
 # authenticating with the same X-API-Key header used by the REST API.

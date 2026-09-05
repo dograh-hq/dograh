@@ -213,6 +213,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 public_key=langfuse_config.get("public_key"),
                 secret_key=langfuse_config.get("secret_key"),
                 project_id=langfuse_config.get("project_id"),
+                traces_public=langfuse_config.get("traces_public", False),
             )
 
         # Step 2: Get workflow definition from the run's pinned version

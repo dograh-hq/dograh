@@ -3505,6 +3505,10 @@ export type LangfuseCredentialsRequest = {
      * Project Id
      */
     project_id: string;
+    /**
+     * Traces Public
+     */
+    traces_public?: boolean;
 };
 
 /**
@@ -3527,6 +3531,10 @@ export type LangfuseCredentialsResponse = {
      * Project Id
      */
     project_id?: string;
+    /**
+     * Traces Public
+     */
+    traces_public?: boolean;
     /**
      * Configured
      */

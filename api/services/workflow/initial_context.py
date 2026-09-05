@@ -8,7 +8,12 @@ from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 # These values describe or authorize the run itself. External context may add
 # prompt variables, but it must never supply or replace run-owned metadata.
 RESERVED_INITIAL_CONTEXT_KEYS = frozenset(
-    {"provider", "runtime_configuration", MPS_CORRELATION_ID_CONTEXT_KEY}
+    {
+        "call_id",
+        "provider",
+        "runtime_configuration",
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+    }
 )
 
 GREETING_OVERRIDE_CONTEXT_KEY = "greeting_override"

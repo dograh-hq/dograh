@@ -669,14 +669,24 @@ async def _run_pipeline_impl(
         )
         if caller_identifier and workflow.organization_id:
             try:
-                service_user, _ = await db_client.get_or_create_service_user(
+                identity = await db_client.resolve_caller_identity(
                     workflow.organization_id, str(caller_identifier)
                 )
                 await db_client.update_workflow_run(
-                    workflow_run_id, service_user_id=service_user.id
+                    workflow_run_id,
+                    service_user_id=identity.service_user.id,
+                    caller_identifier_id=identity.caller_identifier.id,
+                    caller_state=(
+                        "VERIFIED"
+                        if identity.caller_identifier.verified
+                        else ("FIRST_TIME" if identity.created else "RECOGNISED")
+                    ),
                 )
             except Exception:
-                logger.warning("Unable to associate a service user with workflow run {}", workflow_run_id)
+                logger.warning(
+                    "Unable to associate a service user with workflow run {}",
+                    workflow_run_id,
+                )
     else:
         try:
             memory_context = await asyncio.wait_for(
@@ -687,7 +697,9 @@ async def _run_pipeline_impl(
                 timeout=2.0,
             )
         except Exception:
-            logger.warning("Sakinah memory context unavailable; using UNKNOWN caller context")
+            logger.warning(
+                "Sakinah memory context unavailable; using UNKNOWN caller context"
+            )
             memory_context = await prepare_memory_context(
                 organization_id=None,
                 call_context={},
@@ -708,9 +720,14 @@ async def _run_pipeline_impl(
                 await db_client.update_workflow_run(
                     workflow_run_id,
                     service_user_id=memory_context["service_user_id"],
+                    caller_identifier_id=memory_context["caller_identifier_id"],
+                    caller_state=memory_context["caller_status"],
                 )
             except Exception:
-                logger.warning("Unable to persist Sakinah service-user association for run {}", workflow_run_id)
+                logger.warning(
+                    "Unable to persist Sakinah service-user association for run {}",
+                    workflow_run_id,
+                )
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(run_workflow_json),

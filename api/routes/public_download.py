@@ -95,11 +95,11 @@ async def download_workflow_artifact(
         logger.error(f"Invalid storage backend: {workflow_run.storage_backend}")
         raise HTTPException(status_code=500, detail="Storage configuration error")
 
-    # 4. Generate signed URL (1 hour expiration)
+    # 4. Generate a short-lived signed URL.
     try:
         signed_url = await storage.aget_signed_url(
             file_path=file_path,
-            expiration=3600,  # 1 hour
+            expiration=300,
             force_inline=inline,
         )
     except Exception as e:
@@ -110,8 +110,27 @@ async def download_workflow_artifact(
         logger.error(f"Storage returned None for signed URL: {file_path}")
         raise HTTPException(status_code=500, detail="Failed to generate download URL")
 
+    try:
+        await db_client.record_audit_event(
+            organization_id=workflow_run.workflow.organization_id,
+            workflow_run_id=workflow_run.id,
+            service_user_id=workflow_run.service_user_id,
+            event_type="public_artifact_redirect_issued",
+            resource_type=artifact_type,
+            resource_id=workflow_run.call_id,
+            outcome="success",
+            event_metadata={"expires_in": 300, "inline": inline},
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Artifact access auditing is temporarily unavailable",
+        ) from exc
+
     logger.info(
-        f"Generated signed URL for {artifact_type}: workflow_run_id={workflow_run.id}, token={token[:8]}..."
+        "Generated signed URL for {}: workflow_run_id={}",
+        artifact_type,
+        workflow_run.id,
     )
 
     # 5. Redirect to signed URL

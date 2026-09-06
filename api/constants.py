@@ -94,6 +94,15 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "voice-audio")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+# Anonymous object access is a local-development compatibility option only.
+# Production defaults to a private bucket and real presigned URLs.
+MINIO_ALLOW_ANONYMOUS = (
+    os.getenv(
+        "MINIO_ALLOW_ANONYMOUS",
+        "true" if ENVIRONMENT == Environment.LOCAL.value else "false",
+    ).lower()
+    == "true"
+)
 
 # AWS S3 Configuration
 AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("S3_REGION", "eu-west-2")
@@ -103,9 +112,7 @@ AWS_RECORDINGS_BUCKET = os.environ.get("AWS_RECORDINGS_BUCKET")
 S3_BUCKET = AWS_RECORDINGS_BUCKET or os.environ.get("S3_BUCKET")
 S3_REGION = AWS_REGION
 S3_KMS_KEY_ID = os.environ.get("S3_KMS_KEY_ID") or None
-S3_SERVER_SIDE_ENCRYPTION = os.environ.get(
-    "S3_SERVER_SIDE_ENCRYPTION", "aws:kms"
-)
+S3_SERVER_SIDE_ENCRYPTION = os.environ.get("S3_SERVER_SIDE_ENCRYPTION", "aws:kms")
 # Optional overrides for S3-compatible backends (e.g. MinIO, rustfs, Ceph).
 # S3_ENDPOINT_URL: full URL of a custom S3 endpoint (e.g. "https://s3.example.com").
 #   Leave unset to use AWS's default endpoint resolution.
@@ -122,12 +129,17 @@ S3_ADDRESSING_STYLE = os.environ.get("S3_ADDRESSING_STYLE")
 # environment-driven so the call path remains usable in local/OSS installs
 # without AWS credentials.
 MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "true").lower() == "true"
-MEMORY_EMBEDDING_MODEL = os.getenv(
-    "MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"
-)
+MEMORY_EMBEDDING_MODEL = os.getenv("MEMORY_EMBEDDING_MODEL", "text-embedding-3-small")
 MEMORY_EMBEDDING_DIMENSIONS = int(os.getenv("MEMORY_EMBEDDING_DIMENSIONS", "1536"))
 MEMORY_MAX_RESULTS = max(1, int(os.getenv("MEMORY_MAX_RESULTS", "5")))
 MEMORY_MIN_SIMILARITY = float(os.getenv("MEMORY_MIN_SIMILARITY", "0.72"))
+# Phone numbers have a small enough search space that an unkeyed SHA-256 hash
+# is reversible by enumeration. Use a stable, deployment-owned HMAC key. The
+# existing OSS JWT secret is a compatibility fallback; production deployments
+# should set the dedicated value so auth-key rotation cannot break lookups.
+CALLER_IDENTIFIER_HASH_KEY = os.getenv("CALLER_IDENTIFIER_HASH_KEY") or os.getenv(
+    "OSS_JWT_SECRET", "change-me-in-production"
+)
 RECORD_CALLS = os.getenv("RECORD_CALLS", "true").lower() == "true"
 
 # Sentry configuration

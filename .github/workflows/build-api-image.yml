@@ -1,11 +1,10 @@
 name: Build API Image
 
 # The deploy path for the EKS cluster: one image, one platform, pushed under a
-# tag derived from the commit. docker-image.yml is the release path — it builds
-# api and ui for amd64 and arm64 and assembles manifest lists in a merge job.
+# tag derived from the commit. docker-image.yml is the release path for both
+# application images and is also AMD64-only.
 #
-# The cluster's nodes are x86_64 and app.dograh.com is served by Vercel, so of
-# the four images a release builds, the cluster pulls one.
+# The cluster's nodes are x86_64 and app.dograh.com is served by Vercel.
 
 on:
   workflow_dispatch:
@@ -59,18 +58,35 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build for architecture verification
         uses: docker/build-push-action@v7
         with:
           context: .
           file: api/Dockerfile
           platforms: linux/amd64
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/dograh-api:${{ steps.tag.outputs.tag }}
+          load: true
+          tags: local/dograh-api:verify-${{ steps.tag.outputs.tag }}
           # Same scope as docker-image.yml's amd64 api build, so the two share
           # layers in both directions.
           cache-from: type=gha,scope=dograh-api-amd64
           cache-to: type=gha,mode=max,scope=dograh-api-amd64
+
+      - name: Verify image architecture
+        env:
+          IMAGE: local/dograh-api:verify-${{ steps.tag.outputs.tag }}
+        run: |
+          architecture="$(docker image inspect "$IMAGE" --format '{{.Architecture}}')"
+          os="$(docker image inspect "$IMAGE" --format '{{.Os}}')"
+          test "$architecture" = amd64
+          test "$os" = linux
+
+      - name: Push verified image
+        env:
+          IMAGE: local/dograh-api:verify-${{ steps.tag.outputs.tag }}
+          TARGET: ${{ secrets.DOCKERHUB_USERNAME }}/dograh-api:${{ steps.tag.outputs.tag }}
+        run: |
+          docker tag "$IMAGE" "$TARGET"
+          docker push "$TARGET"
 
       - name: Summary
         run: |

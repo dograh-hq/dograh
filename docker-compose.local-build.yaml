@@ -1,5 +1,7 @@
 services:
   api:
+    image: local/dograh-api:1.46.0.3
+    platform: linux/amd64
     build:
       context: .
       dockerfile: api/Dockerfile
@@ -9,7 +11,8 @@ services:
       - ./data/sakinah-sessions:/app/data/sakinah-sessions
 
   ui:
+    image: local/dograh-ui:1.46.0.3
+    platform: linux/amd64
     build:
       context: .
       dockerfile: ui/Dockerfile
-

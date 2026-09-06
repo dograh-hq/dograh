@@ -8,6 +8,7 @@ in storage.
 """
 
 import asyncio
+import hashlib
 import io
 import wave
 from datetime import UTC, datetime
@@ -39,6 +40,9 @@ def _recording_metadata(
         "track": track,
         "duration_seconds": duration,
         "size_bytes": len(data) if data is not None else None,
+        "checksum_sha256": hashlib.sha256(data).hexdigest()
+        if data is not None
+        else None,
     }
 
 
@@ -62,7 +66,11 @@ async def _upload_bytes(
             )
         if attempt < 2:
             await asyncio.sleep(0.25 * (2**attempt))
-    logger.error("Storage upload failed after retries for workflow run {} ({})", workflow_run_id, label)
+    logger.error(
+        "Storage upload failed after retries for workflow run {} ({})",
+        workflow_run_id,
+        label,
+    )
     return False
 
 
@@ -97,6 +105,7 @@ async def _persist_recording_metadata(
             duration_seconds=metadata["duration_seconds"],
             format=metadata["format"],
             size_bytes=metadata["size_bytes"],
+            checksum_sha256=metadata["checksum_sha256"],
             track=metadata["track"],
         )
     except Exception:
@@ -111,7 +120,9 @@ async def _persist_run_fields(workflow_run_id: int, **fields) -> None:
     try:
         await db_client.update_workflow_run(run_id=workflow_run_id, **fields)
     except Exception:
-        logger.warning("Artifact metadata write failed for workflow run {}", workflow_run_id)
+        logger.warning(
+            "Artifact metadata write failed for workflow run {}", workflow_run_id
+        )
 
 
 async def upload_workflow_run_artifacts(
@@ -168,10 +179,14 @@ async def upload_workflow_run_artifacts(
             recordings_metadata["user"] = _recording_metadata(
                 user_recording_url, storage_backend.value, "user", user_audio_wav
             )
-            await _persist_recording_metadata(workflow_run_id, recordings_metadata["user"])
+            await _persist_recording_metadata(
+                workflow_run_id, recordings_metadata["user"]
+            )
 
     if bot_audio_wav:
-        bot_recording_url = f"recordings/{artifact_root}/bot.wav"
+        # Keep the legacy database/UI track label ("bot") while using the
+        # product-facing S3 object name requested for new CALMOS calls.
+        bot_recording_url = f"recordings/{artifact_root}/assistant.wav"
         logger.info(
             f"Uploading bot audio to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
         )
@@ -181,7 +196,9 @@ async def upload_workflow_run_artifacts(
             recordings_metadata["bot"] = _recording_metadata(
                 bot_recording_url, storage_backend.value, "bot", bot_audio_wav
             )
-            await _persist_recording_metadata(workflow_run_id, recordings_metadata["bot"])
+            await _persist_recording_metadata(
+                workflow_run_id, recordings_metadata["bot"]
+            )
 
     if recordings_metadata:
         await _persist_run_fields(
@@ -204,6 +221,7 @@ async def upload_workflow_run_artifacts(
             await _persist_run_fields(
                 workflow_run_id,
                 transcript_url=transcript_url,
+                transcript_object_key=transcript_url,
                 storage_backend=storage_backend.value,
                 full_transcript=transcript_text,
             )

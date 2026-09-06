@@ -15,6 +15,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    platform: linux/amd64
     environment:
       POSTGRES_USER: postgres
       # Sourced from .env. Defaults to "postgres"
@@ -42,6 +43,7 @@ services:
 
   redis:
     image: redis:7
+    platform: linux/amd64
     ports:
       - "6379:6379"
     command: >
@@ -58,6 +60,7 @@ services:
 
   minio:
     image: minio/minio
+    platform: linux/amd64
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
@@ -79,6 +82,7 @@ services:
 
   dograh-init:
     image: bash:5.2
+    platform: linux/amd64
     container_name: dograh_init
     profiles: ["remote", "local-turn"]
     environment:
@@ -105,6 +109,7 @@ services:
 
   nginx:
     image: nginx:alpine
+    platform: linux/amd64
     container_name: nginx_https
     profiles: ["remote"]
     depends_on:
@@ -123,6 +128,7 @@ services:
 
   coturn:
     image: coturn/coturn:4.8.0
+    platform: linux/amd64
     container_name: coturn
     restart: unless-stopped
     profiles: ["remote", "local-turn"]
@@ -144,7 +150,8 @@ services:
       - app-network
 
   api:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest
+    image: ${REGISTRY:-dograhai}/dograh-api:${DOGRAH_VERSION:-latest}
+    platform: linux/amd64
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"
@@ -177,12 +184,8 @@ services:
       # in .env to make the API use AWS S3 or another S3-compatible server.
       ENABLE_AWS_S3: "${ENABLE_AWS_S3:-false}"
 
-      # S3 backend configuration. Compose's .env file is used for interpolation,
-      # but those values are not automatically injected into containers, so pass
-      # the S3 settings through explicitly.
-      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
-      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
-      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      # AWS credentials come from the instance/task IAM role. Do not place
+      # long-lived access keys in the production Compose .env file.
       AWS_REGION: "${AWS_REGION:-eu-west-2}"
       AWS_RECORDINGS_BUCKET: "${AWS_RECORDINGS_BUCKET:-}"
       S3_BUCKET: "${S3_BUCKET:-}"
@@ -203,6 +206,7 @@ services:
       MEMORY_EMBEDDING_MODEL: "${MEMORY_EMBEDDING_MODEL:-text-embedding-3-small}"
       MEMORY_MAX_RESULTS: "${MEMORY_MAX_RESULTS:-5}"
       MEMORY_MIN_SIMILARITY: "${MEMORY_MIN_SIMILARITY:-0.72}"
+      CALLER_IDENTIFIER_HASH_KEY: "${CALLER_IDENTIFIER_HASH_KEY:-}"
       RECORD_CALLS: "${RECORD_CALLS:-true}"
 
       # MinIO
@@ -215,6 +219,7 @@ services:
       MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_BUCKET: "voice-audio"
       MINIO_SECURE: "false"
+      MINIO_ALLOW_ANONYMOUS: "${MINIO_ALLOW_ANONYMOUS:-false}"
 
       # Number of uvicorn worker processes (each is its own process bound to a
       # distinct port starting at 8000). dograh-init renders nginx upstreams
@@ -301,7 +306,8 @@ services:
       - app-network
 
   ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:latest
+    image: ${REGISTRY:-dograhai}/dograh-ui:${DOGRAH_VERSION:-latest}
+    platform: linux/amd64
     environment:
       # Bind the Next.js standalone server to all interfaces
       HOSTNAME: "0.0.0.0"
@@ -346,6 +352,7 @@ services:
   #     (api/utils/tunnel.py). Convenient for local dev.
   cloudflared:
     image: cloudflare/cloudflared:latest
+    platform: linux/amd64
     container_name: cloudflared-tunnel
     profiles: ["tunnel"]
     restart: unless-stopped

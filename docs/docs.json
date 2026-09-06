@@ -152,7 +152,8 @@
               "developer/workflow-schema",
               "developer/call-dispositions",
               "developer/webhooks",
-              "developer/environment-variables"
+              "developer/environment-variables",
+              "developer/calmos-connect-v1.46.0.3"
             ]
           },
           {

@@ -88,12 +88,12 @@ class WorkflowRunClient(BaseDBClient):
             gathered_context = gathered_context or {}
             started_at = datetime.now(UTC)
             direction = initial_context.get("direction") or call_type.value
-            caller_identifier = initial_context.get("caller_number") or initial_context.get(
-                "from_number"
-            )
-            telephone_number = initial_context.get("phone_number") or initial_context.get(
-                "called_number"
-            )
+            caller_identifier = initial_context.get(
+                "caller_number"
+            ) or initial_context.get("from_number")
+            telephone_number = initial_context.get(
+                "phone_number"
+            ) or initial_context.get("called_number")
             runtime_configuration = initial_context.get("runtime_configuration") or {}
 
             new_run = WorkflowRunModel(
@@ -113,11 +113,13 @@ class WorkflowRunClient(BaseDBClient):
                 scenario_name=initial_context.get("scenario_name")
                 or initial_context.get("scenario"),
                 caller_identifier=caller_identifier,
+                caller_state="UNKNOWN",
                 telephone_number=telephone_number,
                 direction=direction,
                 started_at=started_at,
                 call_status="initialized",
                 telephony_provider=initial_context.get("provider") or mode,
+                provider_call_id=initial_context.get("provider_call_id"),
                 model_provider=runtime_configuration.get("llm_provider")
                 or runtime_configuration.get("realtime_provider"),
                 stt_provider=runtime_configuration.get("stt_provider"),
@@ -395,6 +397,8 @@ class WorkflowRunClient(BaseDBClient):
         scenario_id: str | None = None,
         scenario_name: str | None = None,
         service_user_id: str | None = None,
+        caller_identifier_id: str | None = None,
+        caller_state: str | None = None,
         caller_identifier: str | None = None,
         telephone_number: str | None = None,
         direction: str | None = None,
@@ -404,6 +408,7 @@ class WorkflowRunClient(BaseDBClient):
         duration_seconds: float | None = None,
         call_status: str | None = None,
         telephony_provider: str | None = None,
+        provider_call_id: str | None = None,
         model_provider: str | None = None,
         stt_provider: str | None = None,
         tts_provider: str | None = None,
@@ -413,6 +418,8 @@ class WorkflowRunClient(BaseDBClient):
         recording_format: str | None = None,
         recording_size_bytes: int | None = None,
         full_transcript: str | None = None,
+        transcript_object_key: str | None = None,
+        latency_metrics: dict | None = None,
         termination_reason: str | None = None,
         debug_metadata: dict | None = None,
     ) -> WorkflowRunModel:
@@ -448,15 +455,21 @@ class WorkflowRunClient(BaseDBClient):
                     **(run.initial_context or {}),
                     **initial_context,
                 }
-                context_caller = run.initial_context.get("caller_number") or run.initial_context.get("from_number")
-                context_phone = run.initial_context.get("phone_number") or run.initial_context.get("called_number")
+                context_caller = run.initial_context.get(
+                    "caller_number"
+                ) or run.initial_context.get("from_number")
+                context_phone = run.initial_context.get(
+                    "phone_number"
+                ) or run.initial_context.get("called_number")
                 if run.caller_identifier is None and context_caller:
                     run.caller_identifier = str(context_caller)
                 if run.telephone_number is None and context_phone:
                     run.telephone_number = str(context_phone)
                 if run.direction is None and run.initial_context.get("direction"):
                     run.direction = str(run.initial_context["direction"])
-                if run.telephony_provider is None and run.initial_context.get("provider"):
+                if run.telephony_provider is None and run.initial_context.get(
+                    "provider"
+                ):
                     run.telephony_provider = str(run.initial_context["provider"])
             if gathered_context:
                 # Lets merge the incoming gathered context keys with the existing ones
@@ -477,6 +490,8 @@ class WorkflowRunClient(BaseDBClient):
                 if tags:
                     merged["call_tags"] = tags
                 run.gathered_context = merged
+                if run.provider_call_id is None and gathered_context.get("call_id"):
+                    run.provider_call_id = str(gathered_context["call_id"])
             if logs:
                 # Lets merge the incoming logs key with existing ones
                 run.logs = {**run.logs, **logs}
@@ -488,6 +503,8 @@ class WorkflowRunClient(BaseDBClient):
                 ("scenario_id", scenario_id),
                 ("scenario_name", scenario_name),
                 ("service_user_id", service_user_id),
+                ("caller_identifier_id", caller_identifier_id),
+                ("caller_state", caller_state),
                 ("caller_identifier", caller_identifier),
                 ("telephone_number", telephone_number),
                 ("direction", direction),
@@ -497,6 +514,7 @@ class WorkflowRunClient(BaseDBClient):
                 ("duration_seconds", duration_seconds),
                 ("call_status", call_status),
                 ("telephony_provider", telephony_provider),
+                ("provider_call_id", provider_call_id),
                 ("model_provider", model_provider),
                 ("stt_provider", stt_provider),
                 ("tts_provider", tts_provider),
@@ -506,10 +524,13 @@ class WorkflowRunClient(BaseDBClient):
                 ("recording_format", recording_format),
                 ("recording_size_bytes", recording_size_bytes),
                 ("full_transcript", full_transcript),
+                ("transcript_object_key", transcript_object_key),
                 ("termination_reason", termination_reason),
             ):
                 if value is not None:
                     setattr(run, attribute, value)
+            if latency_metrics is not None:
+                run.latency_metrics = latency_metrics
             if debug_metadata:
                 run.debug_metadata = {**(run.debug_metadata or {}), **debug_metadata}
             if is_completed:
@@ -615,9 +636,9 @@ class WorkflowRunClient(BaseDBClient):
         """
         async with self.async_session() as session:
             result = await session.execute(
-                select(WorkflowRunModel).where(
-                    WorkflowRunModel.public_access_token == token
-                )
+                select(WorkflowRunModel)
+                .options(joinedload(WorkflowRunModel.workflow))
+                .where(WorkflowRunModel.public_access_token == token)
             )
             return result.scalars().first()
 
@@ -643,7 +664,8 @@ class WorkflowRunClient(BaseDBClient):
                 .where(
                     or_(
                         WorkflowRunModel.call_id == call_id,
-                        WorkflowRunModel.gathered_context.op("->>")("call_id") == call_id,
+                        WorkflowRunModel.gathered_context.op("->>")("call_id")
+                        == call_id,
                     )
                 )
                 .order_by(WorkflowRunModel.created_at.desc())

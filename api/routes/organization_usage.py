@@ -116,6 +116,7 @@ class WorkflowRunUsageResponse(BaseModel):
     agent_run_id: Optional[int] = None
     service_user_id: Optional[str] = None
     service_user_label: Optional[str] = None
+    caller_state: Optional[str] = None
     scenario_id: Optional[str] = None
     scenario_name: Optional[str] = None
     call_status: Optional[str] = None
@@ -125,6 +126,7 @@ class WorkflowRunUsageResponse(BaseModel):
     calm_score: Optional[Dict[str, Any]] = None
     safety_score: Optional[Dict[str, Any]] = None
     clinical_evaluation: Optional[Dict[str, Any]] = None
+    latency_metrics: Optional[Dict[str, Any]] = None
     # New USD field
     charge_usd: Optional[float] = None
 

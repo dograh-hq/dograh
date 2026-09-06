@@ -1,7 +1,16 @@
 # Changelog
 
-## 1.46.1 (2026-09-05)
+## 1.46.0.3 (2026-09-06)
 
+- Add normalized service-user caller identifiers with HMAC lookup and explicit verification state.
+- Harden Sakinah memory retrieval with service-user status, consent checks, provenance, and speech permissions.
+- Add private multi-track recording replay with short-lived server-generated URLs and database audit events.
+- Persist transcript keys, recording checksums, latency metrics, and structured CALM/safety/clinical evaluations on native workflow runs.
+- Make production MinIO private by default and add a dry-run-first, checksum-verified MinIO-to-S3 migration tool.
+
+## 1.46.0.2 (2026-09-05)
+
+- Renumber the second CALMOS Connect white-label build from `1.46.1` to `1.46.0.2`.
 - Sync the CALMOS Connect white-label build with upstream Dograh 1.46.0 features and fixes.
 - Retain the white-label Sakinah scenario and simulation updates while carrying forward upstream telephony, disposition, tracing, and observability improvements.
 

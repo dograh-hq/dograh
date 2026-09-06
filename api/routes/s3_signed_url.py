@@ -218,7 +218,8 @@ async def get_signed_url(
             if (
                 workflow_run is None
                 or workflow_run.workflow is None
-                or workflow_run.workflow.organization_id != user.selected_organization_id
+                or workflow_run.workflow.organization_id
+                != user.selected_organization_id
             ):
                 raise HTTPException(status_code=403, detail="Access denied")
 
@@ -226,6 +227,9 @@ async def get_signed_url(
     # 2. Resolve storage backend
     # ------------------------------------------------------------------
     try:
+        effective_expiration = expires_in
+        if workflow_run is not None and key.startswith(("recordings/", "transcripts/")):
+            effective_expiration = min(900, max(60, expires_in))
         if storage_backend:
             storage = get_storage_for_backend(storage_backend)
         elif (
@@ -241,13 +245,40 @@ async def get_signed_url(
         # 3. Generate the signed URL
         # ------------------------------------------------------------------
         url = await storage.aget_signed_url(
-            key, expiration=expires_in, force_inline=inline
+            key, expiration=effective_expiration, force_inline=inline
         )
         if not url:
             raise HTTPException(status_code=500, detail="Failed to generate signed URL")
 
-        logger.info(f"Generated signed URL for key={key}, expires_in={expires_in}s")
-        return {"url": url, "expires_in": expires_in}
+        if workflow_run is not None and key.startswith(("recordings/", "transcripts/")):
+            try:
+                await db_client.record_audit_event(
+                    organization_id=workflow_run.workflow.organization_id,
+                    workflow_run_id=workflow_run.id,
+                    service_user_id=workflow_run.service_user_id,
+                    actor_user_id=getattr(user, "id", None),
+                    event_type="artifact_presigned_url_issued",
+                    resource_type=(
+                        "recording" if key.startswith("recordings/") else "transcript"
+                    ),
+                    resource_id=workflow_run.call_id,
+                    outcome="success",
+                    event_metadata={
+                        "expires_in": effective_expiration,
+                        "inline": inline,
+                    },
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Artifact access auditing is temporarily unavailable",
+                ) from exc
+
+        logger.info(
+            "Generated signed URL for authorized artifact, expires_in={}s",
+            effective_expiration,
+        )
+        return {"url": url, "expires_in": effective_expiration}
     except ClientError as exc:
         logger.error(f"Error generating signed URL: {exc}")
         raise HTTPException(status_code=500, detail="Failed to generate signed URL")
@@ -271,7 +302,9 @@ async def get_file_metadata(
 
     # Validate key and extract workflow_run_id (allow special paths for metadata)
     try:
-        run_id = await _validate_and_extract_workflow_run_id(key, allow_special_paths=True)
+        run_id = await _validate_and_extract_workflow_run_id(
+            key, allow_special_paths=True
+        )
     except HTTPException:
         if user.is_superuser:
             run_id = None
@@ -279,7 +312,10 @@ async def get_file_metadata(
             workflow_run_by_key = await db_client.get_workflow_run_by_artifact_key(key)
             if workflow_run_by_key is None or workflow_run_by_key.workflow is None:
                 raise
-            if workflow_run_by_key.workflow.organization_id != user.selected_organization_id:
+            if (
+                workflow_run_by_key.workflow.organization_id
+                != user.selected_organization_id
+            ):
                 raise HTTPException(status_code=403, detail="Access denied")
             run_id = workflow_run_by_key.id
 

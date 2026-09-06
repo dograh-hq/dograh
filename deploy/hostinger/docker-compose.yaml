@@ -28,6 +28,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -51,6 +52,7 @@ services:
 
   redis:
     image: redis:7
+    platform: linux/amd64
     restart: unless-stopped
     command: >
       --requirepass ${REDIS_PASSWORD:-redissecret}
@@ -67,6 +69,7 @@ services:
 
   minio:
     image: minio/minio
+    platform: linux/amd64
     container_name: minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -74,10 +77,10 @@ services:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_API_CORS_ALLOW_ORIGIN: "*"
-    # No host ports. Browsers fetch audio via Traefik at
-    # https://${PUBLIC_HOST}/voice-audio/... (objects are public-read,
-    # unsigned URLs — no presign/host-signature to break). For console
-    # admin, port-forward 9001 over SSH instead of publishing it.
+    # No host ports. Browsers fetch short-lived, host-signed URLs through
+    # Traefik at https://${PUBLIC_HOST}/voice-audio/...; the bucket remains
+    # private. For console admin, port-forward 9001 over SSH instead of
+    # publishing it.
     volumes:
       - minio-data:/data
     healthcheck:
@@ -110,6 +113,7 @@ services:
   # it is a single self-contained file, which is what a catalog import requires.
   coturn:
     image: coturn/coturn:4.8.0
+    platform: linux/amd64
     container_name: coturn
     restart: unless-stopped
     command:
@@ -137,6 +141,7 @@ services:
 
   api:
     image: ${REGISTRY:-dograhai}/dograh-api:${DOGRAH_VERSION:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       # production => drop private-IP host ICE candidates on a public VPS and
@@ -153,14 +158,15 @@ services:
 
       ENABLE_AWS_S3: "false"
       MINIO_ENDPOINT: "minio:9000"
-      # Full public URL browsers use to fetch audio. Traefik routes
-      # /voice-audio/ to minio:9000. This replaces the nginx sub_filter hack.
+      # Public signing origin used in short-lived URLs. Traefik routes the
+      # /voice-audio/ bucket path to minio:9000.
       MINIO_PUBLIC_ENDPOINT: "https://${PUBLIC_HOST}"
       # Must match the MinIO root creds above (same env vars).
       MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_BUCKET: "voice-audio"
       MINIO_SECURE: "false"
+      MINIO_ALLOW_ANONYMOUS: "false"
 
       # IMPORTANT: pinned to 1. The image launches FASTAPI_WORKERS as
       # independent uvicorn processes on consecutive ports (8000, 8001, ...)
@@ -225,6 +231,7 @@ services:
 
   ui:
     image: ${REGISTRY:-dograhai}/dograh-ui:${DOGRAH_VERSION:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       HOSTNAME: "0.0.0.0"

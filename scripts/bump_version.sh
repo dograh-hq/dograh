@@ -5,16 +5,16 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION_FILE="$ROOT_DIR/VERSION"
 
 usage() {
-  echo "Usage: $0 X.Y.Z" >&2
+  echo "Usage: $0 X.Y.Z[.N]" >&2
   exit 2
 }
 
 [[ $# -eq 1 ]] || usage
 new_version="$1"
-[[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || usage
+[[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || usage
 
 current_version="$(tr -d '[:space:]' < "$VERSION_FILE")"
-[[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+[[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || {
   echo "Current VERSION is invalid: $current_version" >&2
   exit 1
 }

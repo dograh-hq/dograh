@@ -366,7 +366,7 @@ class CreateWorkflowRunRequest(BaseModel):
 
 class CreateWorkflowRunResponse(BaseModel):
     id: int
-    call_id: str
+    call_id: str | None = None
     workflow_id: int
     name: str
     mode: str
@@ -1434,7 +1434,7 @@ async def create_workflow_run(
     )
     return {
         "id": run.id,
-        "call_id": run.call_id,
+        "call_id": getattr(run, "call_id", None),
         "workflow_id": run.workflow_id,
         "name": run.name,
         "mode": run.mode,
@@ -1504,6 +1504,8 @@ async def get_workflow_run(
         "scenario_id": run.scenario_id,
         "scenario_name": run.scenario_name,
         "service_user_id": run.service_user_id,
+        "caller_identifier_id": run.caller_identifier_id,
+        "caller_state": run.caller_state,
         "caller_identifier": run.caller_identifier,
         "telephone_number": run.telephone_number,
         "direction": run.direction,
@@ -1513,6 +1515,7 @@ async def get_workflow_run(
         "duration_seconds": run.duration_seconds,
         "call_status": run.call_status,
         "telephony_provider": run.telephony_provider,
+        "provider_call_id": run.provider_call_id,
         "model_provider": run.model_provider,
         "stt_provider": run.stt_provider,
         "tts_provider": run.tts_provider,
@@ -1522,6 +1525,8 @@ async def get_workflow_run(
         "recording_format": run.recording_format,
         "recording_size_bytes": run.recording_size_bytes,
         "full_transcript": run.full_transcript,
+        "transcript_object_key": run.transcript_object_key,
+        "latency_metrics": run.latency_metrics,
         "termination_reason": run.termination_reason,
     }
 

@@ -74,7 +74,11 @@ def _safe_proposal(value: Any) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         importance = confidence = 0.5
     try:
-        expires_days = int(value["expires_days"]) if value.get("expires_days") is not None else None
+        expires_days = (
+            int(value["expires_days"])
+            if value.get("expires_days") is not None
+            else None
+        )
     except (TypeError, ValueError):
         expires_days = None
     if expires_days is not None:
@@ -131,7 +135,9 @@ async def _embed_memories(
         vectors = await service.embed_texts(texts)
         return [vector if len(vector) == 1536 else None for vector in vectors]
     except Exception:
-        logger.warning("Memory embedding failed; retaining text memory without a vector")
+        logger.warning(
+            "Memory embedding failed; retaining text memory without a vector"
+        )
         return [None for _ in texts]
 
 
@@ -144,6 +150,10 @@ async def extract_and_store_memories(workflow_run_id: int) -> int:
         or not run.service_user_id
         or not run.workflow
         or run.workflow.name != "Sakinah Scenario Console"
+    ):
+        return 0
+    if not await db_client.is_memory_permitted(
+        run.service_user_id, permission_type="memory_storage"
     ):
         return 0
     utterances = await db_client.get_utterances_for_run(workflow_run_id)
@@ -159,21 +169,27 @@ async def extract_and_store_memories(workflow_run_id: int) -> int:
     system_prompt = (
         "Extract only useful, likely-long-term continuity facts from the transcript. "
         "Do not extract every utterance, greetings, transient small talk, or unsupported inference. "
-        "Return JSON only: {\"memories\":[{\"memory_text\":string,\"memory_type\":string,"
-        "\"importance\":number,\"confidence\":number,\"sensitivity\":\"low\"|\"normal\"|\"high\"|\"restricted\","
-        "\"source_utterance_sequence\":number|null,\"expires_days\":number|null,"
-        "\"verbal_reference_allowed\":boolean,\"explicit_detail_allowed\":boolean}]} ."
+        'Return JSON only: {"memories":[{"memory_text":string,"memory_type":string,'
+        '"importance":number,"confidence":number,"sensitivity":"low"|"normal"|"high"|"restricted",'
+        '"source_utterance_sequence":number|null,"expires_days":number|null,'
+        '"verbal_reference_allowed":boolean,"explicit_detail_allowed":boolean}]} .'
     )
     try:
         llm = create_llm_service(resolved.effective, usage_context="memory_extraction")
         context = LLMContext()
         context.set_messages([{"role": "user", "content": transcript}])
-        raw = await llm.run_inference(context, max_tokens=2500, system_instruction=system_prompt)
+        raw = await llm.run_inference(
+            context, max_tokens=2500, system_instruction=system_prompt
+        )
     except Exception:
         logger.warning("Memory extraction failed for completed call")
         return 0
 
-    proposals = [item for item in (_safe_proposal(value) for value in _parse_proposals(raw)) if item]
+    proposals = [
+        item
+        for item in (_safe_proposal(value) for value in _parse_proposals(raw))
+        if item
+    ]
     proposals = proposals[:20]
     vectors = await _embed_memories(
         run.workflow.organization_id,
@@ -184,7 +200,9 @@ async def extract_and_store_memories(workflow_run_id: int) -> int:
     for proposal, vector in zip(proposals, vectors):
         source_sequence = proposal.pop("source_utterance_sequence", None)
         try:
-            source_sequence = int(source_sequence) if source_sequence is not None else None
+            source_sequence = (
+                int(source_sequence) if source_sequence is not None else None
+            )
         except (TypeError, ValueError):
             source_sequence = None
         proposal.update(

@@ -948,6 +948,10 @@ export type CallReplayResponse = {
     utterances?: Array<{
         [key: string]: unknown;
     }>;
+    /**
+     * Recordings
+     */
+    recordings?: Array<RecordingReplayTrack>;
 };
 
 /**
@@ -1854,7 +1858,7 @@ export type CreateWorkflowRunResponse = {
     /**
      * Call Id
      */
-    call_id: string;
+    call_id?: string | null;
     /**
      * Workflow Id
      */
@@ -5292,6 +5296,20 @@ export type RecordingListResponseSchema = {
 };
 
 /**
+ * RecordingReplayTrack
+ */
+export type RecordingReplayTrack = {
+    /**
+     * Track
+     */
+    track: string;
+    /**
+     * Signed Url
+     */
+    signed_url: string;
+};
+
+/**
  * RecordingResponseSchema
  *
  * Response schema for a single recording.
@@ -8416,6 +8434,14 @@ export type WorkflowRunResponseSchema = {
      */
     service_user_id?: string | null;
     /**
+     * Caller Identifier Id
+     */
+    caller_identifier_id?: string | null;
+    /**
+     * Caller State
+     */
+    caller_state?: string | null;
+    /**
      * Caller Identifier
      */
     caller_identifier?: string | null;
@@ -8452,6 +8478,10 @@ export type WorkflowRunResponseSchema = {
      */
     telephony_provider?: string | null;
     /**
+     * Provider Call Id
+     */
+    provider_call_id?: string | null;
+    /**
      * Model Provider
      */
     model_provider?: string | null;
@@ -8487,6 +8517,16 @@ export type WorkflowRunResponseSchema = {
      * Full Transcript
      */
     full_transcript?: string | null;
+    /**
+     * Transcript Object Key
+     */
+    transcript_object_key?: string | null;
+    /**
+     * Latency Metrics
+     */
+    latency_metrics?: {
+        [key: string]: unknown;
+    } | null;
     /**
      * Termination Reason
      */
@@ -8690,6 +8730,10 @@ export type WorkflowRunUsageResponse = {
      */
     service_user_label?: string | null;
     /**
+     * Caller State
+     */
+    caller_state?: string | null;
+    /**
      * Scenario Id
      */
     scenario_id?: string | null;
@@ -8729,6 +8773,12 @@ export type WorkflowRunUsageResponse = {
      * Clinical Evaluation
      */
     clinical_evaluation?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Latency Metrics
+     */
+    latency_metrics?: {
         [key: string]: unknown;
     } | null;
     /**

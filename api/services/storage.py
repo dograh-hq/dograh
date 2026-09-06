@@ -4,6 +4,7 @@ from api.constants import (
     ENABLE_AWS_S3,
     ENVIRONMENT,
     MINIO_ACCESS_KEY,
+    MINIO_ALLOW_ANONYMOUS,
     MINIO_BUCKET,
     MINIO_ENDPOINT,
     MINIO_PUBLIC_ENDPOINT,
@@ -47,6 +48,7 @@ def get_storage_for_backend(backend: str) -> BaseFileSystem:
             bucket_name=MINIO_BUCKET,
             secure=MINIO_SECURE,
             public_endpoint=MINIO_PUBLIC_ENDPOINT,
+            allow_anonymous_access=MINIO_ALLOW_ANONYMOUS,
         )
 
     # Code 1: AWS S3 implementation (cloud deployments)

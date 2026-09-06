@@ -13,10 +13,10 @@ from api.db.filters import (
     get_workflow_run_order_clause,
 )
 from api.db.models import (
+    CallScoreModel,
     OrganizationConfigurationModel,
     OrganizationModel,
     OrganizationUsageCycleModel,
-    CallScoreModel,
     WorkflowModel,
     WorkflowRunModel,
 )
@@ -228,7 +228,9 @@ class OrganizationUsageClient(BaseDBClient):
                 dograh_tokens = 0
                 call_duration = run.duration_seconds
                 if call_duration is None:
-                    call_duration = (run.usage_info or {}).get("call_duration_seconds") or 0
+                    call_duration = (run.usage_info or {}).get(
+                        "call_duration_seconds"
+                    ) or 0
                 call_duration = float(call_duration)
                 total_tokens += dograh_tokens
                 total_duration_seconds += int(round(call_duration))
@@ -281,15 +283,23 @@ class OrganizationUsageClient(BaseDBClient):
                         if run.service_user_id
                         else "Anonymous"
                     ),
+                    "caller_state": run.caller_state,
                     "scenario_id": run.scenario_id,
                     "scenario_name": run.scenario_name,
                     "call_status": run.call_status,
-                    "started_at": run.started_at.isoformat() if run.started_at else None,
-                    "connected_at": run.connected_at.isoformat() if run.connected_at else None,
+                    "started_at": run.started_at.isoformat()
+                    if run.started_at
+                    else None,
+                    "connected_at": run.connected_at.isoformat()
+                    if run.connected_at
+                    else None,
                     "ended_at": run.ended_at.isoformat() if run.ended_at else None,
                     "calm_score": scores.calm_score if scores else None,
                     "safety_score": scores.safety_score if scores else None,
-                    "clinical_evaluation": scores.clinical_evaluation if scores else None,
+                    "clinical_evaluation": scores.clinical_evaluation
+                    if scores
+                    else None,
+                    "latency_metrics": run.latency_metrics,
                 }
 
                 # Add USD cost if available in cost_info

@@ -7,6 +7,7 @@ from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.models import (
+    CallScoreModel,
     SakinahRunModel,
     SakinahScenarioModel,
     UserModel,
@@ -34,6 +35,38 @@ SCENARIO_FIELDS = (
     "notes",
     "freestyle_prompt",
 )
+
+
+def _structured_call_scores(
+    calm_turns: list[dict[str, Any]] | None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Project CALM turns without copying prompts or transcript text."""
+    calm: list[dict[str, Any]] = []
+    safety: list[dict[str, Any]] = []
+    clinical: list[dict[str, Any]] = []
+    for turn in calm_turns or []:
+        if not isinstance(turn, dict):
+            continue
+        turn_id = turn.get("turn_id")
+        calm.append(
+            {
+                "turn_id": turn_id,
+                "scores": turn.get("calm_scores") or {},
+                "confidence": turn.get("calm_confidence") or {},
+                "trend": turn.get("trend") or {},
+                "significant_changes": turn.get("significant_changes") or {},
+            }
+        )
+        safety.append(
+            {"turn_id": turn_id, "safety_state": turn.get("safety_state") or {}}
+        )
+        clinical.append(
+            {
+                "turn_id": turn_id,
+                "clinical_evaluation": turn.get("clinical_evaluation") or {},
+            }
+        )
+    return {"turns": calm}, {"turns": safety}, {"turns": clinical}
 
 
 def _scenario_dict(scenario: SakinahScenarioModel) -> dict[str, Any]:
@@ -93,8 +126,7 @@ class SakinahPersistenceClient(BaseDBClient):
                 )
                 query = query.where(search_text.ilike(pattern))
             result = await session.execute(
-                query
-                .order_by(
+                query.order_by(
                     SakinahScenarioModel.sequence.asc(),
                     SakinahScenarioModel.created_at.asc(),
                 )
@@ -265,6 +297,35 @@ class SakinahPersistenceClient(BaseDBClient):
             item.recording_file_reference = recording_file_reference or {}
             item.calm_turns = calm_turns or []
             item.timings = timings or {}
+
+            calm_score, safety_score, clinical_evaluation = _structured_call_scores(
+                calm_turns
+            )
+            workflow_run = await session.get(WorkflowRunModel, item.run_id)
+            if workflow_run is not None:
+                score_result = await session.execute(
+                    select(CallScoreModel).where(
+                        CallScoreModel.agent_run_id == item.run_id
+                    )
+                )
+                call_score = score_result.scalars().first()
+                if call_score is None:
+                    session.add(
+                        CallScoreModel(
+                            agent_run_id=item.run_id,
+                            calm_score=calm_score,
+                            safety_score=safety_score,
+                            clinical_evaluation=clinical_evaluation,
+                        )
+                    )
+                else:
+                    call_score.calm_score = calm_score
+                    call_score.safety_score = safety_score
+                    call_score.clinical_evaluation = clinical_evaluation
+                workflow_run.latency_metrics = {
+                    **(workflow_run.latency_metrics or {}),
+                    "simulation": timings or {},
+                }
             await session.commit()
             await session.refresh(item)
             return item

@@ -8,6 +8,7 @@ import { AgentFolderView } from '@/components/workflow/folders/AgentFolderView';
 import { CreateFolderButton } from '@/components/workflow/folders/CreateFolderButton';
 import { FolderSection } from '@/components/workflow/folders/FolderSection';
 import { UploadWorkflowButton } from '@/components/workflow/UploadWorkflowButton';
+import { detailFromError } from '@/lib/apiError';
 import { getServerAccessToken, getServerAuthProvider } from '@/lib/auth/server';
 import logger from '@/lib/logger';
 
@@ -45,6 +46,10 @@ async function WorkflowList() {
                 status: 'active,archived'
             }
         });
+
+        if (response.error) {
+            throw new Error(detailFromError(response.error, 'Failed to load agents'));
+        }
 
         const allWorkflowData = response.data ? (Array.isArray(response.data) ? response.data : [response.data]) : [];
 

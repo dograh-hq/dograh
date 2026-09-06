@@ -794,7 +794,7 @@ class SimulationManager:
             return
         simulation._finalized = True
         simulation.ended_at = datetime.now(UTC)
-        simulation.status = "failed" if simulation.error else "completed"
+        final_status = "failed" if simulation.error else "completed"
 
         if simulation.evaluation_tasks:
             await asyncio.gather(
@@ -851,7 +851,7 @@ class SimulationManager:
                 await db_client.complete_sakinah_run(
                     user_id=simulation.user_id,
                     session_id=simulation.id,
-                    status=simulation.status,
+                    status=final_status,
                     ended_at=simulation.ended_at,
                     transcript=_format_simulation_transcript(turns),
                     conversation=turns,
@@ -882,6 +882,10 @@ class SimulationManager:
             except asyncio.QueueFull:
                 pass
 
+        # Publish a terminal state only after persistence and artifact
+        # reconciliation finish. Consumers use this transition as the signal
+        # that finalization is complete.
+        simulation.status = final_status
         simulation.publish_status()
         logger.info(
             f"Simulation {simulation.id} finalized: status={simulation.status} "

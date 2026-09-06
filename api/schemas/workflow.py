@@ -34,6 +34,8 @@ class WorkflowRunResponseSchema(BaseModel):
     scenario_id: str | None = None
     scenario_name: str | None = None
     service_user_id: str | None = None
+    caller_identifier_id: str | None = None
+    caller_state: str | None = None
     caller_identifier: str | None = None
     telephone_number: str | None = None
     direction: str | None = None
@@ -43,6 +45,7 @@ class WorkflowRunResponseSchema(BaseModel):
     duration_seconds: float | None = None
     call_status: str | None = None
     telephony_provider: str | None = None
+    provider_call_id: str | None = None
     model_provider: str | None = None
     stt_provider: str | None = None
     tts_provider: str | None = None
@@ -52,4 +55,6 @@ class WorkflowRunResponseSchema(BaseModel):
     recording_format: str | None = None
     recording_size_bytes: int | None = None
     full_transcript: str | None = None
+    transcript_object_key: str | None = None
+    latency_metrics: Dict[str, Any] | None = None
     termination_reason: str | None = None

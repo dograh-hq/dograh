@@ -4,8 +4,8 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 
-# Install Python and build dependencies for native modules
-# This helps with ARM64 builds and native module compilation
+# Install Python and build dependencies for native modules. Buildx supplies the
+# target platform, so native modules are compiled for the requested image arch.
 RUN apk add --no-cache python3 make g++ libc6-compat
 
 # Copy package files

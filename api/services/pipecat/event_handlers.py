@@ -7,7 +7,6 @@ from api.constants import ENABLE_CALL_RECORDING_UPLOAD, RECORD_CALLS
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
-from api.services.call_persistence import persist_call_data_with_retry
 from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_playback import play_audio_loop
@@ -76,8 +75,8 @@ def register_event_handlers(
     in_memory_logs_buffer: InMemoryLogsBuffer,
     transcript_log_coordinator: TranscriptLogCoordinator,
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
-    termination_funnel: TerminationFunnelProcessor,
     audio_config=AudioConfig,
+    termination_funnel: TerminationFunnelProcessor | None = None,
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
@@ -117,7 +116,10 @@ def register_event_handlers(
                 call_status="connected",
             )
         except Exception:
-            logger.warning("Unable to persist connected timestamp for workflow run {}", workflow_run_id)
+            logger.warning(
+                "Unable to persist connected timestamp for workflow run {}",
+                workflow_run_id,
+            )
 
     async def maybe_trigger_initial_response():
         """Start the conversation after both pipeline_started and client_connected events.
@@ -272,7 +274,8 @@ def register_event_handlers(
             await _record_pipeline_error()
         await engine.end_call_with_reason(reason, abort_immediately=True)
 
-    termination_funnel.set_termination_handler(dispose_call)
+    if termination_funnel is not None:
+        termination_funnel.set_termination_handler(dispose_call)
 
     @task.event_handler("on_pipeline_error")
     async def on_pipeline_error(_task: PipelineWorker, frame: Frame):
@@ -485,25 +488,6 @@ def register_event_handlers(
 
         # Combined task: runs integrations (including QA), then calculates
         # cost (so QA token usage is captured in usage_info)
-        # Durable utterances/scores/memory extraction are deliberately detached
-        # from call teardown. S3/RDS outages must not prolong or terminate a
-        # live audio session; the retry queue provides a second safety net.
-        try:
-            feedback_events = (
-                in_memory_logs_buffer.get_events()
-                if not in_memory_logs_buffer.is_empty
-                else None
-            )
-        except Exception:
-            feedback_events = None
-        asyncio.create_task(
-            persist_call_data_with_retry(
-                workflow_run_id,
-                events=feedback_events,
-                transcript_text=transcript_text,
-            )
-        )
-
         await enqueue_job(
             FunctionNames.PROCESS_WORKFLOW_COMPLETION,
             workflow_run_id,

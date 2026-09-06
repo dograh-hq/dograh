@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { getServerBackendUrl } from '@/lib/apiClient';
 
 const OSS_TOKEN_COOKIE = 'dograh_auth_token';
+const OSS_USER_COOKIE = 'dograh_auth_user';
 
 // Paths that don't require authentication in OSS mode.
 // `/embed` serves the public website widget (e.g. /embed/dograh-widget.js),
@@ -46,6 +47,30 @@ async function fetchAuthProvider(): Promise<string> {
   return 'unknown';
 }
 
+async function validateOSSSession(token: string): Promise<boolean | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const response = await fetch(`${getServerBackendUrl()}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
+    if (response.status === 401) return false;
+    return response.ok ? true : null;
+  } catch {
+    return null;
+  }
+}
+
+function redirectToLogin(request: NextRequest) {
+  const loginUrl = new URL('/auth/login', request.url);
+  const response = NextResponse.redirect(loginUrl);
+  response.cookies.delete(OSS_TOKEN_COOKIE);
+  response.cookies.delete(OSS_USER_COOKIE);
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const authProvider = await fetchAuthProvider();
 
@@ -68,8 +93,14 @@ export async function middleware(request: NextRequest) {
 
   // If no token, redirect to login
   if (!token) {
-    const loginUrl = new URL('/auth/login', request.url);
-    return NextResponse.redirect(loginUrl);
+    return redirectToLogin(request);
+  }
+
+  // Do not treat cookie presence as authentication. The API is the authority
+  // for token expiry and signing-secret validation. If it is temporarily
+  // unreachable, continue and let the normal backend-status UI handle it.
+  if ((await validateOSSSession(token)) === false) {
+    return redirectToLogin(request);
   }
 
   return NextResponse.next();

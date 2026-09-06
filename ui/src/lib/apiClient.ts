@@ -50,15 +50,16 @@ export const createClientConfig: CreateClientConfig = (config) => {
     };
 };
 
-let interceptorRegistered = false;
+const interceptorRegisteredClients = new WeakSet<Client>();
+let authRedirectInProgress = false;
 
 /**
  * Register a request interceptor that attaches a fresh access token
  * to every outgoing SDK request. Idempotent — safe for React strict mode.
  */
 export function setupAuthInterceptor(apiClient: Client, getAccessToken: () => Promise<string>) {
-    if (interceptorRegistered) return;
-    interceptorRegistered = true;
+    if (interceptorRegisteredClients.has(apiClient)) return;
+    interceptorRegisteredClients.add(apiClient);
 
     apiClient.interceptors.request.use(async (request) => {
         if (request.headers.get('Authorization')) {
@@ -71,5 +72,18 @@ export function setupAuthInterceptor(apiClient: Client, getAccessToken: () => Pr
             // If token retrieval fails, let the request proceed without auth
         }
         return request;
+    });
+
+    apiClient.interceptors.response.use((response) => {
+        if (
+            response.status === 401 &&
+            typeof window !== 'undefined' &&
+            !window.location.pathname.startsWith('/auth/') &&
+            !authRedirectInProgress
+        ) {
+            authRedirectInProgress = true;
+            window.location.assign('/auth/login');
+        }
+        return response;
     });
 }

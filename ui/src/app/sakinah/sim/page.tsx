@@ -49,7 +49,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function SakinahSimulationPage() {
-    const { getAccessToken } = useAuth();
+    const { getAccessToken, isAuthenticated, redirectToLogin } = useAuth();
     const [scenario, setScenario] = useState("");
     const [scenarioId, setScenarioId] = useState<string | null>(null);
     const [scenarioName, setScenarioName] = useState<string | null>(null);
@@ -293,6 +293,10 @@ export default function SakinahSimulationPage() {
         setTurns([]);
         setCalmAnalysis(null);
         try {
+            if (!isAuthenticated) {
+                redirectToLogin();
+                return;
+            }
             // The SDK's auth interceptor signs the request; the token is only
             // needed for the events WebSocket, which cannot use the interceptor.
             const token = await getAccessToken();
@@ -304,6 +308,13 @@ export default function SakinahSimulationPage() {
                     experiment_mode: experimentMode,
                 },
             });
+            if (response.response?.status === 401) {
+                redirectToLogin();
+                return;
+            }
+            if (response.response?.status === 403) {
+                throw new Error('You are not authorized to start this simulation.');
+            }
             if (response.error || !response.data) {
                 throw new Error(
                     detailFromError(response.error, "Unable to start the simulation."),
@@ -331,6 +342,13 @@ export default function SakinahSimulationPage() {
             const response = await stopSimulationApiV1SakinahSimulationsSimulationIdStopPost({
                 path: { simulation_id: simulation.simulation_id },
             });
+            if (response.response?.status === 401) {
+                redirectToLogin();
+                return;
+            }
+            if (response.response?.status === 403) {
+                throw new Error('You are not authorized to stop this simulation.');
+            }
             if (response.error || !response.data) {
                 throw new Error(
                     detailFromError(response.error, "Unable to stop the simulation."),

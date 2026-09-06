@@ -1,3 +1,5 @@
+import { isNextRouterError } from 'next/dist/client/components/is-next-router-error';
+import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { getWorkflowsApiV1WorkflowFetchGet, listFoldersApiV1FolderGet } from '@/client/sdk.gen';
@@ -48,6 +50,9 @@ async function WorkflowList() {
         });
 
         if (response.error) {
+            if (response.response?.status === 401) {
+                redirect('/auth/login');
+            }
             throw new Error(detailFromError(response.error, 'Failed to load agents'));
         }
 
@@ -101,6 +106,9 @@ async function WorkflowList() {
             </>
         );
     } catch (err) {
+        if (isNextRouterError(err)) {
+            throw err;
+        }
         logger.error(`Error fetching workflows: ${err}`);
         return (
             <div className="text-red-500">

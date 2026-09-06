@@ -29,12 +29,14 @@ def _prompt_context(
     memories: list[dict[str, Any]],
 ) -> str:
     lines = [
-        "Caller continuity context is private and must not be read aloud as a list of records.",
+        "Caller continuity context is private and must not be read aloud as a "
+        "list of records.",
         f"Caller state: {caller_status}.",
         "Do not reveal historic details in the opening greeting.",
-        "Only refer to a memory when its permissions and the current identity state allow it.",
+        "Only refer to a memory when its permissions and the current identity "
+        "state allow it.",
     ]
-    if preferred_name and caller_status == "VERIFIED":
+    if preferred_name and caller_status in {"RECOGNISED", "VERIFIED"}:
         lines.append(f"Preferred name for conversational use: {preferred_name}")
     for memory in memories:
         may_verbalize = bool(memory.get("may_verbalize"))
@@ -83,7 +85,8 @@ async def prepare_memory_context(
         "prompt_context": _prompt_context("UNKNOWN", None, []),
         "greeting_override": (
             "Hello, you're speaking with Sakinah. I'm here to listen and support you.\n"
-            "What would you like me to call you, and what would you like to talk about today?"
+            "What would you like me to call you, and what would you like to talk "
+            "about today?"
         ),
     }
     if not MEMORY_ENABLED or not organization_id:
@@ -140,14 +143,19 @@ async def prepare_memory_context(
 
         greeting = (
             f"Hello, {service_user.preferred_name}. Welcome back.\n"
-            "Would you like to continue from where we left things, or is there something different you'd like to talk about today?"
-            if service_user.preferred_name and caller_status == "VERIFIED"
+            "Would you like to continue from where we left things, or is there "
+            "something different you'd like to talk about today?"
+            if service_user.preferred_name
+            and caller_status in {"RECOGNISED", "VERIFIED"}
             else unknown["greeting_override"]
         )
         if caller_status == "FIRST_TIME":
             greeting = unknown["greeting_override"]
             if explanation_needed:
-                greeting += "\nI can remember useful information for future conversations, and you can ask me not to remember anything."
+                greeting += (
+                    "\nI can remember useful information for future conversations, "
+                    "and you can ask me not to remember anything."
+                )
 
         authorization_level = (
             "disabled"
@@ -155,7 +163,8 @@ async def prepare_memory_context(
             else ("verified" if verified else "recognised_internal_only")
         )
         previous_summary = (
-            "Returning caller recognised; only low-sensitivity continuity information is available until identity is verified."
+            "Returning caller recognised; only low-sensitivity continuity "
+            "information is available until identity is verified."
             if caller_status == "RECOGNISED"
             else None
         )
@@ -173,7 +182,7 @@ async def prepare_memory_context(
             ),
             "greeting_override": greeting,
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 - caller lookup cannot block a live call
         # Do not include the caller identifier or memory text in logs.
         logger.warning(
             "Memory lookup failed; continuing with an UNKNOWN caller context"

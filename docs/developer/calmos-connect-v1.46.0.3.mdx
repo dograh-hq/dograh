@@ -50,9 +50,10 @@ identifier with a two-second safety timeout and returns one of `UNKNOWN`,
 
 Caller ID is candidate matching only. `VERIFIED` requires a verification result
 already stored by a trusted backend verification flow; workflow/template context
-cannot elevate identity. A recognised but unverified caller is not greeted by stored name. Its permitted
-low/normal-sensitivity memories are internal context only and cannot be verbally
-referenced. Verified callers still receive only active, unexpired memories whose
+cannot elevate identity. A recognised but unverified caller may receive a privacy-safe
+welcome using the stored preferred name, but its permitted low/normal-sensitivity
+memories are internal context only and cannot be verbally referenced. Verified callers
+still receive only active, unexpired memories whose
 per-memory permissions allow the intended use.
 
 The memory service is the only conversational access boundary. The LLM cannot

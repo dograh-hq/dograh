@@ -40,6 +40,7 @@ def build_pipeline(
     voicemail_detector=None,
     recording_router=None,
     calm_prompt_processor=None,
+    sakinah_avatar_capture=None,
 ):
     """Build the main pipeline with all components.
 
@@ -95,6 +96,7 @@ def build_pipeline(
             llm,  # LLM
             *post_llm,
             tts,  # TTS
+            *([sakinah_avatar_capture] if sakinah_avatar_capture else []),
             transport.output(),  # Transport bot output
             AudioPathDiagnosticsProcessor(stage="output"),
             audio_buffer,  # AudioBufferProcessor - records both input and output audio

@@ -41,6 +41,7 @@ import { downloadFile, getSignedUrl } from '@/lib/files';
 import { cn } from '@/lib/utils';
 
 interface WorkflowRunResponse {
+    call_id: string | null;
     mode: string;
     created_at: string | null;
     is_completed: boolean;
@@ -653,6 +654,7 @@ export default function WorkflowRunPage() {
 
                 setWorkflowName(workflowResponse.data?.name ?? null);
                 const runData = {
+                    call_id: runResponse.data?.call_id ?? null,
                     mode: runResponse.data?.mode ?? '',
                     created_at: runResponse.data?.created_at ?? null,
                     is_completed: runResponse.data?.is_completed ?? false,
@@ -792,6 +794,7 @@ export default function WorkflowRunPage() {
                                                 recordingUrl={workflowRun?.recording_url}
                                                 transcriptUrl={workflowRun?.transcript_url}
                                                 runId={Number(params.runId)}
+                                                callId={workflowRun?.call_id}
                                                 onOpenPreview={openPreview}
                                             />
                                         </div>

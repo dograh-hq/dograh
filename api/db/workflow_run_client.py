@@ -204,6 +204,7 @@ class WorkflowRunClient(BaseDBClient):
                 formatted_runs.append(
                     {
                         "id": run.id,
+                        "call_id": run.call_id,
                         "name": run.name,
                         "workflow_id": run.workflow_id,
                         "workflow_name": run.workflow.name if run.workflow else None,

@@ -6439,6 +6439,10 @@ export type SuperuserWorkflowRunResponse = {
      */
     id: number;
     /**
+     * Call Id
+     */
+    call_id: string | null;
+    /**
      * Name
      */
     name: string;

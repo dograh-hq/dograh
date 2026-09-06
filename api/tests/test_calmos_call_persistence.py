@@ -15,7 +15,7 @@ from api.db.call_persistence_client import (
 )
 from api.db.models import MemoryModel
 from api.services.call_persistence import persist_call_data_with_retry
-from api.services.memory import orchestrator
+from api.services.memory import extraction, orchestrator
 from api.services.workflow_run_artifacts import _recording_metadata
 
 
@@ -195,7 +195,8 @@ async def test_unverified_recognised_caller_cannot_receive_high_sensitivity_memo
         "Prefers mornings"
     ]
     assert "Highly sensitive historic detail" not in result["prompt_context"]
-    assert "Hello, Alex" not in result["greeting_override"]
+    assert "Hello, Alex. Welcome back." in result["greeting_override"]
+    assert "Preferred name for conversational use: Alex" in result["prompt_context"]
     assert result["relevant_memories"][0]["may_verbalize"] is False
 
 
@@ -273,6 +274,56 @@ async def _no_sleep(_seconds):
     return None
 
 
+def test_memory_opt_out_detection_requires_an_explicit_storage_request():
+    assert extraction.memory_opt_out_requested(
+        "[2026-09-06T20:00:00+00:00] user: Please don't remember anything I said today."
+    )
+    assert extraction.memory_opt_out_requested(
+        "user: I don't want Sakinah to store this conversation."
+    )
+    assert not extraction.memory_opt_out_requested(
+        "user: I don't remember when the appointment happened."
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_memory_opt_out_is_persisted_before_extraction(monkeypatch):
+    class _OptOutDB:
+        opt_out = None
+
+        async def get_workflow_run_by_id(self, workflow_run_id):
+            return SimpleNamespace(
+                id=workflow_run_id,
+                service_user_id="service-user-1",
+                caller_state="RECOGNISED",
+                full_transcript=("user: Please don't remember anything I said today."),
+                workflow=SimpleNamespace(
+                    name="Sakinah Scenario Console", organization_id=7
+                ),
+            )
+
+        async def is_memory_permitted(self, *_args, **_kwargs):
+            return True
+
+        async def get_utterances_for_run(self, _workflow_run_id):
+            return []
+
+        async def record_memory_opt_out(self, **kwargs):
+            self.opt_out = kwargs
+
+    fake_db = _OptOutDB()
+    monkeypatch.setattr(extraction, "db_client", fake_db)
+    monkeypatch.setattr(extraction, "MEMORY_ENABLED", True)
+
+    assert await extraction.extract_and_store_memories(44) == 0
+    assert fake_db.opt_out == {
+        "organization_id": 7,
+        "service_user_id": "service-user-1",
+        "source_workflow_run_id": 44,
+        "verification_level": "none",
+    }
+
+
 @pytest.mark.asyncio
 async def test_service_user_identifier_verification_privacy_and_vector_lookup(
     db_session,
@@ -333,6 +384,18 @@ async def test_service_user_identifier_verification_privacy_and_vector_lookup(
         permission_type="memory_use",
         granted=False,
         verification_level="knowledge_check",
+    )
+    assert not await db_session.is_memory_permitted(
+        first.service_user.id, permission_type="memory_use"
+    )
+
+    await db_session.record_memory_opt_out(
+        organization_id=organization.id,
+        service_user_id=first.service_user.id,
+        verification_level="knowledge_check",
+    )
+    assert not await db_session.is_memory_permitted(
+        first.service_user.id, permission_type="memory_storage"
     )
     assert not await db_session.is_memory_permitted(
         first.service_user.id, permission_type="memory_use"

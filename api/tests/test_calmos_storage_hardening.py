@@ -124,6 +124,29 @@ class _MigrationDestination:
         self.uploads += 1
 
 
+class _TransientMigrationDestination(_MigrationDestination):
+    def __init__(self):
+        super().__init__()
+        self.attempts = 0
+
+    async def upload_file(self, path, bucket, key, ExtraArgs):
+        self.attempts += 1
+        if self.attempts == 1:
+            raise RuntimeError("temporary destination outage")
+        await super().upload_file(path, bucket, key, ExtraArgs)
+
+
+class _CorruptingMigrationDestination(_MigrationDestination):
+    def __init__(self):
+        super().__init__()
+        self.attempts = 0
+
+    async def upload_file(self, _path, _bucket, _key, ExtraArgs):
+        assert "ACL" not in ExtraArgs
+        self.attempts += 1
+        self.data = b"corrupt-destination-data"
+
+
 @pytest.mark.asyncio
 async def test_minio_to_s3_copy_is_verified_and_repeatable():
     migrator = object.__new__(MinioToS3Migrator)
@@ -172,6 +195,59 @@ async def test_minio_to_s3_dry_run_does_not_upload():
     assert would_copy is True
     assert len(checksum) == 64
     assert destination.uploads == 0
+
+
+@pytest.mark.asyncio
+async def test_minio_to_s3_copy_retries_transient_failures(monkeypatch):
+    migrator = object.__new__(MinioToS3Migrator)
+    migrator.execute = True
+    migrator.minio_bucket = "source"
+    migrator.s3_bucket = "destination"
+    migrator.s3_endpoint_url = "http://s3-compatible.test"
+    migrator.sse = None
+    migrator.kms_key_id = None
+    migrator.minio = _MigrationSource(b"durable-call-audio")
+    destination = _TransientMigrationDestination()
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("scripts.migrate_minio_to_s3.asyncio.sleep", no_sleep)
+    ok, copied, checksum = await migrator._copy_and_verify(
+        destination, "recordings/call.wav"
+    )
+
+    assert ok is True
+    assert copied is True
+    assert len(checksum) == 64
+    assert destination.attempts == 2
+    assert destination.uploads == 1
+
+
+@pytest.mark.asyncio
+async def test_minio_to_s3_reports_integrity_failure_after_retries(monkeypatch):
+    migrator = object.__new__(MinioToS3Migrator)
+    migrator.execute = True
+    migrator.minio_bucket = "source"
+    migrator.s3_bucket = "destination"
+    migrator.s3_endpoint_url = "http://s3-compatible.test"
+    migrator.sse = None
+    migrator.kms_key_id = None
+    migrator.minio = _MigrationSource(b"durable-call-audio")
+    destination = _CorruptingMigrationDestination()
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("scripts.migrate_minio_to_s3.asyncio.sleep", no_sleep)
+    ok, copied, error = await migrator._copy_and_verify(
+        destination, "recordings/call.wav"
+    )
+
+    assert ok is False
+    assert copied is True
+    assert error == "integrity_mismatch"
+    assert destination.attempts == 3
 
 
 class _S3ClientContext:

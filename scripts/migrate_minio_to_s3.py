@@ -126,7 +126,7 @@ class MinioToS3Migrator:
     async def _download_s3_sha256(self, client, key: str) -> str | None:
         try:
             response = await client.get_object(Bucket=self.s3_bucket, Key=key)
-        except Exception:
+        except Exception:  # noqa: BLE001 - missing/temporary destination is retryable
             return None
         digest = hashlib.sha256()
         body = response["Body"]
@@ -134,8 +134,9 @@ class MinioToS3Migrator:
             digest.update(chunk)
         return digest.hexdigest()
 
-    async def _copy_and_verify(self, client, key: str) -> tuple[bool, bool, str | None]:
-        """Return (ok, copied, sha256)."""
+    async def _copy_and_verify_once(
+        self, client, key: str
+    ) -> tuple[bool, bool, str | None]:
         with tempfile.TemporaryDirectory(prefix="calmos-minio-s3-") as temp_dir:
             source_path = str(Path(temp_dir) / "source-object")
             try:
@@ -161,9 +162,25 @@ class MinioToS3Migrator:
                     ExtraArgs=extra_args,
                 )
                 destination_sha256 = await self._download_s3_sha256(client, key)
-                return destination_sha256 == source_sha256, True, source_sha256
-            except Exception as exc:
+                if destination_sha256 != source_sha256:
+                    return False, True, "integrity_mismatch"
+                return True, True, source_sha256
+            except Exception as exc:  # noqa: BLE001 - report per-object SDK failures
                 return False, False, type(exc).__name__
+
+    async def _copy_and_verify(self, client, key: str) -> tuple[bool, bool, str | None]:
+        """Copy with bounded retries and return ``(ok, copied, sha256/error)``."""
+        copied_any = False
+        last_detail: str | None = None
+        for attempt in range(3):
+            ok, copied, detail = await self._copy_and_verify_once(client, key)
+            copied_any = copied_any or copied
+            last_detail = detail
+            if ok:
+                return True, copied_any, detail
+            if attempt < 2:
+                await asyncio.sleep(0.25 * (2**attempt))
+        return False, copied_any, last_detail
 
     async def run(self) -> MigrationReport:
         report = MigrationReport(dry_run=not self.execute)

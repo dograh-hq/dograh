@@ -58,6 +58,7 @@ from api.services.pipecat.recording_audio_cache import (
     warm_recording_cache,
 )
 from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
+from api.services.pipecat.sakinah_avatar_capture import create_sakinah_avatar_capture
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_llm_service_from_provider,
@@ -1164,6 +1165,7 @@ async def _run_pipeline_impl(
             calm_prompt_processor=calm_prompt_processor,
         )
     else:
+        sakinah_avatar_capture = create_sakinah_avatar_capture(workflow_run_id)
         pipeline = build_pipeline(
             transport,
             stt,
@@ -1178,6 +1180,7 @@ async def _run_pipeline_impl(
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
             calm_prompt_processor=calm_prompt_processor,
+            sakinah_avatar_capture=sakinah_avatar_capture,
         )
 
     # Create pipeline task with audio configuration

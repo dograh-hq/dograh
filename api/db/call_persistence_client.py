@@ -462,6 +462,62 @@ class CallPersistenceClient(BaseDBClient):
             await session.refresh(item)
             return item
 
+    async def record_memory_opt_out(
+        self,
+        *,
+        organization_id: int,
+        service_user_id: str,
+        source_workflow_run_id: int | None = None,
+        verification_level: str = "none",
+    ) -> None:
+        """Disable memory and append provenance-linked denials atomically."""
+        now = datetime.now(UTC)
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(ServiceUserModel)
+                .where(
+                    ServiceUserModel.id == service_user_id,
+                    ServiceUserModel.organization_id == organization_id,
+                )
+                .with_for_update()
+            )
+            service_user = result.scalars().first()
+            if service_user is None:
+                raise ValueError("service user not found in organization")
+
+            service_user.memory_enabled = False
+            service_user.updated_at = now
+            for permission_type in ("memory_storage", "memory_use"):
+                session.add(
+                    PrivacyPermissionModel(
+                        id=str(uuid.uuid4()),
+                        organization_id=organization_id,
+                        service_user_id=service_user_id,
+                        permission_type=permission_type,
+                        granted=False,
+                        verification_level=verification_level,
+                        source_workflow_run_id=source_workflow_run_id,
+                        permission_metadata={"source": "caller_request"},
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            session.add(
+                AuditEventModel(
+                    id=str(uuid.uuid4()),
+                    organization_id=organization_id,
+                    workflow_run_id=source_workflow_run_id,
+                    service_user_id=service_user_id,
+                    event_type="memory_opt_out_recorded",
+                    resource_type="service_user",
+                    resource_id=service_user_id,
+                    outcome="success",
+                    event_metadata={},
+                    created_at=now,
+                )
+            )
+            await session.commit()
+
     async def record_audit_event(
         self,
         *,

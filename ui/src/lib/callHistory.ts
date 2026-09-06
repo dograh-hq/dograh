@@ -6,6 +6,10 @@ export interface CallReplay {
     recording_signed_url: string | null;
     expires_in: number;
     transcript: string | null;
+    recordings: Array<{
+        track: string;
+        signed_url: string;
+    }>;
     utterances: Array<{
         id: string;
         speaker: string;

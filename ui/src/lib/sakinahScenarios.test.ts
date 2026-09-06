@@ -51,6 +51,8 @@ describe("Sakinah scenario helpers", () => {
         expect(scenarioMatchesSearch(scenario, "housing")).toBe(true);
         expect(scenarioMatchesSearch(scenario, "SAFEGUARD")).toBe(true);
         expect(scenarioMatchesSearch(scenario, "rent arr")).toBe(true);
+        expect(scenarioMatchesSearch(scenario, scenario.id.slice(0, 8))).toBe(true);
+        expect(filterSakinahScenarios([scenario], "")).toEqual([scenario]);
         expect(filterSakinahScenarios([scenario], "not present")).toEqual([]);
     });
 

@@ -40,12 +40,17 @@ export function MediaPreviewDialog() {
             if (callId) {
                 try {
                     const replay = await getCallReplay(callId);
-                    setAudioSignedUrl(replay.recording_signed_url);
-                    setTranscriptContent(replay.transcript);
+                    const fallbackRecording = replay.recordings.find((item) => item.track === 'mixed')
+                        ?? replay.recordings[0];
+                    const transcript = replay.transcript ?? replay.utterances
+                        .map((item) => `${item.speaker}: ${item.transcript}`)
+                        .join('\n');
+                    setAudioSignedUrl(replay.recording_signed_url ?? fallbackRecording?.signed_url ?? null);
+                    setTranscriptContent(transcript || null);
                     posthog.capture(PostHogEvent.TRANSCRIPT_VIEWED, {
                         run_id: runId,
                         source: 'call_replay',
-                        transcript_length: replay.transcript?.length ?? 0,
+                        transcript_length: transcript.length,
                     });
                 } catch (error) {
                     console.error('Error loading call replay:', error);

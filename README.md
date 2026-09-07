@@ -172,6 +172,10 @@ For detailed deployment instructions including remote server setup with HTTPS, s
 
 Visit [https://www.dograh.com](https://www.dograh.com/) for our managed cloud offering.
 
+### One-Click Cloud Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/Dograh/)
+
 ## 📚Documentation
 
 You can go to [https://docs.dograh.com](https://docs.dograh.com/) for our documentation.

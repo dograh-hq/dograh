@@ -234,16 +234,28 @@ export default function SakinahSimulationPage() {
 
     const SIM_AUDIO_SAMPLE_RATE = 16000;
 
+    const prepareAudioContext = useCallback(() => {
+        if (audioCtxRef.current) return audioCtxRef.current;
+        const AudioContextConstructor =
+            window.AudioContext ??
+            (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextConstructor) {
+            throw new Error("This browser does not support Simulation audio playback.");
+        }
+        // Create the context synchronously from the Start button handler. Safari
+        // may otherwise keep a context created after an awaited API request
+        // suspended under its autoplay policy.
+        const ctx = new AudioContextConstructor();
+        const gain = ctx.createGain();
+        gain.connect(ctx.destination);
+        audioCtxRef.current = ctx;
+        gainRef.current = gain;
+        nextPlayTimeRef.current = 0;
+        return ctx;
+    }, []);
+
     const openAudioSocket = useCallback(
-        (simulationId: string, token: string) => {
-            // Must be called from a user gesture (the Start click) so the
-            // browser allows the AudioContext to start.
-            const ctx = new AudioContext();
-            const gain = ctx.createGain();
-            gain.connect(ctx.destination);
-            audioCtxRef.current = ctx;
-            gainRef.current = gain;
-            nextPlayTimeRef.current = 0;
+        (simulationId: string, token: string, ctx: AudioContext) => {
 
             const baseUrl =
                 client.getConfig().baseUrl || resolveBrowserBackendUrl();
@@ -253,7 +265,7 @@ export default function SakinahSimulationPage() {
             );
             socket.binaryType = "arraybuffer";
             socket.onmessage = (message) => {
-                const context = audioCtxRef.current;
+                const context = audioCtxRef.current === ctx ? ctx : null;
                 const gainNode = gainRef.current;
                 if (!context || !gainNode) return;
                 const pcm = new Int16Array(message.data as ArrayBuffer);
@@ -302,6 +314,10 @@ export default function SakinahSimulationPage() {
                 redirectToLogin();
                 return;
             }
+            // Resume the context before the first await so browser autoplay
+            // policies, especially Safari's, treat this as the Start gesture.
+            const audioContext = prepareAudioContext();
+            if (audioContext.state !== "running") await audioContext.resume();
             // The SDK's auth interceptor signs the request; the token is only
             // needed for the events WebSocket, which cannot use the interceptor.
             const token = await getAccessToken();
@@ -328,8 +344,9 @@ export default function SakinahSimulationPage() {
             const snapshot = response.data;
             setSimulation(snapshot);
             openEventsSocket(snapshot.simulation_id, token);
-            openAudioSocket(snapshot.simulation_id, token);
+            openAudioSocket(snapshot.simulation_id, token, audioContext);
         } catch (startError) {
+            teardownAudio();
             setError(
                 startError instanceof Error
                     ? startError.message

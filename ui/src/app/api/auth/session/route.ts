@@ -25,10 +25,14 @@ export async function POST(request: NextRequest) {
   }
 
   const cookieStore = await cookies();
+  // Next production builds set NODE_ENV to "production" even for the local
+  // OSS container. Derive Secure from the actual browser request so Safari
+  // can accept localhost HTTP cookies while HTTPS deployments remain secure.
+  const secureCookie = request.nextUrl.protocol === 'https:';
 
   cookieStore.set(OSS_TOKEN_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie,
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 30,
     path: '/',
@@ -36,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   cookieStore.set(OSS_USER_COOKIE, JSON.stringify(user), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie,
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 30,
     path: '/',

@@ -23,7 +23,7 @@ export function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
 
     try {
       const res = await loginApiV1AuthLoginPost({
-        body: { email, password },
+        body: { email: email.trim().toLowerCase(), password },
       });
 
       if (res.error || !res.data) {
@@ -68,6 +68,7 @@ export function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
             required
           />
         </div>
@@ -79,6 +80,7 @@ export function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
             placeholder="Enter your password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
             required
           />
         </div>

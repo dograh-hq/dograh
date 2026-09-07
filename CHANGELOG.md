@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.46.0.4.2 (2026-09-07)
+
+- Fixed and regression-tested localhost authentication/session handling.
+- Added structured `storage_audit.finalized` logging for call artifact persistence.
+
 ## 1.46.0.4.1 (2026-09-07)
 
 - Accept reserved `.test` addresses for local smoke-user registration without changing hosted validation.

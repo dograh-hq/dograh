@@ -104,7 +104,15 @@ async def audit_run_storage(
             }
         )
 
-    expected_audio = bool(RECORD_CALLS and (run.is_completed or recordings))
+    run_mode = getattr(run, "mode", None)
+    expected_audio = bool(
+        recordings
+        or (
+            RECORD_CALLS
+            and run.is_completed
+            and run_mode not in {"textchat", "chat"}
+        )
+    )
     transcript_status = _status(
         exists=bool(run.full_transcript or transcript_key), expected=transcript_expected
     )

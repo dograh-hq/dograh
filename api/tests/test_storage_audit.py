@@ -2,10 +2,11 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from api.services import storage_audit
+from api.services import storage_audit, workflow_run_artifacts
 
 
 def _run(**overrides):
@@ -85,3 +86,152 @@ async def test_audit_does_not_expect_audio_for_an_initialized_run(monkeypatch):
 
     assert result["minio"]["status"] == "not_expected"
     assert result["minio"]["objects"] == []
+
+
+def _artifact_run():
+    return SimpleNamespace(
+        id=88,
+        workflow_id=12,
+        call_id="call-88",
+        service_user_id="service-user-88",
+        started_at=datetime(2026, 9, 7, tzinfo=UTC),
+        state="completed",
+        is_completed=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_finalization_audit_reports_actual_minio_and_postgres_results(monkeypatch):
+    events = []
+
+    class _UploadingStorage:
+        bucket_name = "voice-audio"
+
+        async def acreate_file_from_bytes(self, key, data):
+            return True
+
+    monkeypatch.setattr(workflow_run_artifacts, "storage_fs", _UploadingStorage())
+    monkeypatch.setattr(
+        workflow_run_artifacts,
+        "get_current_storage_backend",
+        lambda: SimpleNamespace(value="minio", name="MINIO"),
+    )
+    monkeypatch.setattr(workflow_run_artifacts, "RECORD_CALLS", True)
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(return_value=_artifact_run()),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "update_workflow_run",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "upsert_call_recording",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts,
+        "_log_storage_audit",
+        events.append,
+    )
+
+    audit = await workflow_run_artifacts.upload_workflow_run_artifacts(
+        88,
+        mixed_audio_wav=b"call-audio",
+        user_audio_wav=b"user-audio",
+        bot_audio_wav=b"bot-audio",
+        transcript_text="secret transcript that must not be logged",
+    )
+
+    assert audit["overall_status"] == "success"
+    assert audit["postgres"]["run_row_id"] == 88
+    assert audit["postgres_saved"] is True
+    assert audit["transcript"]["status"] == "success"
+    assert audit["transcript"]["object_key"].endswith("/transcript.txt")
+    assert audit["recordings"]["bucket"] == "voice-audio"
+    assert {item["type"] for item in audit["recordings"]["objects"]} == {
+        "mixed",
+        "user",
+        "bot",
+    }
+    assert audit["artifact_count"] == 4
+    assert "secret transcript" not in repr(events[0])
+
+
+@pytest.mark.asyncio
+async def test_finalization_audit_reports_partial_storage_failure(monkeypatch):
+    events = []
+
+    class _PartiallyFailingStorage:
+        bucket_name = "voice-audio"
+
+        async def acreate_file_from_bytes(self, key, data):
+            return not key.endswith("assistant.wav")
+
+    monkeypatch.setattr(workflow_run_artifacts, "storage_fs", _PartiallyFailingStorage())
+    monkeypatch.setattr(
+        workflow_run_artifacts,
+        "get_current_storage_backend",
+        lambda: SimpleNamespace(value="minio", name="MINIO"),
+    )
+    monkeypatch.setattr(workflow_run_artifacts, "RECORD_CALLS", True)
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(return_value=_artifact_run()),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "update_workflow_run",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "upsert_call_recording",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts,
+        "_log_storage_audit",
+        events.append,
+    )
+
+    audit = await workflow_run_artifacts.upload_workflow_run_artifacts(
+        88,
+        mixed_audio_wav=b"call-audio",
+        bot_audio_wav=b"bot-audio",
+    )
+
+    assert audit["recordings"]["status"] == "partial"
+    assert audit["overall_status"] == "partial"
+    assert any(
+        item["object_key"].endswith("assistant.wav")
+        and item["status"] == "failed"
+        for item in events[0]["recordings"]["objects"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_finalization_audit_marks_recording_not_expected(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        workflow_run_artifacts,
+        "get_current_storage_backend",
+        lambda: SimpleNamespace(value="minio", name="MINIO"),
+    )
+    monkeypatch.setattr(workflow_run_artifacts, "RECORD_CALLS", True)
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(return_value=_artifact_run()),
+    )
+    monkeypatch.setattr(workflow_run_artifacts, "_log_storage_audit", events.append)
+
+    audit = await workflow_run_artifacts.upload_workflow_run_artifacts(88)
+
+    assert audit["recordings"]["status"] == "not_expected"
+    assert audit["overall_status"] == "success"
+    assert events[0]["artifact_count"] == 0

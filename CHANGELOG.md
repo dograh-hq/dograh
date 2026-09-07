@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.46.0.4.2.C (2026-09-07)
+
+- Added disabled-by-default asynchronous AWS S3 secondary replication from MinIO.
+- Preserved primary finalization and Stage B storage audit behavior when S3 fails.
+
 ## 1.46.0.4.2 (2026-09-07)
 
 - Fixed and regression-tested localhost authentication/session handling.

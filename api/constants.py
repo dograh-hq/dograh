@@ -81,6 +81,12 @@ DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
 
 # Storage Configuration
 ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
+# Stage C keeps MinIO as the primary artifact store and optionally schedules a
+# best-effort asynchronous copy to AWS S3. It is deliberately disabled by
+# default so local OSS development has no AWS network dependency.
+ENABLE_AWS_S3_SECONDARY = (
+    os.getenv("ENABLE_AWS_S3_SECONDARY", "false").lower() == "true"
+)
 
 # MinIO Configuration
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
@@ -109,6 +115,7 @@ AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("S3_REGION", "eu-wes
 # ``AWS_RECORDINGS_BUCKET`` is the white-label name. Keep ``S3_BUCKET`` as the
 # existing generic storage setting so existing deployments continue to work.
 AWS_RECORDINGS_BUCKET = os.environ.get("AWS_RECORDINGS_BUCKET")
+AWS_S3_PREFIX = os.environ.get("AWS_S3_PREFIX", "").strip("/")
 S3_BUCKET = AWS_RECORDINGS_BUCKET or os.environ.get("S3_BUCKET")
 S3_REGION = AWS_REGION
 S3_KMS_KEY_ID = os.environ.get("S3_KMS_KEY_ID") or None

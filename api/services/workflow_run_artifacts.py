@@ -18,6 +18,7 @@ from loguru import logger
 
 from api.constants import RECORD_CALLS
 from api.db import db_client
+from api.services.s3_secondary_replication import schedule_s3_replication
 from api.services.storage import get_current_storage_backend, storage_fs
 
 
@@ -369,6 +370,24 @@ async def upload_workflow_run_artifacts(
         item["object_key"] for item in audit["recordings"]["objects"]
     ]
     audit["overall_status"] = _overall_status(audit)
+    # MinIO/Postgres are authoritative. S3 is only scheduled after the
+    # primary writes above have completed, and scheduling is isolated from the
+    # call finalization result.
+    try:
+        audit["s3"] = await schedule_s3_replication(workflow_run_id, audit)
+    except Exception as exc:  # noqa: BLE001 - secondary scheduling is isolated
+        audit["s3"] = {
+            "role": "secondary",
+            "backend": "s3",
+            "status": "failed",
+            "error_class": type(exc).__name__,
+        }
+        logger.warning(
+            "S3 secondary scheduling failed for workflow run {} ({})",
+            workflow_run_id,
+            type(exc).__name__,
+        )
+    audit["overall_primary_status"] = audit["overall_status"]
     _log_storage_audit(audit)
 
     logger.info(

@@ -87,13 +87,24 @@ class S3FileSystem(BaseFileSystem):
 
     async def aupload_file(self, local_path: str, destination_path: str) -> bool:
         try:
-            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
-                await s3_client.upload_file(
-                    local_path, self.bucket_name, destination_path
-                )
+            await self.aupload_file_checked(local_path, destination_path)
             return True
         except ClientError:
             return False
+
+    async def aupload_file_checked(
+        self, local_path: str, destination_path: str
+    ) -> None:
+        """Upload an object while preserving the provider error for callers.
+
+        Existing callers use ``aupload_file``'s boolean contract. Secondary
+        replication needs the provider error class for safe retry diagnostics,
+        so it can opt into this checked variant without duplicating SDK setup.
+        """
+        async with self.session.client("s3", **self._client_kwargs()) as s3_client:
+            await s3_client.upload_file(
+                local_path, self.bucket_name, destination_path
+            )
 
     async def aget_signed_url(
         self,

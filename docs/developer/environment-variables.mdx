@@ -97,9 +97,11 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 | Variable | Default | Description |
 |---|---|---|
 | `ENABLE_AWS_S3` | `false` | Set to `true` to use AWS S3 instead of MinIO |
+| `ENABLE_AWS_S3_SECONDARY` | `false` | Stage C: asynchronously copy successful MinIO artifacts to a private secondary S3 bucket without changing the primary backend |
 | `S3_BUCKET` | `null` | S3 bucket name |
 | `AWS_RECORDINGS_BUCKET` | `null` | Private S3 bucket for durable CALMOS call recordings. Falls back to `S3_BUCKET` |
 | `AWS_REGION` | `eu-west-2` | AWS region. `S3_REGION` remains supported as a legacy alias |
+| `AWS_S3_PREFIX` | `null` | Optional prefix for Stage C secondary objects; the default preserves the MinIO logical object key exactly |
 | `S3_KMS_KEY_ID` | `null` | Optional customer-managed KMS key ID/ARN. Recordings use server-side `aws:kms` encryption |
 | `S3_SERVER_SIDE_ENCRYPTION` | `aws:kms` | S3 server-side encryption setting |
 | `S3_ENDPOINT_URL` | `null` | Custom S3 endpoint for S3-compatible servers (e.g. `https://s3.example.com`). Leave unset for AWS. |

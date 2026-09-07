@@ -158,6 +158,8 @@ async def test_finalization_audit_reports_actual_minio_and_postgres_results(monk
         "bot",
     }
     assert audit["artifact_count"] == 4
+    assert audit["s3"]["status"] == "disabled"
+    assert audit["overall_primary_status"] == "success"
     assert "secret transcript" not in repr(events[0])
 
 
@@ -235,3 +237,52 @@ async def test_finalization_audit_marks_recording_not_expected(monkeypatch):
     assert audit["recordings"]["status"] == "not_expected"
     assert audit["overall_status"] == "success"
     assert events[0]["artifact_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_s3_schedule_failure_does_not_fail_primary_finalization(monkeypatch):
+    class _UploadingStorage:
+        bucket_name = "voice-audio"
+
+        async def acreate_file_from_bytes(self, key, data):
+            return True
+
+    monkeypatch.setattr(workflow_run_artifacts, "storage_fs", _UploadingStorage())
+    monkeypatch.setattr(
+        workflow_run_artifacts,
+        "get_current_storage_backend",
+        lambda: SimpleNamespace(value="minio", name="MINIO"),
+    )
+    monkeypatch.setattr(workflow_run_artifacts, "RECORD_CALLS", True)
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(return_value=_artifact_run()),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "update_workflow_run",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        workflow_run_artifacts.db_client,
+        "upsert_call_recording",
+        AsyncMock(),
+    )
+    async def failed_schedule(*args, **kwargs):
+        return {"role": "secondary", "status": "failed"}
+
+    monkeypatch.setattr(
+        workflow_run_artifacts,
+        "schedule_s3_replication",
+        failed_schedule,
+    )
+
+    audit = await workflow_run_artifacts.upload_workflow_run_artifacts(
+        88,
+        mixed_audio_wav=b"call-audio",
+    )
+
+    assert audit["overall_status"] == "success"
+    assert audit["overall_primary_status"] == "success"
+    assert audit["s3"]["status"] == "failed"

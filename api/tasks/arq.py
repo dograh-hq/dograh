@@ -57,6 +57,13 @@ REDIS_SETTINGS = RedisSettings(
     ssl_check_hostname=False if use_ssl else None,
 )
 
+from api.services.call_persistence import (
+    extract_workflow_run_memories,
+    persist_workflow_run_call_data,
+)
+from api.services.s3_secondary_replication import (
+    replicate_workflow_run_artifacts_to_s3,
+)
 from api.tasks.campaign_tasks import (
     process_campaign_batch,
     sync_campaign_source,
@@ -69,10 +76,6 @@ from api.tasks.text_chat_inactivity import (
 )
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
 from api.tasks.workflow_completion import process_workflow_completion
-from api.services.call_persistence import (
-    extract_workflow_run_memories,
-    persist_workflow_run_call_data,
-)
 
 
 class WorkerSettings:
@@ -86,6 +89,7 @@ class WorkerSettings:
         complete_inactive_text_chat_session,
         persist_workflow_run_call_data,
         extract_workflow_run_memories,
+        replicate_workflow_run_artifacts_to_s3,
     ]
     cron_jobs = [
         # Safety net for webhook deliveries whose ARQ job was lost (worker

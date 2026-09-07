@@ -8,3 +8,4 @@ class FunctionNames:
     COMPLETE_INACTIVE_TEXT_CHAT_SESSION = "complete_inactive_text_chat_session"
     PERSIST_CALL_DATA = "persist_workflow_run_call_data"
     EXTRACT_CALL_MEMORIES = "extract_workflow_run_memories"
+    REPLICATE_WORKFLOW_RUN_ARTIFACTS_S3 = "replicate_workflow_run_artifacts_s3"

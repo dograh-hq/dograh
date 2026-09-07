@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.46.0.4 (2026-09-07)
+
+- Restore authenticated workflow listing through the generated SDK and central auth interceptor.
+- Keep localhost authentication and AI-to-AI simulation on the local Docker services.
+
 ## 1.46.0.3 (2026-09-06)
 
 - Add normalized service-user caller identifiers with HMAC lookup and explicit verification state.

@@ -49,7 +49,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function SakinahSimulationPage() {
-    const { getAccessToken, isAuthenticated, redirectToLogin } = useAuth();
+    const { getAccessToken, isAuthenticated, loading: authLoading, redirectToLogin, user } = useAuth();
     const [scenario, setScenario] = useState("");
     const [scenarioId, setScenarioId] = useState<string | null>(null);
     const [scenarioName, setScenarioName] = useState<string | null>(null);
@@ -73,6 +73,11 @@ export default function SakinahSimulationPage() {
     useEffect(() => {
         const scenarioId = new URLSearchParams(window.location.search).get("scenario");
         if (!scenarioId) return;
+        if (authLoading) return;
+        if (!user) {
+            redirectToLogin();
+            return;
+        }
         void listSakinahScenarios()
             .then((savedScenarios) => {
                 const savedScenario = savedScenarios.find((item) => item.id === scenarioId);
@@ -83,7 +88,7 @@ export default function SakinahSimulationPage() {
                 }
             })
             .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load scenario."));
-    }, []);
+    }, [authLoading, redirectToLogin, user]);
 
     const isActive =
         simulation !== null &&

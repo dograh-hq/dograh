@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { MediaPreviewButton, MediaPreviewDialog } from "@/components/MediaPreviewDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/lib/auth";
 import {
     listSakinahRuns,
     type PersistedSakinahRun,
@@ -59,12 +60,22 @@ function previewTurns(run: PersistedSakinahRun): Array<Record<string, unknown>> 
 }
 
 export function SakinahRunHistory({ refreshKey = 0 }: SakinahRunHistoryProps) {
+    const { loading: authLoading, user, redirectToLogin } = useAuth();
     const [runs, setRuns] = useState<PersistedSakinahRun[]>([]);
     const [error, setError] = useState<string | null>(null);
     const mediaPreview = MediaPreviewDialog();
 
     useEffect(() => {
         let active = true;
+        if (authLoading) return () => {
+            active = false;
+        };
+        if (!user) {
+            redirectToLogin();
+            return () => {
+                active = false;
+            };
+        }
         setError(null);
         void listSakinahRuns()
             .then((loadedRuns) => {
@@ -78,7 +89,7 @@ export function SakinahRunHistory({ refreshKey = 0 }: SakinahRunHistoryProps) {
         return () => {
             active = false;
         };
-    }, [refreshKey]);
+    }, [authLoading, redirectToLogin, refreshKey, user]);
 
     return (
         <Card>

@@ -1,9 +1,14 @@
 import {
     type BulkScenarioImportResponse as ApiBulkScenarioImportResponse,
     commitBulkScenariosApiV1SakinahScenariosBulkImportCommitPost,
+    createScenarioApiV1SakinahScenariosPost,
+    deleteScenarioApiV1SakinahScenariosScenarioIdDelete,
+    listSakinahRunsApiV1SakinahRunsGet,
+    listScenariosApiV1SakinahScenariosGet,
     previewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPost,
+    type ScenarioResponse as ApiScenarioResponse,
+    updateScenarioApiV1SakinahScenariosScenarioIdPut,
 } from "@/client";
-import { client } from "@/client/client.gen";
 
 import {
     parseStoredScenarios,
@@ -11,9 +16,6 @@ import {
     type ScenarioDraft,
     scenarioToDraft,
 } from "./sakinahScenarios";
-
-type RunList = { runs: PersistedSakinahRun[] };
-type SuccessfulResponse<T> = { 200: T };
 
 export type BulkScenarioDuplicatePolicy = "skip_existing" | "replace_existing" | "import_as_new";
 
@@ -40,15 +42,7 @@ export interface BulkScenarioImportResponse {
     items: BulkScenarioImportItem[];
 }
 
-type ScenarioApiResponse = Omit<Scenario, "communicationStyle" | "initialInformation" | "hiddenInformation" | "additionalFactors" | "freestylePrompt" | "createdAt" | "updatedAt"> & {
-    communication_style: string;
-    initial_information: string;
-    hidden_information: string;
-    additional_factors: string;
-    freestyle_prompt: string;
-    created_at: string;
-    updated_at: string;
-};
+type ScenarioApiResponse = ApiScenarioResponse;
 
 export interface PersistedSakinahRun {
     session_id: string;
@@ -84,24 +78,24 @@ function normalizeScenario(scenario: ScenarioApiResponse): Scenario {
     return {
         id: scenario.id,
         sequence: scenario.sequence,
-        title: scenario.title,
+        title: scenario.title ?? "",
         category: scenario.category ?? "",
         tags: scenario.tags ?? [],
-        mode: scenario.mode,
-        persona: scenario.persona,
-        age: scenario.age,
-        gender: scenario.gender,
-        language: scenario.language,
-        emotion: scenario.emotion,
-        communicationStyle: scenario.communication_style,
-        initialInformation: scenario.initial_information,
-        hiddenInformation: scenario.hidden_information,
-        disclosure: scenario.disclosure,
-        behaviour: scenario.behaviour,
-        background: scenario.background,
-        additionalFactors: scenario.additional_factors,
-        notes: scenario.notes,
-        freestylePrompt: scenario.freestyle_prompt,
+        mode: scenario.mode ?? "structured",
+        persona: scenario.persona ?? "",
+        age: scenario.age ?? "",
+        gender: scenario.gender ?? "",
+        language: scenario.language ?? "",
+        emotion: scenario.emotion ?? "",
+        communicationStyle: scenario.communication_style ?? "",
+        initialInformation: scenario.initial_information ?? "",
+        hiddenInformation: scenario.hidden_information ?? "",
+        disclosure: scenario.disclosure ?? "",
+        behaviour: scenario.behaviour ?? "",
+        background: scenario.background ?? "",
+        additionalFactors: scenario.additional_factors ?? "",
+        notes: scenario.notes ?? "",
+        freestylePrompt: scenario.freestyle_prompt ?? "",
         createdAt: scenario.created_at,
         updatedAt: scenario.updated_at,
     };
@@ -156,8 +150,7 @@ function draftPayload(draft: ScenarioDraft) {
 }
 
 async function createScenarioOnServer(draft: ScenarioDraft): Promise<Scenario> {
-    const response = await client.post<SuccessfulResponse<ScenarioApiResponse>>({
-        url: "/api/v1/sakinah/scenarios",
+    const response = await createScenarioApiV1SakinahScenariosPost({
         body: draftPayload(draft),
     });
     if (response.error || !response.data) throw requestError(response.error, "Unable to save scenario.");
@@ -165,8 +158,7 @@ async function createScenarioOnServer(draft: ScenarioDraft): Promise<Scenario> {
 }
 
 export async function listSakinahScenarios(search = ""): Promise<Scenario[]> {
-    const response = await client.get<SuccessfulResponse<{ scenarios: ScenarioApiResponse[] }>>({
-        url: "/api/v1/sakinah/scenarios",
+    const response = await listScenariosApiV1SakinahScenariosGet({
         query: search.trim() ? { search: search.trim() } : undefined,
     });
     if (response.error || !response.data) throw requestError(response.error, "Unable to load scenarios.");
@@ -208,8 +200,7 @@ export async function saveSakinahScenario(
     draft: ScenarioDraft,
 ): Promise<Scenario> {
     if (!scenario) return createScenarioOnServer(draft);
-    const response = await client.put<SuccessfulResponse<ScenarioApiResponse>>({
-        url: "/api/v1/sakinah/scenarios/{scenario_id}",
+    const response = await updateScenarioApiV1SakinahScenariosScenarioIdPut({
         path: { scenario_id: scenario.id },
         body: draftPayload(draft),
     });
@@ -218,8 +209,7 @@ export async function saveSakinahScenario(
 }
 
 export async function deleteSakinahScenario(scenarioId: string): Promise<void> {
-    const response = await client.delete({
-        url: "/api/v1/sakinah/scenarios/{scenario_id}",
+    const response = await deleteScenarioApiV1SakinahScenariosScenarioIdDelete({
         path: { scenario_id: scenarioId },
     });
     if (response.error) throw requestError(response.error, "Unable to delete scenario.");
@@ -249,7 +239,7 @@ export async function loadSakinahScenariosWithLegacyMigration(search = ""): Prom
 }
 
 export async function listSakinahRuns(): Promise<PersistedSakinahRun[]> {
-    const response = await client.get<SuccessfulResponse<RunList>>({ url: "/api/v1/sakinah/runs" });
+    const response = await listSakinahRunsApiV1SakinahRunsGet();
     if (response.error || !response.data) throw requestError(response.error, "Unable to load runs.");
     return response.data.runs;
 }

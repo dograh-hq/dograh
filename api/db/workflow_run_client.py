@@ -82,7 +82,8 @@ class WorkflowRunClient(BaseDBClient):
                         f"workflow {workflow.id}"
                     )
 
-            # Get the current storage backend based on ENABLE_AWS_S3 flag
+            # The explicit primary backend is MinIO for CALMOS unless an
+            # operator deliberately opts into S3-primary storage.
             current_backend = StorageBackend.get_current_backend()
             initial_context = initial_context or {}
             gathered_context = gathered_context or {}

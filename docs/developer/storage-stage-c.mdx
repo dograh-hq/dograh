@@ -1,6 +1,6 @@
 # Stage C: asynchronous S3 secondary copy
 
-v1.46.0.4.2.CFix2 keeps Postgres and MinIO as the authoritative primary storage.
+v1.46.0.4.2.CFix3 keeps Postgres and MinIO as the authoritative primary storage.
 After `upload_workflow_run_artifacts` confirms a primary object, it enqueues the
 existing ARQ/Redis worker to copy the exact MinIO bytes to S3. The copy is
 best-effort and bounded to three attempts; S3 errors never change call

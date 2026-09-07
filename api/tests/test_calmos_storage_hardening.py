@@ -20,6 +20,8 @@ class _FakeMinioClient:
         self.kwargs = kwargs
         self.policy_set = False
         self.policy_deleted = False
+        self.get_headers = None
+        self.put_kwargs = None
         self.__class__.instances.append(self)
 
     def bucket_exists(self, _bucket):
@@ -31,11 +33,15 @@ class _FakeMinioClient:
     def delete_bucket_policy(self, _bucket):
         self.policy_deleted = True
 
-    def presigned_get_object(self, bucket, key, **_kwargs):
+    def presigned_get_object(self, bucket, key, **kwargs):
+        self.get_headers = kwargs.get("response_headers")
         return f"https://signed.invalid/{bucket}/{key}?signature=private"
 
     def presigned_put_object(self, bucket, key, **_kwargs):
         return f"https://signed.invalid/{bucket}/{key}?signature=private-put"
+
+    def put_object(self, *args, **kwargs):
+        self.put_kwargs = {"args": args, **kwargs}
 
 
 def test_production_minio_removes_anonymous_policy_and_uses_presigned_urls(monkeypatch):
@@ -71,6 +77,35 @@ async def test_private_minio_get_and_put_urls_are_signed(monkeypatch):
     assert "signature=private" in get_url
     assert "signature=private-put" in put_url
     assert all(instance.kwargs["region"] == "us-east-1" for instance in _FakeMinioClient.instances)
+
+
+@pytest.mark.asyncio
+async def test_minio_recordings_are_typed_and_signed_for_inline_preview(monkeypatch):
+    _FakeMinioClient.instances = []
+    monkeypatch.setattr(minio_module, "Minio", _FakeMinioClient)
+    storage = minio_module.MinioFileSystem(
+        endpoint="minio:9000",
+        access_key="test-access",
+        secret_key="test-secret",
+        bucket_name="private-recordings",
+        public_endpoint="https://records.example.test",
+        allow_anonymous_access=False,
+    )
+
+    assert await storage.acreate_file_from_bytes("recordings/call.wav", b"audio")
+    assert _FakeMinioClient.instances[0].put_kwargs["content_type"] == "audio/wav"
+
+    await storage.aget_signed_url("recordings/call.wav", force_inline=True)
+    assert _FakeMinioClient.instances[1].get_headers == {
+        "response-content-disposition": "inline",
+        "response-content-type": "audio/wav",
+    }
+
+    await storage.aget_signed_url("recordings/call.wav")
+    assert _FakeMinioClient.instances[1].get_headers == {
+        "response-content-disposition": "attachment",
+        "response-content-type": "audio/wav",
+    }
 
 
 def test_minio_migration_discovers_all_existing_run_artifact_keys():
@@ -282,6 +317,7 @@ async def test_s3_upload_never_requests_public_acl():
     assert await storage.acreate_file_from_bytes("recordings/call.wav", b"audio")
     assert client.put_kwargs["Bucket"] == "private-recordings"
     assert client.put_kwargs["Key"] == "recordings/call.wav"
+    assert client.put_kwargs["ContentType"] == "audio/wav"
     assert "ACL" not in client.put_kwargs
 
 

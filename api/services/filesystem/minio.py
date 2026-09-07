@@ -9,7 +9,7 @@ from loguru import logger
 from minio import Minio
 from minio.error import S3Error
 
-from .base import AsyncReadable, BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem, artifact_content_type
 
 
 class MinioFileSystem(BaseFileSystem):
@@ -131,6 +131,8 @@ class MinioFileSystem(BaseFileSystem):
                     file_path,
                     data=io.BytesIO(data),
                     length=len(data),
+                    content_type=artifact_content_type(file_path)
+                    or "application/octet-stream",
                 )
 
             await asyncio.to_thread(_put)
@@ -142,7 +144,13 @@ class MinioFileSystem(BaseFileSystem):
         try:
 
             def _fput():
-                self.client.fput_object(self.bucket_name, destination_path, local_path)
+                self.client.fput_object(
+                    self.bucket_name,
+                    destination_path,
+                    local_path,
+                    content_type=artifact_content_type(destination_path)
+                    or "application/octet-stream",
+                )
 
             await asyncio.to_thread(_fput)
             return True
@@ -171,18 +179,18 @@ class MinioFileSystem(BaseFileSystem):
             if self.allow_anonymous_access:
                 return f"{self.public_endpoint}/{self.bucket_name}/{file_path}"
 
+            content_type = artifact_content_type(file_path)
+            # Override historic objects that were uploaded before content type
+            # metadata was set. This keeps old WAV recordings previewable and
+            # makes regular download links explicit attachments.
             response_headers = None
-            if force_inline:
-                content_type = None
-                if file_path.endswith(".txt"):
-                    content_type = "text/plain"
-                elif file_path.endswith(".wav"):
-                    content_type = "audio/wav"
-                elif file_path.endswith(".mp3"):
-                    content_type = "audio/mpeg"
-                response_headers = {"response-content-disposition": "inline"}
-                if content_type:
-                    response_headers["response-content-type"] = content_type
+            if content_type:
+                response_headers = {
+                    "response-content-disposition": (
+                        "inline" if force_inline else "attachment"
+                    ),
+                    "response-content-type": content_type,
+                }
             return self.public_client.presigned_get_object(
                 self.bucket_name,
                 file_path,

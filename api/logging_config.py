@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 
 import loguru
@@ -27,6 +28,18 @@ _FALLBACK_ERROR_CLASSIFICATION = {
     "error_code": "unclassified-error",
 }
 
+# WebSocket browser APIs cannot add an Authorization header, so Simulation
+# uses a short-lived query token. Never copy that bearer credential into an
+# access log; the sanitized route is still sufficient for operations.
+_SENSITIVE_QUERY_VALUE = re.compile(
+    r"([?&](?:token|access_token|authorization)=)[^&\s\"]+", re.IGNORECASE
+)
+
+
+def redact_access_log_message(message: str) -> str:
+    """Remove bearer-like query parameters from proxied/access log messages."""
+    return _SENSITIVE_QUERY_VALUE.sub(r"\1[REDACTED]", message)
+
 
 class InterceptHandler(logging.Handler):
     """
@@ -43,9 +56,10 @@ class InterceptHandler(logging.Handler):
 
         # Use the original record's information instead of trying to find the caller
         # This preserves the logger name (e.g., "uvicorn.access") in the logs
+        message = redact_access_log_message(record.getMessage())
         loguru.logger.patch(lambda r: r.update(name=record.name)).opt(
             exception=record.exc_info
-        ).log(level, record.getMessage())
+        ).log(level, message)
 
 
 def enrich_log_record(record):

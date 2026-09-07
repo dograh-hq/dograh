@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.46.0.4.2.CFix3 (2026-09-07)
+
+- Restore MinIO as the default CALMOS primary artifact store; Stage C S3 remains an opt-in asynchronous secondary copy.
+- Serve WAV artifacts with explicit `audio/wav` metadata and signed inline/attachment response headers for reliable browser preview and download.
+- Preserve Safari download user gestures and redact WebSocket query tokens from access logs.
+
 ## 1.46.0.4.2.CFix2 (2026-09-07)
 
 - Keep Simulation audio playback alive across browser idle/autoplay suspension.

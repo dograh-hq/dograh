@@ -80,7 +80,18 @@ MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
 
 # Storage Configuration
-ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
+# MinIO is the CALMOS primary artifact store in every standard deployment.
+# ``ENABLE_AWS_S3`` was the pre-Stage-C switch for replacing it outright and
+# is retained only so operators can identify stale environment files.  It is
+# deliberately *not* a primary-storage selector: setting it must never divert
+# a successful call away from the bundled MinIO store.
+LEGACY_ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
+# Explicit opt-in for installations that intentionally use S3 as their sole
+# primary object store. CALMOS deployments should leave this false and use the
+# secondary-copy flag below instead.
+ENABLE_AWS_S3_PRIMARY = (
+    os.getenv("ENABLE_AWS_S3_PRIMARY", "false").lower() == "true"
+)
 # Stage C keeps MinIO as the primary artifact store and optionally schedules a
 # best-effort asynchronous copy to AWS S3. It is deliberately disabled by
 # default so local OSS development has no AWS network dependency.

@@ -7,7 +7,7 @@ from loguru import logger
 
 from api.constants import S3_KMS_KEY_ID, S3_SERVER_SIDE_ENCRYPTION
 
-from .base import AsyncReadable, BaseFileSystem
+from .base import AsyncReadable, BaseFileSystem, artifact_content_type
 
 
 class S3FileSystem(BaseFileSystem):
@@ -81,6 +81,9 @@ class S3FileSystem(BaseFileSystem):
                 "Key": file_path,
                 "Body": await content.read(),
             }
+            content_type = artifact_content_type(file_path)
+            if content_type:
+                put_kwargs["ContentType"] = content_type
             # Keep recordings private and let the bucket's default encryption
             # policy apply unless an explicit encryption mode is configured.
             # ``aws:kms`` without a customer-managed key is intentionally
@@ -129,9 +132,21 @@ class S3FileSystem(BaseFileSystem):
         so it can opt into this checked variant without duplicating SDK setup.
         """
         async with self.session.client("s3", **self._client_kwargs()) as s3_client:
-            await s3_client.upload_file(
-                local_path, self.bucket_name, destination_path
-            )
+            extra_args = {}
+            content_type = artifact_content_type(destination_path)
+            if content_type:
+                extra_args["ContentType"] = content_type
+            if extra_args:
+                await s3_client.upload_file(
+                    local_path,
+                    self.bucket_name,
+                    destination_path,
+                    ExtraArgs=extra_args,
+                )
+            else:
+                await s3_client.upload_file(
+                    local_path, self.bucket_name, destination_path
+                )
 
     async def aget_signed_url(
         self,
@@ -151,29 +166,16 @@ class S3FileSystem(BaseFileSystem):
             async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 params = {"Bucket": self.bucket_name, "Key": file_path}
 
-                # Make artifacts viewable inline in the browser when requested
-                if force_inline:
-                    if file_path.endswith(".txt"):
-                        params.update(
-                            {
-                                "ResponseContentType": "text/plain",
-                                "ResponseContentDisposition": "inline",
-                            }
-                        )
-                    elif file_path.endswith(".wav"):
-                        params.update(
-                            {
-                                "ResponseContentType": "audio/wav",
-                                "ResponseContentDisposition": "inline",
-                            }
-                        )
-                    elif file_path.endswith(".mp3"):
-                        params.update(
-                            {
-                                "ResponseContentType": "audio/mpeg",
-                                "ResponseContentDisposition": "inline",
-                            }
-                        )
+                content_type = artifact_content_type(file_path)
+                if content_type:
+                    params.update(
+                        {
+                            "ResponseContentType": content_type,
+                            "ResponseContentDisposition": (
+                                "inline" if force_inline else "attachment"
+                            ),
+                        }
+                    )
 
                 url = await s3_client.generate_presigned_url(
                     "get_object",

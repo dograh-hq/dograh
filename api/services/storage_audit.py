@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from api.constants import ENABLE_AWS_S3, RECORD_CALLS
+from api.constants import ENABLE_AWS_S3_SECONDARY, RECORD_CALLS
 from api.db import db_client
 from api.enums import StorageBackend
 from api.services.storage import storage_fs
@@ -72,7 +72,9 @@ async def audit_run_storage(
             },
             "minio": {"status": "not_expected", "configured": False, "objects": []},
             "aws": {
-                "status": "configured_but_unused" if ENABLE_AWS_S3 else "not_configured"
+                "status": "configured_but_unused"
+                if ENABLE_AWS_S3_SECONDARY
+                else "not_configured"
             },
         }
 
@@ -157,6 +159,8 @@ async def audit_run_storage(
             "objects": objects,
         },
         "aws": {
-            "status": "configured_but_unused" if ENABLE_AWS_S3 else "not_configured"
+            "status": "configured_but_unused"
+            if ENABLE_AWS_S3_SECONDARY
+            else "not_configured"
         },
     }

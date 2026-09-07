@@ -119,13 +119,17 @@ class StorageBackend(Enum):
 
     @classmethod
     def get_current_backend(cls):
-        """Get current backend based on ENABLE_AWS_S3 flag."""
-        from api.constants import ENABLE_AWS_S3
+        """Return the explicitly configured primary artifact backend.
 
-        if ENABLE_AWS_S3:
+        Stage C's ``ENABLE_AWS_S3_SECONDARY`` is intentionally absent here:
+        it copies already-persisted MinIO objects and must not change the
+        synchronous write/read path for a workflow run.
+        """
+        from api.constants import ENABLE_AWS_S3_PRIMARY
+
+        if ENABLE_AWS_S3_PRIMARY:
             return cls.S3
-        else:
-            return cls.MINIO
+        return cls.MINIO
 
 
 class WorkflowRunState(Enum):

@@ -78,7 +78,7 @@ Set these when `AUTH_PROVIDER=stack` to delegate sign-in to [Stack Auth](https:/
 
 ## Storage
 
-Dograh uses **MinIO by default**, which is bundled with the self-hosted deployment and requires no external setup. Set `ENABLE_AWS_S3=true` to switch to AWS S3 — typically used for cloud or managed deployments where S3 is already part of the infrastructure.
+Dograh uses **MinIO as the primary artifact store**, including standard AWS EC2 deployments. Stage C can asynchronously copy finalized MinIO objects to private AWS S3 without changing call finalization, previews, or downloads.
 
 ### MinIO (OSS default)
 
@@ -92,11 +92,11 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 | `MINIO_SECURE` | `false` | Use HTTPS for MinIO connections |
 | `MINIO_ALLOW_ANONYMOUS` | `true` in a direct local process; `false` in production Compose | Local compatibility switch for anonymous GET/PUT. Keep `false` in production; private MinIO uses presigned URLs. |
 
-### AWS S3 (alternative)
+### AWS S3 (secondary copy, or explicit primary opt-in)
 
 | Variable | Default | Description |
 |---|---|---|
-| `ENABLE_AWS_S3` | `false` | Set to `true` to use AWS S3 instead of MinIO |
+| `ENABLE_AWS_S3_PRIMARY` | `false` | Explicitly use S3 instead of MinIO as the primary backend. Leave `false` for CALMOS deployments. |
 | `ENABLE_AWS_S3_SECONDARY` | `false` | Stage C: asynchronously copy successful MinIO artifacts to a private secondary S3 bucket without changing the primary backend |
 | `S3_BUCKET` | `null` | S3 bucket name |
 | `AWS_RECORDINGS_BUCKET` | `null` | Private S3 bucket for durable CALMOS call recordings. Falls back to `S3_BUCKET` |
@@ -112,7 +112,7 @@ In AWS production, credentials come from the API/worker instance or task IAM rol
 
 ### Durable call data and Sakinah memory
 
-CALMOS Connect stores structured call data in the configured PostgreSQL database/RDS instance, audio in the private S3 bucket, and Sakinah memory vectors in PostgreSQL `pgvector`. Database connections should use the existing TLS-enabled `DATABASE_URL`; AWS deployments should use IAM task roles with least-privilege access to the recordings bucket and KMS key.
+CALMOS Connect stores structured call data in PostgreSQL, audio/transcript objects in private MinIO, and Sakinah memory vectors in PostgreSQL `pgvector`. When Stage C is enabled, MinIO objects are copied asynchronously to private S3 after primary persistence. Database connections should use the existing TLS-enabled `DATABASE_URL`; AWS deployments should use workload IAM roles with least-privilege access to the secondary recordings bucket.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -127,10 +127,10 @@ CALMOS Connect stores structured call data in the configured PostgreSQL database
 
 The S3 backend can target any S3-compatible server, not just AWS. Both the native MinIO backend and the generic S3 backend issue presigned URLs when their buckets are private.
 
-To use it, set `ENABLE_AWS_S3=true` and point it at your server with the `S3_*` overrides above. For example, against [rustfs](https://github.com/rustfs/rustfs):
+To use it as an intentional primary backend, set `ENABLE_AWS_S3_PRIMARY=true` and point it at your server with the `S3_*` overrides above. For example, against [rustfs](https://github.com/rustfs/rustfs):
 
 ```bash
-ENABLE_AWS_S3=true
+ENABLE_AWS_S3_PRIMARY=true
 S3_BUCKET=voice-audio
 S3_REGION=us-east-1
 S3_ENDPOINT_URL=https://s3.example.com

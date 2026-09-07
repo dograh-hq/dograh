@@ -182,9 +182,11 @@ services:
       # Redis configuration. Keep the bundled Redis default unless overridden.
       REDIS_URL: "${REDIS_URL:-redis://:${REDIS_PASSWORD:-redissecret}@redis:6379}"
 
-      # Storage configuration - bundled MinIO by default. Set ENABLE_AWS_S3=true
-      # in .env to make the API use AWS S3 or another S3-compatible server.
-      ENABLE_AWS_S3: "${ENABLE_AWS_S3:-false}"
+      # MinIO remains the primary artifact store. S3 is an asynchronous
+      # secondary copy unless an operator deliberately opts into a sole S3
+      # primary with ENABLE_AWS_S3_PRIMARY=true.
+      ENABLE_AWS_S3_PRIMARY: "${ENABLE_AWS_S3_PRIMARY:-false}"
+      ENABLE_AWS_S3_SECONDARY: "${ENABLE_AWS_S3_SECONDARY:-false}"
 
       # AWS credentials come from the instance/task IAM role. Do not place
       # long-lived access keys in the production Compose .env file.

@@ -61,7 +61,10 @@ export function MediaPreviewDialog() {
             }
 
             const [audioResult, transcriptResult] = await Promise.all([
-                recordingUrl ? getSignedUrl(recordingUrl) : null,
+                // Request an inline, typed response. Historic recordings may
+                // have been stored as application/octet-stream; Safari does
+                // not reliably preview those WAV bytes in an <audio> element.
+                recordingUrl ? getSignedUrl(recordingUrl, true) : null,
                 transcriptUrl ? getSignedUrl(transcriptUrl, true) : null,
             ]);
 

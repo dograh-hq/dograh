@@ -54,6 +54,16 @@ maximum duration (5 minutes by default, `max_duration_seconds` in the start
 request, capped at 15 minutes). The merged transcript is saved to
 `data/sakinah-sessions/<simulation_id>.json`.
 
+The authenticated API smoke script is not a Simulation pass. A Simulation
+pass requires a normal browser session on the canonical localhost origin and
+all of the following: the Scenario Library and both Sakinah workflows are
+visible, the live transcript reaches at least five alternating turns, the
+audio WebSocket opens, and both SERVICE USER and SAKINAH speech is audible.
+Do not use injected tokens, localStorage auth, or a hidden smoke account with
+different organisation data to claim this result. If a local user has no
+scenarios, create or import them for that user through the Scenario Library;
+Sakinah scenarios are user-owned records in the current model.
+
 ## Logs and shutdown
 
 ```bash
@@ -118,4 +128,3 @@ Notes:
 - The UI regenerates its API client from a running backend: after changing
   backend routes, start the stack and run `npm run generate-client` in
   `ui/` (or the containerized equivalent), and commit `ui/src/client/`.
-

@@ -1,6 +1,6 @@
 # Dograh AI
 
-> **CALMOS Connect white-label v1.46.0.4.2.C** ([applied-biosciences/dograh](https://github.com/applied-biosciences/dograh)): this fork adds the Sakinah Scenario Console, AI-to-AI simulation, durable call storage, privacy-controlled memory, and scenario search — see [`SAKINAH.md`](SAKINAH.md) and [`docs/developer/calmos-connect-v1.46.0.3.mdx`](docs/developer/calmos-connect-v1.46.0.3.mdx).
+> **CALMOS Connect white-label v1.46.0.4.2.CFix** ([applied-biosciences/dograh](https://github.com/applied-biosciences/dograh)): this fork adds the Sakinah Scenario Console, AI-to-AI simulation, durable call storage, privacy-controlled memory, and scenario search — see [`SAKINAH.md`](SAKINAH.md) and [`docs/developer/calmos-connect-v1.46.0.3.mdx`](docs/developer/calmos-connect-v1.46.0.3.mdx).
 > **Deployment limitation**: run the API with a **single worker** (`FASTAPI_WORKERS=1`, the default). Simulations keep in-process state, so with multiple workers the simulation status/stop endpoints and the transcript/audio WebSockets intermittently land on a worker that doesn't own the simulation ([#4](https://github.com/applied-biosciences/dograh/issues/4)).
 
 <p align="center">
@@ -130,7 +130,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ## CALMOS / Sakinah Scenario Console
 
-CALMOS Connect v1.46.0.4.2.C includes the Sakinah Scenario Console at `/sakinah` and
+CALMOS Connect v1.46.0.4.2.CFix includes the Sakinah Scenario Console at `/sakinah` and
 its AI-to-AI simulation console at `/sakinah/sim`. The white-label release adds:
 
 - Durable Agent Runs/Call History records for active and completed calls,
@@ -209,7 +209,7 @@ you intend to erase local call records and recordings.
 ### Self-Hosted Deployment
 
 For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker#option-2-remote-server-deployment).
-For the CALMOS Connect v1.46.0.4.2.C data model, AWS storage configuration, memory
+For the CALMOS Connect v1.46.0.4.2.CFix data model, AWS storage configuration, memory
 privacy flow, replay flow, migrations, and rollback procedure, see
 [`docs/developer/calmos-connect-v1.46.0.3.mdx`](docs/developer/calmos-connect-v1.46.0.3.mdx).
 

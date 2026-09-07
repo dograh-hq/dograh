@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.46.0.4.2.CFix (2026-09-07)
+
+- Preserve the opening Simulation audio while the browser establishes its authenticated WebSocket.
+- Harden Safari/browser audio-context activation and document the real browser acceptance gate.
+- Provision existing local Sakinah scenarios for the actual local test account without changing AWS data.
+
 ## 1.46.0.4.2.C (2026-09-07)
 
 - Added disabled-by-default asynchronous AWS S3 secondary replication from MinIO.

@@ -2,9 +2,11 @@
 set -euo pipefail
 
 # Authenticated local API smoke test. It deliberately uses credentials from
-# the environment and never prints tokens or passwords. Interactive browser
-# checks (audio and five-turn simulation) remain separate because they require
-# a user gesture and configured model providers.
+# the environment and never prints tokens or passwords. This script is only
+# an API/auth prerequisite check: it must never be reported as proof that
+# browser Simulation audio works. The browser acceptance gate is documented in
+# SAKINAH.md and requires a normal user gesture, audible speech from both
+# agents, and at least five alternating turns.
 
 BASE_URL="${BASE_URL:-http://localhost:8000}"
 SMOKESCREEN_EMAIL="${SMOKESCREEN_EMAIL:-smokescreen.local@example.test}"

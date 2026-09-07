@@ -1,6 +1,6 @@
 services:
   api:
-    image: local/dograh-api:1.46.0.4.2.C
+    image: local/dograh-api:1.46.0.4.2.CFix
     platform: linux/amd64
     restart: unless-stopped
     build:
@@ -13,7 +13,7 @@ services:
       - ./data/sakinah-sessions:/app/data/sakinah-sessions
 
   ui:
-    image: local/dograh-ui:1.46.0.4.2.C
+    image: local/dograh-ui:1.46.0.4.2.CFix
     platform: linux/amd64
     restart: unless-stopped
     build:

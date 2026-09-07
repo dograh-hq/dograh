@@ -248,6 +248,17 @@ export default function SakinahSimulationPage() {
         const ctx = new AudioContextConstructor();
         const gain = ctx.createGain();
         gain.connect(ctx.destination);
+        // Prime a silent source while the Start button gesture is still
+        // active. Safari can otherwise suspend a context that is created
+        // before the first network-delivered audio chunk arrives.
+        const unlockGain = ctx.createGain();
+        unlockGain.gain.value = 0;
+        unlockGain.connect(ctx.destination);
+        const unlockSource = ctx.createBufferSource();
+        unlockSource.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+        unlockSource.connect(unlockGain);
+        unlockSource.start();
+        unlockSource.stop(ctx.currentTime + 0.01);
         audioCtxRef.current = ctx;
         gainRef.current = gain;
         nextPlayTimeRef.current = 0;
@@ -264,10 +275,16 @@ export default function SakinahSimulationPage() {
                 `${wsUrl}/api/v1/sakinah/simulations/${simulationId}/audio?token=${token}`,
             );
             socket.binaryType = "arraybuffer";
+            socket.onopen = () => {
+                // The context was unlocked from Start; this is a defensive
+                // resume for browsers that suspend it while the socket opens.
+                if (ctx.state !== "running") void ctx.resume().catch(() => undefined);
+            };
             socket.onmessage = (message) => {
                 const context = audioCtxRef.current === ctx ? ctx : null;
                 const gainNode = gainRef.current;
                 if (!context || !gainNode) return;
+                if (context.state !== "running") void context.resume().catch(() => undefined);
                 const pcm = new Int16Array(message.data as ArrayBuffer);
                 if (pcm.length === 0) return;
                 const samples = new Float32Array(pcm.length);

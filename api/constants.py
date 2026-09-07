@@ -124,7 +124,10 @@ AWS_S3_PREFIX = os.environ.get("AWS_S3_PREFIX", "").strip("/")
 S3_BUCKET = AWS_RECORDINGS_BUCKET or os.environ.get("S3_BUCKET")
 S3_REGION = AWS_REGION
 S3_KMS_KEY_ID = os.environ.get("S3_KMS_KEY_ID") or None
-S3_SERVER_SIDE_ENCRYPTION = os.environ.get("S3_SERVER_SIDE_ENCRYPTION", "aws:kms")
+# Leave encryption to the bucket's default policy unless an explicit mode or
+# customer-managed KMS key is configured. This avoids requiring KMS IAM
+# permissions for buckets that already enforce SSE-S3 (AES256).
+S3_SERVER_SIDE_ENCRYPTION = os.environ.get("S3_SERVER_SIDE_ENCRYPTION", "")
 # Optional overrides for S3-compatible backends (e.g. MinIO, rustfs, Ceph).
 # S3_ENDPOINT_URL: full URL of a custom S3 endpoint (e.g. "https://s3.example.com").
 #   Leave unset to use AWS's default endpoint resolution.

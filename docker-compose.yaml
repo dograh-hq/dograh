@@ -193,7 +193,7 @@ services:
       S3_BUCKET: "${S3_BUCKET:-}"
       S3_REGION: "${S3_REGION:-eu-west-2}"
       S3_KMS_KEY_ID: "${S3_KMS_KEY_ID:-}"
-      S3_SERVER_SIDE_ENCRYPTION: "${S3_SERVER_SIDE_ENCRYPTION:-aws:kms}"
+      S3_SERVER_SIDE_ENCRYPTION: "${S3_SERVER_SIDE_ENCRYPTION:-}"
 
       # For a non-AWS S3-compatible server, also set these in Compose's .env
       # S3_ENDPOINT_URL        e.g. https://s3.example.com

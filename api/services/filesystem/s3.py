@@ -1,8 +1,9 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 import aioboto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
+from loguru import logger
 
 from api.constants import S3_KMS_KEY_ID, S3_SERVER_SIDE_ENCRYPTION
 
@@ -16,9 +17,9 @@ class S3FileSystem(BaseFileSystem):
         self,
         bucket_name: str,
         region_name: str = "us-east-1",
-        endpoint_url: Optional[str] = None,
-        signature_version: Optional[str] = None,
-        addressing_style: Optional[str] = None,
+        endpoint_url: str | None = None,
+        signature_version: str | None = None,
+        addressing_style: str | None = None,
     ):
         """Initialize S3 filesystem.
 
@@ -39,20 +40,34 @@ class S3FileSystem(BaseFileSystem):
 
         # Build a botocore Config only when an override is requested so that the
         # default behavior is byte-for-byte unchanged when no env vars are set.
-        config_kwargs: Dict[str, Any] = {}
+        config_kwargs: dict[str, Any] = {}
         if signature_version:
             config_kwargs["signature_version"] = signature_version
         if addressing_style:
             config_kwargs["s3"] = {"addressing_style": addressing_style}
         self._config = Config(**config_kwargs) if config_kwargs else None
 
-    def _client_kwargs(self) -> Dict[str, Any]:
+    def _log_failure(self, operation: str, file_path: str, error: Exception) -> None:
+        """Log safe S3 diagnostics without credentials or artifact content."""
+        error_code = None
+        if isinstance(error, ClientError):
+            error_code = error.response.get("Error", {}).get("Code")
+        logger.warning(
+            "S3 {} failed bucket={} key={} error_class={} error_code={}",
+            operation,
+            self.bucket_name,
+            file_path,
+            type(error).__name__,
+            error_code or "",
+        )
+
+    def _client_kwargs(self) -> dict[str, Any]:
         """Common kwargs for every ``session.client("s3", ...)`` call.
 
         Only includes ``endpoint_url`` / ``config`` when configured, so default
         deployments behave exactly as before.
         """
-        kwargs: Dict[str, Any] = {"region_name": self.region_name}
+        kwargs: dict[str, Any] = {"region_name": self.region_name}
         if self.endpoint_url:
             kwargs["endpoint_url"] = self.endpoint_url
         if self._config is not None:
@@ -66,30 +81,42 @@ class S3FileSystem(BaseFileSystem):
                 "Key": file_path,
                 "Body": await content.read(),
             }
-            # Keep recordings private and encrypted at rest.  ``aws:kms`` uses
-            # the S3-managed KMS key when no customer key was supplied; a
-            # customer-managed key can be selected with S3_KMS_KEY_ID.
+            # Keep recordings private and let the bucket's default encryption
+            # policy apply unless an explicit encryption mode is configured.
+            # ``aws:kms`` without a customer-managed key is intentionally
+            # omitted: it still requires KMS permissions, while an encrypted
+            # bucket can safely apply its own S3-managed default.
             # A custom endpoint may be an S3-compatible service rather than
             # AWS. Do not send AWS KMS headers there by default; operators can
             # opt into a compatible server-side encryption value explicitly.
-            if S3_SERVER_SIDE_ENCRYPTION and (
-                not self.endpoint_url
-                or S3_SERVER_SIDE_ENCRYPTION != "aws:kms"
+            if (
+                S3_SERVER_SIDE_ENCRYPTION
+                and (not self.endpoint_url or S3_SERVER_SIDE_ENCRYPTION != "aws:kms")
+                and (S3_SERVER_SIDE_ENCRYPTION != "aws:kms" or S3_KMS_KEY_ID)
             ):
                 put_kwargs["ServerSideEncryption"] = S3_SERVER_SIDE_ENCRYPTION
             if S3_KMS_KEY_ID and not self.endpoint_url:
+                put_kwargs["ServerSideEncryption"] = "aws:kms"
                 put_kwargs["SSEKMSKeyId"] = S3_KMS_KEY_ID
             async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.put_object(**put_kwargs)
             return True
-        except ClientError:
+        except (BotoCoreError, ClientError) as exc:
+            self._log_failure("put_object", file_path, exc)
+            return False
+        except Exception as exc:  # noqa: BLE001 - preserve boolean storage contract
+            self._log_failure("put_object", file_path, exc)
             return False
 
     async def aupload_file(self, local_path: str, destination_path: str) -> bool:
         try:
             await self.aupload_file_checked(local_path, destination_path)
             return True
-        except ClientError:
+        except (BotoCoreError, ClientError) as exc:
+            self._log_failure("upload_file", destination_path, exc)
+            return False
+        except Exception as exc:  # noqa: BLE001 - preserve boolean storage contract
+            self._log_failure("upload_file", destination_path, exc)
             return False
 
     async def aupload_file_checked(
@@ -112,7 +139,7 @@ class S3FileSystem(BaseFileSystem):
         expiration: int = 3600,
         force_inline: bool = False,
         use_internal_endpoint: bool = False,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Generate a presigned GET url for the given object.
 
         For transcript text files we force the response headers so that the
@@ -154,10 +181,14 @@ class S3FileSystem(BaseFileSystem):
                     ExpiresIn=expiration,
                 )
             return url
-        except ClientError:
+        except (BotoCoreError, ClientError) as exc:
+            self._log_failure("presign_get", file_path, exc)
+            return None
+        except Exception as exc:  # noqa: BLE001 - preserve download contract
+            self._log_failure("presign_get", file_path, exc)
             return None
 
-    async def aget_file_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
+    async def aget_file_metadata(self, file_path: str) -> dict[str, Any] | None:
         """Get S3 object metadata."""
         try:
             async with self.session.client("s3", **self._client_kwargs()) as s3_client:
@@ -181,7 +212,7 @@ class S3FileSystem(BaseFileSystem):
         expiration: int = 900,
         content_type: str = "text/csv",
         max_size: int = 10_485_760,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Generate a presigned PUT URL for direct file upload."""
         try:
             async with self.session.client("s3", **self._client_kwargs()) as s3_client:

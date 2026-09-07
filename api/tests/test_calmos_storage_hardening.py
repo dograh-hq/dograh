@@ -7,6 +7,7 @@ from typing import ClassVar
 import pytest
 
 from api.services.filesystem import minio as minio_module
+from api.services.filesystem import s3 as s3_module
 from api.services.filesystem.s3 import S3FileSystem
 from scripts.migrate_minio_to_s3 import MinioToS3Migrator, _artifact_keys
 
@@ -282,3 +283,20 @@ async def test_s3_upload_never_requests_public_acl():
     assert client.put_kwargs["Bucket"] == "private-recordings"
     assert client.put_kwargs["Key"] == "recordings/call.wav"
     assert "ACL" not in client.put_kwargs
+
+
+@pytest.mark.asyncio
+async def test_s3_kms_without_customer_key_uses_bucket_default_encryption(monkeypatch):
+    client = _PrivateS3Client()
+    storage = S3FileSystem(bucket_name="private-recordings", region_name="eu-west-2")
+    storage.session = SimpleNamespace(
+        client=lambda *_args, **_kwargs: _S3ClientContext(client)
+    )
+    monkeypatch.setattr(s3_module, "S3_SERVER_SIDE_ENCRYPTION", "aws:kms")
+    monkeypatch.setattr(s3_module, "S3_KMS_KEY_ID", None)
+
+    assert await storage.acreate_file_from_bytes("recordings/call.wav", b"audio")
+    # The bucket's default encryption is authoritative when no CMK is named;
+    # forcing aws:kms here would require KMS permissions unnecessarily.
+    assert "ServerSideEncryption" not in client.put_kwargs
+    assert "SSEKMSKeyId" not in client.put_kwargs

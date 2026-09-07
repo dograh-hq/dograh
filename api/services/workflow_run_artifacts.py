@@ -59,12 +59,13 @@ async def _upload_bytes(
             if await storage_fs.acreate_file_from_bytes(storage_key, data):
                 logger.info("Uploaded {} for workflow run {}", label, workflow_run_id)
                 return True
-        except Exception:  # noqa: BLE001 - artifact writes are non-critical
+        except Exception as exc:  # noqa: BLE001 - artifact writes are non-critical
             logger.warning(
-                "Storage upload attempt {} failed for workflow run {} ({})",
+                "Storage upload attempt {} failed for workflow run {} ({}) error_class={}",
                 attempt + 1,
                 workflow_run_id,
                 label,
+                type(exc).__name__,
             )
         if attempt < 2:
             await asyncio.sleep(0.25 * (2**attempt))

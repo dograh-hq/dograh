@@ -70,6 +70,7 @@ export default function SakinahSimulationPage() {
     const audioWsRef = useRef<WebSocket | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
     const gainRef = useRef<GainNode | null>(null);
+    const audioKeepAliveRef = useRef<AudioScheduledSourceNode | null>(null);
     const nextPlayTimeRef = useRef(0);
     const transcriptRef = useRef<HTMLDivElement | null>(null);
 
@@ -114,6 +115,12 @@ export default function SakinahSimulationPage() {
     const teardownAudio = useCallback(() => {
         audioWsRef.current?.close();
         audioWsRef.current = null;
+        try {
+            audioKeepAliveRef.current?.stop();
+        } catch {
+            // The source may already have stopped during context teardown.
+        }
+        audioKeepAliveRef.current = null;
         void audioCtxRef.current?.close().catch(() => undefined);
         audioCtxRef.current = null;
         gainRef.current = null;
@@ -253,17 +260,18 @@ export default function SakinahSimulationPage() {
         const ctx = new AudioContextConstructor();
         const gain = ctx.createGain();
         gain.connect(ctx.destination);
-        // Prime a silent source while the Start button gesture is still
-        // active. Safari can otherwise suspend a context that is created
-        // before the first network-delivered audio chunk arrives.
+        // Keep a silent source alive while the simulation is running. Safari
+        // can suspend an otherwise idle context between the Start gesture and
+        // the first network-delivered audio chunk; a short unlock beep alone
+        // does not reliably prevent that suspension.
         const unlockGain = ctx.createGain();
         unlockGain.gain.value = 0;
         unlockGain.connect(ctx.destination);
-        const unlockSource = ctx.createBufferSource();
-        unlockSource.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
-        unlockSource.connect(unlockGain);
-        unlockSource.start();
-        unlockSource.stop(ctx.currentTime + 0.01);
+        const keepAlive = ctx.createOscillator();
+        keepAlive.frequency.value = 20;
+        keepAlive.connect(unlockGain);
+        keepAlive.start();
+        audioKeepAliveRef.current = keepAlive;
         audioCtxRef.current = ctx;
         gainRef.current = gain;
         nextPlayTimeRef.current = 0;
@@ -294,8 +302,13 @@ export default function SakinahSimulationPage() {
                 const context = audioCtxRef.current === ctx ? ctx : null;
                 const gainNode = gainRef.current;
                 if (!context || !gainNode) return;
-                if (context.state !== "running") void context.resume().catch(() => undefined);
                 try {
+                    if (context.state !== "running") {
+                        await context.resume();
+                    }
+                    if (context.state !== "running") {
+                        throw new Error(`AudioContext is ${context.state}`);
+                    }
                     const bytes = message.data instanceof Blob
                         ? await message.data.arrayBuffer()
                         : message.data as ArrayBuffer;
@@ -353,6 +366,9 @@ export default function SakinahSimulationPage() {
             // policies, especially Safari's, treat this as the Start gesture.
             const audioContext = prepareAudioContext();
             if (audioContext.state !== "running") await audioContext.resume();
+            if (audioContext.state !== "running") {
+                throw new Error(`Browser audio is ${audioContext.state}; allow audio and try again.`);
+            }
             setAudioFrameCount(0);
             // The SDK's auth interceptor signs the request; the token is only
             // needed for the events WebSocket, which cannot use the interceptor.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.46.0.4.2.CFix2 (2026-09-07)
+
+- Keep Simulation audio playback alive across browser idle/autoplay suspension.
+- Surface safe S3 provider error classes during artifact upload and download signing.
+- Avoid requiring KMS permissions when the configured bucket already supplies default encryption.
+
 ## 1.46.0.4.2.CFix (2026-09-07)
 
 - Preserve the opening Simulation audio while the browser establishes its authenticated WebSocket.

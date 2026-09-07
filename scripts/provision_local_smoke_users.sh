@@ -6,17 +6,19 @@ set -euo pipefail
 # put them in this file or in the repository.
 
 BASE_URL="${BASE_URL:-http://localhost:8000}"
-SMOKESCREEN_EMAIL="${SMOKESCREEN_EMAIL:-smokescreen@calmos.io}"
-TESTUSER_EMAIL="${TESTUSER_EMAIL:-testuser@calmos.io}"
+SMOKESCREEN_EMAIL="${SMOKESCREEN_EMAIL:-smokescreen.local@example.test}"
+TESTUSER_EMAIL="${TESTUSER_EMAIL:-testuser.local@example.test}"
 
-if [[ -z "${SMOKESCREEN_PASSWORD:-}" || -z "${TESTUSER_PASSWORD:-}" ]]; then
-    echo "Set SMOKESCREEN_PASSWORD and TESTUSER_PASSWORD in your shell or password manager." >&2
+if [[ -z "${SMOKE_TEST_USER_PASSWORD:-}" || -z "${SMOKE_TEST_SECOND_USER_PASSWORD:-}" ]]; then
+    echo "Set SMOKE_TEST_USER_PASSWORD and SMOKE_TEST_SECOND_USER_PASSWORD in your shell or password manager." >&2
     exit 2
 fi
 
 BASE_URL="$BASE_URL" \
 SMOKESCREEN_EMAIL="$SMOKESCREEN_EMAIL" \
 TESTUSER_EMAIL="$TESTUSER_EMAIL" \
+SMOKESCREEN_PASSWORD="${SMOKE_TEST_USER_PASSWORD}" \
+TESTUSER_PASSWORD="${SMOKE_TEST_SECOND_USER_PASSWORD}" \
 python3 - <<'PY'
 import json
 import os

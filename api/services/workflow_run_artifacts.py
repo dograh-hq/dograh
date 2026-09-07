@@ -225,3 +225,17 @@ async def upload_workflow_run_artifacts(
                 storage_backend=storage_backend.value,
                 full_transcript=transcript_text,
             )
+
+    logger.info(
+        "workflow_run_storage_saved run_id={} postgres_saved={} "
+        "transcript_saved={} recording_metadata_saved={} minio_status={} "
+        "minio_object_count={} storage_backend={} completion_time={}",
+        workflow_run_id,
+        True,
+        bool(transcript_text),
+        bool(recordings_metadata),
+        storage_backend.value,
+        len(recordings_metadata) + int(bool(transcript_text)),
+        storage_backend.value,
+        datetime.now(UTC).isoformat(),
+    )

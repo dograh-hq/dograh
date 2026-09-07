@@ -62,12 +62,14 @@ export function setupAuthInterceptor(apiClient: Client, getAccessToken: () => Pr
     interceptorRegisteredClients.add(apiClient);
 
     apiClient.interceptors.request.use(async (request) => {
-        if (request.headers.get('Authorization')) {
-            return request;
-        }
         try {
             const token = await getAccessToken();
-            request.headers.set('Authorization', `Bearer ${token}`);
+            if (token) {
+                // The interceptor is the single source of truth for normal
+                // SDK requests. This also replaces stale manually supplied
+                // bearer headers left by older callers.
+                request.headers.set('Authorization', `Bearer ${token}`);
+            }
         } catch {
             // If token retrieval fails, let the request proceed without auth
         }

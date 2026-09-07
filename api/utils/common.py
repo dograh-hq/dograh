@@ -8,7 +8,8 @@ import re
 
 from loguru import logger
 
-from api.constants import BACKEND_API_ENDPOINT
+from api.constants import BACKEND_API_ENDPOINT, ENVIRONMENT
+from api.enums import Environment
 from api.utils.tunnel import TunnelURLProvider
 
 
@@ -160,24 +161,26 @@ async def get_backend_endpoints() -> tuple[str, str]:
         # Non-public address (localhost or a private/reserved IP) - the host isn't
         # reachable from the internet, so prefer a running Cloudflare tunnel's URL.
         if is_local_or_private_url(BACKEND_API_ENDPOINT):
-            logger.debug(
-                f"BACKEND_API_ENDPOINT is not publicly reachable ({BACKEND_API_ENDPOINT}), checking tunnel URL"
-            )
-            try:
-                tunnel_urls = await TunnelURLProvider.get_tunnel_urls()
-                if tunnel_urls:
-                    logger.debug(
-                        f"Tunnel URLs available, using tunnel URLs instead of localhost"
-                    )
-                    return tunnel_urls
-                else:
-                    logger.debug(
-                        f"Tunnel URLs returned None, proceeding with localhost endpoint"
-                    )
-            except Exception as e:
+            # A bundled local stack is intentionally isolated from optional
+            # Cloudflare. Local browser/API/storage checks must not poll a
+            # service that is not part of the local architecture. Deployments
+            # that need public callbacks can still opt into the tunnel profile.
+            if ENVIRONMENT != Environment.LOCAL.value:
                 logger.debug(
-                    f"No tunnel URLs available ({e}), proceeding with localhost endpoint"
+                    f"BACKEND_API_ENDPOINT is not publicly reachable ({BACKEND_API_ENDPOINT}), checking tunnel URL"
                 )
+                try:
+                    tunnel_urls = await TunnelURLProvider.get_tunnel_urls()
+                    if tunnel_urls:
+                        logger.debug(
+                            "Tunnel URLs available, using tunnel URLs instead of localhost"
+                        )
+                        return tunnel_urls
+                    logger.debug("No tunnel URL found; proceeding with localhost endpoint")
+                except Exception as e:
+                    logger.debug(
+                        f"No tunnel URLs available ({e}), proceeding with localhost endpoint"
+                    )
 
         try:
             # Parse the URL to validate and handle protocol

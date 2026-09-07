@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.46.0.4.1 (2026-09-07)
+
+- Accept reserved `.test` addresses for local smoke-user registration without changing hosted validation.
+- Harden local browser session installation and add read-only workflow-run storage verification.
+- Verify local Postgres/Redis/MinIO persistence without enabling AWS storage.
+
 ## 1.46.0.4 (2026-09-07)
 
 - Restore authenticated workflow listing through the generated SDK and central auth interceptor.

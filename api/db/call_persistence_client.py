@@ -811,6 +811,18 @@ class CallPersistenceClient(BaseDBClient):
             )
             return list(result.scalars().all())
 
+    async def get_call_recordings_for_run(
+        self, workflow_run_id: int
+    ) -> list[CallRecordingModel]:
+        """Return persisted recording metadata for one workflow run."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(CallRecordingModel)
+                .where(CallRecordingModel.agent_run_id == workflow_run_id)
+                .order_by(CallRecordingModel.track.asc())
+            )
+            return list(result.scalars().all())
+
     async def upsert_call_recording(
         self,
         *,

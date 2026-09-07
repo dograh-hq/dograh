@@ -10366,6 +10366,58 @@ export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses = {
 
 export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponse = GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses[keyof GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses];
 
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/runs/{run_id}/storage-audit';
+};
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetError = AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetErrors[keyof AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetErrors];
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponses = {
+    /**
+     * Response Audit Workflow Run Storage Api V1 Workflow  Workflow Id  Runs  Run Id  Storage Audit Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponse = AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponses[keyof AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponses];
+
 export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetData = {
     body?: never;
     headers?: {

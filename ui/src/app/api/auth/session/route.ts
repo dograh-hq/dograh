@@ -1,6 +1,8 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { validateOSSSession } from '@/lib/auth/server';
+
 const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 const OSS_USER_COOKIE = 'dograh_auth_user';
 
@@ -9,6 +11,17 @@ export async function POST(request: NextRequest) {
 
   if (!token) {
     return NextResponse.json({ error: 'Missing token' }, { status: 400 });
+  }
+
+  // Do not install a browser session unless the local API that owns the JWT
+  // signing secret accepts it. This prevents stale/invalid cookies from being
+  // captured by the UI after a failed login or a restarted local stack.
+  const valid = await validateOSSSession(token);
+  if (valid === false) {
+    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+  }
+  if (valid === null) {
+    return NextResponse.json({ error: 'Authentication service unavailable' }, { status: 503 });
   }
 
   const cookieStore = await cookies();

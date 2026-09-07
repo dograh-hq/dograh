@@ -10,6 +10,7 @@ import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { detailFromError } from "@/lib/apiError";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -38,17 +39,20 @@ export default function SignupPage() {
       });
 
       if (res.error || !res.data) {
-        const detail = (res.error as { detail?: string })?.detail;
-        toast.error(detail || "Signup failed");
+        toast.error(detailFromError(res.error, "Signup failed"));
         return;
       }
 
       // Set httpOnly cookies via server route
-      await fetch("/api/auth/session", {
+      const sessionResponse = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: res.data.token, user: res.data.user }),
       });
+      if (!sessionResponse.ok) {
+        toast.error("Signup succeeded but the local session could not be created");
+        return;
+      }
 
       window.location.href = "/after-sign-in";
     } catch {

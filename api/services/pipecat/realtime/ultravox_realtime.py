@@ -35,13 +35,13 @@ from pipecat.frames.frames import (
 from pipecat.processors.aggregators.llm_context import LLMContext, is_given
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
-from pipecat.services.settings import _NotGiven, assert_given
 from pipecat.services.ultravox.llm import (
     OneShotInputParams,
     UltravoxRealtimeLLMService,
     websocket_client,
 )
 from pipecat.utils.time import time_now_iso8601
+from pipecat.utils.types import NotGiven, assert_given
 
 
 class DograhUltravoxOneShotInputParams(OneShotInputParams):
@@ -435,7 +435,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         else:
             extra["firstSpeakerSettings"] = {"user": {}}
         output_medium = self._settings.output_medium
-        if isinstance(output_medium, _NotGiven):
+        if isinstance(output_medium, NotGiven):
             output_medium = current_params.output_medium
 
         return DograhUltravoxOneShotInputParams(
@@ -481,7 +481,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
 
     def _current_system_instruction(self) -> str | None:
         system_instruction = self._settings.system_instruction
-        if isinstance(system_instruction, _NotGiven):
+        if isinstance(system_instruction, NotGiven):
             return None
         return system_instruction
 

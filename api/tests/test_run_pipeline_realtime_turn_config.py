@@ -66,7 +66,7 @@ def test_openai_realtime_uses_provider_turn_frames_without_local_vad():
     assert vad_analyzer is None
     assert len(strategies.start) == 1
     assert isinstance(strategies.start[0], ExternalUserTurnStartStrategy)
-    assert strategies.start[0]._enable_interruptions is False
+    assert strategies.start[0]._enable_interruptions is True
     assert len(strategies.stop) == 1
     assert isinstance(strategies.stop[0], ExternalUserTurnStopStrategy)
     assert strategies.stop[0].wait_for_transcript is False
@@ -80,7 +80,7 @@ def test_azure_realtime_uses_provider_turn_frames_without_local_vad():
     assert vad_analyzer is None
     assert len(strategies.start) == 1
     assert isinstance(strategies.start[0], ExternalUserTurnStartStrategy)
-    assert strategies.start[0]._enable_interruptions is False
+    assert strategies.start[0]._enable_interruptions is True
     assert len(strategies.stop) == 1
     assert isinstance(strategies.stop[0], ExternalUserTurnStopStrategy)
     assert strategies.stop[0].wait_for_transcript is False
@@ -94,7 +94,7 @@ def test_grok_realtime_uses_provider_turn_frames_without_local_vad():
     assert vad_analyzer is None
     assert len(strategies.start) == 1
     assert isinstance(strategies.start[0], ExternalUserTurnStartStrategy)
-    assert strategies.start[0]._enable_interruptions is False
+    assert strategies.start[0]._enable_interruptions is True
     assert len(strategies.stop) == 1
     assert isinstance(strategies.stop[0], ExternalUserTurnStopStrategy)
     assert strategies.stop[0].wait_for_transcript is False

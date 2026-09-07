@@ -9,3 +9,4 @@ class FunctionNames:
     PERSIST_CALL_DATA = "persist_workflow_run_call_data"
     EXTRACT_CALL_MEMORIES = "extract_workflow_run_memories"
     REPLICATE_WORKFLOW_RUN_ARTIFACTS_S3 = "replicate_workflow_run_artifacts_s3"
+    RECONCILE_PENDING_S3_REPLICATIONS = "reconcile_pending_s3_replications"

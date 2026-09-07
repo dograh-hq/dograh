@@ -123,7 +123,11 @@ class S3FileSystem(BaseFileSystem):
             return False
 
     async def aupload_file_checked(
-        self, local_path: str, destination_path: str
+        self,
+        local_path: str,
+        destination_path: str,
+        *,
+        checksum_sha256: str | None = None,
     ) -> None:
         """Upload an object while preserving the provider error for callers.
 
@@ -136,6 +140,11 @@ class S3FileSystem(BaseFileSystem):
             content_type = artifact_content_type(destination_path)
             if content_type:
                 extra_args["ContentType"] = content_type
+            if checksum_sha256:
+                # Metadata is portable across S3-compatible APIs and lets the
+                # reconciler establish byte identity without trusting ETags.
+                extra_args["Metadata"] = {"sha256": checksum_sha256}
+                extra_args["ChecksumAlgorithm"] = "SHA256"
             if extra_args:
                 await s3_client.upload_file(
                     local_path,
@@ -204,6 +213,8 @@ class S3FileSystem(BaseFileSystem):
                     "etag": response.get("ETag", "").strip('"'),
                     "content_type": response.get("ContentType"),
                     "storage_class": response.get("StorageClass"),
+                    "metadata": response.get("Metadata") or {},
+                    "checksum_sha256": response.get("ChecksumSHA256"),
                 }
         except ClientError:
             return None

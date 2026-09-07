@@ -43,7 +43,7 @@ class _Secondary:
         self.error = error or RuntimeError("S3UploadFailed")
         self.uploads = []
 
-    async def aupload_file_checked(self, local_path, destination_key):
+    async def aupload_file_checked(self, local_path, destination_key, **_kwargs):
         if self.failures:
             self.failures -= 1
             raise self.error

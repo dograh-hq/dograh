@@ -62,6 +62,7 @@ from api.services.call_persistence import (
     persist_workflow_run_call_data,
 )
 from api.services.s3_secondary_replication import (
+    reconcile_pending_s3_replications,
     replicate_workflow_run_artifacts_to_s3,
 )
 from api.tasks.campaign_tasks import (
@@ -90,6 +91,7 @@ class WorkerSettings:
         persist_workflow_run_call_data,
         extract_workflow_run_memories,
         replicate_workflow_run_artifacts_to_s3,
+        reconcile_pending_s3_replications,
     ]
     cron_jobs = [
         # Safety net for webhook deliveries whose ARQ job was lost (worker
@@ -106,6 +108,14 @@ class WorkerSettings:
             sweep_inactive_text_chat_sessions,
             minute=set(range(0, 60, TEXT_CHAT_INACTIVITY_SWEEP_INTERVAL_MINUTES)),
             second=30,
+            run_at_startup=True,
+        ),
+        # Bounded repair for artifacts whose primary MinIO upload succeeded
+        # while S3 was unavailable. This never touches call finalization.
+        cron(
+            reconcile_pending_s3_replications,
+            minute=set(range(0, 60, 10)),
+            second=45,
             run_at_startup=True,
         ),
     ]

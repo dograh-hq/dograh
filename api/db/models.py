@@ -1010,6 +1010,53 @@ class CallRecordingModel(Base):
     )
 
 
+class ArtifactReplicationStatusModel(Base):
+    """Durable status of one primary artifact's secondary S3 copy.
+
+    ``primary_saved`` means the MinIO instance belonging to this deployment
+    saved the object.  It never refers to a different environment's MinIO.
+    """
+
+    __tablename__ = "artifact_replication_status"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    artifact_type = Column(String(32), nullable=False)
+    primary_saved = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    s3_saved = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    primary_backend = Column(String(32), nullable=False)
+    primary_bucket = Column(String(255), nullable=True)
+    primary_object_key = Column(String, nullable=False)
+    s3_bucket = Column(String(255), nullable=True)
+    s3_object_key = Column(String, nullable=True)
+    checksum_sha256 = Column(String(64), nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    s3_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    last_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    last_error_class = Column(String(128), nullable=True)
+    replication_status = Column(
+        String(32), nullable=False, default="pending", server_default=text("'pending'")
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "artifact_type", "primary_object_key",
+            name="uq_artifact_replication_run_type_primary_key",
+        ),
+        Index("ix_artifact_replication_pending", "replication_status", "s3_saved"),
+        Index("ix_artifact_replication_run_id", "run_id"),
+    )
+
+
 class CallScoreModel(Base):
     """Preserved CALM, safety and clinical scoring output for a call."""
 

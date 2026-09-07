@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.46.0.4.2.D (2026-09-07)
+
+- Add durable per-artifact S3-secondary reconciliation state and a bounded ARQ repair sweep.
+- Preserve MinIO as primary storage while recording checksum and byte-size verification for secondary copies.
+
 ## 1.46.0.4.2.CFix3 (2026-09-07)
 
 - Restore MinIO as the default CALMOS primary artifact store; Stage C S3 remains an opt-in asynchronous secondary copy.

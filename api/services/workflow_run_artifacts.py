@@ -257,6 +257,7 @@ async def upload_workflow_run_artifacts(
             "bucket": bucket,
             "object_key": storage_key,
             "size_bytes": len(data),
+            "checksum_sha256": hashlib.sha256(data).hexdigest(),
             "upload_status": "failed",
             "metadata_status": "not_expected",
             "status": "failed",
@@ -325,7 +326,14 @@ async def upload_workflow_run_artifacts(
     if transcript_text:
         transcript_url = f"transcripts/{artifact_root}/transcript.txt"
         audit["transcript"].update(
-            {"status": "failed", "object_key": transcript_url}
+            {
+                "status": "failed",
+                "object_key": transcript_url,
+                "size_bytes": len(transcript_text.encode("utf-8")),
+                "checksum_sha256": hashlib.sha256(
+                    transcript_text.encode("utf-8")
+                ).hexdigest(),
+            }
         )
         logger.info(
             "Uploading transcript to {} - workflow_run_id: {}",

@@ -103,7 +103,7 @@ _ENGINE_OWNED_CONTEXT_KEYS = frozenset(
 # answers would otherwise hold the call, its telephony channel and every
 # service behind it open indefinitely. Measured on the abrupt-hangup path at
 # p50 1.4s / p90 4.0s / max 21.3s, so this cuts off the tail and nothing else.
-FINAL_EXTRACTION_TIMEOUT_SECONDS = 8.0
+FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
 
 
 class PipecatEngine:
@@ -775,7 +775,7 @@ class PipecatEngine:
         # Summarize context in background after non-start node transitions
         # to clean up tool calls from previous nodes
         if previous_node_id is not None and self._context_summarization_manager:
-            self._context_summarization_manager.start()
+            await self._context_summarization_manager.start()
 
     async def _handle_start_node(self, node: Node) -> None:
         """Handle start node execution."""

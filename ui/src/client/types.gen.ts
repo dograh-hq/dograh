@@ -143,6 +143,84 @@ export type AwsBedrockLlmConfiguration = {
 };
 
 /**
+ * AWS Nova 2 Sonic
+ *
+ * Amazon Bedrock's realtime speech-to-speech model. Uses AWS IAM credentials rather than a Bedrock API key.
+ */
+export type AwsNovaSonicRealtimeLlmConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'aws_nova_sonic';
+    /**
+     * Api Key
+     *
+     * Not used for Nova 2 Sonic — authentication is via the AWS credentials above. Leave blank.
+     */
+    api_key?: string | Array<string> | null;
+    /**
+     * Model
+     *
+     * Amazon Nova 2 Sonic model ID.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Voice the model speaks in. Tiffany and Matthew are polyglot voices.
+     */
+    voice?: string;
+    /**
+     * Aws Access Key
+     *
+     * AWS access key ID with permission to invoke Nova 2 Sonic in Bedrock.
+     */
+    aws_access_key?: string;
+    /**
+     * Aws Secret Key
+     *
+     * AWS secret access key paired with the access key ID.
+     */
+    aws_secret_key?: string;
+    /**
+     * Aws Session Token
+     *
+     * Optional AWS session token for temporary IAM credentials.
+     */
+    aws_session_token?: string | null;
+    /**
+     * Aws Region
+     *
+     * AWS region where Nova 2 Sonic is enabled for the account.
+     */
+    aws_region?: string;
+    /**
+     * Endpointing Sensitivity
+     *
+     * How quickly Nova decides the user has stopped speaking. Leave blank to use the model default.
+     */
+    endpointing_sensitivity?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+    /**
+     * Temperature
+     *
+     * Sampling temperature for Nova 2 Sonic (greater than 0, up to 1).
+     */
+    temperature?: number;
+    /**
+     * Max Tokens
+     *
+     * Maximum response tokens.
+     */
+    max_tokens?: number;
+    /**
+     * Top P
+     *
+     * Nucleus-sampling threshold.
+     */
+    top_p?: number;
+};
+
+/**
  * ActiveCallsResponse
  */
 export type ActiveCallsResponse = {
@@ -645,7 +723,9 @@ export type ByokRealtimeAiModelConfiguration = {
         provider: 'google_vertex_realtime';
     } & GoogleVertexRealtimeLlmConfiguration) | ({
         provider: 'azure_realtime';
-    } & AzureRealtimeLlmConfiguration);
+    } & AzureRealtimeLlmConfiguration) | ({
+        provider: 'aws_nova_sonic';
+    } & AwsNovaSonicRealtimeLlmConfiguration);
     /**
      * Llm
      */

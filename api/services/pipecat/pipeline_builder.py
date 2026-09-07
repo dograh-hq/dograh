@@ -4,7 +4,11 @@ from loguru import logger
 
 from api.services.pipecat.audio_config import AudioConfig
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import (
+    PipelineParams,
+    PipelineWorker,
+    ProcessorUnusablePolicy,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.run_context import turn_var
@@ -164,7 +168,7 @@ def build_realtime_pipeline(
 def create_pipeline_task(
     pipeline,
     workflow_run_id,
-    audio_config: AudioConfig = None,
+    audio_config: AudioConfig | None = None,
     *,
     conversation_parent_context=None,
     conversation_type: str = "voice",
@@ -206,6 +210,11 @@ def create_pipeline_task(
     task = PipelineWorker(
         pipeline,
         params=pipeline_params,
+        # Pipecat 1.8 replaces ErrorFrame.fatal with processor usability plus
+        # a worker policy. A voice/text model that is permanently unusable
+        # cannot produce a meaningful Dograh run, so preserve the fork's old
+        # fatal-error cancellation behavior through the supported contract.
+        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
         enable_tracing=True,
         enable_rtvi=False,
         conversation_id=f"{workflow_run_id}",

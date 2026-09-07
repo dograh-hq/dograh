@@ -65,6 +65,12 @@ def _detect_provider(name: str, fallback: str = "unknown") -> str:
     return clean_name or fallback
 
 
+def _is_sts_processor_name(name: str) -> bool:
+    """Return whether a metrics processor belongs to a realtime speech model."""
+    processor_name = (name or "").lower()
+    return any(marker in processor_name for marker in ("realtime", "live", "novasonic"))
+
+
 @dataclass
 class _UsageAccumulator:
     """In-memory accumulator for per-call usage data."""
@@ -599,7 +605,7 @@ class PaygentCollector(BaseObserver):
                         is_sts_frame = False
                         proc_lower = (item.processor or "").lower()
                         if getattr(self, "_is_realtime", False):
-                            if "realtime" in proc_lower or "live" in proc_lower:
+                            if _is_sts_processor_name(proc_lower):
                                 is_sts_frame = True
 
                         if is_sts_frame:

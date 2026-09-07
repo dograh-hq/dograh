@@ -1176,6 +1176,30 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 output_medium="voice",
             ),
         )
+    elif provider == ServiceProviders.AWS_NOVA_SONIC.value:
+        from api.services.pipecat.realtime.aws_nova_sonic import (
+            DograhAWSNovaSonicLLMService,
+        )
+        from pipecat.services.aws.nova_sonic.llm import AudioConfig as NovaAudioConfig
+
+        return DograhAWSNovaSonicLLMService(
+            secret_access_key=realtime_config.aws_secret_key,
+            access_key_id=realtime_config.aws_access_key,
+            session_token=realtime_config.aws_session_token or None,
+            region=realtime_config.aws_region,
+            audio_config=NovaAudioConfig(
+                input_sample_rate=audio_config.transport_in_sample_rate,
+                output_sample_rate=audio_config.transport_out_sample_rate,
+            ),
+            settings=DograhAWSNovaSonicLLMService.Settings(
+                model=model,
+                voice=voice or "matthew",
+                endpointing_sensitivity=realtime_config.endpointing_sensitivity,
+                temperature=realtime_config.temperature,
+                max_tokens=realtime_config.max_tokens,
+                top_p=realtime_config.top_p,
+            ),
+        )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:
         from api.services.pipecat.realtime.gemini_live import (
             DograhGeminiLiveLLMService,

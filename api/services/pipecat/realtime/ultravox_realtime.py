@@ -18,7 +18,7 @@ the Dograh engine contract by:
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal, cast
 
 from loguru import logger
 from pydantic import Field
@@ -47,7 +47,11 @@ from pipecat.utils.types import NotGiven, assert_given
 class DograhUltravoxOneShotInputParams(OneShotInputParams):
     """Dograh-friendly OneShot params with string voice support."""
 
-    voice: str | None = Field(default=None)
+    # Ultravox accepts built-in voice names as well as UUIDs. Dograh stores the
+    # former (for example, "Mark"), while upstream narrows this field to UUID.
+    voice: str | None = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default=None
+    )
 
 
 _ULTRAVOX_MAX_TOOL_TIMEOUT_SECS = 40.0
@@ -318,7 +322,11 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
                 f"{self}: Ultravox call creation/join failed "
                 f"for tools={tool_names}: {e}"
             )
-            await self.push_error(f"Failed to connect to Ultravox: {e}", e, fatal=True)
+            await self.push_error(
+                f"Failed to connect to Ultravox: {e}",
+                e,
+                force_treat_as_permanent=True,
+            )
 
     async def _receive_messages(self):
         """Receive messages from the Ultravox Realtime WebSocket.
@@ -390,7 +398,9 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
                     if self._disconnecting or not self._socket:
                         return
                     await self.push_error(
-                        "Ultravox websocket receive error", e, fatal=True
+                        "Ultravox websocket receive error",
+                        e,
+                        force_treat_as_permanent=True,
                     )
         except ConnectionClosed as e:
             if (
@@ -400,7 +410,11 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             ):
                 logger.debug(f"{self}: Ultravox websocket closed: {e}")
                 return
-            await self.push_error("Ultravox websocket receive error", e, fatal=True)
+            await self.push_error(
+                "Ultravox websocket receive error",
+                e,
+                force_treat_as_permanent=True,
+            )
 
     async def _flush_pending_user_text_messages(self):
         if (
@@ -445,7 +459,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             model=assert_given(self._settings.model),
             voice=current_params.voice,
             metadata=current_params.metadata,
-            output_medium=output_medium,
+            output_medium=cast(Literal["text", "voice"] | None, output_medium),
             max_duration=current_params.max_duration,
             extra=extra,
         )

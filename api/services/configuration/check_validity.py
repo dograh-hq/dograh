@@ -61,6 +61,7 @@ class UserConfigurationValidator:
             ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
             ServiceProviders.GOOGLE_VERTEX_REALTIME.value: self._check_google_vertex_realtime_api_key,
             ServiceProviders.AZURE_REALTIME.value: self._check_azure_realtime_api_key,
+            ServiceProviders.AWS_NOVA_SONIC.value: self._check_aws_bedrock_api_key,
             ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
             ServiceProviders.RIME.value: self._check_rime_api_key,
@@ -176,8 +177,11 @@ class UserConfigurationValidator:
                 return [{"model": service_name, "message": str(e)}]
             return []
 
-        # AWS Bedrock uses AWS credentials instead of api_key
-        if provider == ServiceProviders.AWS_BEDROCK.value:
+        # AWS Bedrock services use IAM credentials instead of api_key.
+        if provider in {
+            ServiceProviders.AWS_BEDROCK.value,
+            ServiceProviders.AWS_NOVA_SONIC.value,
+        }:
             try:
                 if not self._check_aws_bedrock_api_key(provider, service_config):
                     return [

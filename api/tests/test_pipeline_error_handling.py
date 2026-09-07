@@ -3,8 +3,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pipecat.frames.frames import ErrorFrame
+from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.utils.enums import EndTaskReason
 
+from api.services.pipecat import pipeline_builder
 from api.services.pipecat.event_handlers import register_event_handlers
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
@@ -21,6 +23,25 @@ class _EventSource:
             return handler
 
         return decorator
+
+
+def test_dograh_workers_cancel_when_a_processor_becomes_permanently_unusable(
+    monkeypatch,
+):
+    captured = {}
+    worker = SimpleNamespace(turn_tracking_observer=None)
+
+    def capture_worker(*args, **kwargs):
+        captured.update(kwargs)
+        return worker
+
+    monkeypatch.setenv("ENABLE_TURN_LOGGING", "false")
+    monkeypatch.setattr(pipeline_builder, "PipelineWorker", capture_worker)
+
+    result = pipeline_builder.create_pipeline_task(object(), workflow_run_id=88)
+
+    assert result is worker
+    assert captured["processor_unusable_policy"] is ProcessorUnusablePolicy.CANCEL
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,7 @@ from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     Frame,
+    FunctionCallFromLLM,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
@@ -37,7 +38,6 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
-from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.services.xai.realtime import events
 from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from pipecat.utils.time import time_now_iso8601
@@ -113,13 +113,11 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         if frame.run_llm and appended_any:
             await self._send_manual_response_create()
 
-    async def _handle_context(self, context: LLMContext):
+    async def _handle_context(self, context: LLMContext | None):
+        if context is None:
+            logger.warning(f"{self}: received context trigger before context was set")
+            return
         if not self._handled_initial_context:
-            if context is None:
-                logger.warning(
-                    f"{self}: received initial context trigger before context was set"
-                )
-                return
             self._handled_initial_context = True
             self._context = context
             await self._create_response()
@@ -127,7 +125,9 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
 
-    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+    async def _handle_initial_greeting(
+        self, context: LLMContext | None, greeting_text: str
+    ):
         if context is None:
             logger.warning(
                 f"{self}: received initial greeting trigger before context was set"
@@ -167,6 +167,9 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
     async def _ensure_conversation_setup(self):
         if not self._llm_needs_conversation_setup:
             return
+        if self._context is None:
+            logger.warning(f"{self}: cannot set up conversation without context")
+            return
 
         adapter = self.get_llm_adapter()
         llm_invocation_params = adapter.get_llm_invocation_params(self._context)
@@ -179,6 +182,9 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         self._llm_needs_conversation_setup = False
 
     async def _handle_evt_session_updated(self, evt):
+        session_id = getattr(getattr(evt, "session", None), "id", None)
+        if session_id:
+            self._session_id = session_id
         self._api_session_ready = True
         if self._pending_initial_greeting_text is not None:
             greeting_text = self._pending_initial_greeting_text
@@ -194,7 +200,7 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         await super()._send_user_audio(frame)
 
     def _message_to_conversation_item(
-        self, message: dict[str, Any]
+        self, message: Any
     ) -> events.ConversationItem | None:
         if not isinstance(message, dict):
             logger.warning(

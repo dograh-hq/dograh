@@ -31,6 +31,7 @@ class MinioFileSystem(BaseFileSystem):
         secure: bool = False,
         public_endpoint: Optional[str] = None,
         allow_anonymous_access: bool = False,
+        region: str = "us-east-1",
     ):
         if not public_endpoint:
             raise ValueError(
@@ -52,10 +53,15 @@ class MinioFileSystem(BaseFileSystem):
         self.access_key = access_key
         self.secret_key = secret_key
         self.allow_anonymous_access = allow_anonymous_access
+        self.region = region
 
         # Client for internal operations (uploads, etc.)
         self.client = Minio(
-            endpoint, access_key=access_key, secret_key=secret_key, secure=secure
+            endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=secure,
+            region=region,
         )
 
         # Presigned URLs must be signed for the hostname the browser actually
@@ -72,6 +78,7 @@ class MinioFileSystem(BaseFileSystem):
             access_key=access_key,
             secret_key=secret_key,
             secure=public.scheme == "https",
+            region=region,
         )
 
         # Ensure bucket exists and configure anonymous access (using internal client)

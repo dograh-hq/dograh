@@ -99,6 +99,11 @@ MINIO_PUBLIC_ENDPOINT = (
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "voice-audio")
+# MinIO deployments default to the us-east-1 signing region. Supplying this
+# to the browser-facing client avoids a GetBucketLocation request against the
+# public endpoint from inside the API container (where localhost is the API,
+# not MinIO).
+MINIO_REGION = os.getenv("MINIO_REGION", "us-east-1")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 # Anonymous object access is a local-development compatibility option only.
 # Production defaults to a private bucket and real presigned URLs.

@@ -341,6 +341,8 @@ dograh_render_remote_turn_conf() {
     local destination=${2:-"$project_dir/turnserver.conf"}
     local template=""
     local external_ip="${TURN_EXTERNAL_IP:-${SERVER_IP:-}}"
+    local turn_min_port="${TURN_MIN_PORT:-49152}"
+    local turn_max_port="${TURN_MAX_PORT:-49200}"
 
     template="$(dograh_template_path "turnserver.remote.conf.template")"
     [[ -n "$external_ip" ]] || dograh_fail "TURN external IP/host is missing"
@@ -348,10 +350,14 @@ dograh_render_remote_turn_conf() {
     awk \
         -v external_ip="$external_ip" \
         -v turn_secret="$TURN_SECRET" \
+        -v turn_min_port="$turn_min_port" \
+        -v turn_max_port="$turn_max_port" \
         '
         {
             gsub(/__DOGRAH_TURN_EXTERNAL_IP__/, external_ip)
             gsub(/__DOGRAH_TURN_SECRET__/, turn_secret)
+            gsub(/__DOGRAH_TURN_MIN_PORT__/, turn_min_port)
+            gsub(/__DOGRAH_TURN_MAX_PORT__/, turn_max_port)
             print
         }
     ' "$template" > "$destination"
@@ -381,7 +387,7 @@ dograh_preflight_remote_init_render() {
     turn_conf="$tmp_root/coturn/turnserver.conf"
 
     (
-        export ENVIRONMENT SERVER_IP PUBLIC_HOST PUBLIC_BASE_URL BACKEND_API_ENDPOINT MINIO_PUBLIC_ENDPOINT TURN_HOST TURN_SECRET FASTAPI_WORKERS
+        export ENVIRONMENT SERVER_IP PUBLIC_HOST PUBLIC_BASE_URL BACKEND_API_ENDPOINT MINIO_PUBLIC_ENDPOINT TURN_HOST TURN_SECRET TURN_MIN_PORT TURN_MAX_PORT FASTAPI_WORKERS
         export DOGRAH_INIT_WORKSPACE_DIR="$project_dir"
         export DOGRAH_INIT_OUTPUT_ROOT="$tmp_root"
         export DOGRAH_INIT_CERTS_DIR="$cert_dir"

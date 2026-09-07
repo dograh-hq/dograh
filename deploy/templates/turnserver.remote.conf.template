@@ -6,8 +6,8 @@ listening-port=3478
 tls-listening-port=5349
 
 # Relay port range
-min-port=49152
-max-port=49200
+min-port=__DOGRAH_TURN_MIN_PORT__
+max-port=__DOGRAH_TURN_MAX_PORT__
 
 # Network - external IP / host for NAT traversal
 external-ip=__DOGRAH_TURN_EXTERNAL_IP__

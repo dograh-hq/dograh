@@ -94,6 +94,8 @@ services:
       MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
+      TURN_MIN_PORT: "${TURN_MIN_PORT:-49152}"
+      TURN_MAX_PORT: "${TURN_MAX_PORT:-49200}"
       # Keep at 1: Sakinah simulations hold in-process state, and the
       # events/audio WebSockets 404 when they land on a different worker
       # (https://github.com/applied-biosciences/dograh/issues/4).
@@ -140,7 +142,7 @@ services:
       - "3478:3478/tcp"
       - "5349:5349/udp"
       - "5349:5349/tcp"
-      - "49152-49200:49152-49200/udp"
+      - "${TURN_MIN_PORT:-49152}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49152}-${TURN_MAX_PORT:-49200}/udp"
     volumes:
       - coturn-generated:/etc/coturn:ro
     command:
@@ -218,6 +220,7 @@ services:
       MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_BUCKET: "voice-audio"
+      MINIO_REGION: "${MINIO_REGION:-us-east-1}"
       MINIO_SECURE: "false"
       MINIO_ALLOW_ANONYMOUS: "${MINIO_ALLOW_ANONYMOUS:-false}"
 

@@ -44,6 +44,87 @@ const HANDLED_SERVICE_ERROR_TYPES = new Set([
 // start a fresh run rather than being offered a retry that cannot succeed.
 const SPENT_RUN_ERROR_TYPES = new Set(['workflow_run_already_completed']);
 
+let browserAudioContext: AudioContext | null = null;
+
+const describeMediaError = (error: unknown) => {
+    if (!(error instanceof DOMException)) {
+        return error instanceof Error ? error.message : 'Unknown microphone error';
+    }
+
+    switch (error.name) {
+        case 'NotAllowedError':
+        case 'PermissionDeniedError':
+            return 'Microphone access was blocked. Allow microphone access for localhost and try again.';
+        case 'NotFoundError':
+            return 'No microphone was found. Connect or enable a microphone and try again.';
+        case 'NotReadableError':
+            return 'The microphone is already in use or unavailable. Close other callers and try again.';
+        case 'OverconstrainedError':
+            return 'The selected microphone is unavailable. Choose another input device and try again.';
+        default:
+            return error.message || 'Could not acquire microphone access.';
+    }
+};
+
+const getUserMediaWithTimeout = async (
+    constraints: MediaStreamConstraints,
+    timeoutMs = 15000,
+): Promise<MediaStream> => {
+    const mediaPromise = navigator.mediaDevices.getUserMedia(constraints);
+    let timedOut = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<MediaStream>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            timedOut = true;
+            reject(new Error('Microphone permission is still pending. Allow microphone access for localhost and try again.'));
+        }, timeoutMs);
+    });
+
+    try {
+        return await Promise.race([mediaPromise, timeoutPromise]);
+    } catch (error) {
+        // Some browsers leave getUserMedia pending after a permission prompt is
+        // dismissed or hidden. If it resolves later, release the late stream
+        // rather than leaking the device into a stale test run.
+        if (timedOut) {
+            void mediaPromise.then((lateStream) => {
+                lateStream.getTracks().forEach((track) => track.stop());
+            }).catch(() => undefined);
+        }
+        throw error;
+    } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
+};
+
+/**
+ * Prime browser audio output from the Run Test click before async run
+ * creation and WebRTC negotiation complete. Otherwise Safari and stricter
+ * Chromium autoplay policies can accept signaling but refuse the later
+ * remote audio track because it was attached outside the original gesture.
+ */
+export function primeBrowserAudioOutput() {
+    if (typeof window === 'undefined') return;
+
+    const AudioContextConstructor =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+
+    browserAudioContext ??= new AudioContextConstructor();
+    const context = browserAudioContext;
+    if (context.state !== 'running') void context.resume().catch(() => undefined);
+
+    const gain = context.createGain();
+    gain.gain.value = 0;
+    gain.connect(context.destination);
+    const source = context.createBufferSource();
+    source.buffer = context.createBuffer(1, 1, context.sampleRate);
+    source.connect(gain);
+    source.start();
+    source.stop(context.currentTime + 0.01);
+}
+
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables, onNodeTransition }: UseWebSocketRTCProps) => {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
     const [connectionActive, setConnectionActive] = useState(false);
@@ -298,7 +379,11 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
         pc.addEventListener('track', (evt) => {
             if (evt.track.kind === 'audio' && audioRef.current) {
-                audioRef.current.srcObject = evt.streams[0];
+                const stream = evt.streams[0] ?? new MediaStream([evt.track]);
+                audioRef.current.srcObject = stream;
+                void audioRef.current.play().catch((error) => {
+                    logger.warn('Remote WebRTC audio playback was blocked:', error);
+                });
             }
         });
 
@@ -794,7 +879,10 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             // Get user media and negotiate
             if (constraints.audio) {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    if (!navigator.mediaDevices?.getUserMedia) {
+                        throw new Error('This browser does not support microphone access.');
+                    }
+                    const stream = await getUserMediaWithTimeout(constraints);
                     // Release any stream still held from a prior attempt before
                     // retaining the new one, so re-entry can't leak a device.
                     stopLocalStream();
@@ -805,7 +893,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                     await negotiate();
                 } catch (err) {
                     logger.error(`Could not acquire media: ${err}`);
-                    setPermissionError('Could not acquire media');
+                    setPermissionError(describeMediaError(err));
                     setConnectionStatus('failed');
                 }
             } else {

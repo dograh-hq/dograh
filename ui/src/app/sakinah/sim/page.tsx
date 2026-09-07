@@ -42,6 +42,7 @@ interface SimTurn {
 }
 
 type ExperimentMode = "baseline" | "scores_only" | "scores_and_trends" | "full_calm_prompt";
+type SimulationAudioStatus = "idle" | "connecting" | "connected" | "error";
 
 const ROLE_LABELS: Record<string, string> = {
     sakinah: "SAKINAH",
@@ -63,6 +64,8 @@ export default function SakinahSimulationPage() {
     const [experimentMode, setExperimentMode] = useState<ExperimentMode>("full_calm_prompt");
     const [calmAnalysis, setCalmAnalysis] = useState<CalmAnalysis | null>(null);
     const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+    const [audioStatus, setAudioStatus] = useState<SimulationAudioStatus>("idle");
+    const [audioFrameCount, setAudioFrameCount] = useState(0);
     const wsRef = useRef<WebSocket | null>(null);
     const audioWsRef = useRef<WebSocket | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -115,6 +118,8 @@ export default function SakinahSimulationPage() {
         audioCtxRef.current = null;
         gainRef.current = null;
         nextPlayTimeRef.current = 0;
+        setAudioStatus("idle");
+        setAudioFrameCount(0);
     }, []);
 
     useEffect(
@@ -275,38 +280,51 @@ export default function SakinahSimulationPage() {
                 `${wsUrl}/api/v1/sakinah/simulations/${simulationId}/audio?token=${token}`,
             );
             socket.binaryType = "arraybuffer";
+            setAudioStatus("connecting");
             socket.onopen = () => {
                 // The context was unlocked from Start; this is a defensive
                 // resume for browsers that suspend it while the socket opens.
                 if (ctx.state !== "running") void ctx.resume().catch(() => undefined);
+                setAudioStatus("connected");
             };
-            socket.onmessage = (message) => {
+            socket.onerror = () => {
+                setAudioStatus("error");
+            };
+            socket.onmessage = async (message) => {
                 const context = audioCtxRef.current === ctx ? ctx : null;
                 const gainNode = gainRef.current;
                 if (!context || !gainNode) return;
                 if (context.state !== "running") void context.resume().catch(() => undefined);
-                const pcm = new Int16Array(message.data as ArrayBuffer);
-                if (pcm.length === 0) return;
-                const samples = new Float32Array(pcm.length);
-                for (let i = 0; i < pcm.length; i += 1) {
-                    samples[i] = pcm[i] / 32768;
+                try {
+                    const bytes = message.data instanceof Blob
+                        ? await message.data.arrayBuffer()
+                        : message.data as ArrayBuffer;
+                    const pcm = new Int16Array(bytes);
+                    if (pcm.length === 0) return;
+                    setAudioFrameCount((count) => count + 1);
+                    const samples = new Float32Array(pcm.length);
+                    for (let i = 0; i < pcm.length; i += 1) {
+                        samples[i] = pcm[i] / 32768;
+                    }
+                    const buffer = context.createBuffer(
+                        1,
+                        samples.length,
+                        SIM_AUDIO_SAMPLE_RATE,
+                    );
+                    buffer.copyToChannel(samples, 0);
+                    const source = context.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(gainNode);
+                    // Schedule chunks back-to-back with a small jitter cushion.
+                    const startAt = Math.max(
+                        context.currentTime + 0.1,
+                        nextPlayTimeRef.current,
+                    );
+                    source.start(startAt);
+                    nextPlayTimeRef.current = startAt + buffer.duration;
+                } catch {
+                    setAudioStatus("error");
                 }
-                const buffer = context.createBuffer(
-                    1,
-                    samples.length,
-                    SIM_AUDIO_SAMPLE_RATE,
-                );
-                buffer.copyToChannel(samples, 0);
-                const source = context.createBufferSource();
-                source.buffer = buffer;
-                source.connect(gainNode);
-                // Schedule chunks back-to-back with a small jitter cushion.
-                const startAt = Math.max(
-                    context.currentTime + 0.1,
-                    nextPlayTimeRef.current,
-                );
-                source.start(startAt);
-                nextPlayTimeRef.current = startAt + buffer.duration;
             };
             audioWsRef.current = socket;
         },
@@ -335,6 +353,7 @@ export default function SakinahSimulationPage() {
             // policies, especially Safari's, treat this as the Start gesture.
             const audioContext = prepareAudioContext();
             if (audioContext.state !== "running") await audioContext.resume();
+            setAudioFrameCount(0);
             // The SDK's auth interceptor signs the request; the token is only
             // needed for the events WebSocket, which cannot use the interceptor.
             const token = await getAccessToken();
@@ -537,6 +556,12 @@ export default function SakinahSimulationPage() {
                                     {info.workflow_id}, run {info.workflow_run_id}
                                 </p>
                             ))}
+                            {isActive ? (
+                                <p>
+                                    Audio: {audioStatus}
+                                    {audioFrameCount > 0 ? ` (${audioFrameCount} chunks received)` : ""}
+                                </p>
+                            ) : null}
                         </div>
                     ) : null}
                 </section>

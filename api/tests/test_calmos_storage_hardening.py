@@ -50,6 +50,7 @@ def test_production_minio_removes_anonymous_policy_and_uses_presigned_urls(monke
     )
     assert _FakeMinioClient.instances[0].policy_deleted is True
     assert _FakeMinioClient.instances[0].policy_set is False
+    assert all(instance.kwargs["region"] == "us-east-1" for instance in _FakeMinioClient.instances)
 
 
 @pytest.mark.asyncio
@@ -68,6 +69,7 @@ async def test_private_minio_get_and_put_urls_are_signed(monkeypatch):
     put_url = await storage.aget_presigned_put_url("campaigns/source.csv")
     assert "signature=private" in get_url
     assert "signature=private-put" in put_url
+    assert all(instance.kwargs["region"] == "us-east-1" for instance in _FakeMinioClient.instances)
 
 
 def test_minio_migration_discovers_all_existing_run_artifact_keys():

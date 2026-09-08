@@ -96,6 +96,11 @@ def create_app(
     async def health() -> dict:
         return {"service": "CALMOS DATA EXPLORER", "version": "1.0.0"}
 
+    @app.get("/api/client-config")
+    async def client_config() -> dict:
+        """Non-sensitive browser configuration; no credentials are exposed."""
+        return {"version": "1.0.0", "authentication_required": not settings.local_test_mode}
+
     @app.get("/api/dashboard")
     async def dashboard(principal: AdminPrincipal = Depends(admin_dependency)) -> dict:
         await audit(principal, "dashboard_viewed")

@@ -1,3 +1,7 @@
+import asyncio
+import base64
+import json
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -5,9 +9,12 @@ import pytest
 from pipecat.adapters.services.aws_nova_sonic_adapter import Role
 from pipecat.frames.frames import (
     FunctionCallFromLLM,
+    InputAudioRawFrame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
+    UserMuteStartedFrame,
+    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -144,6 +151,112 @@ def test_factory_normalizes_blank_nova_session_token():
     assert service._session_token is None
 
 
+@pytest.mark.parametrize(
+    "messages,expected",
+    [
+        ([], []),
+        ([{"role": "user", "content": "Hello"}], [(Role.USER, "Hello")]),
+        (
+            [
+                {"role": "system", "content": "Call instructions"},
+                {"role": "assistant", "content": "Welcome"},
+                {"role": "user", "content": "Hello"},
+            ],
+            [(Role.USER, None), (Role.ASSISTANT, "Welcome"), (Role.USER, "Hello")],
+        ),
+        (
+            [
+                {"role": "assistant", "content": None, "tool_calls": []},
+                {"role": "tool", "tool_call_id": "old-call", "content": "done"},
+                {"role": "assistant", "content": "Welcome"},
+                {"role": "assistant", "content": "How can I help?"},
+                {"role": "user", "content": "Hello"},
+                {"role": "user", "content": "I have a question"},
+            ],
+            [
+                (Role.USER, None),
+                (Role.ASSISTANT, "Welcome\nHow can I help?"),
+                (Role.USER, "Hello\nI have a question"),
+            ],
+        ),
+    ],
+)
+def test_nova_history_starts_with_user_and_alternates_without_changing_transcript(
+    messages, expected
+):
+    service = _make_service()
+    context = LLMContext(deepcopy(messages))
+
+    # Repeated reconnects must not accumulate synthetic messages in the context.
+    for _ in range(2):
+        params = service.get_llm_adapter().get_llm_invocation_params(context)
+        history = params["messages"]
+        assert [m.role for m in history] == [role for role, _ in expected]
+        for message, (_, text) in zip(history, expected):
+            if text is None:
+                assert message.text
+            else:
+                assert message.text == text
+        assert context.messages == messages
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reconnect_kind", ["node", "reset"])
+async def test_reconnect_serializes_valid_history_and_tracks_existing_tool_results(
+    reconnect_kind,
+):
+    service = _make_service()
+    context = LLMContext(
+        [
+            {"role": "assistant", "content": "Welcome"},
+            {"role": "user", "content": "Yes, please continue"},
+            {"role": "assistant", "content": "Let me ask a few questions"},
+            {"role": "tool", "tool_call_id": "old-call", "content": "done"},
+        ]
+    )
+    original_messages = deepcopy(context.messages)
+    service._context = context
+    service._handled_initial_context = True
+    service._send_prompt_start_event = AsyncMock()
+    service._send_text_event = AsyncMock()
+    service._send_tool_result = AsyncMock()
+    service._sc.start_monitor = MagicMock()
+    service._receive_task_handler = AsyncMock()
+
+    def close_unused_receive_task(coro):
+        coro.close()
+
+    service.create_task = MagicMock(side_effect=close_unused_receive_task)
+
+    async def start_audio():
+        service._audio_input_started = True
+
+    service._send_audio_input_start_event = AsyncMock(side_effect=start_audio)
+    service._disconnect = AsyncMock()
+
+    async def connect():
+        service._ready_to_send_context = True
+        await service._finish_connecting_if_context_available()
+
+    service._start_connecting = AsyncMock(side_effect=connect)
+    if reconnect_kind == "node":
+        service._awaiting_node_transition_context = True
+        await service._handle_context(context)
+    else:
+        await service.reset_conversation()
+
+    calls = service._send_text_event.await_args_list
+    history = [c for c in calls if not c.kwargs.get("interactive")]
+    roles = [c.kwargs["role"] for c in history if c.kwargs["role"] != Role.SYSTEM]
+    assert roles == [Role.USER, Role.ASSISTANT, Role.USER, Role.ASSISTANT]
+    if reconnect_kind == "node":
+        assert sum(bool(c.kwargs.get("interactive")) for c in calls) == 1
+    assert "old-call" in service._completed_tool_calls
+    service._send_tool_result.assert_not_awaited()
+    assert service._context is context
+    assert context.messages == original_messages
+
+
 @pytest.mark.asyncio
 async def test_initial_context_triggers_native_nova_response_when_prepopulated():
     service = _make_service()
@@ -227,23 +340,168 @@ async def test_messages_append_frame_sends_interactive_user_text():
 
 
 @pytest.mark.asyncio
-async def test_muted_audio_is_not_forwarded_to_nova():
+@pytest.mark.parametrize("sample_rate", [8000, 16000])
+async def test_muted_audio_keeps_nova_stream_alive_without_sending_user_speech(
+    sample_rate,
+):
     service = _make_service()
+    service.push_frame = AsyncMock()
     service._sc.on_audio_input = MagicMock()
     service._send_user_audio_event = AsyncMock()
-    frame = SimpleNamespace(audio=b"pcm")
+    audio = b"\x01\x02" * (sample_rate // 50)
+    frame = InputAudioRawFrame(audio=audio, sample_rate=sample_rate, num_channels=1)
 
-    service._user_is_muted = True
+    await service.process_frame(UserMuteStartedFrame(), FrameDirection.DOWNSTREAM)
     await service._handle_input_audio_frame(frame)
 
-    service._sc.on_audio_input.assert_not_called()
+    silence = bytes(len(audio))
+    service._sc.on_audio_input.assert_called_once_with(silence)
+    service._send_user_audio_event.assert_awaited_once_with(silence)
+    # Other consumers, such as call recording, must retain the caller's audio.
+    assert frame.audio == audio
+
+    service._sc.on_audio_input.reset_mock()
+    service._send_user_audio_event.reset_mock()
+    await service.process_frame(UserMuteStoppedFrame(), FrameDirection.DOWNSTREAM)
+    await service._handle_input_audio_frame(frame)
+
+    service._sc.on_audio_input.assert_called_once_with(audio)
+    service._send_user_audio_event.assert_awaited_once_with(audio)
+
+
+@pytest.mark.asyncio
+async def test_muted_audio_buffers_only_silence_during_session_handoff():
+    service = _make_service()
+    service._user_is_muted = True
+    service._sc = SimpleNamespace(on_audio_input=MagicMock(), handoff_in_progress=True)
+    service._send_user_audio_event = AsyncMock()
+    frame = InputAudioRawFrame(
+        audio=b"\x01\x02" * 320, sample_rate=16000, num_channels=1
+    )
+
+    await service._handle_input_audio_frame(frame)
+
+    service._sc.on_audio_input.assert_called_once_with(bytes(640))
     service._send_user_audio_event.assert_not_awaited()
 
-    service._user_is_muted = False
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("muted", [False, True])
+async def test_node_reconnect_skips_audio_while_closing_and_resumes_on_new_stream(
+    muted,
+):
+    service = _make_service()
+    old_stream = SimpleNamespace(input_stream=SimpleNamespace(send=AsyncMock()))
+    new_stream = SimpleNamespace(input_stream=SimpleNamespace(send=AsyncMock()))
+    close_started = asyncio.Event()
+    finish_close = asyncio.Event()
+
+    async def close_stream():
+        old_stream.input_stream.send.side_effect = OSError(
+            "Attempted to write to closed stream."
+        )
+        close_started.set()
+        await finish_close.wait()
+
+    old_stream.close = close_stream
+    service._stream = old_stream
+    service._prompt_name = "old-prompt"
+    service._input_audio_content_name = "old-audio"
+    service._audio_input_started = True
+    service._connected_time = 1.0
+    service._handled_initial_context = True
+    service._awaiting_node_transition_context = True
+    service._user_is_muted = muted
+    service.push_error = AsyncMock()
+
+    async def connect():
+        service._stream = new_stream
+        service._prompt_name = "new-prompt"
+        service._input_audio_content_name = "new-audio"
+        service._audio_input_started = True
+        service._connected_time = 2.0
+
+    service._start_connecting = AsyncMock(side_effect=connect)
+    context = LLMContext([{"role": "user", "content": "Yes, continue"}])
+    frame = InputAudioRawFrame(
+        audio=b"\x01\x02" * 320, sample_rate=16000, num_channels=1
+    )
+    reconnect = asyncio.create_task(service._handle_context(context))
+    try:
+        await asyncio.wait_for(close_started.wait(), timeout=2)
+        await service._handle_input_audio_frame(frame)
+        old_stream.input_stream.send.assert_not_awaited()
+    finally:
+        finish_close.set()
+        await asyncio.wait_for(reconnect, timeout=3)
+
     await service._handle_input_audio_frame(frame)
 
-    service._sc.on_audio_input.assert_called_once_with(b"pcm")
-    service._send_user_audio_event.assert_awaited_once_with(b"pcm")
+    new_stream.input_stream.send.assert_awaited_once()
+    event = new_stream.input_stream.send.await_args.args[0]
+    audio_input = json.loads(event.value.bytes_)["event"]["audioInput"]
+    assert audio_input["promptName"] == "new-prompt"
+    assert audio_input["contentName"] == "new-audio"
+    assert base64.b64decode(audio_input["content"]) == (
+        bytes(len(frame.audio)) if muted else frame.audio
+    )
+    service.push_error.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state_after_send", ["disconnecting", "disconnected", "reconnected"]
+)
+async def test_audio_send_ignores_in_flight_failure_after_disconnect(state_after_send):
+    service = _make_service()
+    send_started = asyncio.Event()
+    finish_send = asyncio.Event()
+
+    async def send(event):
+        send_started.set()
+        await finish_send.wait()
+        raise OSError("Attempted to write to closed stream.")
+
+    service._stream = SimpleNamespace(input_stream=SimpleNamespace(send=send))
+    service._prompt_name = "old-prompt"
+    service._input_audio_content_name = "old-audio"
+    service._audio_input_started = True
+    service.push_error = AsyncMock()
+    sending = asyncio.create_task(service._send_user_audio_event(bytes(640)))
+    try:
+        await asyncio.wait_for(send_started.wait(), timeout=2)
+        if state_after_send == "disconnecting":
+            service._disconnecting = True
+        elif state_after_send == "disconnected":
+            service._stream = None
+        else:
+            service._stream = SimpleNamespace(
+                input_stream=SimpleNamespace(send=AsyncMock())
+            )
+    finally:
+        finish_send.set()
+        await asyncio.wait_for(sending, timeout=2)
+
+    service.push_error.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_audio_send_reports_failure_on_active_stream():
+    service = _make_service()
+    error = OSError("Failed to write to stream.")
+    service._stream = SimpleNamespace(
+        input_stream=SimpleNamespace(send=AsyncMock(side_effect=error))
+    )
+    service._prompt_name = "active-prompt"
+    service._input_audio_content_name = "active-audio"
+    service._audio_input_started = True
+    service.push_error = AsyncMock()
+
+    await service._send_user_audio_event(bytes(640))
+
+    service.push_error.assert_awaited_once()
+    assert service.push_error.await_args.kwargs["exception"] is error
+    assert str(error) in service.push_error.await_args.kwargs["error_msg"]
 
 
 @pytest.mark.asyncio

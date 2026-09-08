@@ -3,7 +3,7 @@
 Nova Sonic owns STT, inference, and speech output. This subclass adapts the
 service to Dograh's workflow lifecycle:
 
-- gate input audio while the user is muted;
+- replace muted input audio with silence to keep Nova's stream active;
 - use the engine's initial ``TTSSpeakFrame``/``LLMContextFrame`` as a native
   Nova response trigger;
 - accept ephemeral ``LLMMessagesAppendFrame`` prompts such as idle checks;
@@ -14,14 +14,21 @@ service to Dograh's workflow lifecycle:
 """
 
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
 from loguru import logger
 
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
-from pipecat.adapters.services.aws_nova_sonic_adapter import Role
+from pipecat.adapters.services.aws_nova_sonic_adapter import (
+    AWSNovaSonicConversationHistoryMessage,
+    AWSNovaSonicLLMAdapter,
+    AWSNovaSonicLLMInvocationParams,
+    Role,
+)
 from pipecat.frames.frames import (
     Frame,
+    InputAudioRawFrame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
@@ -42,8 +49,42 @@ _NODE_TRANSITION_RESPONSE_PROMPT = (
 )
 
 
+class DograhAWSNovaSonicLLMAdapter(AWSNovaSonicLLMAdapter):
+    """Keep bot-first conversations valid when replaying history to Nova."""
+
+    def get_llm_invocation_params(
+        self, context: LLMContext, *, system_instruction: str | None = None
+    ) -> AWSNovaSonicLLMInvocationParams:
+        params = super().get_llm_invocation_params(
+            context, system_instruction=system_instruction
+        )
+        messages = params["messages"]
+        history: list[AWSNovaSonicConversationHistoryMessage] = []
+        if messages and messages[0].role is Role.ASSISTANT:
+            # The greeting trigger is intentionally absent from Dograh's shared
+            # transcript. Restore a historical USER prompt only in Nova's view:
+            # AWS rejects history beginning with ASSISTANT. Keeping the greeting
+            # also preserves what the caller is replying to after a reconnect.
+            history.append(
+                AWSNovaSonicConversationHistoryMessage(
+                    role=Role.USER, text=_INITIAL_RESPONSE_PROMPT
+                )
+            )
+        for message in messages:
+            # Aggregation and filtering tool entries can leave adjacent messages
+            # with the same role; Nova's history requires alternating roles.
+            if history and history[-1].role is message.role:
+                history[-1].text += "\n" + message.text
+            else:
+                history.append(replace(message))
+        params["messages"] = history
+        return params
+
+
 class DograhAWSNovaSonicLLMService(AWSNovaSonicLLMService):
     """AWS Nova 2 Sonic with Dograh workflow integration."""
+
+    adapter_class = DograhAWSNovaSonicLLMAdapter
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -101,10 +142,31 @@ class DograhAWSNovaSonicLLMService(AWSNovaSonicLLMService):
             frame.finalized = True
         await super().push_frame(frame, direction)
 
-    async def _handle_input_audio_frame(self, frame):
+    async def _handle_input_audio_frame(self, frame: InputAudioRawFrame):
         if self._user_is_muted:
-            return
+            # Nova's interactive text responses require continuous audio input.
+            # Dropping packets here deadlocks the initial greeting: the caller
+            # stays muted until the bot finishes, but Nova cannot start speaking.
+            # Preserve packet duration/cadence without exposing muted speech to
+            # Nova or its session-continuation buffer. Keep the original frame
+            # intact for other consumers, including call recording.
+            frame = replace(frame, audio=bytes(len(frame.audio)))
         await super()._handle_input_audio_frame(frame)
+
+    async def _send_user_audio_event(self, audio: bytes) -> None:
+        if self._disconnecting or not self._stream or not self._audio_input_started:
+            return
+
+        stream = self._stream
+        try:
+            await super()._send_user_audio_event(audio)
+        except Exception as e:
+            # A send already in progress can fail after teardown starts, even
+            # after a replacement stream has connected. Like Gemini Live,
+            # ignore teardown failures while reporting active-session errors.
+            if self._disconnecting or self._stream is not stream:
+                return
+            await self.push_error(error_msg=f"Send error: {e}", exception=e)
 
     # ------------------------------------------------------------------
     # Initial and one-off response triggers

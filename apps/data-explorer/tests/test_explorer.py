@@ -48,7 +48,7 @@ class FakeStore:
 
 @pytest.fixture
 def app(tmp_path):
-    settings = Settings("postgresql+asyncpg://readonly@example.invalid/calmos", "test-admin-token", str(tmp_path / "audit.jsonl"), "bucket", "eu-west-2", None, 300, 1024 * 1024)
+    settings = Settings("postgresql+asyncpg://readonly@example.invalid/calmos", "test-admin-token", str(tmp_path / "audit.jsonl"), "bucket", "eu-west-2", None, None, None, 300, 1024 * 1024)
     return create_app(settings, FakeRepository(), FakeStore(), FileAuditSink(settings.audit_log_path))
 
 

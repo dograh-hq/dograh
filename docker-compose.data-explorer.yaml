@@ -14,10 +14,22 @@ services:
       AWS_REGION: ${AWS_REGION:-eu-west-2}
       AWS_PROFILE: ${AWS_PROFILE:-default}
       S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      MINIO_BUCKET: ${MINIO_BUCKET:-}
+      MINIO_ENDPOINT: http://minio:9000
+      DATA_EXPLORER_MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-}
+      DATA_EXPLORER_MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
     volumes:
       - data-explorer-audit:/var/log/calmos-data-explorer
       # Local development AWS profile/SSO credentials only; do not add static
       # AWS keys to an .env file.
       - ${HOME}/.aws:/home/explorer/.aws:ro
+    networks:
+      - app-network
 volumes:
   data-explorer-audit:
+networks:
+  # The local Dograh stack already owns this network. The explorer joins it
+  # rather than publishing PostgreSQL or MinIO outside the stack.
+  app-network:
+    external: true
+    name: ${DATA_EXPLORER_DOGRAH_NETWORK:-dograh_app-network}

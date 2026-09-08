@@ -34,7 +34,16 @@ class S3ObjectStore:
         self.region = settings.s3_region
         self.endpoint_url = settings.s3_endpoint_url
         self.expiry = settings.presign_expiry_seconds
-        self.session = aioboto3.Session()
+        # Supplying credentials is only for a configured S3-compatible local
+        # store such as MinIO. With normal AWS settings both values are None,
+        # which leaves boto3/aioboto3 on its default role/profile/SSO chain.
+        session_kwargs = {}
+        if settings.s3_endpoint_url and settings.object_store_access_key and settings.object_store_secret_key:
+            session_kwargs = {
+                "aws_access_key_id": settings.object_store_access_key,
+                "aws_secret_access_key": settings.object_store_secret_key,
+            }
+        self.session = aioboto3.Session(**session_kwargs)
 
     def _client_kwargs(self) -> dict:
         values = {"region_name": self.region}

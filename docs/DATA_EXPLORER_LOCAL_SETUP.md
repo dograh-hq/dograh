@@ -25,3 +25,9 @@ uvicorn data_explorer.main:app --reload --port 8090
 For AWS-backed storage use AWS CLI profile or SSO (`AWS_PROFILE`); do not put
 AWS access keys in `.env`. Local object-store access must target a private
 compatible endpoint and use local-only credentials outside source control.
+
+When joining the repository's running local stack, use its existing Docker
+network and service names: `DATA_EXPLORER_DOGRAH_NETWORK=dograh_app-network`,
+the database hostname `postgres`, and the private MinIO hostname `minio`. The
+Explorer Compose file joins that network by default; it never exposes either
+datastore to the browser.

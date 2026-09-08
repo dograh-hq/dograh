@@ -438,6 +438,26 @@ def _openai_realtime_usage_to_sts_metadata(usage: Dict[str, Any]) -> Dict[str, A
     return out
 
 
+def _nova_sonic_usage_to_sts_metadata(usage: LLMTokenUsage) -> dict[str, Any]:
+    """Map Nova's combined token totals and audio subsets to Paygent modalities."""
+    out: dict[str, Any] = {"schemaVersion": 1}
+    for direction, total, audio in (
+        ("input", usage.prompt_tokens, usage.input_audio_tokens),
+        ("output", usage.completion_tokens, usage.output_audio_tokens),
+    ):
+        audio_tokens = audio or 0
+        # Pipecat includes Nova's speech tokens in the prompt/completion totals.
+        text_tokens = total - audio_tokens
+        modalities = {}
+        if text_tokens > 0:
+            modalities["text"] = {"tokens": text_tokens}
+        if audio_tokens > 0:
+            modalities["audio"] = {"tokens": audio_tokens}
+        if modalities:
+            out[direction] = modalities
+    return out
+
+
 def _merge_sts_metadata(existing: dict, new: dict) -> dict:
     if not existing:
         return new
@@ -624,7 +644,9 @@ class PaygentCollector(BaseObserver):
                                 raw_metadata = getattr(
                                     usage, "raw_usage_metadata", None
                                 )
-                                if raw_metadata:
+                                if provider == "aws_nova_sonic":
+                                    new_meta = _nova_sonic_usage_to_sts_metadata(usage)
+                                elif raw_metadata:
                                     # OpenAI Realtime and Azure Realtime (azure→openai via _detect_provider)
                                     # share the same wire format.
                                     if provider in ("openai", "azure"):

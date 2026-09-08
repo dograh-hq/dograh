@@ -54,12 +54,18 @@ from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSS
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
-from pipecat.services.google.tts import GoogleTTSService, GoogleTTSSettings
+from pipecat.services.google.tts import (
+    GoogleHttpTTSService,
+    GoogleHttpTTSSettings,
+    GoogleTTSService,
+    GoogleTTSSettings,
+)
 from pipecat.services.google.vertex.llm import (
     GoogleVertexLLMService,
     GoogleVertexLLMSettings,
 )
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
+from pipecat.services.groq.stt import GroqSTTService, GroqSTTSettings
 from pipecat.services.huggingface.llm import (
     HuggingFaceLLMService,
     HuggingFaceLLMSettings,
@@ -311,6 +317,17 @@ def create_stt_service(
             settings=OpenAISTTSettings(model=user_config.stt.model),
             should_interrupt=False,  # Let UserAggregator own interruption confirmation.
             **kwargs,
+        )
+    elif user_config.stt.provider == ServiceProviders.GROQ.value:
+        settings_kwargs = {"model": user_config.stt.model}
+        # Blank language means Whisper auto-detect, which suits code-mixed speech.
+        language = getattr(user_config.stt, "language", None)
+        if language:
+            settings_kwargs["language"] = language
+        return GroqSTTService(
+            api_key=user_config.stt.api_key,
+            settings=GroqSTTSettings(**settings_kwargs),
+            should_interrupt=False,  # Let UserAggregator own interruption confirmation.
         )
     elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
         language = getattr(user_config.stt, "language", None) or "en-US"
@@ -595,6 +612,27 @@ def create_tts_service(
         speed = getattr(user_config.tts, "speed", None)
         location = getattr(user_config.tts, "location", None) or None
         credentials = getattr(user_config.tts, "credentials", None)
+
+        # The streaming API only accepts Chirp 3 HD / Journey voices; the
+        # wavenet/standard engines go through the batch HTTP API, which is the
+        # only route to the low-cost WaveNet/Standard voice tiers.
+        if model in ("wavenet", "standard"):
+            http_settings_kwargs = {
+                "voice": voice,
+                "language": language,
+            }
+            if speed is not None and speed != 1.0:
+                # Non-Chirp voices take speed as an SSML prosody rate percentage.
+                http_settings_kwargs["rate"] = f"{round(speed * 100)}%"
+
+            return GoogleHttpTTSService(
+                credentials=credentials,
+                location=location,
+                settings=GoogleHttpTTSSettings(**http_settings_kwargs),
+                text_filters=[xml_function_tag_filter],
+                skip_aggregator_types=["recording_router", "recording"],
+                silence_time_s=1.0,
+            )
 
         settings_kwargs = {
             "model": model,

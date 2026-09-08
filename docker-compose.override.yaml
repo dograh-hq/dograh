@@ -1,0 +1,25 @@
+# Local-only override (not part of upstream Dograh).
+#
+# 1) cloudflared stub: api/utils/tunnel.py resolves a Cloudflare tunnel URL on
+#    every /api/v1/health call whenever BACKEND_API_ENDPOINT is localhost. With
+#    the "tunnel" profile disabled the hostname `cloudflared` does not exist and
+#    the lookup dangles 2-5s, tripping the UI's 3000ms health check. Pointing it
+#    at 127.0.0.1 makes the connect fail instantly; the API still falls back to
+#    http://localhost:8000 as before.
+#
+# 2) Patched-file mounts: expose the local Google WaveNet/Standard TTS patch
+#    (GoogleHttpTTSService wiring) inside the prebuilt image. The image was
+#    verified byte-identical to this clone's HEAD for these files, so mounting
+#    only the patched files is safe. Remove once the patch ships in the image.
+#
+# !! REMOVE the extra_hosts block before starting the "tunnel" profile,
+# !! otherwise real tunnel discovery breaks:
+# !!     docker compose --profile tunnel up -d
+services:
+  api:
+    extra_hosts:
+      - "cloudflared:127.0.0.1"
+    volumes:
+      - ./api/services/pipecat/service_factory.py:/app/api/services/pipecat/service_factory.py:ro
+      - ./api/services/configuration/registry.py:/app/api/services/configuration/registry.py:ro
+      - ./api/services/configuration/options/google.py:/app/api/services/configuration/options/google.py:ro

@@ -998,8 +998,10 @@ class GoogleTTSConfiguration(BaseTTSConfiguration):
     model: str = Field(
         default="chirp_3_hd",
         description=(
-            "Google Cloud low-latency TTS engine. Dograh maps this to Pipecat's "
-            "streaming Google TTS service for Chirp 3 HD and Journey voices."
+            "Google Cloud TTS engine. chirp_3_hd uses the streaming API "
+            "(Chirp 3 HD / Journey voices, premium tier). wavenet and standard "
+            "use the batch HTTP API and unlock the low-cost WaveNet/Standard "
+            "voice tiers."
         ),
         json_schema_extra={
             "examples": GOOGLE_TTS_MODELS,
@@ -1008,7 +1010,11 @@ class GoogleTTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(
         default="en-US-Chirp3-HD-Charon",
-        description="Google Cloud voice name. Use a Chirp 3 HD or Journey voice for streaming TTS.",
+        description=(
+            "Google Cloud voice name. Chirp 3 HD / Journey voices pair with the "
+            "chirp_3_hd engine; WaveNet/Standard voices (e.g. hi-IN-Wavenet-D) "
+            "pair with the wavenet/standard engines."
+        ),
         json_schema_extra={
             "examples": GOOGLE_TTS_VOICES,
             "allow_custom_input": True,
@@ -1530,6 +1536,31 @@ class CartesiaSTTConfiguration(BaseSTTConfiguration):
                 "ink-2": CARTESIA_INK_2_STT_LANGUAGES,
                 "ink-whisper": CARTESIA_INK_WHISPER_STT_LANGUAGES,
             },
+        },
+    )
+
+
+GROQ_STT_MODELS = ["whisper-large-v3-turbo", "whisper-large-v3"]
+
+
+@register_stt
+class GroqSTTConfiguration(BaseSTTConfiguration):
+    model_config = GROQ_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GROQ] = ServiceProviders.GROQ
+    model: str = Field(
+        default="whisper-large-v3-turbo",
+        description="Groq-hosted Whisper transcription model.",
+        json_schema_extra={"examples": GROQ_STT_MODELS, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="",
+        description=(
+            "Optional ISO 639-1 language hint (e.g. 'hi'). Leave blank for "
+            "Whisper auto-detect, which handles code-mixed speech best."
+        ),
+        json_schema_extra={
+            "examples": ["", "hi", "en", "bn", "ta", "te", "mr", "gu", "kn", "ml", "pa"],
+            "allow_custom_input": True,
         },
     )
 

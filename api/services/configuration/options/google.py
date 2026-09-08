@@ -217,7 +217,11 @@ GOOGLE_STT_LANGUAGES = (
     "zu-ZA",
 )
 
-GOOGLE_TTS_MODELS = ("chirp_3_hd",)
+# chirp_3_hd streams via Google's StreamingSynthesize API (Chirp 3 HD / Journey
+# voices only). wavenet and standard route through the batch HTTP API, which is
+# the only way to reach the low-cost WaveNet/Standard voice tiers (e.g. the
+# hi-IN/bn-IN/ta-IN regional voices priced at $4/1M characters).
+GOOGLE_TTS_MODELS = ("chirp_3_hd", "wavenet", "standard")
 GOOGLE_TTS_VOICES = ("en-US-Chirp3-HD-Charon",)
 GOOGLE_TTS_LANGUAGES = (
     "ar-XA",

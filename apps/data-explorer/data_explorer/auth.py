@@ -26,6 +26,12 @@ def require_admin(settings: Settings):
         request: Request,
         authorization: str | None = Header(default=None),
     ) -> AdminPrincipal:
+        # This escape hatch is intentionally explicit and the Compose service
+        # binds to 127.0.0.1 in this mode. It exists only for local data-review
+        # sessions, never for shared, VPN, or deployed environments.
+        if settings.local_test_mode:
+            return AdminPrincipal(subject="localhost-test")
+        assert settings.admin_token is not None
         expected = f"Bearer {settings.admin_token}"
         if not authorization or not secrets.compare_digest(authorization, expected):
             raise HTTPException(

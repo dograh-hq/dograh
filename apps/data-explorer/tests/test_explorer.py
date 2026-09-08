@@ -48,7 +48,7 @@ class FakeStore:
 
 @pytest.fixture
 def app(tmp_path):
-    settings = Settings("postgresql+asyncpg://readonly@example.invalid/calmos", "test-admin-token", str(tmp_path / "audit.jsonl"), "bucket", "eu-west-2", None, None, None, 300, 1024 * 1024)
+    settings = Settings("postgresql+asyncpg://readonly@example.invalid/calmos", "test-admin-token", False, str(tmp_path / "audit.jsonl"), "bucket", "eu-west-2", None, None, None, 300, 1024 * 1024)
     return create_app(settings, FakeRepository(), FakeStore(), FileAuditSink(settings.audit_log_path))
 
 
@@ -65,6 +65,15 @@ def auth(): return {"Authorization": "Bearer test-admin-token"}
 @pytest.mark.asyncio
 async def test_authentication_denies_by_default(client):
     assert (await client.get("/api/calls")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_explicit_local_test_mode_bypasses_token_only_when_enabled(tmp_path):
+    settings = Settings("postgresql+asyncpg://readonly@example.invalid/calmos", None, True, str(tmp_path / "audit.jsonl"), "bucket", "eu-west-2", None, None, None, 300, 1024 * 1024)
+    app = create_app(settings, FakeRepository(), FakeStore(), FileAuditSink(settings.audit_log_path))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as local_client:
+        assert (await local_client.get("/api/dashboard")).status_code == 200
 
 
 @pytest.mark.asyncio

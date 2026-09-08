@@ -16,7 +16,8 @@ def _required(name: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     database_url: str
-    admin_token: str
+    admin_token: str | None
+    local_test_mode: bool
     audit_log_path: str
     s3_bucket: str | None
     s3_region: str
@@ -30,9 +31,14 @@ class Settings:
     def from_environment(cls) -> "Settings":
         # This intentionally uses a distinct URL. Deployment must point it at a
         # PostgreSQL role granted SELECT only, never Dograh's application role.
+        local_test_mode = os.getenv("DATA_EXPLORER_LOCAL_TEST_MODE", "false").lower() == "true"
+        admin_token = os.getenv("DATA_EXPLORER_ADMIN_TOKEN", "").strip() or None
+        if not admin_token and not local_test_mode:
+            raise RuntimeError("DATA_EXPLORER_ADMIN_TOKEN must be configured outside localhost test mode")
         return cls(
             database_url=_required("DATA_EXPLORER_DATABASE_READONLY_URL"),
-            admin_token=_required("DATA_EXPLORER_ADMIN_TOKEN"),
+            admin_token=admin_token,
+            local_test_mode=local_test_mode,
             audit_log_path=os.getenv("DATA_EXPLORER_AUDIT_LOG_PATH", "/var/log/calmos-data-explorer/audit.jsonl"),
             s3_bucket=(os.getenv("DATA_EXPLORER_S3_BUCKET") or os.getenv("AWS_RECORDINGS_BUCKET") or os.getenv("S3_BUCKET") or os.getenv("MINIO_BUCKET")),
             s3_region=os.getenv("AWS_REGION") or os.getenv("S3_REGION", "eu-west-2"),

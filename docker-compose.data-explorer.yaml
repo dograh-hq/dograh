@@ -4,10 +4,12 @@ services:
     build:
       context: ./apps/data-explorer
     ports:
-      - "8090:8090"
+      # Never publish the unauthenticated local-test mode beyond this machine.
+      - "127.0.0.1:8090:8090"
     environment:
       DATA_EXPLORER_DATABASE_READONLY_URL: ${DATA_EXPLORER_DATABASE_READONLY_URL:?Set a PostgreSQL SELECT-only connection URL}
-      DATA_EXPLORER_ADMIN_TOKEN: ${DATA_EXPLORER_ADMIN_TOKEN:?Set an administrator token}
+      DATA_EXPLORER_ADMIN_TOKEN: ${DATA_EXPLORER_ADMIN_TOKEN:-}
+      DATA_EXPLORER_LOCAL_TEST_MODE: ${DATA_EXPLORER_LOCAL_TEST_MODE:-false}
       DATA_EXPLORER_AUDIT_LOG_PATH: /var/log/calmos-data-explorer/audit.jsonl
       DATA_EXPLORER_S3_BUCKET: ${DATA_EXPLORER_S3_BUCKET:-}
       AWS_RECORDINGS_BUCKET: ${AWS_RECORDINGS_BUCKET:-}

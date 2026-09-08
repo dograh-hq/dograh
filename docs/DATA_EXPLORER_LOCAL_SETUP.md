@@ -15,6 +15,10 @@ docker compose -f docker-compose.data-explorer.yaml --env-file apps/data-explore
 ```
 
 Open `http://localhost:8090`, then enter the configured administrator token.
+For a short-lived initial test only, set `DATA_EXPLORER_LOCAL_TEST_MODE=true`
+and leave `DATA_EXPLORER_ADMIN_TOKEN` unset. This intentionally removes the
+prompt, but Compose binds the service to `127.0.0.1`; do not use that mode on a
+shared machine or any deployed environment.
 For direct development, install the app dependencies and run:
 
 ```bash

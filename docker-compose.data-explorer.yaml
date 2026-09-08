@@ -1,0 +1,23 @@
+# An intentionally separate service. It does not amend Dograh production Compose.
+services:
+  data-explorer:
+    build:
+      context: ./apps/data-explorer
+    ports:
+      - "8090:8090"
+    environment:
+      DATA_EXPLORER_DATABASE_READONLY_URL: ${DATA_EXPLORER_DATABASE_READONLY_URL:?Set a PostgreSQL SELECT-only connection URL}
+      DATA_EXPLORER_ADMIN_TOKEN: ${DATA_EXPLORER_ADMIN_TOKEN:?Set an administrator token}
+      DATA_EXPLORER_AUDIT_LOG_PATH: /var/log/calmos-data-explorer/audit.jsonl
+      DATA_EXPLORER_S3_BUCKET: ${DATA_EXPLORER_S3_BUCKET:-}
+      AWS_RECORDINGS_BUCKET: ${AWS_RECORDINGS_BUCKET:-}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+    volumes:
+      - data-explorer-audit:/var/log/calmos-data-explorer
+      # Local development AWS profile/SSO credentials only; do not add static
+      # AWS keys to an .env file.
+      - ${HOME}/.aws:/home/explorer/.aws:ro
+volumes:
+  data-explorer-audit:

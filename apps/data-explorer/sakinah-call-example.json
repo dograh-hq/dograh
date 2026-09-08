@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "exported_at": "2026-01-01T10:05:00+00:00",
+  "call": {"call_id": "example-call-001", "started_at": "2026-01-01T10:00:00+00:00", "source": {"table": "workflow_runs", "record_id": "19"}},
+  "agent_run": {"id": 19, "agent": "Sakinah example", "source": {"table": "workflow_runs", "record_id": "19"}},
+  "caller": {"service_user_id": "example-user-001"},
+  "transcript": "SERVICE USER: I prefer morning calls.\nSAKINAH: I can note that preference.",
+  "conversation": [{"speaker": "user", "sequence_number": 1, "transcript": "I prefer morning calls."}],
+  "scores": {"calm_score": {"value": 0.82}},
+  "safety": {"events": []},
+  "clinical_evaluation": {},
+  "memory": {
+    "available_before_call": [{"id": "memory-before", "memory_text": "Prefers a quiet introduction", "source": {"table": "memories", "record_id": "memory-before"}}],
+    "retrieved_for_call": [],
+    "written_during_call": [{"id": "memory-new", "memory_text": "Prefers morning calls", "source_agent_run_id": 19}],
+    "current": [{"id": "memory-before"}, {"id": "memory-new"}],
+    "history": [{"memory_id": "memory-new", "agent_run_id": 19, "source_excerpt": "I prefer morning calls."}]
+  },
+  "files": [{"file_name": "mixed.wav", "mime_type": "audio/wav", "object_key": "recordings/2026/01/example-user-001/example-call-001/call.wav", "size_bytes": 123456}]
+}

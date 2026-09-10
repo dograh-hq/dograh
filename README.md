@@ -148,7 +148,7 @@ See the [MCP guide](https://docs.dograh.com/integrations/mcp) to connect your as
 
 ### Voice & Telephony
 
-- Built-in telephony integrations including Twilio, Vonage, Telnyx, Plivo, Vobiz, Cloudonix, and Asterisk ARI
+- Built-in telephony integrations including Twilio, Vonage, Telnyx, Plivo, Vobiz, Cloudonix, Asterisk ARI, and PAPI VoIP (WhatsApp Voice)
 - Human handoff with call transfer on supported telephony providers
 - Bring your own LLM, TTS, STT, and telephony providers; store artifacts in bundled MinIO or AWS/S3-compatible storage
 

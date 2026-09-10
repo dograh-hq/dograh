@@ -261,6 +261,7 @@ class ProviderSpec:
             uses (e.g. 8000 for Twilio/Plivo, 16000 for Vonage). The pipecat
             layer derives the full ``AudioConfig`` from this.
         config_request_cls: Pydantic model for incoming save requests.
+        config_response_cls: Optional Pydantic model for outgoing (masked) responses.
         ui_metadata: Optional form metadata used by the telephony-config
             UI to render a provider-specific form. Surfaced via
             ``GET /api/v1/telephony/providers/metadata``.
@@ -303,6 +304,7 @@ class ProviderSpec:
     transport_factory: TransportFactory
     transport_sample_rate: int
     config_request_cls: Type[BaseModel]
+    config_response_cls: Optional[Type[BaseModel]] = None
     ui_metadata: Optional[ProviderUIMetadata] = None
     # Credential field that uniquely identifies the provider account. Used to
     # (a) match an inbound webhook to the right org config when multiple configs

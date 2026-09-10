@@ -10,6 +10,8 @@ The rules are simple:
 """
 
 import copy
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, Dict, Optional
 
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
@@ -108,6 +110,99 @@ def resolve_masked_api_keys(
         if not matched:
             resolved.append(key)
     return resolved
+
+
+# ---------------------------------------------------------------------------
+# Restoring masked or omitted secrets in a nested credential payload
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _SensitiveNode:
+    """One node of a credential payload's sensitive-field tree.
+
+    ``secret`` and ``children`` are independent, because a dotted path can be
+    both: a maskable credential in its own right *and* an ancestor of other
+    credentials. Collapsing the two roles into one flag would silently drop
+    whichever role lost, so each is recorded explicitly.
+    """
+
+    secret: bool = False
+    children: Dict[str, "_SensitiveNode"] = dataclass_field(default_factory=dict)
+
+
+def build_sensitive_tree(sensitive_paths: list[str]) -> Dict[str, _SensitiveNode]:
+    """Nest dotted sensitive-field paths into a prefix tree."""
+    root: Dict[str, _SensitiveNode] = {}
+    for path in sensitive_paths:
+        children, node = root, None
+        for part in path.split("."):
+            node = children.setdefault(part, _SensitiveNode())
+            children = node.children
+        if node is not None:
+            node.secret = True
+    return root
+
+
+def restore_masked_fields(
+    request: dict,
+    existing: dict,
+    fields_set: set[str],
+    sensitive_paths: list[str],
+) -> None:
+    """Restore stored secrets *request* re-submitted masked or left out.
+
+    ``fields_set`` is the ancestor-closed set of dotted paths the client
+    explicitly sent (``"a.b" in fields_set`` implies ``"a" in fields_set``).
+    A serialised payload alone cannot tell "cleared this" from "never
+    mentioned it" — both look like a null once defaults are materialised —
+    so ``fields_set`` is what settles the difference.
+
+    *request* is edited in place.
+    """
+    _restore_unchanged(build_sensitive_tree(sensitive_paths), request, existing, fields_set)
+
+
+def _restore_unchanged(
+    tree: Dict[str, _SensitiveNode],
+    request: dict,
+    existing: dict,
+    fields_set: set[str],
+    prefix: str = "",
+) -> None:
+    """Merge stored credentials into *request* for everything the caller left alone.
+
+    One rule, applied top-down: a path absent from ``fields_set`` is one the
+    caller never mentioned, so what is stored stands — for a section that
+    means the whole stored subtree, non-sensitive members included, since they
+    were never in the payload to argue with. Descending only into sections the
+    caller did send is what makes an explicit null stick: a cleared section is
+    never recursed into, so its children cannot be resurrected one by one.
+
+    Which role a node plays is settled by the stored value's shape: a stored
+    dict is a section, anything else is a secret to compare against its mask.
+    """
+    for key, node in tree.items():
+        stored = existing.get(key)
+        is_section = bool(node.children) and isinstance(stored, dict)
+        is_secret = node.secret and bool(stored) and not isinstance(stored, dict)
+        if not is_section and not is_secret:
+            continue  # nothing stored here worth protecting
+
+        path = f"{prefix}.{key}" if prefix else key
+        if path not in fields_set:
+            request[key] = copy.deepcopy(stored)
+            continue
+
+        sent = request.get(key)
+        if sent is None:
+            continue  # explicitly nulled — let the clear through
+
+        if is_secret:
+            if is_mask_of(sent, stored):
+                request[key] = stored
+        elif isinstance(sent, dict):
+            _restore_unchanged(node.children, sent, stored, fields_set, path)
 
 
 # ---------------------------------------------------------------------------

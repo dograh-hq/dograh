@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.46.0.5 (2026-09-10)
+
+- Integrate inbound-only WhatsApp Business Calling from Dograh PR #732, including Meta webhook verification, HMAC validation, WebRTC media, multi-worker termination, and Meta phone-number synchronisation.
+- Route normalized WhatsApp caller identifiers through the existing CALMOS service-user memory and workflow-run persistence paths; no separate memory store is introduced.
+- Keep existing CALMOS database, transcript, audio, MinIO, optional S3-secondary, CALM, safety, and clinical-evaluation behavior unchanged.
+
 ## 1.46.0.4.2.D (2026-09-07)
 
 - Add durable per-artifact S3-secondary reconciliation state and a bounded ARQ repair sweep.

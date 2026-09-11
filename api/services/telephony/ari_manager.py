@@ -67,7 +67,7 @@ _PENDING_BRIDGE_PREFIX = "ari:pending_bridge:"
 _PENDING_OUTBOUND_PREFIX = "ari:pending_outbound:"
 _CHANNEL_KEY_TTL = 3600  # 1 hour safety expiry
 _PENDING_BRIDGE_TTL = 300  # 5 min safety expiry for bridge-pending state
-_PENDING_OUTBOUND_TTL = 300  # 5 min safety expiry for pre-answer outbound
+_PENDING_OUTBOUND_TTL = 3600  # 1 hour safety expiry for pre-answer outbound
 
 # Auto-deactivation policy.
 #

@@ -624,6 +624,19 @@ class ARIConnection:
                 # Early media or pre-answer state (e.g. Ringing, Down).
                 # Defer pipeline start until the callee answers
                 # (ChannelStateChange → Up).
+                transfer_id = self._get_transfer_id(app_args)
+                if transfer_id:
+                    logger.info(
+                        f"[ARI org={self.organization_id}] StasisStart in pre-answer "
+                        f"state '{channel_state}' for transfer destination {channel_id} — "
+                        f"deferring transfer continuation until callee answers"
+                    )
+                    transfer_manager = await self._get_transfer_manager()
+                    await transfer_manager.store_transfer_channel_mapping(
+                        channel_id, transfer_id
+                    )
+                    return
+
                 logger.info(
                     f"[ARI org={self.organization_id}] StasisStart in pre-answer "
                     f"state '{channel_state}' for channel {channel_id} — "
@@ -677,6 +690,16 @@ class ARIConnection:
                             pending["workflow_id"],
                         )
                     )
+                else:
+                    transfer_id = await self._get_transfer_id_for_channel(channel_id)
+                    if transfer_id:
+                        logger.info(
+                            f"[ARI org={self.organization_id}] Deferred transfer destination "
+                            f"{channel_id} answered (Up) — resuming transfer handoff"
+                        )
+                        asyncio.create_task(
+                            self._handle_destination_answered(transfer_id, channel_id)
+                        )
 
         elif event_type == "ChannelDestroyed":
             cause = event.get("cause", 0)
@@ -720,6 +743,17 @@ class ARIConnection:
                 wf_run_id = await self._get_channel_run(channel_id)
 
             if wf_run_id:
+                # Exclude external-media destroys to prevent premature status completion 
+                # (e.g. during call transfers where the ext leg is torn down but caller stays)
+                if await self._is_ext_channel(channel_id):
+                    logger.debug(
+                        f"[ARI org={self.organization_id}] Ignoring ChannelDestroyed "
+                        f"for external-media channel {channel_id} (run {wf_run_id})"
+                    )
+                    await self._delete_ext_channel(channel_id)
+                    await self._delete_channel_run(channel_id)
+                    return
+
                 mapped_status = _map_asterisk_cause_to_status(cause)
                 logger.info(
                     f"[ARI org={self.organization_id}] Processing "
@@ -732,13 +766,15 @@ class ARIConnection:
                         status=mapped_status,
                     )
                     await _process_status_update(int(wf_run_id), status_req)
+                    
+                    # Clean up the Redis mapping ONLY on success (idempotent if already gone)
+                    # This ensures transient failures retain the correlation key for retries.
+                    await self._delete_channel_run(channel_id)
                 except Exception as e:
                     logger.error(
                         f"[ARI org={self.organization_id}] Error processing "
                         f"status update for run {wf_run_id}: {e}"
                     )
-                # Clean up the Redis mapping (idempotent if already gone)
-                await self._delete_channel_run(channel_id)
 
         elif event_type == "ChannelDtmfReceived":
             digit = event.get("digit", "")

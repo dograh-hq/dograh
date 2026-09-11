@@ -6,6 +6,7 @@ The ARI WebSocket event listener runs as a separate process (ari_manager.py).
 """
 
 import json
+import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -107,9 +108,11 @@ class ARIProvider(TelephonyProvider):
             sip_endpoint = f"PJSIP/{to_number}"
 
         # Prepare channel creation data
+        channel_id = f"dograh-out-{uuid.uuid4()}"
         params = {
             "endpoint": sip_endpoint,
             "app": self.stasis_app_name,
+            "channelId": channel_id,
             "appArgs": ",".join(
                 filter(
                     None,
@@ -129,8 +132,25 @@ class ARIProvider(TelephonyProvider):
 
         logger.info(
             f"[ARI] Initiating call to {sip_endpoint} "
-            f"via app={self.stasis_app_name}, workflow_run_id={workflow_run_id}"
+            f"via app={self.stasis_app_name}, channel_id={channel_id}, workflow_run_id={workflow_run_id}"
         )
+
+        # Pre-seed channel→workflow_run_id in Redis BEFORE making the POST request.
+        # This guarantees that if the channel is instantly destroyed (e.g. invalid endpoint),
+        # ari_manager will find the mapping and process the ChannelDestroyed event.
+        if workflow_run_id:
+            try:
+                r = aioredis.from_url(
+                    REDIS_URL, decode_responses=True
+                )
+                await r.set(
+                    f"ari:channel:{channel_id}",
+                    str(workflow_run_id),
+                    ex=3600,
+                )
+                await r.aclose()
+            except Exception as e:
+                logger.error(f"[ARI] Could not pre-seed channel mapping for {channel_id}: {e}")
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -147,34 +167,12 @@ class ARIProvider(TelephonyProvider):
                     )
 
                 response_data = json.loads(response_text)
-                channel_id = response_data.get("id", "")
+                actual_channel_id = response_data.get("id", channel_id)
 
                 logger.info(
-                    f"[ARI] Channel created: {channel_id} "
+                    f"[ARI] Channel created: {actual_channel_id} "
                     f"state={response_data.get('state')}"
                 )
-
-                # Pre-seed channel→workflow_run_id in Redis so the ARI
-                # manager can correlate ChannelDestroyed events with the
-                # workflow run even when the callee never answers (no
-                # StasisStart fires).  The manager refreshes the key when
-                # the channel enters Stasis.
-                if channel_id and workflow_run_id:
-                    try:
-                        r = aioredis.from_url(
-                            REDIS_URL, decode_responses=True
-                        )
-                        await r.set(
-                            f"ari:channel:{channel_id}",
-                            str(workflow_run_id),
-                            ex=3600,
-                        )
-                        await r.aclose()
-                    except Exception:
-                        logger.debug(
-                            f"[ARI] Could not pre-seed channel mapping "
-                            f"for {channel_id}"
-                        )
 
                 return CallInitiationResult(
                     call_id=channel_id,

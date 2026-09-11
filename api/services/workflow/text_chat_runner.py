@@ -601,9 +601,8 @@ async def execute_text_chat_pending_turn(
         embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
-    context_compaction_enabled = (workflow.workflow_configurations or {}).get(
-        "context_compaction_enabled", False
-    )
+    # Pinned definition, not the workflow row (which mirrors the draft).
+    context_compaction_enabled = run_configs.get("context_compaction_enabled", False)
     engine = PipecatEngine(
         llm=llm,
         inference_llm=inference_llm,

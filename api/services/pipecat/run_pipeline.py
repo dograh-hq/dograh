@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from typing import Optional
 
 from fastapi import HTTPException
@@ -119,8 +120,52 @@ from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 # Setup tracing if enabled
 ensure_tracing()
 
+
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+
+
+async def _warmup_llm_connection(llm) -> None:
+    """Pre-warm the LLM provider's HTTP/TLS connection.
+
+    Fires a minimal 1-token completion through the same internal httpx client
+    that pipecat will use for real LLM calls. This ensures the TCP+TLS handshake
+    with the provider API is done BEFORE the first user turn, eliminating the
+    ~800ms cold-start penalty customers experience on the first bot response.
+
+    Must be called as a fire-and-forget asyncio.create_task() immediately after
+    the LLM service is created — while the pipeline setup and greeting TTS are
+    still in progress.
+    """
+    # Only OpenAI-compatible services expose _client (OpenAI, Sarvam, Groq …).
+    # Others are silently skipped.
+    client = getattr(llm, "_client", None)
+    if client is None:
+        return
+
+    model = None
+    with contextlib.suppress(Exception):
+        model = llm._settings.model  # type: ignore[attr-defined]
+
+    if not model:
+        return
+
+    try:
+        # GPT-5 models (gpt-5, gpt-5-mini, gpt-5-nano) require
+        # `max_completion_tokens`; older models use the legacy `max_tokens`.
+        token_limit_kwarg = (
+            {"max_completion_tokens": 1}
+            if isinstance(model, str) and "gpt-5" in model
+            else {"max_tokens": 1}
+        )
+        await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "1"}],
+            **token_limit_kwarg,
+            stream=False,
+        )
+    except Exception as e:
+        logger.warning(f"LLM connection warmup failed for model {model}: {e}")
 
 
 def _resolve_user_turn_stop_timeout(
@@ -684,6 +729,8 @@ async def _run_pipeline_impl(
     # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
     is_realtime = user_config.is_realtime and user_config.realtime is not None
 
+    _llm_warmup_task = None
+
     # Create services based on user configuration
     if is_realtime:
         llm = create_realtime_llm_service(user_config, audio_config)
@@ -710,6 +757,16 @@ async def _run_pipeline_impl(
         )
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
+
+        # Pre-warm the LLM HTTP/TLS connection while setup continues and the
+        # greeting plays. This avoids paying the ~800ms cold-start penalty on
+        # the first real user turn. Fire-and-forget: failures are logged.
+        # Operators can enable via run_config `llm_connection_warmup: true`.
+        # Disabled by default as it fires a billable and rate-limited request.
+        # Store the task reference to prevent premature GC (Python best practice).
+        if run_configs.get("llm_connection_warmup", False):
+            _llm_warmup_task = asyncio.create_task(_warmup_llm_connection(llm))
+            _llm_warmup_task.add_done_callback(lambda t: t)
 
     # Variable and disposition extraction may share this out-of-band LLM. A
     # shared conversation LLM cannot carry an extraction usage_context without
@@ -1185,6 +1242,11 @@ async def _run_pipeline_impl(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        if _llm_warmup_task and not _llm_warmup_task.done():
+            _llm_warmup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await _llm_warmup_task
+
         # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),

@@ -9,6 +9,10 @@ import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+import redis.asyncio as aioredis
+
+from api.constants import REDIS_URL
+
 import aiohttp
 from fastapi import HTTPException
 from loguru import logger
@@ -149,6 +153,28 @@ class ARIProvider(TelephonyProvider):
                     f"[ARI] Channel created: {channel_id} "
                     f"state={response_data.get('state')}"
                 )
+
+                # Pre-seed channel→workflow_run_id in Redis so the ARI
+                # manager can correlate ChannelDestroyed events with the
+                # workflow run even when the callee never answers (no
+                # StasisStart fires).  The manager refreshes the key when
+                # the channel enters Stasis.
+                if channel_id and workflow_run_id:
+                    try:
+                        r = aioredis.from_url(
+                            REDIS_URL, decode_responses=True
+                        )
+                        await r.set(
+                            f"ari:channel:{channel_id}",
+                            str(workflow_run_id),
+                            ex=3600,
+                        )
+                        await r.aclose()
+                    except Exception:
+                        logger.debug(
+                            f"[ARI] Could not pre-seed channel mapping "
+                            f"for {channel_id}"
+                        )
 
                 return CallInitiationResult(
                     call_id=channel_id,

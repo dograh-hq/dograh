@@ -51,12 +51,23 @@ from api.services.telephony.transfer_event_protocol import (
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 
+# Lazy imports for campaign/status processing — kept at module level so the
+# symbols are resolved once rather than on every ChannelDestroyed / StasisEnd.
+from api.enums import TelephonyCallStatus
+from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
+from api.services.telephony.status_processor import (
+    StatusCallbackRequest,
+    _process_status_update,
+)
+
 # Redis key pattern and TTL for channel-to-run mapping
 _CHANNEL_KEY_PREFIX = "ari:channel:"
 _EXT_CHANNEL_KEY_PREFIX = "ari:ext_channel:"
 _PENDING_BRIDGE_PREFIX = "ari:pending_bridge:"
+_PENDING_OUTBOUND_PREFIX = "ari:pending_outbound:"
 _CHANNEL_KEY_TTL = 3600  # 1 hour safety expiry
 _PENDING_BRIDGE_TTL = 300  # 5 min safety expiry for bridge-pending state
+_PENDING_OUTBOUND_TTL = 300  # 5 min safety expiry for pre-answer outbound
 
 # Auto-deactivation policy.
 #
@@ -90,6 +101,30 @@ def _log_ari_failure(
         telephony_configuration_id=telephony_configuration_id,
         **context,
     )
+
+
+def _map_asterisk_cause_to_status(cause: int) -> TelephonyCallStatus:
+    """Map Asterisk hangup cause codes (Q.850) to TelephonyCallStatus.
+
+    See https://wiki.asterisk.org/wiki/display/AST/Hangup+Cause+Mappings
+    """
+    _CAUSE_MAP = {
+        16: TelephonyCallStatus.COMPLETED,  # Normal Clearing
+        17: TelephonyCallStatus.BUSY,  # User Busy
+        18: TelephonyCallStatus.NO_ANSWER,  # No User Responding
+        19: TelephonyCallStatus.NO_ANSWER,  # No Answer from User
+        21: TelephonyCallStatus.FAILED,  # Call Rejected
+        1: TelephonyCallStatus.FAILED,  # Unallocated Number
+        27: TelephonyCallStatus.FAILED,  # Destination Out of Order
+        28: TelephonyCallStatus.FAILED,  # Invalid Number Format
+        31: TelephonyCallStatus.FAILED,  # Normal, Unspecified
+        34: TelephonyCallStatus.FAILED,  # No Circuit Available
+        38: TelephonyCallStatus.FAILED,  # Network Out of Order
+        41: TelephonyCallStatus.FAILED,  # Temporary Failure
+        44: TelephonyCallStatus.FAILED,  # Requested Channel Not Available
+        127: TelephonyCallStatus.FAILED,  # Interworking, Unspecified
+    }
+    return _CAUSE_MAP.get(cause, TelephonyCallStatus.FAILED)
 
 
 class ARIConnection:
@@ -223,6 +258,37 @@ class ARIConnection:
         """Read and delete the pending bridge context. Returns None if absent."""
         r = await self._get_redis()
         val = await r.getdel(f"{_PENDING_BRIDGE_PREFIX}{ext_channel_id}")
+        if val is None:
+            return None
+        return json.loads(val)
+
+    async def _set_pending_outbound(
+        self,
+        channel_id: str,
+        workflow_run_id: str,
+        workflow_id: str,
+    ):
+        """Park an outbound channel that arrived in StasisStart before the
+        callee answered (early media).  The pending entry is consumed when
+        ``ChannelStateChange`` reports ``state=Up``, or cleaned up if
+        ``ChannelDestroyed`` fires first.
+        """
+        r = await self._get_redis()
+        await r.set(
+            f"{_PENDING_OUTBOUND_PREFIX}{channel_id}",
+            json.dumps(
+                {
+                    "workflow_run_id": workflow_run_id,
+                    "workflow_id": workflow_id,
+                }
+            ),
+            ex=_PENDING_OUTBOUND_TTL,
+        )
+
+    async def _pop_pending_outbound(self, channel_id: str) -> Optional[dict]:
+        """Read and delete a pending outbound entry. Returns None if absent."""
+        r = await self._get_redis()
+        val = await r.getdel(f"{_PENDING_OUTBOUND_PREFIX}{channel_id}")
         if val is None:
             return None
         return json.loads(val)
@@ -515,8 +581,8 @@ class ARIConnection:
                 asyncio.create_task(
                     self._handle_inbound_stasis_start(channel_id, channel_state, event)
                 )
-            else:
-                # Outbound call (state == "Up") — originated by us
+            elif channel_state == "Up":
+                # Outbound call — callee has answered, channel is ready.
                 # Check if this is a transfer destination channel (app_args starts with "transfer")
                 # Transfer destinations run externally - we only track status to publish transfer event, not run the pipeline
                 transfer_id = self._get_transfer_id(app_args)
@@ -554,6 +620,28 @@ class ARIConnection:
                         channel_id, channel_state, workflow_run_id, workflow_id
                     )
                 )
+            else:
+                # Early media or pre-answer state (e.g. Ringing, Down).
+                # Defer pipeline start until the callee answers
+                # (ChannelStateChange → Up).
+                logger.info(
+                    f"[ARI org={self.organization_id}] StasisStart in pre-answer "
+                    f"state '{channel_state}' for channel {channel_id} — "
+                    f"deferring pipeline start until callee answers"
+                )
+                args_dict = {}
+                for arg in app_args:
+                    for pair in arg.split(","):
+                        if "=" in pair:
+                            key, value = pair.split("=", 1)
+                            args_dict[key.strip()] = value.strip()
+
+                workflow_run_id = args_dict.get("workflow_run_id")
+                workflow_id = args_dict.get("workflow_id")
+                if workflow_run_id and workflow_id:
+                    await self._set_pending_outbound(
+                        channel_id, workflow_run_id, workflow_id
+                    )
 
         elif event_type == "StasisEnd":
             logger.info(
@@ -570,6 +658,25 @@ class ARIConnection:
                 f"[ARI org={self.organization_id}] ChannelStateChange: "
                 f"channel={channel_id}, state={channel_state}"
             )
+
+            # When a deferred outbound channel transitions to "Up", the
+            # callee has answered — start the pipeline now.
+            if channel_state == "Up":
+                pending = await self._pop_pending_outbound(channel_id)
+                if pending:
+                    logger.info(
+                        f"[ARI org={self.organization_id}] Deferred outbound "
+                        f"channel {channel_id} answered (Up) — starting "
+                        f"pipeline for run {pending['workflow_run_id']}"
+                    )
+                    asyncio.create_task(
+                        self._handle_stasis_start(
+                            channel_id,
+                            channel_state,
+                            pending["workflow_run_id"],
+                            pending["workflow_id"],
+                        )
+                    )
 
         elif event_type == "ChannelDestroyed":
             cause = event.get("cause", 0)
@@ -591,6 +698,47 @@ class ARIConnection:
                         transfer_id, channel_id, failure_message
                     )
                 )
+                return
+
+            # For non-transfer channels: resolve the workflow_run_id and
+            # propagate the terminal status through the status processor
+            # so campaign resources (from_number, concurrency slot) are
+            # released, retries are scheduled, and the workflow run is
+            # properly closed.
+            #
+            # The mapping comes from either:
+            # - provider.initiate_call (pre-seeded at origination for
+            #   outbound calls that may never enter Stasis), or
+            # - _handle_stasis_start (set when the channel entered Stasis).
+            #
+            # If _handle_stasis_end already processed this channel (cleaned
+            # the mapping after StasisEnd), _get_channel_run returns None
+            # and we skip — avoiding double processing.
+            pending = await self._pop_pending_outbound(channel_id)
+            wf_run_id = (pending or {}).get("workflow_run_id")
+            if not wf_run_id:
+                wf_run_id = await self._get_channel_run(channel_id)
+
+            if wf_run_id:
+                mapped_status = _map_asterisk_cause_to_status(cause)
+                logger.info(
+                    f"[ARI org={self.organization_id}] Processing "
+                    f"ChannelDestroyed for run {wf_run_id}: "
+                    f"cause={cause} ({cause_txt}) → {mapped_status.value}"
+                )
+                try:
+                    status_req = StatusCallbackRequest(
+                        call_id=channel_id,
+                        status=mapped_status,
+                    )
+                    await _process_status_update(int(wf_run_id), status_req)
+                except Exception as e:
+                    logger.error(
+                        f"[ARI org={self.organization_id}] Error processing "
+                        f"status update for run {wf_run_id}: {e}"
+                    )
+                # Clean up the Redis mapping (idempotent if already gone)
+                await self._delete_channel_run(channel_id)
 
         elif event_type == "ChannelDtmfReceived":
             digit = event.get("digit", "")
@@ -1094,6 +1242,10 @@ class ARIConnection:
                 )
                 # Still clean up the Redis key for the channel that ended
                 await self._delete_channel_run(channel_id)
+                try:
+                    await campaign_call_dispatcher.release_call_slot(int(workflow_run_id))
+                except Exception as e:
+                    logger.error(f"[ARI org={self.organization_id}] Failed to release call slot: {e}")
                 return
 
             ctx = workflow_run.gathered_context
@@ -1187,6 +1339,11 @@ class ARIConnection:
                     transfer_destination_channel_id
                 )
 
+                try:
+                    await campaign_call_dispatcher.release_call_slot(int(workflow_run_id))
+                except Exception as e:
+                    logger.error(f"[ARI org={self.organization_id}] Failed to release call slot: {e}")
+
                 logger.info(
                     f"[ARI org={self.organization_id}] Completed transfer teardown "
                     f"finished for channel={channel_id}, peer={peer_channel_id}, "
@@ -1214,6 +1371,11 @@ class ARIConnection:
             # Clean up the Redis marker for external channel
             await self._delete_ext_channel(ext_channel_id)
             await self._delete_transfer_channel_mapping(transfer_destination_channel_id)
+
+            try:
+                await campaign_call_dispatcher.release_call_slot(int(workflow_run_id))
+            except Exception as e:
+                logger.error(f"[ARI org={self.organization_id}] Failed to release call slot: {e}")
 
             logger.info(
                 f"[ARI org={self.organization_id}] StasisEnd full teardown for "

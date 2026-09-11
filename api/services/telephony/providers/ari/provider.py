@@ -164,12 +164,14 @@ class ARIProvider(TelephonyProvider):
                         r = aioredis.from_url(
                             REDIS_URL, decode_responses=True
                         )
-                        await r.set(
-                            f"ari:channel:{channel_id}",
-                            str(workflow_run_id),
-                            ex=3600,
-                        )
-                        await r.aclose()
+                        try:
+                            await r.set(
+                                f"ari:channel:{channel_id}",
+                                str(workflow_run_id),
+                                ex=3600,
+                            )
+                        finally:
+                            await r.aclose()
                     except Exception:
                         logger.debug(
                             f"[ARI] Could not pre-seed channel mapping "

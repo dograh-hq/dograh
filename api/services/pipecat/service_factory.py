@@ -13,10 +13,7 @@ from api.errors.failure import (
     classify_exception,
     log_failure,
 )
-from api.services.configuration.options import (
-    DEEPGRAM_FLUX_MODELS,
-    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
-)
+from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
@@ -168,9 +165,16 @@ DEEPGRAM_FLUX_LANGUAGE_HINTS = {
 }
 
 
+def _resolve_deepgram_flux_language_hint(language: str | None) -> Language | None:
+    """Resolve a supported BCP-47 language or locale to its Flux base language."""
+    base_language = (language or "").split("-", 1)[0].lower()
+    return DEEPGRAM_FLUX_LANGUAGE_HINTS.get(base_language)
+
+
 def dograh_stt_uses_flux_language(language: str | None) -> bool:
-    language = language or "multi"
-    return language in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS
+    if not language or language.lower() == "multi":
+        return True
+    return _resolve_deepgram_flux_language_hint(language) is not None
 
 
 def _resolve_elevenlabs_stt_language(
@@ -274,7 +278,7 @@ def create_stt_service(
             }
             if user_config.stt.model == "flux-general-multi":
                 language = getattr(user_config.stt, "language", None)
-                language_hint = DEEPGRAM_FLUX_LANGUAGE_HINTS.get(language)
+                language_hint = _resolve_deepgram_flux_language_hint(language)
                 if language_hint:
                     settings_kwargs["language_hints"] = [language_hint]
 
@@ -360,7 +364,7 @@ def create_stt_service(
                 "eager_eot_threshold": 0.5,
                 "keyterm": keyterms or [],
             }
-            language_hint = DEEPGRAM_FLUX_LANGUAGE_HINTS.get(language)
+            language_hint = _resolve_deepgram_flux_language_hint(language)
             if language_hint:
                 settings_kwargs["language_hints"] = [language_hint]
             return DograhFluxSTTService(

@@ -17,6 +17,19 @@ class CallType(Enum):
     OUTBOUND = "outbound"
 
 
+class AnswerAction(str, Enum):
+    # Play the workflow opening, then allow normal conversation.
+    RELEASE = "release"
+    # Play the configured voicemail message, then disconnect.
+    LEAVE_MESSAGE = "leave_message"
+    # Disconnect without playing a message.
+    DROP = "drop"
+    # Play the screening introduction, then listen again for the subscriber.
+    SCREEN_THEN_REARM = "screen_then_rearm"
+    # Stop answer handling because the pipeline has ended.
+    CANCELLED = "cancelled"
+
+
 class TelephonyCallStatus(str, Enum):
     INITIATED = "initiated"
     RINGING = "ringing"

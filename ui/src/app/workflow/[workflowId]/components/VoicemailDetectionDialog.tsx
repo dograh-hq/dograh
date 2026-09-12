@@ -10,38 +10,15 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import {
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
     type VoicemailDetectionConfiguration,
     type WorkflowConfigurations,
 } from "@/types/workflow-configurations";
 
-// Must match VoicemailDetector.DEFAULT_SYSTEM_PROMPT in pipecat
-const DEFAULT_VOICEMAIL_SYSTEM_PROMPT = `You are a voicemail detection classifier for an OUTBOUND calling system. A bot has called a phone number and you need to determine if a human answered or if the call went to voicemail based on the provided text.
-
-HUMAN ANSWERED - LIVE CONVERSATION (respond "CONVERSATION"):
-- Personal greetings: "Hello?", "Hi", "Yeah?", "John speaking"
-- Interactive responses: "Who is this?", "What do you want?", "Can I help you?"
-- Conversational tone expecting back-and-forth dialogue
-- Questions directed at the caller: "Hello? Anyone there?"
-- Informal responses: "Yep", "What's up?", "Speaking"
-- Natural, spontaneous speech patterns
-- Immediate acknowledgment of the call
-
-VOICEMAIL SYSTEM (respond "VOICEMAIL"):
-- Automated voicemail greetings: "Hi, you've reached [name], please leave a message"
-- Phone carrier messages: "The number you have dialed is not in service", "Please leave a message", "All circuits are busy"
-- Professional voicemail: "This is [name], I'm not available right now"
-- Instructions about leaving messages: "leave a message", "leave your name and number"
-- References to callback or messaging: "call me back", "I'll get back to you"
-- Carrier system messages: "mailbox is full", "has not been set up"
-- Business hours messages: "our office is currently closed"
-
-Respond with ONLY "CONVERSATION" if a person answered, or "VOICEMAIL" if it's voicemail/recording.`;
+import { AnswerSupervisorFields, isVoicemailMessageMissing, readAnswerSupervisorSettings } from "./AnswerSupervisorFields";
 
 interface VoicemailDetectionDialogProps {
     open: boolean;
@@ -66,8 +43,7 @@ export const VoicemailDetectionDialog = ({
     const [provider, setProvider] = useState(getConfig().provider || "openai");
     const [model, setModel] = useState(getConfig().model || "gpt-4.1");
     const [apiKey, setApiKey] = useState(getConfig().api_key || "");
-    const [systemPrompt, setSystemPrompt] = useState(getConfig().system_prompt || DEFAULT_VOICEMAIL_SYSTEM_PROMPT);
-    const [longSpeechTimeout, setLongSpeechTimeout] = useState(getConfig().long_speech_timeout);
+    const [answerSettings, setAnswerSettings] = useState(readAnswerSupervisorSettings(getConfig()));
 
     // Sync state from props whenever the dialog opens
     useEffect(() => {
@@ -81,8 +57,7 @@ export const VoicemailDetectionDialog = ({
             setProvider(config.provider || "openai");
             setModel(config.model || "gpt-4.1");
             setApiKey(config.api_key || "");
-            setSystemPrompt(config.system_prompt || DEFAULT_VOICEMAIL_SYSTEM_PROMPT);
-            setLongSpeechTimeout(config.long_speech_timeout);
+            setAnswerSettings(readAnswerSupervisorSettings(config));
         }
     }, [open, workflowConfigurations]);
 
@@ -92,13 +67,12 @@ export const VoicemailDetectionDialog = ({
 
     const handleSave = () => {
         const voicemailConfig: VoicemailDetectionConfiguration = {
+            ...answerSettings,
             enabled,
             use_workflow_llm: useWorkflowLlm,
             provider: useWorkflowLlm ? undefined : provider,
             model: useWorkflowLlm ? undefined : model,
             api_key: useWorkflowLlm ? undefined : apiKey,
-            system_prompt: systemPrompt && systemPrompt !== DEFAULT_VOICEMAIL_SYSTEM_PROMPT ? systemPrompt : undefined,
-            long_speech_timeout: longSpeechTimeout,
         };
 
         onSave({
@@ -112,10 +86,9 @@ export const VoicemailDetectionDialog = ({
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>Voicemail Detection</DialogTitle>
+                    <DialogTitle>Voicemail & Screening</DialogTitle>
                     <DialogDescription>
-                        Configure voicemail detection to automatically detect and end calls
-                        when a voicemail system is reached.
+                        Choose how the agent handles voicemail and call screening. Applies to outbound calls with separate speech and language models.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -126,69 +99,39 @@ export const VoicemailDetectionDialog = ({
                             checked={enabled}
                             onCheckedChange={setEnabled}
                         />
-                        <Label htmlFor="voicemail-enabled">Enable Voicemail Detection</Label>
+                        <Label htmlFor="voicemail-enabled">Enable voicemail and screening handling</Label>
                     </div>
 
                     {enabled && (
                         <>
-                            {/* LLM Configuration */}
-                            <div className="space-y-3">
-                                <div className="flex items-center space-x-2 p-2 border rounded-md bg-muted/20">
-                                    <Switch
-                                        id="voicemail-use-workflow-llm"
-                                        checked={useWorkflowLlm}
-                                        onCheckedChange={setUseWorkflowLlm}
-                                    />
-                                    <Label htmlFor="voicemail-use-workflow-llm">Use Workflow LLM</Label>
-                                    <Label className="text-xs text-muted-foreground ml-2">
-                                        Use the LLM configured in your account settings.
-                                    </Label>
+                            <AnswerSupervisorFields value={answerSettings} onChange={setAnswerSettings} />
+                            <details className="rounded-md border p-3">
+                                <summary className="cursor-pointer text-sm font-medium">Classification model</summary>
+                                <div className="mt-3 space-y-3">
+                                    <div className="flex items-center space-x-2 p-2 border rounded-md bg-muted/20">
+                                        <Switch
+                                            id="voicemail-use-workflow-llm"
+                                            checked={useWorkflowLlm}
+                                            onCheckedChange={setUseWorkflowLlm}
+                                        />
+                                        <Label htmlFor="voicemail-use-workflow-llm">Use Workflow LLM</Label>
+                                        <Label className="text-xs text-muted-foreground ml-2">
+                                            Use the LLM configured in your account settings.
+                                        </Label>
+                                    </div>
+
+                                    {!useWorkflowLlm && (
+                                        <LLMConfigSelector
+                                            provider={provider}
+                                            onProviderChange={setProvider}
+                                            model={model}
+                                            onModelChange={setModel}
+                                            apiKey={apiKey}
+                                            onApiKeyChange={setApiKey}
+                                        />
+                                    )}
                                 </div>
-
-                                {!useWorkflowLlm && (
-                                    <LLMConfigSelector
-                                        provider={provider}
-                                        onProviderChange={setProvider}
-                                        model={model}
-                                        onModelChange={setModel}
-                                        apiKey={apiKey}
-                                        onApiKeyChange={setApiKey}
-                                    />
-                                )}
-                            </div>
-
-                            {/* System Prompt */}
-                            <div className="grid gap-2">
-                                <Label>System Prompt</Label>
-                                <Label className="text-xs text-muted-foreground">
-                                    Prompt for voicemail classification.
-                                    The LLM must respond with either &quot;CONVERSATION&quot; or &quot;VOICEMAIL&quot;.
-                                </Label>
-                                <Textarea
-                                    value={systemPrompt}
-                                    onChange={(e) => setSystemPrompt(e.target.value)}
-                                    className="min-h-[200px] font-mono text-xs"
-                                />
-                            </div>
-
-                            {/* Timing Configuration */}
-                            <div className="grid gap-4 p-3 border rounded-md bg-muted/10">
-                                <Label className="font-medium">Timing</Label>
-                                <div className="space-y-2">
-                                    <Label className="text-sm">Speech Cutoff (seconds)</Label>
-                                    <Label className="text-xs text-muted-foreground">
-                                        Trigger classification early if first turn speech exceeds this duration.
-                                    </Label>
-                                    <Input
-                                        type="number"
-                                        step="0.5"
-                                        min="1"
-                                        max="30"
-                                        value={longSpeechTimeout}
-                                        onChange={(e) => setLongSpeechTimeout(parseFloat(e.target.value) || 8.0)}
-                                    />
-                                </div>
-                            </div>
+                            </details>
                         </>
                     )}
                 </div>
@@ -197,7 +140,7 @@ export const VoicemailDetectionDialog = ({
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSave}>Save</Button>
+                    <Button onClick={handleSave} disabled={enabled && isVoicemailMessageMissing(answerSettings)}>Save</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

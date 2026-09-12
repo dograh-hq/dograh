@@ -20,6 +20,7 @@ from pipecat.frames.frames import (
     FunctionCallResultProperties,
     LLMContextFrame,
     TTSSpeakFrame,
+    UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -53,6 +54,7 @@ from loguru import logger
 
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
+from api.services.workflow.answer_handling import ANSWER_TERMINAL_REASONS, handle_answer
 from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_CONTEXT_KEY,
     DispositionExtractionService,
@@ -94,6 +96,7 @@ _ENGINE_OWNED_CONTEXT_KEYS = frozenset(
         "mapped_call_disposition",
         CALL_STATUS_CONTEXT_KEY,
         "call_tags",
+        "answer_supervisor",
     }
 )
 
@@ -175,6 +178,9 @@ class PipecatEngine:
 
         # Controls whether user input should be muted
         self._mute_pipeline: bool = False
+        self.answer_supervisor = None
+        self._answer_user_aggregator = None
+        self._answer_idle_timeout = 0
 
         # Mute state for queued TTSSpeakFrames (transition speech, custom tool messages)
         # "idle" = not muting, "waiting" = speech queued, "playing" = bot speaking it
@@ -778,18 +784,25 @@ class PipecatEngine:
             await self._context_summarization_manager.start()
 
     async def _handle_start_node(self, node: Node) -> None:
-        """Handle start node execution."""
-        # Check if delayed start is enabled
-        if node.delayed_start:
-            # Use configured duration or default to 3 seconds
-            delay_duration = node.delayed_start_duration or 2.0
-            logger.debug(
-                f"Delayed start enabled - waiting {delay_duration} seconds before speaking"
-            )
-            await asyncio.sleep(delay_duration)
-
-        # Setup LLM context with prompts and functions.
+        """Set up context immediately; the answer supervisor owns initial listening."""
         await self._setup_llm_context(node)
+
+    def set_answer_supervisor(self, supervisor, user_aggregator, idle_timeout: float):
+        self.answer_supervisor = supervisor
+        self._answer_user_aggregator = user_aggregator
+        self._answer_idle_timeout = idle_timeout
+
+    async def handle_answer_supervision(self):
+        async def update_idle_timeout(timeout):
+            await self._answer_user_aggregator.queue_frame(
+                UserIdleTimeoutUpdateFrame(
+                    timeout=self._answer_idle_timeout if timeout is None else timeout,
+                )
+            )
+
+        await handle_answer(
+            self, self.answer_supervisor, update_idle_timeout=update_idle_timeout
+        )
 
     def get_node_greeting(self, node_id: str) -> Optional[tuple[str, Optional[str]]]:
         """Return the greeting info for a node, or None if not configured.
@@ -1059,6 +1072,7 @@ class PipecatEngine:
         if call_status not in (
             EndTaskReason.PIPELINE_ERROR.value,
             EndTaskReason.VOICEMAIL_DETECTED.value,
+            *ANSWER_TERMINAL_REASONS,
         ):
             # Finish ordinary node extraction, then classify the call outcome
             # independently when the mechanical status is only a fallback.

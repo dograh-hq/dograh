@@ -1,3 +1,6 @@
+import asyncio
+import base64
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +10,7 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
+    ErrorFrame,
     InputAudioRawFrame,
     LLMMessagesAppendFrame,
     MetricsFrame,
@@ -15,12 +19,21 @@ from pipecat.frames.frames import (
     UserMuteStoppedFrame,
 )
 from pipecat.metrics.metrics import LLMTokenUsage, LLMUsageMetricsData
+from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallFromLLM, LLMService
 from pipecat.services.openai.live import events
 from pipecat.services.openai.live.llm import OpenAILiveLLMService
 from pipecat.services.settings import LLMSettings
+from pipecat.tests.mock_transport import MockTransport
+from pipecat.tests.utils import SleepFrame, run_test
+from pipecat.transports.base_transport import TransportParams
+from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
 
 from api.routes.user import get_default_configurations
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
@@ -146,9 +159,13 @@ async def test_static_greeting_waits_for_session_and_idle_prompts_stay_out_of_lo
     service = make_service()
     service._context = LLMContext()
     await service.process_frame(TTSSpeakFrame("Bonjour!"), FrameDirection.DOWNSTREAM)
-    assert sent_events(service, "session.commentary.append") == []
+    assert sent_events(service, "session.instructions.append") == []
     await start_session(service)
-    assert "Bonjour!" in sent_events(service, "session.commentary.append")[0]["content"]
+    instruction = sent_events(service, "session.instructions.append")[0]
+    assert "Bonjour!" in instruction["content"]
+    assert "without waiting" in instruction["content"]
+    assert instruction["delegation_id"] is None
+    assert sent_events(service, "session.commentary.append") == []
     assert sent_events(service, "response.create") == []
     await service.process_frame(
         LLMMessagesAppendFrame(
@@ -159,23 +176,138 @@ async def test_static_greeting_waits_for_session_and_idle_prompts_stay_out_of_lo
     )
     assert (
         "still there"
-        in sent_events(service, "session.commentary.append")[-1]["content"]
+        in sent_events(service, "session.instructions.append")[-1]["content"]
     )
     assert service._context.messages == []
 
 
 @pytest.mark.asyncio
-async def test_mute_gates_audio_without_disabling_unmuted_full_duplex_input():
+@pytest.mark.parametrize("sample_rate", [8000, 16000, 24000])
+async def test_mute_sends_silence_to_keep_live_running_and_unmute_restores_audio(
+    sample_rate,
+):
     service = make_service()
     service._session_started = True
-    audio = InputAudioRawFrame(b"\x00\x01" * 480, 24000, 1)
+    audio = InputAudioRawFrame(b"\x00\x01" * (sample_rate // 10), sample_rate, 1)
+    # Prime the streaming resampler with speech before muting. Its buffered
+    # samples must also be silenced when the mute takes effect.
+    for _ in range(3):
+        await service._send_user_audio(audio)
+    service.send_client_event.reset_mock()
     await service.process_frame(UserMuteStartedFrame(), FrameDirection.DOWNSTREAM)
-    await service._send_user_audio(audio)
-    assert sent_events(service, "session.input_audio.append") == []
+    for _ in range(10):
+        await service._send_user_audio(audio)
+    muted = b"".join(
+        base64.b64decode(event["audio"])
+        for event in sent_events(service, "session.input_audio.append")
+    )
+    assert 0.9 <= len(muted) / (24000 * 2) <= 1.1
+    assert not any(muted)
+    assert any(audio.audio)  # Keep the original frame intact for recording.
+    service.send_client_event.reset_mock()
     await service.process_frame(UserMuteStoppedFrame(), FrameDirection.DOWNSTREAM)
     await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
-    await service._send_user_audio(audio)
-    assert len(sent_events(service, "session.input_audio.append")) == 1
+    for _ in range(3):
+        await service._send_user_audio(audio)
+    unmuted = b"".join(
+        base64.b64decode(event["audio"])
+        for event in sent_events(service, "session.input_audio.append")
+    )
+    assert any(unmuted)
+
+
+@pytest.mark.asyncio
+async def test_muted_startup_greeting_reaches_playback_and_releases_initial_mute():
+    class ClockedLiveSocket:
+        """Live cannot acknowledge instructions or speak without input audio."""
+
+        def __init__(self):
+            self.incoming = asyncio.Queue()
+            self.instruction = None
+            self.audio_before_greeting = None
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            return json.dumps(await self.incoming.get())
+
+        async def send(self, message):
+            event = json.loads(message)
+            if event["type"] == "session.start":
+                await self.incoming.put(
+                    {"type": "session.started", "session": {"id": "test"}}
+                )
+            elif event["type"] == "session.instructions.append":
+                self.instruction = event
+            elif event["type"] == "session.input_audio.append" and self.instruction:
+                self.audio_before_greeting = base64.b64decode(event["audio"])
+                await self.incoming.put(
+                    {
+                        "type": "session.instructions.appended",
+                        "client_event_id": self.instruction["event_id"],
+                    }
+                )
+                self.instruction = None
+                # Audible greeting followed by silence. The real output
+                # transport must derive bot-start/stop from these samples.
+                pcm = b"\x00\x30" * 2400 + bytes(24000)
+                await self.incoming.put(
+                    {
+                        "type": "session.output_audio.delta",
+                        "delta": base64.b64encode(pcm).decode(),
+                    }
+                )
+            elif event["type"] == "session.close":
+                await self.incoming.put({"type": "session.closed"})
+
+        async def close(self):
+            pass
+
+    socket = ClockedLiveSocket()
+    service = DograhOpenAILiveLLMService(
+        api_key="test-key", backend_model="gpt-5.4-mini"
+    )
+    context = LLMContext()
+    service._context = context  # Dograh's engine initializes this before greeting.
+    turns, _ = _create_realtime_user_turn_config("openai_realtime", "gpt-live-1")
+    aggregators = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            user_turn_strategies=turns,
+            user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
+        ),
+        realtime_service_mode=False,
+    )
+    transport = MockTransport(
+        TransportParams(audio_out_enabled=True), generate_audio=True
+    )
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            aggregators.user(),
+            service,
+            transport.output(),
+            aggregators.assistant(),
+        ]
+    )
+    with patch(
+        "pipecat.services.openai.live.llm.websocket_connect",
+        AsyncMock(return_value=socket),
+    ):
+        down, up = await asyncio.wait_for(
+            run_test(
+                pipeline, frames_to_send=[TTSSpeakFrame("Hello!"), SleepFrame(1.2)]
+            ),
+            5,
+        )
+    assert socket.audio_before_greeting
+    assert not any(socket.audio_before_greeting)
+    assert any(isinstance(frame, BotStartedSpeakingFrame) for frame in up)
+    assert any(isinstance(frame, BotStoppedSpeakingFrame) for frame in up)
+    assert any(isinstance(frame, UserMuteStoppedFrame) for frame in up)
+    assert not service._user_is_muted
+    assert not any(isinstance(frame, ErrorFrame) for frame in [*up, *down])
 
 
 @pytest.mark.asyncio

@@ -3,11 +3,14 @@
 from collections.abc import Sequence
 from dataclasses import replace
 
+from loguru import logger
+
 from api.services.pipecat.usage_metrics import LiveUsageMetricsData
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     Frame,
+    InputAudioRawFrame,
     LLMMessagesAppendFrame,
     MetricsFrame,
     TTSSpeakFrame,
@@ -19,7 +22,12 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.services.openai.live import events
-from pipecat.services.openai.live.llm import OpenAILiveLLMService
+from pipecat.services.openai.live.llm import (
+    MAX_CONTEXT_APPEND_TOKENS,
+    OPENAI_SAMPLE_RATE,
+    OpenAILiveLLMService,
+    _chunk_text,
+)
 from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService
 from pipecat.utils.types import NOT_GIVEN, is_given
 
@@ -140,18 +148,28 @@ class DograhOpenAILiveLLMService(OpenAILiveLLMService):
         await super()._handle_evt_session_started(evt)
         pending, self._pending_speech = self._pending_speech, []
         for text in pending:
-            await self._send_context_append(None, text, spoken=True)
+            await self._send_speech_instruction(text)
         if self._initial_backend_request and not pending:
             # Ask the workflow backend for the opening line. Live continues
             # speaking independently once this initial work has been started.
             await self.send_client_event(events.ResponseCreateEvent())
         self._initial_backend_request = False
 
+    async def _send_speech_instruction(self, text: str):
+        # Greetings and idle checks are application instructions. Commentary
+        # supplies information to paraphrase and does not request exact wording.
+        for chunk in _chunk_text(text, MAX_CONTEXT_APPEND_TOKENS):
+            event = events.SessionInstructionsAppendEvent(
+                delegation_id=None, content=chunk
+            )
+            logger.debug(f"{self}: requesting speech with instruction {event.event_id}")
+            await self.send_client_event(event)
+
     async def _speak(self, text: str):
         if not text.strip():
             return
         if self._session_started:
-            await self._send_context_append(None, text, spoken=True)
+            await self._send_speech_instruction(text)
         else:
             self._pending_speech.append(text)
             self._initial_backend_request = False
@@ -165,6 +183,7 @@ class DograhOpenAILiveLLMService(OpenAILiveLLMService):
             self._user_is_muted = False
         elif isinstance(frame, TTSSpeakFrame):
             await self._speak(
+                "Speak immediately, without waiting for the caller. "
                 "Say the following text aloud in its original language, then wait "
                 f"for the caller. Do not add a preamble:\n{frame.text}"
             )
@@ -190,9 +209,20 @@ class DograhOpenAILiveLLMService(OpenAILiveLLMService):
                 await super().run_function_calls(calls)
         await super().process_frame(frame, direction)
 
-    async def _send_user_audio(self, frame):
-        if not self._user_is_muted:
-            await super()._send_user_audio(frame)
+    async def _send_user_audio(self, frame: InputAudioRawFrame):
+        if self._session_started and frame.sample_rate != OPENAI_SAMPLE_RATE:
+            audio = await self._resampler.resample(
+                frame.audio, frame.sample_rate, OPENAI_SAMPLE_RATE
+            )
+            frame = replace(frame, audio=audio, sample_rate=OPENAI_SAMPLE_RATE)
+        if self._user_is_muted:
+            # Live advances on input audio, even before the caller speaks.
+            # Dropping frames deadlocks MuteUntilFirstBotComplete: the greeting
+            # cannot play, so input never unmutes. Silence AFTER resampling also
+            # removes any caller audio still buffered by the streaming filter.
+            # Copy the frame so downstream recording keeps its original audio.
+            frame = replace(frame, audio=bytes(len(frame.audio)))
+        await super()._send_user_audio(frame)
 
     async def run_function_calls(self, function_calls: Sequence[FunctionCallFromLLM]):
         # Keep a batch intact so a transition cannot outrun related tool calls.

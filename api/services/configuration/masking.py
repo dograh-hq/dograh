@@ -19,7 +19,13 @@ from api.services.integrations import get_node_secret_fields
 VISIBLE_CHARS = 4  # number of trailing characters to reveal
 MASK_CHAR = "*"
 MASK_MARKER = "***"  # substring that indicates a masked key
-SERVICE_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
+SERVICE_SECRET_FIELDS = (
+    "api_key",
+    "credentials",
+    "aws_access_key",
+    "aws_secret_key",
+    "aws_session_token",
+)
 MODEL_OVERRIDE_FIELDS = ("llm", "tts", "stt", "realtime")
 
 

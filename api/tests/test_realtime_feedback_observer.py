@@ -173,6 +173,29 @@ async def test_observer_classifies_each_distinct_error_frame(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_observer_treats_unusable_processor_error_as_terminal(monkeypatch):
+    messages = []
+    failures = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    monkeypatch.setattr(
+        "api.services.pipecat.realtime_feedback_observer.log_failure",
+        lambda failure, **context: failures.append((failure, context)),
+    )
+    processor = BaseOutputTransport(TransportParams())
+    await processor.set_usable(False)
+    observer = RealtimeFeedbackObserver(ws_sender=ws_sender)
+
+    frame = ErrorFrame("Transport can no longer write", processor=processor)
+    await observer.on_push_frame(_frame_pushed(frame, FrameDirection.UPSTREAM))
+
+    assert failures[0][1] == {"fatal": True}
+    assert messages[0]["payload"]["fatal"] is True
+
+
+@pytest.mark.asyncio
 async def test_turn_log_handlers_persist_user_message_added_events():
     logs_buffer = InMemoryLogsBuffer(workflow_run_id=123)
     coordinator = TranscriptLogCoordinator(logs_buffer)

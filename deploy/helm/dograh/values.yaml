@@ -161,8 +161,10 @@ secrets:
   langfusePublicKey: ""
   langfuseHost: ""
   langfuseProjectId: ""
-  # Traces are private by default. "true" makes them readable by anyone holding
-  # the trace URL, with no Langfuse login.
+  # Traces are private by default. "true" makes traces in the project above
+  # readable by anyone holding the trace URL, with no Langfuse login.
+  # Organizations that connected their own Langfuse project in the UI carry
+  # their own visibility setting instead.
   langfuseTracesPublic: ""
 
   # Signs the telephony media WebSocket URL the carrier dials back, so the ids

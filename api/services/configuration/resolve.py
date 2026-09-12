@@ -31,7 +31,13 @@ def _build_section_from_override(service_type: ServiceType, override: dict):
     return config_cls(**override)
 
 
-_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
+_SECRET_FIELDS = (
+    "api_key",
+    "credentials",
+    "aws_access_key",
+    "aws_secret_key",
+    "aws_session_token",
+)
 
 
 def enrich_overrides_with_api_keys(

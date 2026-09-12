@@ -87,7 +87,9 @@ async def test_tts_greeting_waits_for_session_updated_before_sending_prompt():
     service.start_processing_metrics = AsyncMock()
     service.start_ttfb_metrics = AsyncMock()
 
-    await service._handle_evt_session_updated(SimpleNamespace())
+    await service._handle_evt_session_updated(
+        SimpleNamespace(session=SimpleNamespace(id="session-updated"))
+    )
 
     sent_events = [call.args[0] for call in service.send_client_event.await_args_list]
     assert isinstance(sent_events[0], events.ConversationItemCreateEvent)
@@ -101,6 +103,7 @@ async def test_tts_greeting_waits_for_session_updated_before_sending_prompt():
     assert service._run_llm_when_api_session_ready is False
     assert service._pending_initial_greeting_text is None
     assert service._llm_needs_conversation_setup is False
+    assert service._session_id == "session-updated"
     service._create_response.assert_not_awaited()
 
 

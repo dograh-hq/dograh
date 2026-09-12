@@ -233,8 +233,10 @@ services:
       # LANGFUSE_PUBLIC_KEY: ""
       # LANGFUSE_HOST: ""
       # LANGFUSE_PROJECT_ID: ""
-      # Traces are private by default. Set to "true" to make them readable by
-      # anyone holding the trace URL, with no Langfuse login.
+      # Traces are private by default. Set to "true" to make traces in the
+      # project above readable by anyone holding the trace URL, with no
+      # Langfuse login. Organizations that connected their own Langfuse project
+      # in the UI carry their own visibility setting instead.
       LANGFUSE_TRACES_PUBLIC: "${LANGFUSE_TRACES_PUBLIC:-false}"
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)

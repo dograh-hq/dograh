@@ -13,10 +13,7 @@ from api.errors.failure import (
     classify_exception,
     log_failure,
 )
-from api.services.configuration.options import (
-    DEEPGRAM_FLUX_MODELS,
-    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
-)
+from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
@@ -168,9 +165,16 @@ DEEPGRAM_FLUX_LANGUAGE_HINTS = {
 }
 
 
+def _resolve_deepgram_flux_language_hint(language: str | None) -> Language | None:
+    """Resolve a supported BCP-47 language or locale to its Flux base language."""
+    base_language = (language or "").split("-", 1)[0].lower()
+    return DEEPGRAM_FLUX_LANGUAGE_HINTS.get(base_language)
+
+
 def dograh_stt_uses_flux_language(language: str | None) -> bool:
-    language = language or "multi"
-    return language in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS
+    if not language or language.lower() == "multi":
+        return True
+    return _resolve_deepgram_flux_language_hint(language) is not None
 
 
 def _resolve_elevenlabs_stt_language(
@@ -274,7 +278,7 @@ def create_stt_service(
             }
             if user_config.stt.model == "flux-general-multi":
                 language = getattr(user_config.stt, "language", None)
-                language_hint = DEEPGRAM_FLUX_LANGUAGE_HINTS.get(language)
+                language_hint = _resolve_deepgram_flux_language_hint(language)
                 if language_hint:
                     settings_kwargs["language_hints"] = [language_hint]
 
@@ -360,7 +364,7 @@ def create_stt_service(
                 "eager_eot_threshold": 0.5,
                 "keyterm": keyterms or [],
             }
-            language_hint = DEEPGRAM_FLUX_LANGUAGE_HINTS.get(language)
+            language_hint = _resolve_deepgram_flux_language_hint(language)
             if language_hint:
                 settings_kwargs["language_hints"] = [language_hint]
             return DograhFluxSTTService(
@@ -913,6 +917,53 @@ def create_tts_service(
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.SPEECHIFY.value:
+        # SpeechifyHttpTTSService ships in upstream pipecat; imported lazily so
+        # this module keeps loading on pipecat checkouts that predate it.
+        try:
+            from api.services.pipecat.speechify_tts import (
+                SpeechifyOwnedSessionTTSService,
+            )
+            from pipecat.services.speechify.tts import SpeechifyTTSSettings
+        except ModuleNotFoundError as e:
+            missing = e.name or ""
+            if missing != "pipecat.services.speechify" and not missing.startswith(
+                "pipecat.services.speechify."
+            ):
+                raise
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Speechify TTS requires a pipecat build that includes "
+                    "pipecat.services.speechify; the installed pipecat does not."
+                ),
+            ) from e
+
+        voice = getattr(user_config.tts, "voice", None) or "beatrice_32"
+        model = getattr(user_config.tts, "model", None) or "simba-3.2"
+        language_code = getattr(user_config.tts, "language", None) or "en"
+        language: Language | str
+        try:
+            language = Language(language_code)
+        except ValueError:
+            # The config allows custom language codes; codes the pipecat enum
+            # doesn't model (e.g. "en-ZA") are sent to Speechify verbatim
+            # rather than silently replaced with English.
+            language = language_code
+        session = aiohttp.ClientSession()
+        return SpeechifyOwnedSessionTTSService(
+            api_key=user_config.tts.api_key,
+            aiohttp_session=session,
+            sample_rate=audio_config.transport_out_sample_rate,
+            settings=SpeechifyTTSSettings(
+                voice=voice,
+                model=model,
+                language=language,
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid TTS provider {user_config.tts.provider}"
@@ -1174,6 +1225,30 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             settings=DograhUltravoxRealtimeLLMService.Settings(
                 model=model,
                 output_medium="voice",
+            ),
+        )
+    elif provider == ServiceProviders.AWS_NOVA_SONIC.value:
+        from api.services.pipecat.realtime.aws_nova_sonic import (
+            DograhAWSNovaSonicLLMService,
+        )
+        from pipecat.services.aws.nova_sonic.llm import AudioConfig as NovaAudioConfig
+
+        return DograhAWSNovaSonicLLMService(
+            secret_access_key=realtime_config.aws_secret_key,
+            access_key_id=realtime_config.aws_access_key,
+            session_token=realtime_config.aws_session_token or None,
+            region=realtime_config.aws_region,
+            audio_config=NovaAudioConfig(
+                input_sample_rate=audio_config.transport_in_sample_rate,
+                output_sample_rate=audio_config.transport_out_sample_rate,
+            ),
+            settings=DograhAWSNovaSonicLLMService.Settings(
+                model=model,
+                voice=voice or "matthew",
+                endpointing_sensitivity=realtime_config.endpointing_sensitivity,
+                temperature=realtime_config.temperature,
+                max_tokens=realtime_config.max_tokens,
+                top_p=realtime_config.top_p,
             ),
         )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:

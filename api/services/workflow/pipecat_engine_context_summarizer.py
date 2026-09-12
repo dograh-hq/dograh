@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
@@ -39,12 +40,17 @@ class ContextSummarizationManager:
     def config(self) -> LLMContextSummaryConfig:
         return self._config
 
-    def start(self) -> None:
+    async def start(self) -> None:
         """Kick off background context summarization, cancelling any in-flight one."""
         if self._summarization_task and not self._summarization_task.done():
             self._summarization_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._summarization_task
 
         current_node = self._engine._current_node
+        if current_node is None:
+            logger.warning("Skipping context summarization without a current node")
+            return
         self._summarization_task = asyncio.create_task(
             self._summarize_context_in_background(),
             name=f"ctx-summarize:{current_node.name}",
@@ -54,6 +60,9 @@ class ContextSummarizationManager:
         """Cancel any in-flight background summarization."""
         if self._summarization_task and not self._summarization_task.done():
             self._summarization_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._summarization_task
+        self._summarization_task = None
 
     async def _summarize_context_in_background(self) -> None:
         """Summarize conversation context after a node transition.
@@ -67,6 +76,11 @@ class ContextSummarizationManager:
         current_node = self._engine._current_node
 
         try:
+            if context is None or llm is None or current_node is None:
+                logger.warning(
+                    "Skipping context summarization because its engine state is incomplete"
+                )
+                return
             messages = context.messages
             # Not worth summarizing if context is small
             if len(messages) <= 6:

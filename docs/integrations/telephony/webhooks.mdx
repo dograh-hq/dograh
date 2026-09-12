@@ -26,7 +26,7 @@ When an outbound call connects, the provider requests instructions. The path is 
 | Vobiz | `POST` | `/vobiz-xml` |
 | Vonage | `GET` | `/ncco` |
 
-Telnyx and Asterisk ARI have no answer webhook. Telnyx is call-control style — Dograh POSTs the stream and event URLs to Telnyx's API instead of returning markup. ARI streams over a WebSocket only.
+Telnyx, Asterisk ARI, and Exotel outbound have no answer webhook. Telnyx is call-control style — Dograh POSTs the stream and event URLs to Telnyx's API instead of returning markup. ARI streams over a WebSocket only. Exotel Connect Voice AI attaches `StreamUrl` at dial time.
 
 <Tabs>
   <Tab title="Twilio (TwiML)">
@@ -69,6 +69,7 @@ Receive call lifecycle events. Each is keyed on the workflow run:
 | Vonage | `/vonage/events/{workflow_run_id}` |
 | Telnyx | `/telnyx/events/{workflow_run_id}` |
 | Cloudonix | `/cloudonix/status-callback/{workflow_run_id}`, `/cloudonix/cdr` |
+| Exotel | `/exotel/status-callback/{workflow_run_id}` |
 
 Providers report their own vocabulary; Dograh normalizes it into a common set of states:
 

@@ -59,7 +59,7 @@ def _make_tool_result_context(tool_call_id: str) -> LLMContext:
 
 
 @pytest.mark.asyncio
-async def test_updated_context_during_reconnect_keeps_result_pending_until_session_ready():
+async def test_no_handle_reconnect_represents_pending_result_only_in_history_seed():
     service = _make_service()
     service._handled_initial_context = True
     service._tool_call_id_to_name = {"call-transition": "transition_to_next_node"}
@@ -68,19 +68,57 @@ async def test_updated_context_during_reconnect_keeps_result_pending_until_sessi
     context = _make_tool_result_context("call-transition")
 
     await service._disconnect()
+    service._reconnecting_after_error = True
     await service._handle_context(context)
 
     # A reconnect gap should not count as successful delivery to Gemini.
     assert "call-transition" not in service._completed_tool_calls
+    assert "call-transition" in service._pending_tool_results
 
     session = _FakeSession()
     await service._handle_session_ready(session)
 
-    session.send_tool_response.assert_awaited_once()
-    sent_response = session.send_tool_response.await_args.kwargs["function_responses"]
-    assert sent_response.id == "call-transition"
-    assert sent_response.name == "transition_to_next_node"
+    session.send_client_content.assert_awaited_once()
+    seed_turns = session.send_client_content.await_args.kwargs["turns"]
+    seed_text = " ".join(
+        part.text or "" for turn in seed_turns for part in (turn.parts or [])
+    )
+    assert "done" in seed_text
+    session.send_tool_response.assert_not_awaited()
     assert "call-transition" in service._completed_tool_calls
+    assert "call-transition" not in service._pending_tool_results
+
+
+@pytest.mark.asyncio
+async def test_transient_reconnect_without_handle_marks_results_before_reseeding():
+    service = _make_service()
+    service._handled_initial_context = True
+    service._context = LLMContext(
+        messages=[{"role": "user", "content": "History the new session must retain"}]
+    )
+    service._reconnecting_after_error = True
+    service._session_resumption_handle = None
+
+    order = []
+
+    async def mark(*, send_new_results):
+        assert send_new_results is False
+        order.append("mark")
+
+    async def seed(*, for_reconnect=False):
+        assert for_reconnect is True
+        order.append("seed")
+        service._ready_for_realtime_input = True
+
+    service._process_completed_function_calls = AsyncMock(side_effect=mark)
+    service._create_initial_response = AsyncMock(side_effect=seed)
+    service._drain_pending_tool_results = AsyncMock()
+
+    await service._handle_session_ready(_FakeSession())
+
+    assert order == ["mark", "seed"]
+    service._drain_pending_tool_results.assert_not_awaited()
+    assert service._reconnecting_after_error is False
 
 
 @pytest.mark.asyncio
@@ -350,7 +388,7 @@ async def test_fresh_transition_session_waits_for_updated_context_before_ready()
         send_new_results=False
     )
     service._create_initial_response.assert_awaited_once()
-    service._drain_pending_tool_results.assert_awaited_once()
+    service._drain_pending_tool_results.assert_not_awaited()
     assert service._ready_for_realtime_input is True
     assert service._awaiting_node_transition_context is False
 

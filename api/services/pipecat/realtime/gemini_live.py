@@ -31,6 +31,7 @@ from api.services.pipecat.realtime.static_greeting import format_static_greeting
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
+    FunctionCallFromLLM,
     TTSSpeakFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
@@ -38,7 +39,6 @@ from pipecat.frames.frames import (
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
-from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
 
@@ -79,6 +79,11 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         self._awaiting_node_transition_context: bool = False
         self._node_transition_context_received: bool = False
         self._node_transition_context_seed_started: bool = False
+        # Set only by the base class's transient-error reconnect path. Dograh
+        # pre-populates ``_context`` before its first Live session, so context
+        # presence alone cannot distinguish an initial connection from a
+        # reconnect that needs history re-seeding.
+        self._reconnecting_after_error: bool = False
 
     # ------------------------------------------------------------------
     # Hooks from upstream GeminiLiveLLMService
@@ -232,6 +237,11 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         await self._release_deferred_end_frame()
         return False
 
+    async def _reconnect(self):
+        """Mark transient reconnects so a no-handle session re-seeds history."""
+        self._reconnecting_after_error = True
+        await super()._reconnect()
+
     async def _reconnect_for_node_transition(self) -> None:
         """Start a fresh connection and wait to seed the completed context.
 
@@ -308,7 +318,10 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
     # runtime via _update_settings, not via init).
     # ------------------------------------------------------------------
 
-    async def _handle_context(self, context: LLMContext):
+    async def _handle_context(self, context: LLMContext | None):
+        if context is None:
+            logger.warning(f"{self}: received context trigger before context was set")
+            return
         if self._awaiting_node_transition_context:
             self._context = context
             self._node_transition_context_received = True
@@ -317,12 +330,27 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         if not self._handled_initial_context:
             self._handled_initial_context = True
             self._context = context
+            await self._prepare_context_for_fresh_session()
             await self._create_initial_response()
         else:
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
 
-    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+    async def _prepare_context_for_fresh_session(self) -> None:
+        """Account for tool results that will be represented in a history seed.
+
+        Gemini Live converts historical tool calls and results to text before
+        sending them through ``send_client_content``. A fresh session therefore
+        must not also receive those old call IDs through ``send_tool_response``:
+        unlike a resumed session, it never issued those calls. Mark the results
+        represented by the seed as complete and discard any queued live replies.
+        """
+        await self._process_completed_function_calls(send_new_results=False)
+        self._pending_tool_results.clear()
+
+    async def _handle_initial_greeting(
+        self, context: LLMContext | None, greeting_text: str
+    ):
         """Trigger the first Gemini turn with an exact static text greeting."""
         if context is None:
             logger.warning(
@@ -366,10 +394,10 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         self._ready_for_realtime_input = True
 
     # ------------------------------------------------------------------
-    # Session lifecycle: drop upstream's automatic reconnect-seed and
-    # initial-context-seed paths. The TTSSpeakFrame trigger and the
-    # function-call-result LLMContextFrame are the only paths that should
-    # kick off bot turns in the Dograh flow.
+    # Session lifecycle: suppress upstream's automatic initial-context seed,
+    # because Dograh's TTSSpeakFrame is the explicit first-turn trigger. Keep
+    # upstream's no-handle reconnect seed so transient failures retain history;
+    # intentional node transitions still wait for their updated context frame.
     # ------------------------------------------------------------------
 
     @traced_gemini_live(operation="llm_setup")
@@ -384,23 +412,37 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             self._ready_for_realtime_input = False
             await self._maybe_seed_node_transition_context()
             return
-        self._ready_for_realtime_input = True
+
+        reconnecting_after_error = self._reconnecting_after_error
+        self._reconnecting_after_error = False
         if self._run_llm_when_session_ready:
             # Context arrived before session was ready — fulfil the queued
             # initial response now.
             self._run_llm_when_session_ready = False
             if self._pending_initial_greeting_text is not None:
+                # This is a brand-new session, so no queued result can refer to
+                # a function call issued by it.
+                self._pending_tool_results.clear()
                 await self._create_initial_greeting_response(
                     self._pending_initial_greeting_text
                 )
             else:
+                await self._prepare_context_for_fresh_session()
                 await self._create_initial_response()
-        await self._drain_pending_tool_results()
-        # Otherwise: no automatic seed. Reconnect after a session-resumption
-        # update relies on the server-side restored state; reconnects without
-        # a handle (e.g. node transitions before any handle was issued) are
-        # followed by a function-call-result LLMContextFrame which feeds the
-        # updated-context branch in _handle_context.
+        elif self._session_resumption_handle:
+            # The provider restores the session; pending tool results can now
+            # be replayed without re-sending local history.
+            self._ready_for_realtime_input = True
+            await self._drain_pending_tool_results()
+        elif reconnecting_after_error and self._context:
+            # Pipecat 1.8.1 added this recovery for failures that happen before
+            # Gemini sends a resumption handle. Represent completed tool calls
+            # in the history seed; the fresh session must not receive their old
+            # IDs again through the live tool-response channel.
+            await self._prepare_context_for_fresh_session()
+            await self._create_initial_response(for_reconnect=True)
+        # Otherwise this is Dograh's initial, pre-populated connection. Wait
+        # for its TTSSpeakFrame/context trigger instead of auto-generating.
 
     async def _maybe_seed_node_transition_context(self) -> None:
         if (
@@ -413,13 +455,9 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
 
         self._node_transition_context_seed_started = True
         try:
-            # The complete tool result is already present in the history being
-            # seeded, so mark it delivered locally instead of sending a provider
-            # tool response for a call that the fresh session never issued.
-            await self._process_completed_function_calls(send_new_results=False)
+            await self._prepare_context_for_fresh_session()
             await self._create_initial_response()
             self._awaiting_node_transition_context = False
             self._node_transition_context_received = False
-            await self._drain_pending_tool_results()
         finally:
             self._node_transition_context_seed_started = False

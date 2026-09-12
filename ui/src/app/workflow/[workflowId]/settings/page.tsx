@@ -1262,6 +1262,9 @@ function VoicemailSection({
                 </CardTitle>
                 <CardDescription>
                     Choose how the agent handles voicemail and call screening. Applies to outbound calls with separate speech and language models.
+                    <span className="mt-2 block">
+                        These settings do not apply to realtime speech-to-speech models. Support for realtime models is coming soon.
+                    </span>
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

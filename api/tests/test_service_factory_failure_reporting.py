@@ -67,3 +67,25 @@ def test_managed_service_constructor_failure_is_attributed_to_dograh(monkeypatch
 
     assert captured[0].type == ErrorType.SYSTEM_ERROR
     assert captured[0].error_owner.value == "operator"
+
+
+def test_gpt5_model_does_not_hardcode_reasoning_effort():
+    with patch(
+        "api.services.pipecat.service_factory.OpenAILLMService"
+    ) as mock_service:
+        create_llm_service_from_provider(
+            provider="openai",
+            model="gpt-5",
+            api_key="test-key",
+        )
+
+    mock_service.assert_called_once()
+
+    settings = mock_service.call_args.kwargs["settings"]
+
+    assert settings.model == "gpt-5"
+
+    # Strictly verify that reasoning_effort is absent and verbosity='low' is preserved
+    extra_args = getattr(settings, "extra", None) or {}
+    assert "reasoning_effort" not in extra_args
+    assert extra_args == {"verbosity": "low"}

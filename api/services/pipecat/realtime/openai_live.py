@@ -5,6 +5,7 @@ from dataclasses import replace
 
 from loguru import logger
 
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.usage_metrics import LiveUsageMetricsData
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -13,9 +14,6 @@ from pipecat.frames.frames import (
     InputAudioRawFrame,
     LLMMessagesAppendFrame,
     MetricsFrame,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.metrics.metrics import LLMUsageMetricsData
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -52,7 +50,7 @@ Current workflow:
 """
 
 
-class DograhOpenAILiveLLMService(OpenAILiveLLMService):
+class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService):
     """Keep workflow instructions on the Responses backend of a Live session."""
 
     def __init__(self, *, backend_model: str, settings=None, **kwargs):
@@ -64,7 +62,6 @@ class DograhOpenAILiveLLMService(OpenAILiveLLMService):
             ),
             **kwargs,
         )
-        self._user_is_muted = False
         self._bot_is_speaking = False
         self._deferred_transitions: list[FunctionCallFromLLM] = []
         self._pending_speech: list[str] = []
@@ -138,6 +135,7 @@ class DograhOpenAILiveLLMService(OpenAILiveLLMService):
     async def _handle_context(self, context: LLMContext):
         if context is None:
             return
+        self._handled_initial_context = True
         if self._needs_session_config:
             self._initial_backend_request = not self._pending_speech
         await super()._handle_context(context)
@@ -177,18 +175,7 @@ class DograhOpenAILiveLLMService(OpenAILiveLLMService):
                 await self._handle_context(self._context)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-        elif isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-        elif isinstance(frame, TTSSpeakFrame):
-            await self._speak(
-                "Speak immediately, without waiting for the caller. "
-                "Say the following text aloud in its original language, then wait "
-                f"for the caller. Do not add a preamble:\n{frame.text}"
-            )
-            return
-        elif isinstance(frame, LLMMessagesAppendFrame):
+        if isinstance(frame, LLMMessagesAppendFrame):
             for message in frame.messages:
                 if not isinstance(message, dict):
                     continue
@@ -209,20 +196,24 @@ class DograhOpenAILiveLLMService(OpenAILiveLLMService):
                 await super().run_function_calls(calls)
         await super().process_frame(frame, direction)
 
-    async def _send_user_audio(self, frame: InputAudioRawFrame):
-        if self._session_started and frame.sample_rate != OPENAI_SAMPLE_RATE:
-            audio = await self._resampler.resample(
-                frame.audio, frame.sample_rate, OPENAI_SAMPLE_RATE
-            )
-            frame = replace(frame, audio=audio, sample_rate=OPENAI_SAMPLE_RATE)
-        if self._user_is_muted:
-            # Live advances on input audio, even before the caller speaks.
-            # Dropping frames deadlocks MuteUntilFirstBotComplete: the greeting
-            # cannot play, so input never unmutes. Silence AFTER resampling also
-            # removes any caller audio still buffered by the streaming filter.
-            # Copy the frame so downstream recording keeps its original audio.
-            frame = replace(frame, audio=bytes(len(frame.audio)))
-        await super()._send_user_audio(frame)
+    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+        if context is None:
+            logger.warning(f"{self}: received greeting before context was set")
+            return
+        self._handled_initial_context = True
+        self._context = context
+        await self._speak(
+            "Speak immediately, without waiting for the caller. "
+            "Say the following text aloud in its original language, then wait "
+            f"for the caller. Do not add a preamble:\n{greeting_text}"
+        )
+
+    async def _prepare_user_audio(self, frame: InputAudioRawFrame):
+        return await self._prepare_audio_frame(
+            frame,
+            sample_rate=OPENAI_SAMPLE_RATE if self._session_started else None,
+            resampler=self._resampler,
+        )
 
     async def run_function_calls(self, function_calls: Sequence[FunctionCallFromLLM]):
         # Keep a batch intact so a transition cannot outrun related tool calls.

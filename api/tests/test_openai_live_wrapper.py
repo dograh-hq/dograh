@@ -20,6 +20,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.metrics.metrics import LLMTokenUsage, LLMUsageMetricsData
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -33,7 +34,10 @@ from pipecat.services.settings import LLMSettings
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.tests.utils import SleepFrame, run_test
 from pipecat.transports.base_transport import TransportParams
-from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
+from pipecat.turns.user_mute import (
+    CallbackUserMuteStrategy,
+    MuteUntilFirstBotCompleteUserMuteStrategy,
+)
 
 from api.routes.user import get_default_configurations
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
@@ -48,6 +52,8 @@ from api.services.pipecat.realtime.openai_live import (
 from api.services.pipecat.realtime.openai_realtime import DograhOpenAIRealtimeLLMService
 from api.services.pipecat.run_pipeline import _create_realtime_user_turn_config
 from api.services.pipecat.service_factory import create_realtime_llm_service
+from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.workflow.pipecat_engine import PipecatEngine
 
 
 def make_service():
@@ -152,6 +158,46 @@ async def test_workflow_changes_update_backend_instructions_and_tools_without_re
     assert len(sent_events(service, "response.create")) == 1
     await service._handle_context(context)
     assert len(sent_events(service, "response.create")) == 1
+
+
+@pytest.mark.asyncio
+async def test_transition_skips_text_without_muting_and_updates_next_node(
+    three_node_workflow_no_variable_extraction,
+):
+    service = make_service()
+    context = LLMContext()
+    task = SimpleNamespace(queue_frame=AsyncMock())
+    workflow = three_node_workflow_no_variable_extraction
+    engine = PipecatEngine(
+        llm=service,
+        context=context,
+        task=task,
+        workflow=workflow,
+        call_context_vars={"customer_name": "Test User"},
+        is_realtime=True,
+    )
+    await engine.set_node("start")
+    await service._handle_context(context)
+    await start_session(service)
+    service.send_client_event.reset_mock()
+
+    transition = await engine._create_transition_func(
+        "collect_info", "agent", transition_speech="Let me ask a few questions."
+    )
+    result_callback = AsyncMock()
+    await transition(SimpleNamespace(arguments={}, result_callback=result_callback))
+
+    task.queue_frame.assert_not_awaited()
+    assert sent_events(service, "session.instructions.append") == []
+    assert not await engine.should_mute_user(InputAudioRawFrame(bytes(480), 24000, 1))
+    assert engine._current_node.id == "agent"
+    update = sent_events(service, "session.update")[-1]["session"]
+    assert (
+        workflow.nodes["agent"].prompt
+        in update["delegation"]["responses"]["instructions"]
+    )
+    result_callback.assert_awaited_once()
+    assert result_callback.await_args.args == ({"status": "done"},)
 
 
 @pytest.mark.asyncio
@@ -363,3 +409,136 @@ async def test_live_seconds_are_deduplicated_and_backend_tokens_keep_their_model
         )
     assert tokens.model == "gpt-5.4-mini"
     assert "live" not in tokens.processor.lower()
+
+
+@pytest.mark.asyncio
+async def test_end_node_keeps_live_open_until_last_audio_reaches_caller(
+    three_node_workflow_no_variable_extraction,
+):
+    class ClosingAnnouncementSocket:
+        def __init__(self):
+            self.incoming = asyncio.Queue()
+            self.goodbye_requested = False
+            self.audio_packets = 0
+            self.closed_before_last_packet = None
+            self.bot_was_speaking_at_close = None
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            return json.dumps(await self.incoming.get())
+
+        async def send(self, payload):
+            event = json.loads(payload)
+            if event["type"] == "session.close":
+                self.closed_before_last_packet = self.audio_packets < 40
+                self.bot_was_speaking_at_close = engine._bot_is_speaking
+                await self.incoming.put({"type": "session.closed"})
+            elif (
+                event["type"] == "session.input_audio.append" and self.goodbye_requested
+            ):
+                self.audio_packets += 1
+                # Delay the first audio, then stream it over many input packets.
+                # A fast variable extractor must not close the session meanwhile.
+                if self.audio_packets < 5:
+                    return
+                if self.audio_packets in {5, 40}:
+                    await self.incoming.put(
+                        {
+                            "type": "session.output_transcript.delta",
+                            "role": "assistant",
+                            "delta": (
+                                "No problem at all. Thank you for your "
+                                if self.audio_packets == 5
+                                else "time. Goodbye!"
+                            ),
+                        }
+                    )
+                pcm = b"\x00\x30" * 480 if self.audio_packets <= 40 else bytes(960)
+                await self.incoming.put(
+                    {
+                        "type": "session.output_audio.delta",
+                        "delta": base64.b64encode(pcm).decode(),
+                    }
+                )
+
+        async def close(self):
+            pass
+
+    socket = ClosingAnnouncementSocket()
+    service = DograhOpenAILiveLLMService(api_key="test", backend_model="gpt-5.4-mini")
+    context = LLMContext()
+    service._context = context
+    # Begin in an established conversation, just before the end-node transition.
+    service._session_started = True
+    service._session_started_on_connection = True
+    service._needs_session_config = False
+    engine = PipecatEngine(
+        llm=service,
+        context=context,
+        workflow=three_node_workflow_no_variable_extraction,
+        call_context_vars={},
+        is_realtime=True,
+    )
+    engine._current_node = engine.workflow.nodes["agent"]
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+    engine.perform_final_variable_extraction = AsyncMock()
+    turns, _ = _create_realtime_user_turn_config("openai_realtime", "gpt-live-1")
+    aggregators = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            user_turn_strategies=turns,
+            user_mute_strategies=[
+                CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user)
+            ],
+        ),
+        realtime_service_mode=False,
+    )
+    transport = MockTransport(
+        TransportParams(audio_out_enabled=True), generate_audio=True
+    )
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            aggregators.user(),
+            service,
+            transport.output(),
+            aggregators.assistant(),
+        ]
+    )
+    worker = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
+    engine.set_task(worker)
+    callbacks = []
+
+    @worker.event_handler("on_pipeline_started")
+    async def transition_to_end(_worker, _frame):
+        transition = await engine._create_transition_func("move_to_end_call", "end")
+
+        async def result_callback(_result, *, properties):
+            # The provider starts its closing response after the tool result;
+            # the assistant aggregator schedules this callback independently.
+            socket.goodbye_requested = True
+            callbacks.append(asyncio.create_task(properties.on_context_updated()))
+
+        await transition(SimpleNamespace(arguments={}, result_callback=result_callback))
+
+    try:
+        with patch(
+            "pipecat.services.openai.live.llm.websocket_connect",
+            AsyncMock(return_value=socket),
+        ):
+            await asyncio.wait_for(run_pipeline_worker(worker), timeout=5)
+        assert socket.closed_before_last_packet is False
+        assert socket.bot_was_speaking_at_close is False
+        assert any(
+            message.get("role") == "assistant"
+            and "time. Goodbye!" in message.get("content", "")
+            for message in context.messages
+        )
+        engine.perform_final_variable_extraction.assert_awaited_once()
+    finally:
+        for callback in callbacks:
+            if not callback.done():
+                callback.cancel()
+        await asyncio.gather(*callbacks, return_exceptions=True)

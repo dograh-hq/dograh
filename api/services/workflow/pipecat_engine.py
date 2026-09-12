@@ -19,6 +19,7 @@ from pipecat.frames.frames import (
     EndFrame,
     FunctionCallResultProperties,
     LLMContextFrame,
+    TTSAudioRawFrame,
     TTSSpeakFrame,
     UserIdleTimeoutUpdateFrame,
 )
@@ -108,6 +109,20 @@ _ENGINE_OWNED_CONTEXT_KEYS = frozenset(
 # p50 1.4s / p90 4.0s / max 21.3s, so this cuts off the tail and nothing else.
 FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
 
+# Seconds a queued-speech mute hold waits for playback to begin before it is
+# dropped. Speech handed to the pipeline that never produces audio -- a TTS
+# provider error, an empty synthesis -- gets no BotStoppedSpeakingFrame, and
+# without this deadline the caller would stay muted for the rest of the call.
+# Same question, same answer as the transfer path's playback start timeout.
+#
+# The deadline cannot tell "no audio ever" from "first audio later than this",
+# so a TTS that is merely slow (and nothing else speaking to hold the mute)
+# unmutes the caller shortly before the message plays. That is the trade: an
+# early unmute is recoverable, a mute that lasts the rest of the call is not.
+# Timing it from the TTSStartedFrame instead of from the handover, or setting
+# it per provider, would narrow the window if that ever proves too tight.
+_QUEUED_SPEECH_PLAYBACK_START_TIMEOUT_SECONDS = 5.0
+
 
 class PipecatEngine:
     def __init__(
@@ -182,9 +197,16 @@ class PipecatEngine:
         self._answer_user_aggregator = None
         self._answer_idle_timeout = 0
 
-        # Mute state for queued TTSSpeakFrames (transition speech, custom tool messages)
-        # "idle" = not muting, "waiting" = speech queued, "playing" = bot speaking it
-        self._queued_speech_mute_state: str = "idle"
+        # Mute holds for queued speech (transition speech, custom tool
+        # messages). Function calls run in parallel, so each operation takes
+        # its own hold and the user stays muted while any hold is alive.
+        # A hold is "pending" until the speech reaches the transport, and only
+        # its owner may release it; once queued it becomes "playing" and the
+        # BotStoppedSpeakingFrame that ends playback releases it.
+        self._queued_speech_mute_pending: set[int] = set()
+        self._queued_speech_mute_playing: set[int] = set()
+        self._queued_speech_mute_last_token: int = 0
+        self._queued_speech_mute_watchdogs: set[asyncio.Task] = set()
 
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
         self._bot_is_speaking: bool = False
@@ -360,27 +382,32 @@ class PipecatEngine:
                     logger.info(
                         f"Playing transition audio: {transition_speech_recording_id}"
                     )
-                    self._queued_speech_mute_state = "waiting"
-                    result = await self._fetch_recording_audio(
-                        recording_pk=int(transition_speech_recording_id)
-                    )
-                    if result:
-                        await play_audio(
-                            result.audio,
-                            sample_rate=self._audio_config.pipeline_sample_rate
-                            if self._audio_config
-                            else 16000,
-                            queue_frame=self._transport_output.queue_frame,
-                            transcript=result.transcript,
-                            persist_to_logs=True,
+                    mute_token = self.acquire_queued_speech_mute()
+                    try:
+                        result = await self._fetch_recording_audio(
+                            recording_pk=int(transition_speech_recording_id)
                         )
-                    else:
-                        logger.warning(
-                            f"Failed to fetch transition audio {transition_speech_recording_id}"
-                        )
+                        if result:
+                            await play_audio(
+                                result.audio,
+                                sample_rate=self._audio_config.pipeline_sample_rate
+                                if self._audio_config
+                                else 16000,
+                                queue_frame=self.queued_speech_frame_sink(mute_token),
+                                transcript=result.transcript,
+                                persist_to_logs=True,
+                            )
+                        else:
+                            logger.warning(
+                                f"Failed to fetch transition audio {transition_speech_recording_id}"
+                            )
+                    finally:
+                        # Nothing was queued, so no BotStoppedSpeakingFrame will
+                        # ever release this hold; release it here instead.
+                        self.release_queued_speech_mute(mute_token)
                 elif transition_speech:
                     logger.info(f"Playing transition speech: {transition_speech}")
-                    self._queued_speech_mute_state = "waiting"
+                    self.mute_until_speech_playback_ends()
                     await self.task.queue_frame(
                         TTSSpeakFrame(
                             transition_speech,
@@ -1127,6 +1154,94 @@ class PipecatEngine:
         )
         await self.task.queue_frame(frame_to_push)
 
+    def _next_queued_speech_mute_token(self) -> int:
+        self._queued_speech_mute_last_token += 1
+        return self._queued_speech_mute_last_token
+
+    def acquire_queued_speech_mute(self) -> int:
+        """Mute the user for one piece of queued speech, before it exists.
+
+        Function calls run in parallel (pipecat's ``run_in_parallel`` default),
+        so the mute is a set of holds rather than a single flag: the returned
+        token is the caller's own hold and releasing it leaves every other
+        operation muted.
+        """
+        token = self._next_queued_speech_mute_token()
+        self._queued_speech_mute_pending.add(token)
+        return token
+
+    def mute_until_speech_playback_ends(self) -> None:
+        """Mute the user for speech being queued right now.
+
+        For speech that goes straight to the pipeline there is nothing to
+        release by hand: the hold ends with a BotStoppedSpeakingFrame, or with
+        the deadline below if that speech never reaches the caller.
+        """
+        self._hold_until_playback_ends(self._next_queued_speech_mute_token())
+
+    def _hold_until_playback_ends(self, token: int) -> None:
+        """Hand *token* to playback, and guard it against speech that never plays.
+
+        TTS can yield nothing at all (provider error, empty synthesis) and the
+        transport only speaks once audio reaches it, so a hold waiting on a
+        BotStoppedSpeakingFrame needs a deadline of its own. Missing it is
+        rare; staying muted for the rest of the call is not recoverable, so the
+        hold is dropped rather than kept.
+        """
+        self._queued_speech_mute_pending.discard(token)
+        self._queued_speech_mute_playing.add(token)
+
+        async def drop_if_playback_never_starts() -> None:
+            await asyncio.sleep(_QUEUED_SPEECH_PLAYBACK_START_TIMEOUT_SECONDS)
+            # Anything the bot is saying ends in a BotStoppedSpeakingFrame,
+            # which releases this hold; only silence has no way out.
+            if token not in self._queued_speech_mute_playing or self._bot_is_speaking:
+                return
+            logger.warning(
+                f"Queued speech never started playing within "
+                f"{_QUEUED_SPEECH_PLAYBACK_START_TIMEOUT_SECONDS}s; "
+                "releasing the user mute it was holding"
+            )
+            self._queued_speech_mute_playing.discard(token)
+
+        task = asyncio.create_task(
+            drop_if_playback_never_starts(), name=f"queued-speech-mute:{token}"
+        )
+        self._queued_speech_mute_watchdogs.add(task)
+        task.add_done_callback(self._queued_speech_mute_watchdogs.discard)
+
+    def queued_speech_frame_sink(
+        self, token: int
+    ) -> Callable[["Frame"], Awaitable[None]]:
+        """Frame sink that hands *token* over to playback once audio is queued.
+
+        The handover happens on the audio frame, not on the first frame of any
+        kind: the transport only counts as speaking once a TTSAudioRawFrame
+        reaches it (``base_output.py`` ``_handle_bot_speech``), so a failure
+        before that point has queued nothing audible and the owner must still
+        release the hold itself.
+        """
+
+        async def sink(frame: "Frame") -> None:
+            await self._transport_output.queue_frame(frame)
+            # Only while the hold is still its owner's: today play_audio sends
+            # one audio frame, but if that audio is ever chunked, a later chunk
+            # must not take the hold back after playback released it.
+            if isinstance(frame, TTSAudioRawFrame) and (
+                token in self._queued_speech_mute_pending
+            ):
+                self._hold_until_playback_ends(token)
+
+        return sink
+
+    def release_queued_speech_mute(self, token: int) -> None:
+        """Release a hold whose speech never reached the transport.
+
+        A hold already handed over to playback is left alone; no audio was
+        queued for this one, so no BotStoppedSpeakingFrame will ever release it.
+        """
+        self._queued_speech_mute_pending.discard(token)
+
     def arm_speech_playback(self) -> None:
         """Start tracking the next piece of speech queued to the transport.
 
@@ -1157,6 +1272,11 @@ class PipecatEngine:
         Returns:
             True if the speech played to completion, False if either wait timed
             out (the caller should carry on regardless).
+
+        A timeout leaves the queued-speech mute alone: this path arms playback
+        without taking a hold (see the transfer handler and
+        ``_play_config_message``), so anything it released would belong to
+        another operation.
         """
         try:
             await asyncio.wait_for(
@@ -1196,13 +1316,21 @@ class PipecatEngine:
         # Track bot speaking state from frames
         if isinstance(frame, BotStartedSpeakingFrame):
             self._bot_is_speaking = True
-            if self._queued_speech_mute_state == "waiting":
-                self._queued_speech_mute_state = "playing"
             self._speech_playback_started.set()
             self._speech_playback_finished.clear()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
-            self._queued_speech_mute_state = "idle"
+            # The transport emits this frame per utterance (on the
+            # TTSStoppedFrame that follows audio, or after 0.35s of silence),
+            # and it says nothing about *which* speech ended: the callback sees
+            # no context id. So a hold handed over while an earlier utterance
+            # was still playing is released here, one boundary early. That is
+            # the deliberate bias -- unmute a moment too soon rather than leave
+            # the caller muted for the rest of the call. Releasing them in FIFO
+            # order instead would mis-align on the first LLM utterance or silent
+            # TTS and put the stuck mute back. Holds still waiting for audio are
+            # their operation's own and stay.
+            self._queued_speech_mute_playing.clear()
             self._speech_playback_finished.set()
 
         # Always mute if pipeline is shutting down
@@ -1210,7 +1338,7 @@ class PipecatEngine:
             return True
 
         # Mute while queued speech (transition/tool message) is pending or playing
-        if self._queued_speech_mute_state != "idle":
+        if self._queued_speech_mute_pending or self._queued_speech_mute_playing:
             return True
 
         # Mute if bot is speaking and current node doesn't allow interruption
@@ -1404,6 +1532,9 @@ class PipecatEngine:
             and not self._user_response_timeout_task.done()
         ):
             self._user_response_timeout_task.cancel()
+
+        for watchdog in list(self._queued_speech_mute_watchdogs):
+            watchdog.cancel()
 
         # Cancel any in-flight background summarization.
         if self._context_summarization_manager:

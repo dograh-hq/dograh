@@ -75,3 +75,56 @@ def test_create_deepgram_flux_multi_omits_auto_detect_language_hint():
     kwargs = mock_service.call_args.kwargs
     assert kwargs["settings"].model == "flux-general-multi"
     assert kwargs["settings"].language_hints is NOT_GIVEN
+
+
+def test_create_deepgram_flux_uses_custom_eot_params_when_set():
+    user_config = SimpleNamespace(
+        stt=SimpleNamespace(
+            provider=ServiceProviders.DEEPGRAM.value,
+            api_key="test-key",
+            model="flux-general-en",
+            language="en",
+            eot_timeout_ms=5000,
+            eot_threshold=0.9,
+            eager_eot_threshold=0.3,
+        )
+    )
+    audio_config = AudioConfig(
+        transport_in_sample_rate=16000,
+        transport_out_sample_rate=16000,
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.DeepgramFluxSTTService"
+    ) as mock_service:
+        create_stt_service(user_config, audio_config)
+
+    kwargs = mock_service.call_args.kwargs
+    assert kwargs["settings"].eot_timeout_ms == 5000
+    assert kwargs["settings"].eot_threshold == 0.9
+    assert kwargs["settings"].eager_eot_threshold == 0.3
+
+
+def test_create_deepgram_flux_defaults_eot_params_when_unset():
+    user_config = SimpleNamespace(
+        stt=SimpleNamespace(
+            provider=ServiceProviders.DEEPGRAM.value,
+            api_key="test-key",
+            model="flux-general-en",
+            language="en",
+        )
+    )
+    audio_config = AudioConfig(
+        transport_in_sample_rate=16000,
+        transport_out_sample_rate=16000,
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.DeepgramFluxSTTService"
+    ) as mock_service:
+        create_stt_service(user_config, audio_config)
+
+    kwargs = mock_service.call_args.kwargs
+    assert kwargs["settings"].eot_timeout_ms == 3000
+    assert kwargs["settings"].eot_threshold == 0.7
+    assert kwargs["settings"].eager_eot_threshold == 0.5

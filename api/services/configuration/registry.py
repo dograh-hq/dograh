@@ -1708,6 +1708,27 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
             },
         },
     )
+    eot_threshold: float = Field(
+        default=0.7,
+        description=(
+            "Deepgram Flux end-of-turn probability threshold. Higher values "
+            "wait longer before ending a turn. Only applies to Flux models."
+        ),
+    )
+    eager_eot_threshold: float = Field(
+        default=0.5,
+        description=(
+            "Deepgram Flux eager end-of-turn probability threshold, used for "
+            "early turn-end signaling. Only applies to Flux models."
+        ),
+    )
+    eot_timeout_ms: int = Field(
+        default=3000,
+        description=(
+            "Deepgram Flux end-of-turn timeout backstop in milliseconds. "
+            "Only applies to Flux models."
+        ),
+    )
 
 
 @register_stt
@@ -1811,6 +1832,28 @@ class DograhSTTService(BaseSTTConfiguration):
         default="multi",
         description="Language code; use 'multi' for auto-detect.",
         json_schema_extra={"examples": DOGRAH_STT_LANGUAGES},
+    )
+    eot_threshold: float = Field(
+        default=0.7,
+        description=(
+            "Deepgram Flux end-of-turn probability threshold, used when this "
+            "language routes through Dograh's managed Flux proxy. Higher "
+            "values wait longer before ending a turn."
+        ),
+    )
+    eager_eot_threshold: float = Field(
+        default=0.5,
+        description=(
+            "Deepgram Flux eager end-of-turn probability threshold, used "
+            "when this language routes through Dograh's managed Flux proxy."
+        ),
+    )
+    eot_timeout_ms: int = Field(
+        default=3000,
+        description=(
+            "Deepgram Flux end-of-turn timeout backstop in milliseconds, "
+            "used when this language routes through Dograh's managed Flux proxy."
+        ),
     )
 
 

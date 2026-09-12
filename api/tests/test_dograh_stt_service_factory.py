@@ -5,7 +5,7 @@ import pytest
 from pipecat.services.settings import NOT_GIVEN
 from pipecat.transcriptions.language import Language
 
-from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.registry import ServiceProviders, DograhSTTService
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.service_factory import (
     create_stt_service,
@@ -122,3 +122,33 @@ def test_create_dograh_unsupported_language_falls_back_to_standard_stt_service(
     assert kwargs["settings"].model == "default"
     assert kwargs["settings"].language == language
     assert kwargs["keyterms"] == ["Dograh"]
+
+
+def test_create_dograh_flux_uses_custom_eot_params_when_set():
+    user_config = SimpleNamespace(
+        stt=SimpleNamespace(
+            provider=ServiceProviders.DOGRAH.value,
+            api_key="mps-key",
+            model="default",
+            language="multi",
+            eot_timeout_ms=4000,
+            eot_threshold=0.8,
+            eager_eot_threshold=0.4,
+        )
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.DograhFluxSTTService"
+    ) as flux_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = flux_service.call_args.kwargs
+    assert kwargs["settings"].eot_timeout_ms == 4000
+    assert kwargs["settings"].eot_threshold == 0.8
+    assert kwargs["settings"].eager_eot_threshold == 0.4
+    
+def test_dograh_stt_schema_includes_eot_params():
+    schema = DograhSTTService.model_json_schema()["properties"]
+    assert "eot_threshold" in schema
+    assert "eager_eot_threshold" in schema
+    assert "eot_timeout_ms" in schema

@@ -271,11 +271,12 @@ def create_stt_service(
         if user_config.stt.model in DEEPGRAM_FLUX_MODELS:
             settings_kwargs = {
                 "model": user_config.stt.model,
-                "eot_timeout_ms": 3000,
-                "eot_threshold": 0.7,
-                "eager_eot_threshold": 0.5,
+                "eot_timeout_ms": getattr(user_config.stt, "eot_timeout_ms", 3000),
+                "eot_threshold": getattr(user_config.stt, "eot_threshold", 0.7),
+                "eager_eot_threshold": getattr(user_config.stt, "eager_eot_threshold", 0.5),
                 "keyterm": keyterms or [],
             }
+
             if user_config.stt.model == "flux-general-multi":
                 language = getattr(user_config.stt, "language", None)
                 language_hint = _resolve_deepgram_flux_language_hint(language)
@@ -359,9 +360,9 @@ def create_stt_service(
             # same language hint subset as Deepgram Flux multilingual.
             settings_kwargs = {
                 "model": "flux-general-multi",
-                "eot_timeout_ms": 3000,
-                "eot_threshold": 0.7,
-                "eager_eot_threshold": 0.5,
+                "eot_timeout_ms": getattr(user_config.stt, "eot_timeout_ms", 3000),
+                "eot_threshold": getattr(user_config.stt, "eot_threshold", 0.7),
+                "eager_eot_threshold": getattr(user_config.stt, "eager_eot_threshold", 0.5),
                 "keyterm": keyterms or [],
             }
             language_hint = _resolve_deepgram_flux_language_hint(language)

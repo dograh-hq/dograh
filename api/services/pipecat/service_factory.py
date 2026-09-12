@@ -1032,14 +1032,23 @@ def create_llm_service_from_provider(
         model = _migrate_deprecated_google_model(model)
         return DograhGoogleLLMService(
             api_key=api_key,
-            settings=GoogleLLMSettings(model=model, temperature=0.1),
+            settings=GoogleLLMSettings(
+                model=model,
+                temperature=0.1,
+                # Pipecat executes tools; the SDK should return their calls.
+                extra={"automatic_function_calling": {"disable": True}},
+            ),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
         return DograhGoogleVertexLLMService(
             credentials=credentials,
             project_id=project_id,
             location=location or "us-east4",
-            settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
+            settings=GoogleVertexLLMSettings(
+                model=model,
+                temperature=0.1,
+                extra={"automatic_function_calling": {"disable": True}},
+            ),
         )
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:

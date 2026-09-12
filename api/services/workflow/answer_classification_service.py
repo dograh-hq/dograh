@@ -6,6 +6,7 @@ from collections.abc import Callable
 from opentelemetry import trace
 from opentelemetry.context import Context
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.services.minimax.llm import MiniMaxLLMService
 from pipecat.utils.tracing.langfuse_helpers import mark_trace_public
 from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
@@ -72,7 +73,9 @@ class AnswerClassificationService:
         # deliberately leaves temperature unset.
         settings = getattr(llm, "_settings", None)
         if isinstance(getattr(settings, "temperature", None), (int, float)):
-            setattr(settings, "temperature", _TEMPERATURE)
+            # MiniMax requires a strictly positive temperature in (0, 1].
+            temperature = 0.01 if isinstance(llm, MiniMaxLLMService) else _TEMPERATURE
+            setattr(settings, "temperature", temperature)
 
     async def classify(self, text: str) -> MachineSubtype:
         context = LLMContext([{"role": "user", "content": text}])

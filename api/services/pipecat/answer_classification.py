@@ -38,7 +38,7 @@ _PATTERNS = (
     (
         MachineSubtype.IVR,
         re.compile(
-            r"\b(?:press|dial) (?:[0-9]|one|two|three|four|five|star|pound)\b",
+            r"\b(?:press|dial) (?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine|star|pound)\b",
             re.IGNORECASE,
         ),
     ),

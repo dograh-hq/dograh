@@ -88,8 +88,7 @@ class StartCall(TypedNode):
     delayed_start: bool = False
     """
     Set the initial listening window for outbound voicemail and screening
-    handling. A brief human greeting can end the wait sooner. Applies when
-    handling is enabled and separate speech models are used.
+    handling. A brief human greeting can end the wait sooner.
     """
 
     delayed_start_duration: float = 1.2

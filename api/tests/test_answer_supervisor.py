@@ -276,6 +276,36 @@ async def test_screener_prompt_stays_gated_regardless_of_duration(text, duration
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("screening", [False, True])
+@pytest.mark.parametrize("duration", [0.01, 0.07])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Press zero.",
+        "Dial six.",
+        "Press seven.",
+        "Dial eight.",
+        "Press nine.",
+        "Press 1.",
+    ],
+)
+async def test_ivr_prompt_stays_gated_regardless_of_duration(text, duration, screening):
+    classifier = AsyncMock(return_value=MachineSubtype.CONVERSATION)
+    async with call(classify=classifier) as c:
+        if screening:
+            c.supervisor.begin_screening_wait()
+        await c.say(text, duration=duration)
+        result = await verdict(c)
+        assert result.action == "drop"
+        assert result.subtype == MachineSubtype.IVR
+        assert c.supervisor.blocks_workflow
+        assert c.supervisor.llm_gate().closed
+        assert c.supervisor.llm_gate().dropped_contexts == 1
+        assert not any(isinstance(f, LLMContextFrame) for f in c.capture.frames)
+        classifier.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("screening", [False, True])
 async def test_new_human_turn_cancels_stale_machine_classification(screening):
     entered, cancelled = asyncio.Event(), asyncio.Event()
     transcripts = []

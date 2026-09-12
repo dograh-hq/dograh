@@ -44,7 +44,7 @@ function MessageField({ label, value = {}, onChange, recordings }: {
             onChange={e => {
                 setAudio(e.target.value === "audio");
                 if (e.target.value === "text") onChange({ text: value.text || "" });
-                else onChange({ recording_id: value.recording_id, recording_pk: value.recording_pk });
+                else onChange({ text: value.text, recording_id: value.recording_id, recording_pk: value.recording_pk });
             }}>
             <option value="text">Text</option>
             <option value="audio">Recording</option>

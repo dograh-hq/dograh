@@ -38,6 +38,23 @@ describe("AnswerSupervisorFields", () => {
         expect(config.screening_message.text).toBe("Alex calling about your appointment.");
     });
 
+    it.each([
+        ["Voicemail message", "voicemail_message"],
+        ["Screening message", "screening_message"],
+    ] as const)("preserves %s text when toggling formats without selecting a recording", (label, key) => {
+        render(<Harness initial={{ voicemail_action: "leave_message" }} />);
+        fireEvent.change(screen.getByLabelText(label), { target: { value: "Alex calling about your appointment." } });
+        const field = screen.getByRole("group", { name: label });
+        const format = within(field).getByLabelText("Message format");
+
+        fireEvent.change(format, { target: { value: "audio" } });
+        expect(JSON.parse(screen.getByTestId("saved").textContent!)[key]).toEqual({ text: "Alex calling about your appointment." });
+
+        fireEvent.change(format, { target: { value: "text" } });
+        expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe("Alex calling about your appointment.");
+        expect(JSON.parse(screen.getByTestId("saved").textContent!)[key]).toEqual({ text: "Alex calling about your appointment." });
+    });
+
     it("clears an old recording when switching voicemail to text", () => {
         render(<Harness initial={{ voicemail_action: "leave_message", voicemail_message: { recording_pk: 9 }, screening_message: { text: "Alex calling." } }} />);
         const field = screen.getByRole("group", { name: "Voicemail message" });

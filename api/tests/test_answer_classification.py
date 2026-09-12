@@ -48,6 +48,18 @@ def test_machine_subtypes(text, expected):
     assert classify_machine_utterance(text) == expected
 
 
+@pytest.mark.parametrize("instruction", ["Press", "Dial"])
+@pytest.mark.parametrize(
+    "digit",
+    ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"],
+)
+def test_ivr_recognizes_all_spoken_digits(instruction, digit):
+    assert (
+        classify_machine_utterance(f"{instruction} {digit} to continue.")
+        == MachineSubtype.IVR
+    )
+
+
 def test_no_message_takes_precedence_over_generic_voicemail_instructions():
     assert (
         classify_machine_utterance(
@@ -108,8 +120,17 @@ async def test_private_classifier_validates_output_and_uses_a_fresh_context(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["gpt-4.1", "gpt-5"])
-async def test_classifier_preserves_factory_temperature_omissions(model):
+@pytest.mark.parametrize(
+    "provider, model",
+    [
+        ("openai", "gpt-4.1"),
+        ("openai", "gpt-5"),
+        ("minimax", "MiniMax-M2.7"),
+    ],
+)
+async def test_classifier_uses_provider_safe_temperature_and_preserves_omissions(
+    provider, model
+):
     from openai import NOT_GIVEN
 
     from api.services.pipecat.service_factory import create_llm_service_from_provider
@@ -117,7 +138,7 @@ async def test_classifier_preserves_factory_temperature_omissions(model):
         AnswerClassificationService,
     )
 
-    llm = create_llm_service_from_provider("openai", model, "test-key")
+    llm = create_llm_service_from_provider(provider, model, "test-key")
     llm._client.chat.completions.create = AsyncMock(
         return_value=SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="CONVERSATION"))]
@@ -129,6 +150,8 @@ async def test_classifier_preserves_factory_temperature_omissions(model):
         params = llm._client.chat.completions.create.call_args.kwargs
         if model == "gpt-5":
             assert params["temperature"] is NOT_GIVEN
+        elif provider == "minimax":
+            assert params["temperature"] == 0.01
         else:
             assert params["temperature"] == 0.0
     finally:

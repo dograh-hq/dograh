@@ -208,10 +208,11 @@ class AnswerSupervisor(FrameProcessor):
         if self._utterance_task:
             self._utterance_task.cancel()
         subtype = classify_machine_utterance(text)
-        # Clipped screener prompts and screening acknowledgments can be brief.
-        # Recognize them before applying the short-human-turn shortcut, along
-        # with subsequent machine prompts while waiting for the subscriber.
+        # IVR instructions, clipped screener prompts, and screening acknowledgments
+        # can be brief. Recognize them before applying the short-human-turn
+        # shortcut, along with machine prompts while waiting for the subscriber.
         machine_turn = subtype in (
+            MachineSubtype.IVR,
             MachineSubtype.SCREENER,
             MachineSubtype.SCREENING_WAIT,
         ) or (self._screening and subtype != MachineSubtype.UNKNOWN)

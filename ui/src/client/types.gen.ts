@@ -4312,7 +4312,7 @@ export type OpenAillmService = {
 };
 
 /**
- * OpenAI Realtime
+ * OpenAI
  */
 export type OpenAiRealtimeLlmConfiguration = {
     /**
@@ -4326,7 +4326,7 @@ export type OpenAiRealtimeLlmConfiguration = {
     /**
      * Model
      *
-     * OpenAI realtime (speech-to-speech) model.
+     * Choose GPT-Live for full-duplex speech or a GPT-Realtime model.
      */
     model?: string;
     /**
@@ -4341,6 +4341,12 @@ export type OpenAiRealtimeLlmConfiguration = {
      * ISO 639-1 language code for input audio transcription (e.g. 'pt', 'es'). Improves transcription accuracy and latency. Leave unset to auto-detect.
      */
     language?: string | null;
+    /**
+     * Backend Model
+     *
+     * OpenAI Responses model that follows your workflow and calls tools. Uses the same API key; backend usage is billed separately from voice.
+     */
+    backend_model?: string;
 };
 
 /**

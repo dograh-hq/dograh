@@ -1122,7 +1122,18 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}, language={language}"
     )
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value:
+    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+        from api.services.pipecat.realtime.openai_live import DograhOpenAILiveLLMService
+
+        return DograhOpenAILiveLLMService(
+            api_key=api_key,
+            backend_model=realtime_config.backend_model,
+            settings=DograhOpenAILiveLLMService.Settings(
+                model=model,
+                voice=voice or "marin",
+            ),
+        )
+    elif provider == ServiceProviders.OPENAI_REALTIME.value:
         from api.services.pipecat.realtime.openai_realtime import (
             DograhOpenAIRealtimeLLMService,
         )

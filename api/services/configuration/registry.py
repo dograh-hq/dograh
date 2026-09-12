@@ -3,7 +3,14 @@ from collections.abc import Iterable
 from enum import Enum, auto
 from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from api.services.configuration.options import (
     AZURE_EMBEDDING_MODELS,
@@ -307,7 +314,7 @@ AZURE_OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("Azure OpenAI")
 DOGRAH_PROVIDER_MODEL_CONFIG = provider_model_config("Dograh")
 AWS_BEDROCK_PROVIDER_MODEL_CONFIG = provider_model_config("AWS Bedrock")
 GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG = provider_model_config("Google Vertex")
-OPENAI_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI Realtime")
+OPENAI_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI")
 GROK_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Grok Realtime")
 ULTRAVOX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Ultravox Realtime")
 GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Google Realtime")
@@ -673,7 +680,13 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
     )
 
 
-OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
+OPENAI_REALTIME_MODELS = [
+    "gpt-live-1",
+    "gpt-realtime-2.1",
+    "gpt-realtime-2.1-mini",
+    "gpt-realtime-2",
+]
+OPENAI_LIVE_VOICES = ["marin", "cedar"]
 # ISO 639-1 codes accepted by the Realtime API's input_audio_transcription.
 # Not exhaustive — the field allows custom input.
 OPENAI_REALTIME_LANGUAGES = [
@@ -697,6 +710,8 @@ OPENAI_REALTIME_VOICES = [
     "sage",
     "shimmer",
     "verse",
+    "marin",
+    "cedar",
 ]
 AWS_NOVA_SONIC_MODELS = ["amazon.nova-2-sonic-v1:0"]
 AWS_NOVA_SONIC_VOICES = [
@@ -734,7 +749,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     model: str = Field(
         default="gpt-realtime-2",
-        description="OpenAI realtime (speech-to-speech) model.",
+        description="Choose GPT-Live for full-duplex speech or a GPT-Realtime model.",
         json_schema_extra={
             "examples": OPENAI_REALTIME_MODELS,
             "allow_custom_input": True,
@@ -745,6 +760,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         description="Voice the model speaks in.",
         json_schema_extra={
             "examples": OPENAI_REALTIME_VOICES,
+            "model_options": {"gpt-live-1": OPENAI_LIVE_VOICES},
             "allow_custom_input": True,
         },
     )
@@ -757,8 +773,33 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         json_schema_extra={
             "examples": OPENAI_REALTIME_LANGUAGES,
             "allow_custom_input": True,
+            "hidden_for_models": ["gpt-live-1"],
         },
     )
+    backend_model: str = Field(
+        default="gpt-5.4-mini",
+        min_length=1,
+        description=(
+            "OpenAI Responses model that follows your workflow and calls tools. "
+            "Uses the same API key; backend usage is billed separately from voice."
+        ),
+        json_schema_extra={
+            "examples": ["gpt-5.4-mini"],
+            "allow_custom_input": True,
+            "visible_for_models": ["gpt-live-1"],
+        },
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_live_voice(cls, data):
+        if (
+            isinstance(data, dict)
+            and data.get("model") == "gpt-live-1"
+            and not data.get("voice")
+        ):
+            return {**data, "voice": "marin"}
+        return data
 
 
 @register_service(ServiceType.REALTIME)

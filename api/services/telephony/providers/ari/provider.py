@@ -22,6 +22,10 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.ari.dial_string import (
+    DEFAULT_DIAL_STRING_TEMPLATE,
+    build_dial_string,
+)
 from api.services.telephony.providers.ari.external_pbx import create_adapter
 
 if TYPE_CHECKING:
@@ -49,6 +53,7 @@ class ARIProvider(TelephonyProvider):
                 - app_name: ARI username (ari.conf section name)
                 - app_password: ARI user password
                 - stasis_app_name: Stasis application to originate into
+                - dial_string_template: Dial string for a plain number (optional)
                 - from_numbers: List of SIP extensions/numbers (optional)
 
         ``app_name`` authenticates to Asterisk; ``stasis_app_name`` names the
@@ -61,6 +66,9 @@ class ARIProvider(TelephonyProvider):
         self.app_name = config.get("app_name", "")
         self.app_password = config.get("app_password", "")
         self.stasis_app_name = config.get("stasis_app_name") or self.app_name
+        self.dial_string_template = (
+            config.get("dial_string_template") or DEFAULT_DIAL_STRING_TEMPLATE
+        )
         self.from_numbers = config.get("from_numbers", [])
         self.default_from_number = config.get("default_from_number")
         self.external_pbx_adapter = create_adapter(config.get("external_pbx"))
@@ -94,17 +102,14 @@ class ARIProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/channels"
 
-        # Build the SIP endpoint string
-        # to_number can be a SIP URI or extension
-        if to_number.startswith("SIP/") or to_number.startswith("PJSIP/"):
-            sip_endpoint = to_number
-        else:
-            # Default to PJSIP technology
-            sip_endpoint = f"PJSIP/{to_number}"
+        # A plain number goes through the configuration's template, which is
+        # what routes it at a trunk or into the dialplan; one that already
+        # names a channel technology is dialled as written.
+        dial_string = build_dial_string(to_number, self.dial_string_template)
 
         # Prepare channel creation data
         params = {
-            "endpoint": sip_endpoint,
+            "endpoint": dial_string,
             "app": self.stasis_app_name,
             "appArgs": ",".join(
                 filter(
@@ -124,7 +129,7 @@ class ARIProvider(TelephonyProvider):
             params["callerId"] = from_number
 
         logger.info(
-            f"[ARI] Initiating call to {sip_endpoint} "
+            f"[ARI] Initiating call to {dial_string} "
             f"via app={self.stasis_app_name}, workflow_run_id={workflow_run_id}"
         )
 
@@ -489,11 +494,9 @@ class ARIProvider(TelephonyProvider):
         # Get call transfer manager for event correlation mapping
         call_transfer_manager = await get_call_transfer_manager()
 
-        # Build SIP endpoint
-        if destination.startswith("SIP/") or destination.startswith("PJSIP/"):
-            sip_endpoint = destination
-        else:
-            sip_endpoint = f"PJSIP/{destination}"
+        # A transfer reaches the same Asterisk over the same routes as an
+        # outbound call, so it is built from the same template.
+        dial_string = build_dial_string(destination, self.dial_string_template)
 
         # Build transfer appArgs for event correlation
         app_args = f"transfer,{transfer_id}"
@@ -501,7 +504,7 @@ class ARIProvider(TelephonyProvider):
         try:
             endpoint = f"{self.base_url}/channels"
             params = {
-                "endpoint": sip_endpoint,
+                "endpoint": dial_string,
                 "app": self.stasis_app_name,
                 "appArgs": app_args,
                 "timeout": timeout,  # Keep timeout for transfer calls

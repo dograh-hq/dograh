@@ -72,7 +72,11 @@ class CSVSyncService(CampaignSourceSyncService):
         return self._parse_csv(csv_content)
 
     async def validate_source(
-        self, source_id: str, organization_id: Optional[int] = None
+        self,
+        source_id: str,
+        organization_id: Optional[int] = None,
+        *,
+        require_e164: bool = True,
     ) -> ValidationResult:
         """Validate a CSV source file for campaign creation."""
         try:
@@ -94,7 +98,7 @@ class CSVSyncService(CampaignSourceSyncService):
         headers = csv_data[0]
         data_rows = csv_data[1:]
 
-        return self.validate_source_data(headers, data_rows)
+        return self.validate_source_data(headers, data_rows, require_e164=require_e164)
 
     async def sync_source_data(self, campaign_id: int) -> int:
         """

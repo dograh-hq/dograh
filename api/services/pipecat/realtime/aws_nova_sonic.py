@@ -13,12 +13,14 @@ service to Dograh's workflow lifecycle:
 - mark Nova's completed user transcriptions as final.
 """
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.adapters.services.aws_nova_sonic_adapter import (
     AWSNovaSonicConversationHistoryMessage,
@@ -31,9 +33,6 @@ from pipecat.frames.frames import (
     InputAudioRawFrame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -81,17 +80,14 @@ class DograhAWSNovaSonicLLMAdapter(AWSNovaSonicLLMAdapter):
         return params
 
 
-class DograhAWSNovaSonicLLMService(AWSNovaSonicLLMService):
+class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMService):
     """AWS Nova 2 Sonic with Dograh workflow integration."""
 
     adapter_class = DograhAWSNovaSonicLLMAdapter
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._user_is_muted = False
-        # Dograh assigns ``_context`` before the first LLMContextFrame, so its
-        # presence cannot identify whether the initial response already ran.
-        self._handled_initial_context = False
+        self._input_content_lock = asyncio.Lock()
         self._pending_initial_prompt: str | None = None
         self._pending_message_batches: list[tuple[list[tuple[Role, str]], bool]] = []
         self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
@@ -102,31 +98,6 @@ class DograhAWSNovaSonicLLMService(AWSNovaSonicLLMService):
     # ------------------------------------------------------------------
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TTSSpeakFrame):
-            # Nova renders its own audio, so consume the engine's initial TTS
-            # trigger and turn it into an interactive text prompt.
-            if not self._handled_initial_context:
-                greeting = frame.text.strip() if frame.text else ""
-                prompt = (
-                    format_static_greeting_prompt(greeting)
-                    if greeting
-                    else _INITIAL_RESPONSE_PROMPT
-                )
-                await self._handle_initial_prompt(self._context, prompt)
-            else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame after initial context already handled — "
-                    "Nova Sonic owns audio generation, ignoring"
-                )
-            return
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
@@ -142,16 +113,29 @@ class DograhAWSNovaSonicLLMService(AWSNovaSonicLLMService):
             frame.finalized = True
         await super().push_frame(frame, direction)
 
+    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+        await self._handle_initial_prompt(
+            context, format_static_greeting_prompt(greeting_text)
+        )
+
     async def _handle_input_audio_frame(self, frame: InputAudioRawFrame):
-        if self._user_is_muted:
-            # Nova's interactive text responses require continuous audio input.
-            # Dropping packets here deadlocks the initial greeting: the caller
-            # stays muted until the bot finishes, but Nova cannot start speaking.
-            # Preserve packet duration/cadence without exposing muted speech to
-            # Nova or its session-continuation buffer. Keep the original frame
-            # intact for other consumers, including call recording.
-            frame = replace(frame, audio=bytes(len(frame.audio)))
-        await super()._handle_input_audio_frame(frame)
+        # Nova buffers input for session continuation inside this hook, before
+        # sending it. Silence must also reach that replay buffer.
+        await super()._handle_input_audio_frame(await self._prepare_user_audio(frame))
+
+    async def send_text(
+        self, text: str, role: str, prompt_name: str, stream: Any, interactive: bool
+    ):
+        # Audio system frames run alongside context updates. Keep each text
+        # contentStart/textInput/contentEnd block together on the wire.
+        async with self._input_content_lock:
+            await super().send_text(text, role, prompt_name, stream, interactive)
+
+    async def send_audio(
+        self, audio: bytes, prompt_name: str, content_name: str, stream: Any
+    ):
+        async with self._input_content_lock:
+            await super().send_audio(audio, prompt_name, content_name, stream)
 
     async def _send_user_audio_event(self, audio: bytes) -> None:
         if self._disconnecting or not self._stream or not self._audio_input_started:
@@ -187,6 +171,12 @@ class DograhAWSNovaSonicLLMService(AWSNovaSonicLLMService):
                 self._pending_initial_prompt = _INITIAL_RESPONSE_PROMPT
             await self._finish_connecting_if_context_available()
             await self._flush_pending_text_inputs()
+            return
+
+        if not self._connected_time:
+            # Error recovery reconnects before restoring context. Initialize the
+            # new session and mark historical tool results as already handled.
+            await self._finish_connecting_if_context_available()
             return
 
         await self._process_completed_function_calls(send_new_results=True)

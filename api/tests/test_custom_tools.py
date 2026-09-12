@@ -1816,9 +1816,14 @@ class TestCustomToolManagerUnit:
     @pytest.mark.asyncio
     async def test_transfer_call_http_resolver_uses_transfer_context_destination(self):
         """HTTP resolver transfer_context.destination is passed to the provider."""
+        from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        mock_engine._is_realtime = False
+        mock_engine.queue_text_message = PipecatEngine.queue_text_message.__get__(
+            mock_engine
+        )
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {"state": "TX"}
@@ -1955,9 +1960,14 @@ class TestCustomToolManagerUnit:
     @pytest.mark.asyncio
     async def test_transfer_call_resolver_failure_does_not_toggle_pipeline_mute(self):
         """Function-call muting covers resolver execution without pipeline state."""
+        from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        mock_engine._is_realtime = False
+        mock_engine.queue_text_message = PipecatEngine.queue_text_message.__get__(
+            mock_engine
+        )
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {"state": "TX"}

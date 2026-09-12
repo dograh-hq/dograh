@@ -2875,12 +2875,6 @@ export type GoogleRealtimeLlmConfiguration = {
      * ISO 639-1 language code.
      */
     language?: string;
-    /**
-     * Temperature
-     *
-     * Sampling temperature for Gemini Live (0.0 to 2.0).
-     */
-    temperature?: number | null;
 };
 
 /**
@@ -3047,12 +3041,6 @@ export type GoogleVertexRealtimeLlmConfiguration = {
      * BCP-47 language code (e.g. 'en-US').
      */
     language?: string;
-    /**
-     * Temperature
-     *
-     * Sampling temperature for Gemini Live (0.0 to 2.0).
-     */
-    temperature?: number | null;
     /**
      * Project Id
      *
@@ -3676,6 +3664,8 @@ export type LastCampaignSettingsResponse = {
 
 /**
  * LMNT
+ *
+ * Stored LMNT configurations remain readable after the provider's retirement.
  */
 export type LmntTtsConfiguration = {
     /**
@@ -4310,7 +4300,7 @@ export type OpenAillmService = {
 };
 
 /**
- * OpenAI Realtime
+ * OpenAI
  */
 export type OpenAiRealtimeLlmConfiguration = {
     /**
@@ -4324,7 +4314,7 @@ export type OpenAiRealtimeLlmConfiguration = {
     /**
      * Model
      *
-     * OpenAI realtime (speech-to-speech) model.
+     * Choose GPT-Live for full-duplex speech or a GPT-Realtime model.
      */
     model?: string;
     /**
@@ -4339,6 +4329,12 @@ export type OpenAiRealtimeLlmConfiguration = {
      * ISO 639-1 language code for input audio transcription (e.g. 'pt', 'es'). Improves transcription accuracy and latency. Leave unset to auto-detect.
      */
     language?: string | null;
+    /**
+     * Backend Model
+     *
+     * OpenAI Responses model that follows your workflow and calls tools. Uses the same API key; backend usage is billed separately from voice.
+     */
+    backend_model?: string;
 };
 
 /**
@@ -5943,7 +5939,7 @@ export type SpeechmaticsSttConfiguration = {
     /**
      * Model
      *
-     * Speechmatics operating point: 'standard' or 'enhanced'.
+     * Speechmatics Agent STT model.
      */
     model?: string;
     /**

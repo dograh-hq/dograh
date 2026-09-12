@@ -55,14 +55,16 @@ class UserIdleHandler:
             await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
             return
 
+        if not self._engine.defer_end_call_until_bot_playback(
+            EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
+        ):
+            return
+
         message = {
             "role": "user",
             "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
         }
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-        await self._engine.end_call_with_reason(
-            EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
-        )
 
 
 def create_user_idle_handler(engine: "PipecatEngine") -> UserIdleHandler:

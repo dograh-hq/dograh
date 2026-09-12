@@ -1561,8 +1561,9 @@ LMNT_TTS_MODELS = ["aurora", "blizzard"]
 LMNT_TTS_VOICES = ["lily", "daniel", "ava", "caleb", "leah", "zeke"]
 
 
-@register_tts
 class LmntTTSConfiguration(BaseTTSConfiguration):
+    """Stored LMNT configurations remain readable after the provider's retirement."""
+
     model_config = LMNT_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.LMNT] = ServiceProviders.LMNT
     model: str = Field(
@@ -1846,8 +1847,9 @@ class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
     model_config = SPEECHMATICS_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS
     model: str = Field(
-        default="enhanced",
-        description="Speechmatics operating point: 'standard' or 'enhanced'.",
+        default="linden-1",
+        description="Speechmatics Agent STT model.",
+        json_schema_extra={"examples": ["linden-1"]},
     )
     language: str = Field(
         default="en",

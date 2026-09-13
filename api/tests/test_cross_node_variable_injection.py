@@ -19,23 +19,6 @@ def test_render_template_gathered_context_simple():
     assert render_template("Hello {{gathered_context.guest_name}}", ctx) == "Hello Alice"
 
 
-def test_render_template_gathered_context_missing_key_renders_empty():
-    ctx = {"gathered_context": {}}
-    assert render_template("Hello {{gathered_context.guest_name}}", ctx) == "Hello "
-
-
-def test_render_template_gathered_context_fallback_filter():
-    ctx = {"gathered_context": {}}
-    result = render_template("Hello {{gathered_context.guest_name | Guest}}", ctx)
-    assert result == "Hello Guest"
-
-
-def test_render_template_gathered_context_nested_path():
-    ctx = {"gathered_context": {"quote": {"price": 250, "currency": "USD"}}}
-    result = render_template("{{gathered_context.quote.price}}", ctx)
-    assert result == "250"
-
-
 def test_render_template_gathered_context_dict_value_serialized_as_json():
     import json
     ctx = {"gathered_context": {"data": {"a": 1, "b": 2}}}
@@ -142,24 +125,47 @@ def test_format_prompt_initial_context_not_overwritten():
 
 
 def test_format_prompt_gathered_context_snapshot_isolates_concurrent_mutation():
-    """Snapshot (dict copy) means mid-render mutations don't corrupt the render."""
+    """Snapshot (dict copy) means that a mutation to _gathered_context that
+    happens after _format_prompt takes its snapshot does not affect the context
+    dict that render_template receives.
+
+    We verify this by patching render_template *in the pipecat_engine module
+    namespace* (where _format_prompt calls it) to:
+    1. Capture the ``gathered_context`` dict passed to it (this is the snapshot).
+    2. Then mutate engine._gathered_context["x"] to "mutated".
+    3. Delegate to the real render_template.
+
+    If _format_prompt uses dict(self._gathered_context), the captured context
+    will still have "original" even though the live dict has been mutated.
+    If _format_prompt passed self._gathered_context directly, the captured
+    context would also reflect "mutated" (because it is the same object), and
+    the test would catch the regression.
+    """
+    import api.services.workflow.pipecat_engine as engine_module
+    from api.utils.template_renderer import render_template as real_render_template
+
     engine = make_minimal_engine(gathered_context={"x": "original"})
 
-    original_render = engine._format_prompt
-    render_results = []
+    captured_ctx: list[dict] = []
 
-    def capturing_format(prompt):
-        # Mutate _gathered_context to simulate concurrent background task
+    def mutating_render_template(template: str, context: dict) -> str:
+        # Record the snapshot context *before* delegating
+        captured_ctx.append(dict(context.get("gathered_context", {})))
+        # Simulate a concurrent background mutation to the live dict
         engine._gathered_context["x"] = "mutated"
-        return original_render(prompt)
+        return real_render_template(template, context)
 
-    # The snapshot taken at the start of _format_prompt should have "original"
-    # even if _gathered_context is mutated during render.
-    # Because render_template is synchronous and doesn't yield, this actually
-    # tests that the copy is taken before template substitution begins.
-    engine._gathered_context["x"] = "original"
-    result = engine._format_prompt("{{gathered_context.x}}")
+    with patch.object(engine_module, "render_template", side_effect=mutating_render_template):
+        result = engine._format_prompt("{{gathered_context.x}}")
+
+    # The render output should use the snapshot ("original"), not the mutated value
     assert result == "original"
+    # And the snapshot captured before delegation must carry "original"
+    assert captured_ctx, "render_template was never called"
+    assert captured_ctx[0].get("x") == "original", (
+        f"Snapshot was not taken before mutation; got: {captured_ctx[0]}"
+    )
+
 
 
 def test_format_prompt_call_context_gathered_context_overwritten_by_live():

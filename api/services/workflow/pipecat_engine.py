@@ -651,6 +651,11 @@ class PipecatEngine:
     async def _await_pending_extractions(self, timeout: float = 30.0) -> None:
         """Await all in-flight background extraction tasks.
 
+        Uses asyncio.wait() instead of asyncio.wait_for() so that tasks that
+        exceed the timeout continue running in the background rather than being
+        cancelled.  Cancelling them here would silently discard their extracted
+        values and defeat the purpose of the synchronisation.
+
         Args:
             timeout: Maximum seconds to wait for pending extractions.
         """
@@ -662,6 +667,7 @@ class PipecatEngine:
             f"Awaiting {len(self._pending_extraction_tasks)} pending extraction task(s): {task_names}"
         )
         start_time = asyncio.get_event_loop().time()
+<<<<<<< HEAD
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*self._pending_extraction_tasks, return_exceptions=True),
@@ -679,10 +685,32 @@ class PipecatEngine:
             incomplete = [
                 t.get_name() for t in self._pending_extraction_tasks if not t.done()
             ]
+=======
+
+        # Snapshot the tasks; new tasks added during the wait are not our concern here.
+        pending_snapshot = set(self._pending_extraction_tasks)
+
+        done, still_pending = await asyncio.wait(pending_snapshot, timeout=timeout)
+
+        elapsed = asyncio.get_event_loop().time() - start_time
+
+        # Log any exceptions from completed tasks
+        for task in done:
+            exc = task.exception() if not task.cancelled() else None
+            if exc is not None:
+                logger.error(
+                    f"Pending extraction task '{task.get_name()}' failed: {exc}"
+                )
+
+        if still_pending:
+            incomplete = [t.get_name() for t in still_pending]
+>>>>>>> 8883c690 (fix: address PR review feedback)
             logger.warning(
                 f"Timed out waiting for pending extraction tasks after {timeout}s. "
-                f"Incomplete: {incomplete}"
+                f"Incomplete tasks will continue running in the background: {incomplete}"
             )
+        else:
+            logger.debug(f"All pending extraction tasks completed in {elapsed:.2f}s")
 
     async def flush_variable_extraction(self) -> Optional[dict]:
         """Refresh extracted variables without marking the call finalized.

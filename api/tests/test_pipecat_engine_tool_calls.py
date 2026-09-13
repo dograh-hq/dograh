@@ -166,9 +166,13 @@ class TestPipecatEngineToolCalls:
             num_text_steps=2,
         )
 
-        # Assert that the LLM generation was called a total of 2 times,
-        # 1st time when StartNode was executed, and second time
-        # when EndCall generation happened
+        # Assert that the LLM generation was called a total of 2 times:
+        # 1st time when StartNode was executed.
+        # 2nd time when EndCall node generation happened.
+        #
+        # Because end_call appears FIRST in the parallel batch, the aggregator
+        # sees the transition result before flushing the builtin tool result,
+        # so no extra IN_PROGRESS generation is emitted.
         assert llm.get_current_step() == 2, (
             "LLM generation should have happened 2 times"
         )
@@ -214,9 +218,15 @@ class TestPipecatEngineToolCalls:
         )
 
         # Assert that the LLM generation was called a total of 3 times:
-        # 1st time when StartNode was executed
-        # 2nd time when parallel tool calls complete (including transition IN_PROGRESS)
-        # 3rd time when EndCall generation happened.
+        # 1st time when StartNode was executed.
+        # 2nd time triggered because safe_calculator appears FIRST in the batch:
+        #   the aggregator flushes the builtin tool result on its own before the
+        #   transition resolves, emitting an extra turn with end_call as IN_PROGRESS.
+        # 3rd time when EndCall node generation happened.
+        #
+        # This ordering-dependent difference (2 vs 3) between this test and its
+        # sibling is intentional — it documents real engine behavior where the
+        # LLM call count varies by the order tools appear in the parallel batch.
         assert llm.get_current_step() == 3, (
             "LLM generation should have happened 3 times"
         )

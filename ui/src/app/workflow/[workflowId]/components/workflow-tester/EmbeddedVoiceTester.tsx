@@ -44,6 +44,19 @@ export function EmbeddedVoiceTester({
     const handleAvatarWillDrive = useCallback((willDrive: boolean) => {
         setAvatarGate(willDrive ? 'drives' : 'none');
     }, []);
+    // Safety net: the avatar panel resolves the gate from an async config
+    // fetch. If that fetch hangs (network stall, misbehaving deployment) the
+    // panel neither resolves nor errors, and the baseline audio-only
+    // auto-start below would be blocked forever. Fall back to audio-only
+    // after a bounded wait — a late-resolving avatar still takes over via
+    // handleAvatarWillDrive.
+    useEffect(() => {
+        if (avatarGate !== 'unknown') return;
+        const timer = setTimeout(() => {
+            setAvatarGate((gate) => (gate === 'unknown' ? 'none' : gate));
+        }, 5000);
+        return () => clearTimeout(timer);
+    }, [avatarGate]);
     const [iframeCopied, setIframeCopied] = useState(false);
     const [iframeLoading, setIframeLoading] = useState(false);
     const handleCopyIframe = useCallback(async () => {

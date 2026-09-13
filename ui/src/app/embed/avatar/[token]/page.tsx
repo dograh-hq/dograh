@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, MessageSquare, Mic, MicOff, PhoneOff, X } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { Loader2, Mic, MicOff, MessageSquare, PhoneOff, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { SpatialAvatarPanel } from '@/components/avatar/SpatialAvatarPanel';
 import { resolveBrowserBackendUrl } from '@/lib/apiClient';

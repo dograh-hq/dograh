@@ -21,8 +21,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.services.call_concurrency import CallConcurrencySlot
-from api.services.call_concurrency.rate_limiter import FromNumberAcquisition
-from api.services.call_concurrency.rate_limiter import RateLimiter
+from api.services.call_concurrency.rate_limiter import (
+    FromNumberAcquisition,
+    RateLimiter,
+)
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
 
 
@@ -351,6 +353,12 @@ class TestDispatcherThreadsTelephonyConfig:
             )
             await dispatcher.dispatch_call(queued_run, campaign, slot)
 
+            # The reuse lookup runs before a run is created; a regression that
+            # drops or reorders it would otherwise go unnoticed here.
+            mock_db.get_workflow_run_by_queued_run_id.assert_awaited_once_with(
+                queued_run.id
+            )
+
             mock_db.get_workflow.assert_awaited_once_with(
                 campaign.workflow_id,
                 organization_id=org_id,
@@ -491,6 +499,7 @@ class TestDispatcherThreadsTelephonyConfig:
     async def test_dispatch_call_handles_token_expired(self):
         """When initiate_call fails with token expired, dispatcher marks workflow run with token_expired disposition."""
         from fastapi import HTTPException
+
         from api.enums import TelephonyCallStatus
 
         org_id = 7

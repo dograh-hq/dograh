@@ -9,7 +9,6 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 DEFAULT_WHATSAPP_PERMISSION_MESSAGE = (
     "Hi! We'd like to speak with you over a quick WhatsApp call. Please tap 'Allow' below to connect with us."
 )

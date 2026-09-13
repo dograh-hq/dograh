@@ -6,7 +6,6 @@ from HTTP router handlers.
 """
 
 import asyncio
-from dataclasses import dataclass
 import json
 from datetime import datetime, timezone
 
@@ -18,8 +17,10 @@ except ImportError:
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import aiohttp
-from loguru import logger
 import redis.asyncio as aioredis
+from loguru import logger
+from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
+from pipecat.transports.whatsapp.client import WhatsAppClient
 
 from api.constants import (
     ENABLE_COTURN,
@@ -35,13 +36,6 @@ from api.services.call_concurrency import call_concurrency
 from api.services.pipecat.call_gate import ANSWERED, TERMINATED, OutboundCallGate
 from api.services.turn import generate_turn_credentials
 from api.services.workflow_run_failure import mark_workflow_run_failed
-from api.services.telephony.providers.whatsapp.config import (
-    GRANTED_PERMISSION_STATUSES,
-    normalize_whatsapp_permission_status,
-    parse_whatsapp_expiration,
-)
-from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
-from pipecat.transports.whatsapp.client import WhatsAppClient
 
 # Redis Channels & Key Prefixes
 REDIS_TERMINATE_CHANNEL = "whatsapp:call:terminate"
@@ -146,25 +140,28 @@ async def _run_whatsapp_pipeline(
         # Cleared by this task's done callback, not here: reading it must not
         # depend on finishing before whoever cancelled us gave up waiting.
         if _teardown_claimed_by_other(call_id):
-            # handle_call_terminate cancelled this task and owns the rest of
-            # the teardown - Meta terminate, peer disconnect, run completion.
-            # Re-entering it from here would duplicate all three for a call
-            # that is already being torn down.
+            # handle_call_terminate cancelled this task and owns the whole
+            # teardown - Meta terminate, the active-connection entry, the peer
+            # disconnect, the run completion and the concurrency slot. Return
+            # rather than fall through: the steps below are individually
+            # idempotent today, but running them twice for one call only
+            # stays harmless for as long as every one of them stays that way.
             logger.debug(
-                f"[WhatsApp] Pipeline cleanup for call {call_id} skipping terminate; "
-                "termination already in progress"
+                f"[WhatsApp] Pipeline cleanup for call {call_id} deferring to the "
+                "teardown that cancelled it"
             )
-        else:
-            try:
-                provider_terminated = await terminate_whatsapp_call_by_id(
-                    call_id=call_id,
-                    workflow_run_id=workflow_run_id,
-                    organization_id=organization_id,
-                )
-            except Exception as term_err:
-                logger.warning(
-                    f"[WhatsApp] Failed to send terminate in pipeline cleanup for call {call_id}: {term_err}"
-                )
+            return
+
+        try:
+            provider_terminated = await terminate_whatsapp_call_by_id(
+                call_id=call_id,
+                workflow_run_id=workflow_run_id,
+                organization_id=organization_id,
+            )
+        except Exception as term_err:
+            logger.warning(
+                f"[WhatsApp] Failed to send terminate in pipeline cleanup for call {call_id}: {term_err}"
+            )
         _active_connections.pop(call_id, None)
         # Only clear the Redis recovery key once Meta has actually confirmed the
         # hangup. terminate_whatsapp_call_by_id -> _handle_call_terminate already

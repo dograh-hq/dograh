@@ -42,6 +42,9 @@ class NormalizedAddress:
 
 
 _E164_RE = re.compile(r"^\+[1-9][0-9]{7,14}$")
+# Presentation characters people type into a spreadsheet cell. Removing them
+# changes how a number reads, never which number it is.
+_E164_FORMATTING_RE = re.compile(r"[\s\-()\.]")
 
 
 def is_e164(raw: Optional[str]) -> bool:
@@ -62,6 +65,27 @@ def is_e164(raw: Optional[str]) -> bool:
     if not raw or not isinstance(raw, str):
         return False
     return bool(_E164_RE.fullmatch(raw))
+
+
+def canonicalize_e164(raw: Optional[str]) -> Optional[str]:
+    """Return the strict E.164 form of ``raw``, or None if it is not one.
+
+    Only formatting is removed - spaces, dashes, brackets, dots - so this
+    converts "+44 7123 456789" to "+447123456789" and refuses anything whose
+    country code is missing or ambiguous, exactly like ``is_e164``.
+
+    Campaign ingest runs every lead through this before storing it. Ingest
+    used to accept any number starting with "+" and keep it verbatim, while
+    the WhatsApp dial path requires strict E.164 - so a perfectly valid
+    spreadsheet entry was accepted at upload and failed at dial time, with the
+    run marked failed before a call was placed. Normalising once at the point
+    of entry is what keeps the two rules from disagreeing about the same
+    contact.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    candidate = _E164_FORMATTING_RE.sub("", raw.strip())
+    return candidate if is_e164(candidate) else None
 
 
 def normalize_telephony_address(

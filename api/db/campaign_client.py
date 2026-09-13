@@ -3,7 +3,6 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from loguru import logger
 from sqlalchemy import func, or_, text, update
 from sqlalchemy.future import select
 
@@ -1261,14 +1260,18 @@ class CampaignClient(BaseDBClient):
             # the campaign and writing back keeps this from clobbering a
             # concurrent writer of the same column.
             #
-            # processed_rows is deliberately NOT incremented here. It is
-            # derived from queued-run state, and this transaction is what makes
-            # that state true; adding a delta as well would make this a second
+            # processed_rows is deliberately NOT touched here. It is derived
+            # from queued-run state, and this transaction is what makes that
+            # state true; adding a delta as well would make this a second
             # writer of a value sync_campaign_processed_rows recomputes, and
             # the two cannot both be right - that increment is what the
             # recompute then had to be clamped not to undo, which in turn made
-            # an overcount permanent. The recompute after this commits is the
-            # only writer.
+            # an overcount permanent.
+            #
+            # The recompute is the caller's, once per campaign after its runs
+            # are committed: it locks the campaign row, so doing it per run
+            # would serialise N exclusive-lock recounts on a webhook that
+            # denied one recipient with N parked leads.
             if run.campaign_id:
                 await session.execute(
                     update(CampaignModel)
@@ -1301,18 +1304,4 @@ class CampaignClient(BaseDBClient):
                 }
             await session.commit()
             await session.refresh(run)
-
-        # Outside the transaction above: the run has to be committed as
-        # "failed" before a recount can include it. A failure here leaves
-        # progress stale until the next recompute - the queued-run state it is
-        # derived from is already durable - so it must not undo a denial that
-        # has landed.
-        if run.campaign_id:
-            try:
-                await self.sync_campaign_processed_rows(run.campaign_id)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to refresh processed_rows for campaign "
-                    f"{run.campaign_id} after denying queued run {queued_run_id}: {e}"
-                )
         return run

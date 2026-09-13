@@ -102,14 +102,15 @@ from api.services.telephony.factory import (
     get_setup_checklist,
     get_sip_connectivity_details,
     get_telephony_provider_by_id,
-)
-from api.services.telephony.phone_number_sync import (
-    sync_available_phone_numbers_for_config,
+    provider_requires_call_permission,
 )
 from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
     assert_no_inbound_routing_conflict,
     canonical_address,
+)
+from api.services.telephony.phone_number_sync import (
+    sync_available_phone_numbers_for_config,
 )
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
@@ -901,6 +902,7 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 name=row.name,
                 provider=row.provider,
                 connectivity=get_provider_connectivity(row.provider),
+        requires_call_permission=provider_requires_call_permission(row.provider),
                 is_default_outbound=row.is_default_outbound,
                 inactive=row.inactive,
                 inactive_since=row.inactive_since,
@@ -1170,6 +1172,7 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
         name=row.name,
         provider=row.provider,
         connectivity=get_provider_connectivity(row.provider),
+        requires_call_permission=provider_requires_call_permission(row.provider),
         is_default_outbound=row.is_default_outbound,
         inactive=row.inactive,
         inactive_since=row.inactive_since,

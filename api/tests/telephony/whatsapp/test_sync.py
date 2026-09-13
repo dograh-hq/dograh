@@ -208,6 +208,7 @@ class TestWhatsAppWABADiscovery(IsolatedAsyncioTestCase):
     async def test_whatsapp_provider_discovery_queries_waba_when_present(self):
         """When direct lookup returns whatsapp_business_account, provider queries WABA /phone_numbers edge."""
         import json
+
         from api.services.telephony.providers.whatsapp.provider import WhatsAppProvider
 
         provider = WhatsAppProvider({

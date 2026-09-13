@@ -9,6 +9,7 @@ from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_playback import play_audio_loop
+from api.services.pipecat.call_gate import ANSWERED, OutboundCallGate
 from api.services.pipecat.in_memory_buffers import (
     InMemoryLogsBuffer,
     InMemoryRecordingBuffers,
@@ -32,10 +33,6 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.enums import EndTaskReason
-
-from api.services.pipecat.call_gate import ANSWERED, OutboundCallGate
-
-
 
 
 async def _capture_call_event(

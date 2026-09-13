@@ -5,8 +5,8 @@ Each row represents one provider account that an organization has connected
 ``OrganizationConfiguration(TELEPHONY_CONFIGURATION)`` storage.
 """
 
-from datetime import UTC, datetime
 import re
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -22,7 +22,6 @@ from api.db.models import (
     WhatsAppCallPermissionModel,
 )
 from api.utils.telephony_address import normalize_telephony_address
-
 
 # A recipient that carries no letters and no SIP punctuation is a dialable
 # number however its separators are spelled, so its digits alone identify it.

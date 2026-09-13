@@ -103,6 +103,11 @@ class TelephonyConfigurationListItem(BaseModel):
     # account apart from a bring-your-own-SIP connection without a second
     # request and without a hardcoded provider list of their own.
     connectivity: ProviderConnectivity = "api"
+    # Also from the registry: whether the recipient must consent before this
+    # provider places a business-initiated call. Clients branch on this rather
+    # than on `provider`, so a second provider with the same requirement needs
+    # no frontend change.
+    requires_call_permission: bool = False
     is_default_outbound: bool
     inactive: bool = False
     inactive_since: datetime | None = None
@@ -161,6 +166,11 @@ class TelephonyConfigurationDetail(BaseModel):
     name: str
     provider: str
     connectivity: ProviderConnectivity = "api"
+    # Also from the registry: whether the recipient must consent before this
+    # provider places a business-initiated call. Clients branch on this rather
+    # than on `provider`, so a second provider with the same requirement needs
+    # no frontend change.
+    requires_call_permission: bool = False
     is_default_outbound: bool
     inactive: bool = False
     inactive_since: datetime | None = None

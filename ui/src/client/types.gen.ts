@@ -6118,6 +6118,10 @@ export type TelephonyConfigurationDetail = {
      */
     connectivity?: 'api' | 'sip';
     /**
+     * Requires Call Permission
+     */
+    requires_call_permission?: boolean;
+    /**
      * Is Default Outbound
      */
     is_default_outbound: boolean;
@@ -6181,6 +6185,10 @@ export type TelephonyConfigurationListItem = {
      * Connectivity
      */
     connectivity?: 'api' | 'sip';
+    /**
+     * Requires Call Permission
+     */
+    requires_call_permission?: boolean;
     /**
      * Is Default Outbound
      */
@@ -8517,42 +8525,42 @@ export type EndWorkflowRunCallApiV1TelephonyRunsWorkflowRunIdEndCallPostResponse
     200: unknown;
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunPostData = {
+export type HandleInboundRunApiV1TelephonyInboundRunGetData = {
     body?: never;
     path?: never;
     query?: never;
     url: '/api/v1/telephony/inbound/run';
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunPostErrors = {
+export type HandleInboundRunApiV1TelephonyInboundRunGetErrors = {
     /**
      * Not found
      */
     404: unknown;
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunPostResponses = {
+export type HandleInboundRunApiV1TelephonyInboundRunGetResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunPost2Data = {
+export type HandleInboundRunApiV1TelephonyInboundRunGet2Data = {
     body?: never;
     path?: never;
     query?: never;
     url: '/api/v1/telephony/inbound/run';
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunPost2Errors = {
+export type HandleInboundRunApiV1TelephonyInboundRunGet2Errors = {
     /**
      * Not found
      */
     404: unknown;
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunPost2Responses = {
+export type HandleInboundRunApiV1TelephonyInboundRunGet2Responses = {
     /**
      * Successful Response
      */

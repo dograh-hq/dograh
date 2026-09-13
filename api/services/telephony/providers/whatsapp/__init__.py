@@ -194,6 +194,7 @@ SPEC = ProviderSpec(
     config_request_cls=WhatsAppConfigurationRequest,
     config_response_cls=WhatsAppConfigurationResponse,
     ui_metadata=_UI_METADATA,
+    requires_call_permission=True,
     account_id_credential_field="phone_number_id",  # Used for webhook routing
     # Lets the shared call-status route read live WhatsApp call state without
     # importing this package, and without the DB round-trip a provider

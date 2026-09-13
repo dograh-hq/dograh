@@ -37,6 +37,8 @@ from api.services.telephony.providers.whatsapp.config import (
 )
 from api.services.telephony.providers.whatsapp.service import (
     get_or_create_whatsapp_client as _get_or_create_whatsapp_client,
+)
+from api.services.telephony.providers.whatsapp.service import (
     get_whatsapp_redis as _get_redis,
 )
 
@@ -185,15 +187,33 @@ async def reactivate_campaign_runs_for_recipient(
             # writer that found the run still parked moved it, and only that
             # one may report it.
             failed = 0
+            denied_campaign_ids = set()
             for q_run in filtered_runs:
                 claimed = await db_client.fail_queued_run_permission_denied(q_run.id)
                 if claimed is None:
                     continue
                 failed += 1
+                if q_run.campaign_id:
+                    denied_campaign_ids.add(q_run.campaign_id)
                 logger.info(
                     f"[WhatsApp] Marked queued run {q_run.id} as failed (permission_denied) "
                     f"for recipient {clean_phone}."
                 )
+
+            # Once per campaign, after its denials are committed: the recount
+            # locks the campaign row, and one recipient can hold several parked
+            # leads in the same campaign. Failing here only leaves progress
+            # stale until the next recompute - the queued-run state it is
+            # derived from is already durable - so it must not undo a denial
+            # that has landed.
+            for camp_id in denied_campaign_ids:
+                try:
+                    await db_client.sync_campaign_processed_rows(camp_id)
+                except Exception as e:
+                    logger.warning(
+                        f"[WhatsApp] Failed to refresh processed_rows for campaign "
+                        f"{camp_id} after denying {clean_phone}: {e}"
+                    )
             return failed
     except Exception as e:
         logger.warning(

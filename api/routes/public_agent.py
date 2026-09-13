@@ -10,7 +10,7 @@ from typing import Awaitable, Callable, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 from api.db import db_client
 from api.enums import TriggerState, WorkflowStatus

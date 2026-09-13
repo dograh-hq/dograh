@@ -1,6 +1,6 @@
 "use client";
 
-import { ShieldCheck, Info, PhoneForwarded, PhoneOff } from 'lucide-react';
+import { Info, PhoneForwarded, PhoneOff,ShieldCheck } from 'lucide-react';
 import React from 'react';
 
 import { Badge } from '@/components/ui/badge';

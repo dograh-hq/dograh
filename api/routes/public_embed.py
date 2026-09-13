@@ -20,14 +20,13 @@ from pydantic import BaseModel
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from api.constants import ENABLE_COTURN, FORCE_TURN_RELAY
+from api.constants import ENABLE_COTURN, FORCE_TURN_RELAY, TURN_SECRET
 from api.db import db_client
 from api.enums import CallType, WorkflowRunMode
-from api.constants import TURN_SECRET
 from api.routes.turn_credentials import TurnCredentialsResponse
-from api.services.turn import generate_turn_credentials
 from api.schemas.embed_chat import PublicEmbedChatSessionResponse
 from api.schemas.widget_texts import WidgetTexts
+from api.services.turn import generate_turn_credentials
 from api.services.workflow.embed_chat_limiter import allow_embed_chat_init
 from api.services.workflow.embed_context import sanitize_embed_context_variables
 from api.services.workflow.embed_session_service import (

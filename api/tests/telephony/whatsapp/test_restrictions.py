@@ -1,8 +1,7 @@
 import importlib.util
-import os
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 if "fastapi" not in sys.modules:

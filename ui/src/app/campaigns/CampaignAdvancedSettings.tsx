@@ -56,10 +56,9 @@ export interface CampaignAdvancedSettingsProps {
     onCircuitBreakerWindowSecondsChange: (value: string) => void;
     circuitBreakerMinCalls: string;
     onCircuitBreakerMinCallsChange: (value: string) => void;
-    // WhatsApp Permission config
-    isWhatsApp?: boolean;
-    whatsappPermissionAction?: string;
-    onWhatsappPermissionActionChange?: (value: string) => void;
+    // True when the provider requires recipient consent before dialling: the
+    // caller-ID based concurrency hints below do not apply to those campaigns.
+    requiresCallPermission?: boolean;
 }
 
 /** Extract the string timezone value from ITimezoneOption | string */
@@ -119,7 +118,7 @@ export default function CampaignAdvancedSettings({
     circuitBreakerFailureThreshold, onCircuitBreakerFailureThresholdChange,
     circuitBreakerWindowSeconds, onCircuitBreakerWindowSecondsChange,
     circuitBreakerMinCalls, onCircuitBreakerMinCallsChange,
-    isWhatsApp, whatsappPermissionAction = 'skip', onWhatsappPermissionActionChange,
+    requiresCallPermission,
 }: CampaignAdvancedSettingsProps) {
     const timezoneSelectId = useId();
 
@@ -139,14 +138,14 @@ export default function CampaignAdvancedSettings({
                 />
                 <p className="text-sm text-muted-foreground">
                     Maximum number of simultaneous calls. Leave empty to use {effectiveLimit}.
-                    {!isWhatsApp && fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
+                    {!requiresCallPermission && fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
                 </p>
-                {!isWhatsApp && fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit && (
+                {!requiresCallPermission && fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
                         Concurrency is limited to {fromNumbersCount} by your configured phone numbers. To use the full org limit of {orgConcurrentLimit}, add more CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link>.
                     </p>
                 )}
-                {!isWhatsApp && fromNumbersCount === 0 && (
+                {!requiresCallPermission && fromNumbersCount === 0 && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
                         No phone numbers configured. Add CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
                     </p>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Clock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -12,14 +13,12 @@ import { withDispositionCodeOptions } from "@/lib/filterAttributes";
 import { decodeFiltersFromURL, encodeFiltersToURL } from "@/lib/filters";
 import { ActiveFilter, availableAttributes } from "@/types/filters";
 
-import { Clock, Info } from "lucide-react";
-
 interface CampaignRunsProps {
     campaignId: number;
     workflowId: number;
     searchParams?: URLSearchParams;
     refreshTrigger?: number;
-    isWhatsAppCampaign?: boolean;
+    requiresCallPermission?: boolean;
     onSyncWhatsAppPermissions?: () => Promise<void>;
 }
 
@@ -28,7 +27,7 @@ export function CampaignRuns({
     workflowId,
     searchParams,
     refreshTrigger,
-    isWhatsAppCampaign,
+    requiresCallPermission,
     onSyncWhatsAppPermissions,
 }: CampaignRunsProps) {
     const router = useRouter();
@@ -156,7 +155,10 @@ export function CampaignRuns({
         return runs.some(
             (run) =>
                 run.gathered_context?.mapped_call_disposition === "awaiting_permission" ||
-                (run as any).call_disposition === "awaiting_permission"
+                // The dispatcher writes both keys into gathered_context when it
+                // parks a run; the raw one was being read off the run itself,
+                // where it does not exist, so this clause never matched.
+                run.gathered_context?.call_disposition === "awaiting_permission"
         );
     }, [runs]);
 
@@ -204,12 +206,12 @@ export function CampaignRuns({
     }, [sortBy, sortOrder, updatePageInUrl, appliedFilters]);
 
     const handleReload = useCallback(async () => {
-        if (isWhatsAppCampaign && onSyncWhatsAppPermissions) {
+        if (requiresCallPermission && onSyncWhatsAppPermissions) {
             await onSyncWhatsAppPermissions();
         } else {
             await fetchCampaignRuns(currentPage, appliedFilters, sortBy, sortOrder);
         }
-    }, [fetchCampaignRuns, currentPage, appliedFilters, sortBy, sortOrder, isWhatsAppCampaign, onSyncWhatsAppPermissions]);
+    }, [fetchCampaignRuns, currentPage, appliedFilters, sortBy, sortOrder, requiresCallPermission, onSyncWhatsAppPermissions]);
 
     return (
         <div className="space-y-4">

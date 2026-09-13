@@ -14,7 +14,6 @@ Key Features:
 - Permission Management: Temporary and permanent call permissions
 """
 
-import asyncio
 import hashlib
 import hmac
 import json
@@ -27,10 +26,9 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
-from api.services.telephony import ws_auth
 from api.services.telephony.providers.whatsapp.config import (
     DEFAULT_WHATSAPP_PERMISSION_MESSAGE,
-    is_granted_permission_status,
+    GRANTED_PERMISSION_STATUSES,
     normalize_whatsapp_permission_status,
     parse_whatsapp_expiration,
 )
@@ -55,12 +53,10 @@ def _local_permission_is_usable(perm: Any, now: datetime) -> bool:
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
-    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyPermissionRequiredError,
     TelephonyProvider,
 )
-from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
@@ -214,15 +210,29 @@ class WhatsAppProvider(TelephonyProvider):
         )
         from api.services.telephony.providers.whatsapp.service import (
             WHATSAPP_CALL_KEY_PREFIX,
-            get_or_create_whatsapp_client as _get_or_create_whatsapp_client,
-            get_whatsapp_redis as _get_redis,
             register_outbound_active_connection,
             unregister_outbound_active_connection,
         )
+        from api.services.telephony.providers.whatsapp.service import (
+            get_or_create_whatsapp_client as _get_or_create_whatsapp_client,
+        )
+        from api.services.telephony.providers.whatsapp.service import (
+            get_whatsapp_redis as _get_redis,
+        )
+        from api.utils.telephony_address import (
+            canonicalize_e164,
+            normalize_telephony_address,
+        )
 
-        from api.utils.telephony_address import normalize_telephony_address
-
-        # 1. Pre-validate country restrictions
+        # 1. Canonicalise, then pre-validate country restrictions.
+        #
+        # Campaign ingest stores leads in strict E.164, but rows ingested
+        # before it did - and any caller passing a number the way a person
+        # writes it - still arrive formatted ("+44 7123 456789"). Only
+        # presentation characters are removed here, so this never invents a
+        # country code: what cannot be canonicalised is passed through
+        # untouched and rejected by the strict check below, exactly as before.
+        to_number = canonicalize_e164(to_number) or to_number
         validate_destination_country(to_number)
 
         raw_to = to_number.strip()
@@ -312,7 +322,16 @@ class WhatsAppProvider(TelephonyProvider):
                     if act.get("action_name") == "send_call_permission_request":
                         can_request_perm = bool(act.get("can_perform_action", True))
 
-                if can_start_call or is_granted_permission_status(meta_status):
+                # One classification for both the decision and what gets
+                # stored. The raw status was being compared twice - once
+                # normalised, once not - so a spelling Meta varies in case or
+                # whitespace ("Permanent") allowed the call and then stored it
+                # as granted_temporary. That record carries no expiry, and the
+                # offline fallback refuses a temporary grant without one, so a
+                # permanent grant turned into "no permission" the moment Meta
+                # was unreachable.
+                normalized_meta_status = normalize_whatsapp_permission_status(meta_status)
+                if can_start_call or normalized_meta_status in GRANTED_PERMISSION_STATUSES:
                     has_permission = True
                     try:
                         if org_id and telephony_config_id:
@@ -320,7 +339,7 @@ class WhatsAppProvider(TelephonyProvider):
                             meta_expires_at = parse_whatsapp_expiration(expiration)
                             perm_status = (
                                 "granted_permanent"
-                                if meta_status in ("permanent", "granted_permanent")
+                                if normalized_meta_status == "granted_permanent"
                                 else "granted_temporary"
                             )
                             await db_client.upsert_whatsapp_call_permission(

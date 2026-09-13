@@ -236,7 +236,9 @@ export default function NewCampaignPage() {
         ? Math.min(orgConcurrentLimit, availableFromNumbersCount)
         : orgConcurrentLimit;
 
-    const isWhatsApp = selectedTelephonyConfig?.provider === 'whatsapp';
+    // Provider capability, not provider name - see providers/AGENTS.md.
+    const requiresCallPermission =
+        selectedTelephonyConfig?.requires_call_permission === true;
 
     // Handle form submission
     const handleSubmit = async (e: React.FormEvent) => {
@@ -309,8 +311,8 @@ export default function NewCampaignPage() {
                     max_concurrency: maxConcurrencyValue,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
-                    whatsapp_permission_action: isWhatsApp ? whatsappPermissionAction : 'skip',
-                } as any,
+                    whatsapp_permission_action: requiresCallPermission ? whatsappPermissionAction : 'skip',
+                },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                 }
@@ -472,7 +474,7 @@ export default function NewCampaignPage() {
                                 </p>
                             </div>
 
-                            {selectedTelephonyConfig?.provider === 'whatsapp' && (
+                            {requiresCallPermission && (
                                 <WhatsAppPermissionCard
                                     value={whatsappPermissionAction}
                                     onChange={setWhatsappPermissionAction}
@@ -554,7 +556,7 @@ export default function NewCampaignPage() {
                                         onCircuitBreakerWindowSecondsChange={setCircuitBreakerWindowSeconds}
                                         circuitBreakerMinCalls={circuitBreakerMinCalls}
                                         onCircuitBreakerMinCallsChange={setCircuitBreakerMinCalls}
-                                        isWhatsApp={selectedTelephonyConfig?.provider === 'whatsapp'}
+                                        requiresCallPermission={requiresCallPermission}
                                     />
                                 </CollapsibleContent>
                             </Collapsible>

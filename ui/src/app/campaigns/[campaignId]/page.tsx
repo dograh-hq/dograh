@@ -70,7 +70,7 @@ export default function CampaignDetailPage() {
     // Whether the last lookup above failed. An empty `telephonyConfigs` from a
     // failed request is indistinguishable from "no configs" unless this is
     // tracked separately — and silently treating it as "no configs" makes a
-    // WhatsApp campaign look like plain voice (isWhatsAppCampaign below stays
+    // WhatsApp campaign look like plain voice (requiresCallPermission below stays
     // false), which skips the Meta permission sync on the runs reload.
     const [telephonyConfigsError, setTelephonyConfigsError] = useState(false);
 
@@ -266,10 +266,12 @@ export default function CampaignDetailPage() {
                     } else {
                         toast.info('WhatsApp permissions synced. No new permissions were granted by recipients yet.');
                     }
+                    // Only after a sync that actually ran: a cooldown response
+                    // changed nothing server-side, so refetching the campaign
+                    // and the runs table would show the same rows again.
+                    await fetchCampaign();
+                    setRunsRefreshTrigger((prev) => prev + 1);
                 }
-                // Refresh campaign stats and runs table
-                await fetchCampaign();
-                setRunsRefreshTrigger((prev) => prev + 1);
             } else if (response.error) {
                 toast.error(detailFromError(response.error, 'Failed to sync WhatsApp permissions'));
             }
@@ -454,13 +456,17 @@ export default function CampaignDetailPage() {
 
     const canEdit = campaign && ['created', 'running', 'paused'].includes(campaign.state);
 
-    // The telephony provider is the only thing that makes a campaign a WhatsApp
-    // campaign. The previous check also accepted a truthy whatsapp_permission_action,
-    // but the API always sends that field (defaulting to "skip"), so every campaign
-    // matched; and a configuration merely *named* "whatsapp" proves nothing.
-    const isWhatsAppCampaign =
+    // Whether this campaign's recipients must consent before they can be
+    // called, as reported by the provider registry. Read from the capability
+    // rather than from the provider's name: a second provider with the same
+    // requirement must not need a change here, which is what
+    // providers/AGENTS.md means by pushing variation through the registry.
+    // (The earlier check also accepted a truthy whatsapp_permission_action,
+    // but the API always sends that field, defaulting to "skip", so every
+    // campaign matched.)
+    const requiresCallPermission =
         telephonyConfigs.find((tc) => tc.id === campaign?.telephony_configuration_id)
-            ?.provider === 'whatsapp';
+            ?.requires_call_permission === true;
 
     // Newest entries first. The backend appends chronologically; the UI is more
     // useful when the most recent failure / pause is at the top.
@@ -987,7 +993,7 @@ export default function CampaignDetailPage() {
                     workflowId={campaign.workflow_id}
                     searchParams={searchParams}
                     refreshTrigger={runsRefreshTrigger}
-                    isWhatsAppCampaign={isWhatsAppCampaign}
+                    requiresCallPermission={requiresCallPermission}
                     onSyncWhatsAppPermissions={handleSyncWhatsAppPermissions}
                 />
 

@@ -365,6 +365,14 @@ class ProviderSpec:
     # our table. Called on save and delete respectively.
     apply_trunk_on_save: Optional[TrunkApplier] = None
     remove_trunk_on_delete: Optional[TrunkRemover] = None
+    # Whether the recipient must grant consent before this provider will place
+    # a business-initiated call. True only for WhatsApp today, but the UI needs
+    # the answer to decide whether a campaign offers a permission strategy and
+    # whether reloading its runs should first re-check consent with the
+    # provider - and it must not decide that by comparing provider names.
+    # Denormalised onto the configuration list response alongside
+    # `connectivity`, for the same reason.
+    requires_call_permission: bool = False
 
     @property
     def supports_trunks(self) -> bool:

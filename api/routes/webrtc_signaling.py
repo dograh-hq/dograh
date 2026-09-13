@@ -29,7 +29,15 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY, SERVER_IP
+from api.constants import (
+    ENABLE_COTURN,
+    ENVIRONMENT,
+    FORCE_TURN_RELAY,
+    SERVER_IP,
+    TURN_HOST,
+    TURN_PORT,
+    TURN_SECRET,
+)
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment, WorkflowRunMode
@@ -39,8 +47,6 @@ from api.errors.failure import (
     failure_already_reported,
     log_failure,
 )
-from api.constants import TURN_HOST, TURN_PORT, TURN_SECRET
-from api.services.turn import generate_turn_credentials
 from api.services.auth.depends import get_user_ws
 from api.services.call_concurrency import (
     CallConcurrencyLimitError,
@@ -53,6 +59,7 @@ from api.services.pipecat.ws_sender_registry import (
     unregister_ws_sender,
 )
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.turn import generate_turn_credentials
 from api.services.workflow.embed_session_service import validate_embed_origin
 
 router = APIRouter(prefix="/ws")

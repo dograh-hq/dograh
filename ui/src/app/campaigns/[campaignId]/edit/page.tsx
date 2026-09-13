@@ -48,7 +48,7 @@ export default function EditCampaignPage() {
     // resolved yet. `matchingConfig` being undefined is ambiguous on its own —
     // it means "not WhatsApp" just as often as it means "haven't found out
     // yet" (this fetch races the campaign fetch) or "the fetch failed". Only
-    // 'loaded' lets `isWhatsApp` be trusted; the other two states must block
+    // 'loaded' lets `requiresCallPermission` be trusted; the other two states must block
     // submission instead of silently collapsing to "not WhatsApp".
     const [telephonyConfigsStatus, setTelephonyConfigsStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
 
@@ -131,8 +131,10 @@ export default function EditCampaignPage() {
                     setCircuitBreakerMinCalls(String(cb.min_calls_in_window));
                 }
 
-                if ((c as any).whatsapp_permission_action) {
-                    setWhatsappPermissionAction((c as any).whatsapp_permission_action);
+                if (c.whatsapp_permission_action) {
+                    setWhatsappPermissionAction(
+                        c.whatsapp_permission_action as 'skip' | 'request_and_wait'
+                    );
                 }
             }
         } catch (error) {
@@ -206,8 +208,10 @@ export default function EditCampaignPage() {
     // every campaign. Between them, every campaign was treated as WhatsApp —
     // showing the permission card, capping effective concurrency at 1 and
     // submitting WhatsApp metadata on plain voice campaigns.
-    const isWhatsApp = telephonyConfigsStatus === 'loaded' && matchingConfig?.provider === 'whatsapp';
-    const effectiveFromNumbers = isWhatsApp ? 1 : (matchingConfig?.phone_number_count ?? fromNumbersCount);
+    // Provider capability, not provider name - see providers/AGENTS.md.
+    const requiresCallPermission =
+        telephonyConfigsStatus === 'loaded' && matchingConfig?.requires_call_permission === true;
+    const effectiveFromNumbers = requiresCallPermission ? 1 : (matchingConfig?.phone_number_count ?? fromNumbersCount);
 
     // Effective concurrency limit
     const effectiveLimit = effectiveFromNumbers > 0
@@ -312,8 +316,8 @@ export default function EditCampaignPage() {
                     max_concurrency: maxConcurrencyValue,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
-                    whatsapp_permission_action: isWhatsApp ? whatsappPermissionAction : undefined,
-                } as any,
+                    whatsapp_permission_action: requiresCallPermission ? whatsappPermissionAction : undefined,
+                },
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });
 
@@ -421,7 +425,7 @@ export default function EditCampaignPage() {
                                 Checking campaign telephony configuration…
                             </p>
                         )}
-                        {isWhatsApp && (
+                        {requiresCallPermission && (
                             <WhatsAppPermissionCard
                                 value={whatsappPermissionAction as 'skip' | 'request_and_wait'}
                                 onChange={setWhatsappPermissionAction}
@@ -462,7 +466,7 @@ export default function EditCampaignPage() {
                             onCircuitBreakerWindowSecondsChange={setCircuitBreakerWindowSeconds}
                             circuitBreakerMinCalls={circuitBreakerMinCalls}
                             onCircuitBreakerMinCallsChange={setCircuitBreakerMinCalls}
-                            isWhatsApp={isWhatsApp}
+                            requiresCallPermission={requiresCallPermission}
                         />
 
                         {submitError && (

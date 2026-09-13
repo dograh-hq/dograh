@@ -334,6 +334,18 @@ def get_provider_connectivity(provider_name: str) -> ProviderConnectivity:
     return spec.connectivity if spec else "api"
 
 
+def provider_requires_call_permission(provider_name: str) -> bool:
+    """Whether the recipient must consent before this provider dials out.
+
+    Falls back to False for an unregistered name, matching
+    get_provider_connectivity: a stale stored provider must not break a list
+    response, and claiming a permission step that does not exist would hide a
+    campaign's real controls.
+    """
+    spec = registry.get_optional(provider_name)
+    return bool(spec and spec.requires_call_permission)
+
+
 def get_setup_checklist(
     provider_name: str,
     credentials: dict[str, Any],

@@ -8,11 +8,12 @@ Tests:
 """
 
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
+
 from api.db import db_client
 from api.services.pipecat.call_gate import ANSWERED, OutboundCallGate
 
@@ -150,9 +151,9 @@ class TestWhatsAppWebRTCAnswerDecoupling(IsolatedAsyncioTestCase):
     async def test_sdp_answer_does_not_set_call_status_in_progress(self):
         """Verify receiving SDP answer applies SDP but leaves call_status as initiated/ringing."""
         from api.services.telephony.providers.whatsapp.routes import (
+            _active_connections,
             _handle_outbound_sdp_answer,
             _outbound_answered_events,
-            _active_connections,
         )
 
         call_id = "test_call_sdp_only"
@@ -191,9 +192,9 @@ class TestWhatsAppWebRTCAnswerDecoupling(IsolatedAsyncioTestCase):
     async def test_call_accepted_sets_answered_event_and_status(self):
         """Verify receiving status: ACCEPTED sets answered_event and marks call_status in-progress."""
         from api.services.telephony.providers.whatsapp.routes import (
+            _active_connections,
             _handle_call_accepted,
             _outbound_answered_events,
-            _active_connections,
         )
 
         call_id = "test_call_accepted"
@@ -236,7 +237,9 @@ class TestWhatsAppLivePermissions(IsolatedAsyncioTestCase):
 
     async def test_check_permission_detects_revocation_from_meta(self):
         """Verify check_whatsapp_permission queries Meta API and detects revoked permission."""
-        from api.services.telephony.providers.whatsapp.routes import check_whatsapp_permission
+        from api.services.telephony.providers.whatsapp.routes import (
+            check_whatsapp_permission,
+        )
 
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(

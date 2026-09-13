@@ -14,23 +14,22 @@ except ImportError:
     UTC = timezone.utc
 
 import asyncio
-from dataclasses import dataclass
 import hashlib
 import hmac
 import json
 from typing import Any, Dict, Optional, Tuple
 
-import aiohttp
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
+from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.transports.whatsapp.api import (
+    WhatsAppConnectCall,
+    WhatsAppWebhookRequest,
+)
 from pydantic import BaseModel
 from starlette.responses import PlainTextResponse
 
 from api.constants import (
-    ENABLE_COTURN,
-    FORCE_TURN_RELAY,
-    REDIS_URL,
     WHATSAPP_WEBHOOK_VERIFY_TOKEN,
 )
 from api.db import db_client
@@ -38,18 +37,14 @@ from api.db.models import (
     TelephonyConfigurationModel,
     TelephonyPhoneNumberModel,
     UserModel,
-    WhatsAppCallPermissionModel,
-    WorkflowRunModel,
 )
-from api.enums import CallType, TelephonyCallStatus, WorkflowRunState
-from api.constants import TURN_HOST, TURN_PORT, TURN_SECRET
-from api.services.turn import generate_turn_credentials
+from api.enums import CallType, WorkflowRunState
 from api.services.auth.depends import get_user
 from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
 )
-from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
+from api.services.pipecat.call_gate import ANSWERED
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.providers.whatsapp.config import (
     DEFAULT_WHATSAPP_PERMISSION_MESSAGE,
@@ -60,18 +55,10 @@ from api.services.telephony.providers.whatsapp.config import (
 )
 from api.services.telephony.providers.whatsapp.restrictions import (
     is_restricted_country,
-    validate_destination_country,
 )
-from api.services.pipecat.call_gate import ANSWERED, TERMINATED, OutboundCallGate
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.telephony_address import normalize_telephony_address
-from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
-from pipecat.transports.whatsapp.api import (
-    WhatsAppConnectCall,
-    WhatsAppWebhookRequest,
-)
-from pipecat.transports.whatsapp.client import WhatsAppClient
 
 router = APIRouter(prefix="/whatsapp")
 
@@ -83,42 +70,23 @@ router = APIRouter(prefix="/whatsapp")
 unprefixed_router = APIRouter()
 
 from api.services.telephony.providers.whatsapp.permission_sync import (
-    WhatsAppPermissionSyncResult,
     reactivate_campaign_runs_for_recipient,
-    sync_all_parked_whatsapp_permissions,
     sync_whatsapp_permissions_for_campaign,
 )
 from api.services.telephony.providers.whatsapp.service import (
     REDIS_CALL_EVENTS_CHANNEL,
     REDIS_PERMISSION_CHANNEL,
-    REDIS_TERMINATE_CHANNEL,
     WHATSAPP_CALL_KEY_PREFIX,
     _active_connections,
     _background_tasks,
-    _build_whatsapp_ice_servers,
-    _clients,
     _ensure_redis_subscriber,
     _get_http_session,
     _get_or_create_whatsapp_client,
     _get_redis,
     _handle_call_terminate,
-    _http_session,
-    _listen_for_remote_events,
     _outbound_answered_events,
-    _redis_client,
-    _redis_subscriber_task,
     _run_whatsapp_pipeline,
-    build_whatsapp_ice_servers,
-    ensure_redis_subscriber,
-    get_http_session,
-    get_or_create_whatsapp_client,
-    get_whatsapp_redis,
-    handle_call_terminate,
-    listen_for_remote_events,
-    register_outbound_active_connection,
     set_pipeline_runner,
-    terminate_whatsapp_call_by_id,
-    unregister_outbound_active_connection,
 )
 
 

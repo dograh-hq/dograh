@@ -105,7 +105,9 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         self.assertIn("/whatsapp/permissions/request", paths)
 
     async def test_check_permission_restricted_country(self):
-        from api.services.telephony.providers.whatsapp.routes import check_whatsapp_permission
+        from api.services.telephony.providers.whatsapp.routes import (
+            check_whatsapp_permission,
+        )
         mock_user = MagicMock(selected_organization_id=1)
         res = await check_whatsapp_permission(
             telephony_configuration_id=10,
@@ -118,8 +120,11 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         self.assertIn("United States and Canada", res.restriction_reason)
 
     async def test_check_permission_granted_db(self):
-        from api.services.telephony.providers.whatsapp.routes import check_whatsapp_permission
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
+
+        from api.services.telephony.providers.whatsapp.routes import (
+            check_whatsapp_permission,
+        )
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
@@ -285,7 +290,9 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             )
 
     async def test_check_permission_token_expired(self):
-        from api.services.telephony.providers.whatsapp.routes import check_whatsapp_permission
+        from api.services.telephony.providers.whatsapp.routes import (
+            check_whatsapp_permission,
+        )
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
@@ -360,16 +367,38 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         """Verify repository directives:
         1. Keep registration import driven (app lifespan does not import or call install_whatsapp_pipeline_runner).
         2. Keep provider routes isolated (api.routes.campaign does not import whatsapp.routes).
+
+        Checked against each module's parsed import statements rather than its
+        source text: matching the dotted path as a substring passes for
+        ``from api.services.telephony.providers.whatsapp import routes``, which
+        is the same forbidden import written differently.
         """
+        import ast
         import inspect
+
         import api.app as app_mod
         import api.routes.campaign as campaign_mod
 
-        app_src = inspect.getsource(app_mod)
-        self.assertNotIn("install_whatsapp_pipeline_runner", app_src)
-        self.assertNotIn("api.services.telephony.providers.whatsapp.routes", app_src)
+        forbidden = "api.services.telephony.providers.whatsapp.routes"
 
-        campaign_src = inspect.getsource(campaign_mod)
-        self.assertNotIn("api.services.telephony.providers.whatsapp.routes", campaign_src)
-        self.assertNotIn("sync-whatsapp-permissions", campaign_src)
+        def imported_modules(module) -> set[str]:
+            """Every module name imported anywhere in ``module``, however spelled."""
+            names: set[str] = set()
+            for node in ast.walk(ast.parse(inspect.getsource(module))):
+                if isinstance(node, ast.Import):
+                    names.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    # `from x.y import z` can import module x.y.z or a name in x.y;
+                    # record both so either spelling is caught.
+                    names.add(node.module)
+                    names.update(f"{node.module}.{alias.name}" for alias in node.names)
+            return names
+
+        app_imports = imported_modules(app_mod)
+        self.assertNotIn(forbidden, app_imports)
+        self.assertNotIn("install_whatsapp_pipeline_runner", inspect.getsource(app_mod))
+
+        campaign_imports = imported_modules(campaign_mod)
+        self.assertNotIn(forbidden, campaign_imports)
+        self.assertNotIn("sync-whatsapp-permissions", inspect.getsource(campaign_mod))
 

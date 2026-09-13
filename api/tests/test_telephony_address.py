@@ -1,6 +1,10 @@
 import unittest
 
-from api.utils.telephony_address import is_e164, normalize_telephony_address
+from api.utils.telephony_address import (
+    canonicalize_e164,
+    is_e164,
+    normalize_telephony_address,
+)
 
 
 class TestTelephonyAddress(unittest.TestCase):
@@ -48,6 +52,29 @@ class TestTelephonyAddress(unittest.TestCase):
         self.assertFalse(is_e164("+1415555abcd"))
         self.assertFalse(is_e164(""))
         self.assertFalse(is_e164(None))
+
+    def test_canonicalize_e164_accepts_formatted_numbers(self):
+        """A formatted lead is the same number, so ingest stores the strict form.
+
+        Campaign upload accepts anything starting with "+", but the WhatsApp
+        dial path requires strict E.164 - without this, a valid contact was
+        accepted at upload and failed at dial time.
+        """
+        self.assertEqual(canonicalize_e164("+44 7123 456789"), "+447123456789")
+        self.assertEqual(canonicalize_e164("+1 (415) 555-2671"), "+14155552671")
+        self.assertEqual(canonicalize_e164("+1-415-555-2671"), "+14155552671")
+        self.assertEqual(canonicalize_e164(" +14155552671 "), "+14155552671")
+        # Already canonical values pass through untouched.
+        self.assertEqual(canonicalize_e164("+14155552671"), "+14155552671")
+
+    def test_canonicalize_e164_refuses_what_is_not_a_number(self):
+        """Only formatting is removed - nothing is guessed."""
+        self.assertIsNone(canonicalize_e164("14155552671"))  # no country code
+        self.assertIsNone(canonicalize_e164("++14155552671"))
+        self.assertIsNone(canonicalize_e164("+1 (415) 555-267a"))
+        self.assertIsNone(canonicalize_e164("+0415555267"))  # zero country code
+        self.assertIsNone(canonicalize_e164(""))
+        self.assertIsNone(canonicalize_e164(None))
 
     def test_normalize_telephony_address_still_handles_pstn(self):
         """normalize_telephony_address continues to normalize formatted PSTN inputs."""

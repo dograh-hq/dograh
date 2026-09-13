@@ -11,7 +11,6 @@ from fastapi.responses import Response
 
 from api.db import db_client
 from api.enums import TelephonyCallStatus
-from api.services.telephony.base import NormalizedInboundData
 from api.services.telephony.providers.whatsapp.provider import WhatsAppProvider
 
 
@@ -30,6 +29,72 @@ def _provider(**kwargs) -> WhatsAppProvider:
 
 class TestWhatsAppProvider(IsolatedAsyncioTestCase):
     """Test suite for WhatsAppProvider implementation."""
+
+    async def test_initiate_call_validates_the_destination_before_dialling(self):
+        """The dial path itself runs the country/E.164 gate.
+
+        Nothing else covered this: the gate is called inside initiate_call
+        from a function-local import, so a missing or reordered import shows
+        up as a NameError on the first real outbound call, not in a test of
+        validate_destination_country on its own.
+        """
+        provider = _provider(business_initiated_calls_enabled=True)
+
+        with self.assertRaises(HTTPException) as restricted:
+            await provider.initiate_call(
+                to_number="+12125551234",
+                webhook_url="https://example.com/wh",
+                workflow_id=1,
+                organization_id=1,
+            )
+        self.assertEqual(restricted.exception.status_code, 400)
+        self.assertIn("not permitted", restricted.exception.detail)
+
+        with self.assertRaises(HTTPException) as malformed:
+            await provider.initiate_call(
+                to_number="not-a-number",
+                webhook_url="https://example.com/wh",
+                workflow_id=1,
+                organization_id=1,
+            )
+        self.assertEqual(malformed.exception.status_code, 400)
+        self.assertIn("E.164", malformed.exception.detail)
+
+    async def test_initiate_call_canonicalises_a_formatted_destination(self):
+        """A lead stored the way a person writes it still dials.
+
+        Campaign ingest normalises now, but rows ingested before it did are
+        still formatted, and the gate below requires strict E.164 - so the
+        number is canonicalised first and the permission lookup sees the
+        canonical form.
+        """
+        provider = _provider(business_initiated_calls_enabled=True)
+
+        with patch.object(
+            db_client, "get_whatsapp_call_permission_by_phone_id", new_callable=AsyncMock
+        ) as mock_lookup:
+            mock_lookup.return_value = None
+            with self.assertRaises(Exception) as ctx:
+                await provider.initiate_call(
+                    to_number="+44 7123 456789",
+                    webhook_url="https://example.com/wh",
+                    workflow_id=1,
+                    organization_id=1,
+                )
+
+        # It got past validation - whatever it failed on later, it was not the
+        # 400 a formatted number used to earn here.
+        self.assertFalse(
+            isinstance(ctx.exception, HTTPException)
+            and ctx.exception.status_code == 400
+            and "E.164" in str(ctx.exception.detail),
+            f"formatted number was rejected by the E.164 gate: {ctx.exception}",
+        )
+        mock_lookup.assert_awaited()
+        self.assertIn(
+            "+447123456789",
+            [c.kwargs.get("recipient_phone_number") for c in mock_lookup.await_args_list],
+        )
 
     async def test_initialization_with_valid_config(self):
         """Test provider initializes correctly with valid configuration."""
@@ -258,7 +323,9 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
             )
             mock_get_client.return_value = mock_client
 
-            from api.services.telephony.providers.whatsapp.provider import WhatsAppPermissionRequiredError
+            from api.services.telephony.providers.whatsapp.provider import (
+                WhatsAppPermissionRequiredError,
+            )
             with self.assertRaises(WhatsAppPermissionRequiredError):
                 await provider.initiate_call(
                     to_number="+447123456789",
@@ -723,7 +790,10 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
     """Test credential masking and edit-merge preservation for WhatsApp configurations."""
 
     def setUp(self):
-        from api.routes.organization import _credentials_for_display, preserve_masked_fields
+        from api.routes.organization import (
+            _credentials_for_display,
+            preserve_masked_fields,
+        )
         self._credentials_for_display = _credentials_for_display
         self.preserve_masked_fields = preserve_masked_fields
 
@@ -757,7 +827,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
     def test_preserve_masked_fields_restores_stored_secrets_when_masked(self):
         """When UI submits masked secrets back, stored unmasked values are restored."""
         from api.routes.organization import _get_model_fields_set_paths
-        from api.services.telephony.providers.whatsapp.config import WhatsAppConfigurationRequest
+        from api.services.telephony.providers.whatsapp.config import (
+            WhatsAppConfigurationRequest,
+        )
 
         displayed = self._credentials_for_display("whatsapp", self.stored)
         req = WhatsAppConfigurationRequest.model_validate(displayed)
@@ -780,7 +852,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
     def test_preserve_masked_fields_accepts_new_secrets_when_updated(self):
         """When user provides a new real secret, it is not overwritten by existing value."""
         from api.routes.organization import _get_model_fields_set_paths
-        from api.services.telephony.providers.whatsapp.config import WhatsAppConfigurationRequest
+        from api.services.telephony.providers.whatsapp.config import (
+            WhatsAppConfigurationRequest,
+        )
 
         req = WhatsAppConfigurationRequest.model_validate({
             "phone_number_id": "106540352242922",
@@ -801,7 +875,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
         """When an optional sensitive credential is set to None or empty, it is not restored."""
         from api.routes.organization import _get_model_fields_set_paths
         from api.services.configuration.masking import mask_key
-        from api.services.telephony.providers.vonage.config import VonageConfigurationRequest
+        from api.services.telephony.providers.vonage.config import (
+            VonageConfigurationRequest,
+        )
 
         stored_vonage = {
             "api_key": "k1",
@@ -826,8 +902,11 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
 
     def test_whatsapp_configuration_request_requires_fields(self):
         """WhatsAppConfigurationRequest enforces all required credential fields directly."""
-        from api.services.telephony.providers.whatsapp.config import WhatsAppConfigurationRequest
         from pydantic import ValidationError
+
+        from api.services.telephony.providers.whatsapp.config import (
+            WhatsAppConfigurationRequest,
+        )
 
         with self.assertRaises(ValidationError) as ctx:
             WhatsAppConfigurationRequest(phone_number_id="12345")
@@ -839,7 +918,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
     def test_whatsapp_configuration_request_accepts_masked_values_for_update(self):
         """WhatsAppConfigurationRequest accepts masked values populated by edit dialog."""
         from api.routes.organization import _get_model_fields_set_paths
-        from api.services.telephony.providers.whatsapp.config import WhatsAppConfigurationRequest
+        from api.services.telephony.providers.whatsapp.config import (
+            WhatsAppConfigurationRequest,
+        )
 
         displayed = self._credentials_for_display("whatsapp", self.stored)
         req = WhatsAppConfigurationRequest(**displayed)
@@ -855,7 +936,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
         """When an update omits an optional sensitive field, stored value is preserved."""
         from api.routes.organization import _get_model_fields_set_paths
         from api.services.configuration.masking import mask_key
-        from api.services.telephony.providers.vonage.config import VonageConfigurationRequest
+        from api.services.telephony.providers.vonage.config import (
+            VonageConfigurationRequest,
+        )
 
         stored_vonage = {
             "api_key": "k1",
@@ -884,7 +967,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
         """When signature_secret is explicitly set to None, it is not restored."""
         from api.routes.organization import _get_model_fields_set_paths
         from api.services.configuration.masking import mask_key
-        from api.services.telephony.providers.vonage.config import VonageConfigurationRequest
+        from api.services.telephony.providers.vonage.config import (
+            VonageConfigurationRequest,
+        )
 
         stored_vonage = {
             "api_key": "k1",
@@ -911,8 +996,11 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
     def test_whatsapp_permission_required_error_hierarchy(self):
         """Verify WhatsAppPermissionRequiredError inherits from TelephonyPermissionRequiredError and HTTPException."""
         from fastapi import HTTPException
+
         from api.services.telephony.base import TelephonyPermissionRequiredError
-        from api.services.telephony.providers.whatsapp.provider import WhatsAppPermissionRequiredError
+        from api.services.telephony.providers.whatsapp.provider import (
+            WhatsAppPermissionRequiredError,
+        )
 
         err = WhatsAppPermissionRequiredError(
             phone_number="+1234567890",
@@ -929,6 +1017,7 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
     def test_provider_does_not_import_routes(self):
         """Verify provider module does not import from routes layer directly."""
         import inspect
+
         import api.services.telephony.providers.whatsapp.provider as prov_mod
 
         src = inspect.getsource(prov_mod)

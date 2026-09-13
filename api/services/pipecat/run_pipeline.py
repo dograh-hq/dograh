@@ -11,7 +11,6 @@ from api.schemas.answer_supervisor import resolve_answer_supervisor_config
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
-    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_SMART_TURN_STOP_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_TURN_START_STRATEGY,
@@ -104,7 +103,6 @@ from pipecat.turns.user_mute import (
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
     MinWordsUserTurnStartStrategy,
-    ProvisionalVADUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
     TranscriptionUserTurnStartStrategy,
@@ -197,21 +195,19 @@ def _resolve_turn_start_min_words(run_configs: dict) -> int:
     )
 
 
-def _resolve_provisional_vad_pause_secs(run_configs: dict) -> float:
-    return max(
-        0.1,
-        float(
-            run_configs.get(
-                "provisional_vad_pause_secs", DEFAULT_PROVISIONAL_VAD_PAUSE_SECS
-            )
-        ),
-    )
-
-
 def _create_non_realtime_user_turn_start_strategies(
     run_configs: dict, *, uses_external_turns: bool
 ):
     """Return user turn start strategies for non-realtime pipelines."""
+
+    # An STT that reports its own turn boundaries decides the turn start,
+    # whatever `turn_start_strategy` asks for.
+    #
+    # Local VAD is deliberately kept out of these start strategies too: it would
+    # win the race on raw voice activity and start the turn before the STT
+    # confirms a real turn.
+    if uses_external_turns:
+        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
 
     turn_start_strategy = run_configs.get(
         "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
@@ -223,20 +219,6 @@ def _create_non_realtime_user_turn_start_strategies(
                 min_words=_resolve_turn_start_min_words(run_configs)
             )
         ]
-
-    if turn_start_strategy == "provisional_vad":
-        return [
-            ProvisionalVADUserTurnStartStrategy(
-                pause_secs=_resolve_provisional_vad_pause_secs(run_configs)
-            ),
-        ]
-
-    if uses_external_turns:
-        # The STT emits its own turn boundaries and owns interruptions. Local
-        # VAD is deliberately kept out of the default start strategies: it would
-        # win the race on raw voice activity and start the turn before the STT
-        # confirms a real turn.
-        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
 
     return [TranscriptionUserTurnStartStrategy(), VADUserTurnStartStrategy()]
 
@@ -1002,9 +984,12 @@ async def _run_pipeline_impl(
         turn_start_strategy = run_configs.get(
             "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
         )
+        # `requested` is what the workflow asked for; `resolved` is what the
+        # pipeline built, which differs whenever external turns override it.
         logger.info(
             f"[run {workflow_run_id}] Non-realtime interrupt strategy "
             f"requested={turn_start_strategy} "
+            f"resolved={','.join(type(s).__name__ for s in user_turn_start_strategies)} "
             f"uses_external_turns={uses_external_turns}"
         )
 

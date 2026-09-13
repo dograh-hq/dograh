@@ -97,6 +97,12 @@ export type AriConfigurationRequest = {
      */
     ws_client_name?: string;
     /**
+     * Dial String Template
+     *
+     * How a plain number becomes an Asterisk dial string. ``{number}`` is substituted; anything already carrying a channel technology (``PJSIP/...``, ``Local/...``) is dialled as written.
+     */
+    dial_string_template?: string;
+    /**
      * Optional external PBX connected through this Asterisk instance
      */
     external_pbx?: VicidialExternalPbxConfiguration | null;
@@ -7582,15 +7588,11 @@ export type WorkflowConfigurationDefaults = {
     /**
      * Turn Start Strategy
      */
-    turn_start_strategy?: 'default' | 'min_words' | 'provisional_vad';
+    turn_start_strategy?: 'default' | 'min_words';
     /**
      * Turn Start Min Words
      */
     turn_start_min_words?: number;
-    /**
-     * Provisional Vad Pause Secs
-     */
-    provisional_vad_pause_secs?: number;
     /**
      * Turn Stop Strategy
      */
@@ -8303,21 +8305,21 @@ export type HandleInboundRunApiV1TelephonyInboundRunGetResponses = {
     200: unknown;
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunGet2Data = {
+export type HandleInboundRunApiV1TelephonyInboundRunPostData = {
     body?: never;
     path?: never;
     query?: never;
     url: '/api/v1/telephony/inbound/run';
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunGet2Errors = {
+export type HandleInboundRunApiV1TelephonyInboundRunPostErrors = {
     /**
      * Not found
      */
     404: unknown;
 };
 
-export type HandleInboundRunApiV1TelephonyInboundRunGet2Responses = {
+export type HandleInboundRunApiV1TelephonyInboundRunPostResponses = {
     /**
      * Successful Response
      */

@@ -94,6 +94,9 @@ class TestSpeechPlaybackTracking:
 class RecordingEngine:
     """Engine stub that records the order of playback and transfer steps."""
 
+    queue_text_message = PipecatEngine.queue_text_message
+    _is_realtime = False
+
     def __init__(self):
         self.events: List[Any] = []
         self._workflow_run_id = 1

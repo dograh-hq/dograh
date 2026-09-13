@@ -41,6 +41,9 @@ class UserIdleHandler:
 
     async def handle_idle(self, aggregator):
         """Handle user idle event with escalating prompts."""
+        supervisor = getattr(self._engine, "answer_supervisor", None)
+        if supervisor is not None and supervisor.blocks_workflow:
+            return
         self._retry_count += 1
         logger.debug(f"Handling user_idle, attempt: {self._retry_count}")
 

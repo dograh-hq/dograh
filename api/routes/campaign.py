@@ -24,6 +24,7 @@ from api.services.storage import storage_fs
 from api.services.telephony.outbound_readiness import (
     OutboundConfigurationNotFoundError,
     OutboundSetupIncompleteError,
+    requires_e164_destinations,
     resolve_outbound_configuration_id,
 )
 
@@ -384,10 +385,34 @@ async def create_campaign(
         raise HTTPException(status_code=404, detail="Workflow not found")
     workflow_name = workflow.name
 
+    # Resolved before the source is validated: which addresses count as
+    # dialable is the provider's answer, and a PBX reaches destinations no
+    # carrier would accept.
+    try:
+        telephony_configuration_id = await resolve_outbound_configuration_id(
+            request.telephony_configuration_id,
+            user.selected_organization_id,
+            db=db_client,
+        )
+    except OutboundSetupIncompleteError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except OutboundConfigurationNotFoundError as e:
+        raise HTTPException(
+            status_code=400, detail="telephony_configuration_not_found"
+        ) from e
+
+    require_e164 = await requires_e164_destinations(
+        telephony_configuration_id,
+        user.selected_organization_id,
+        db=db_client,
+    )
+
     # Validate source data (phone_number column and format)
     sync_service = get_sync_service(request.source_type)
     validation_result = await sync_service.validate_source(
-        request.source_id, user.selected_organization_id
+        request.source_id,
+        user.selected_organization_id,
+        require_e164=require_e164,
     )
     if not validation_result.is_valid:
         raise HTTPException(status_code=400, detail=validation_result.error.message)
@@ -425,19 +450,6 @@ async def create_campaign(
                 raise
             except Exception:
                 pass  # Don't block campaign creation if template extraction fails
-
-    try:
-        telephony_configuration_id = await resolve_outbound_configuration_id(
-            request.telephony_configuration_id,
-            user.selected_organization_id,
-            db=db_client,
-        )
-    except OutboundSetupIncompleteError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except OutboundConfigurationNotFoundError as e:
-        raise HTTPException(
-            status_code=400, detail="telephony_configuration_not_found"
-        ) from e
 
     if request.max_concurrency is not None:
         await _validate_max_concurrency(

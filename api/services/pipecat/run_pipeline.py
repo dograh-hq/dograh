@@ -7,6 +7,7 @@ from loguru import logger
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.errors.failure import mark_failure_reported
+from api.schemas.answer_supervisor import resolve_answer_supervisor_config
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
@@ -46,6 +47,7 @@ from api.services.pipecat.pipeline_engine_callbacks_processor import (
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
+from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.realtime_feedback_events import (
     build_node_transition_event,
 )
@@ -77,6 +79,9 @@ from api.services.pipecat.transport_setup import create_webrtc_transport
 from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
+from api.services.workflow.answer_classification_service import (
+    AnswerClassificationService,
+)
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -85,7 +90,6 @@ from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -94,6 +98,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
+    FirstSpeechUserMuteStrategy,
     FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
@@ -114,7 +119,7 @@ from pipecat.turns.user_stop import (
     TurnAnalyzerUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
+from pipecat.utils.enums import RealtimeFeedbackType
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 # Setup tracing if enabled
@@ -122,6 +127,58 @@ ensure_tracing()
 
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+
+
+def _create_answer_supervisor(
+    voicemail_config,
+    *,
+    call_direction,
+    is_realtime,
+    start_node,
+    context,
+    user_config,
+    correlation_id,
+    get_parent_context=None,
+):
+    config = resolve_answer_supervisor_config(
+        voicemail_config,
+        call_direction=call_direction,
+        is_realtime=is_realtime,
+        start_node=start_node,
+    )
+    if config is None:
+        return None
+    # Private inference uses its own service and fixed subtype instructions.
+    if voicemail_config.get("use_workflow_llm", True):
+        classifier_llm = create_llm_service(
+            user_config,
+            correlation_id=correlation_id,
+            usage_context="voicemail_detection",
+        )
+    else:
+        classifier_llm = create_llm_service_from_provider(
+            provider=voicemail_config.get("provider", "openai"),
+            model=voicemail_config.get("model", "gpt-4.1"),
+            api_key=voicemail_config.get("api_key", ""),
+            usage_context="voicemail_detection",
+        )
+    classifier = AnswerClassificationService(
+        classifier_llm, get_parent_context=get_parent_context
+    )
+    return AnswerSupervisor(config, context=context, classify=classifier.classify)
+
+
+def _create_user_mute_strategies(engine, answer_supervisor):
+    first_speech = (
+        FirstSpeechUserMuteStrategy()
+        if answer_supervisor is not None
+        else MuteUntilFirstBotCompleteUserMuteStrategy()
+    )
+    return [
+        first_speech,
+        FunctionCallUserMuteStrategy(),
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+    ]
 
 
 def _resolve_user_turn_stop_timeout(
@@ -208,8 +265,18 @@ def _create_non_realtime_user_turn_stop_strategies(
     return [SpeechTimeoutUserTurnStopStrategy()]
 
 
-def _create_realtime_user_turn_config(provider: str):
+def _create_realtime_user_turn_config(provider: str, model: str | None = None):
     """Return user turn strategies and optional local VAD for realtime providers."""
+
+    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+        # Live keeps listening while speaking and handles barge-in itself.
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy(enable_interruptions=False)],
+                stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            None,
+        )
 
     def external_provider_turn_config():
         # Since pipecat 1.8 these services propose turn boundaries
@@ -877,6 +944,7 @@ async def _run_pipeline_impl(
         embeddings_endpoint=embeddings_endpoint,
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
+        is_realtime=is_realtime,
         context_compaction_enabled=context_compaction_enabled,
         call_dispositions=call_dispositions,
     )
@@ -904,11 +972,20 @@ async def _run_pipeline_impl(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
-    user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
-        FunctionCallUserMuteStrategy(),
-        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-    ]
+    voicemail_config = (workflow.workflow_configurations or {}).get(
+        "voicemail_detection", {}
+    )
+    answer_supervisor = _create_answer_supervisor(
+        voicemail_config,
+        call_direction=call_direction,
+        is_realtime=is_realtime,
+        start_node=start_node,
+        context=context,
+        user_config=user_config,
+        correlation_id=mps_correlation_id,
+        get_parent_context=engine._get_otel_context,
+    )
+    user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
@@ -917,7 +994,7 @@ async def _run_pipeline_impl(
         # Realtime services still need user-turn tracking even when the model
         # itself owns speech generation and interruption behavior.
         user_turn_strategies, user_vad_analyzer = _create_realtime_user_turn_config(
-            user_config.realtime.provider
+            user_config.realtime.provider, user_config.realtime.model
         )
     else:
         # Some STT services emit their own turn boundaries, so the aggregator
@@ -962,7 +1039,13 @@ async def _run_pipeline_impl(
         context,
         assistant_params=assistant_params,
         user_params=user_params,
-        realtime_service_mode=is_realtime,
+        # Live publishes final user transcripts before delegation starts.
+        # Record them immediately, including while the assistant is speaking.
+        realtime_service_mode=is_realtime
+        and not (
+            user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+            and user_config.realtime.model == "gpt-live-1"
+        ),
     )
 
     # Create usage metrics aggregator with engine's callback
@@ -983,6 +1066,12 @@ async def _run_pipeline_impl(
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
 
+    if answer_supervisor is not None:
+        answer_supervisor.bind(user_context_aggregator)
+        engine.set_answer_supervisor(
+            answer_supervisor, user_context_aggregator, max_user_idle_timeout
+        )
+
     # Register user idle event handlers
     user_idle_handler = engine.create_user_idle_handler()
 
@@ -994,7 +1083,6 @@ async def _run_pipeline_impl(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
-    voicemail_detector = None
     recording_router = None
 
     # Create recording audio fetcher (used by recording router, audio greetings,
@@ -1005,49 +1093,10 @@ async def _run_pipeline_impl(
     )
     engine.set_fetch_recording_audio(fetch_audio)
 
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
     if is_realtime and voicemail_config.get("enabled", False):
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
         )
-    if voicemail_config.get("enabled", False) and not is_realtime:
-        logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
-        # Create a separate LLM instance for the voicemail sub-pipeline
-        # (can't share with main pipeline as it would mess up frame linking)
-        if voicemail_config.get("use_workflow_llm", True):
-            voicemail_llm = create_llm_service(
-                user_config,
-                correlation_id=mps_correlation_id,
-                usage_context="voicemail_detection",
-            )
-        else:
-            voicemail_llm = create_llm_service_from_provider(
-                provider=voicemail_config.get("provider", "openai"),
-                model=voicemail_config.get("model", "gpt-4.1"),
-                api_key=voicemail_config.get("api_key", ""),
-                usage_context="voicemail_detection",
-            )
-
-        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
-        custom_system_prompt = voicemail_config.get("system_prompt") or None
-
-        voicemail_detector = VoicemailDetector(
-            llm=voicemail_llm,
-            long_speech_timeout=long_speech_timeout,
-            custom_system_prompt=custom_system_prompt,
-        )
-
-        # Register event handler to end task when voicemail is detected
-        @voicemail_detector.event_handler("on_voicemail_detected")
-        async def _on_voicemail_detected(_processor):
-            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-            await engine.end_call_with_reason(
-                call_status=EndTaskReason.VOICEMAIL_DETECTED.value,
-                abort_immediately=True,
-            )
-
     # Recording router is only meaningful in non-realtime mode (it routes between
     # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
     # directly).
@@ -1076,7 +1125,6 @@ async def _run_pipeline_impl(
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
             termination_funnel,
-            voicemail_detector=voicemail_detector,
         )
     else:
         pipeline = build_pipeline(
@@ -1090,8 +1138,8 @@ async def _run_pipeline_impl(
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
             termination_funnel,
-            voicemail_detector=voicemail_detector,
             recording_router=recording_router,
+            answer_supervisor=answer_supervisor,
         )
 
     # Create pipeline task with audio configuration
@@ -1177,6 +1225,7 @@ async def _run_pipeline_impl(
         termination_funnel=termination_funnel,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
+        answer_supervisor=answer_supervisor,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
         include_transcript_end_timestamps=include_transcript_end_timestamps,

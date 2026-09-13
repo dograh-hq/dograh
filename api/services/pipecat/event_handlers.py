@@ -82,6 +82,7 @@ def register_event_handlers(
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
     include_transcript_end_timestamps: bool = False,
     call_answered_event: "OutboundCallGate | None" = None,
+    answer_supervisor=None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -121,6 +122,9 @@ def register_event_handlers(
             and not ready_state["initial_response_triggered"]
         ):
             ready_state["initial_response_triggered"] = True
+
+            if answer_supervisor is not None:
+                answer_supervisor.arm()
 
             asyncio.create_task(
                 _capture_call_event(
@@ -170,6 +174,9 @@ def register_event_handlers(
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)
+            if answer_supervisor is not None:
+                await engine.handle_answer_supervision()
+                return
             await engine.queue_node_opening(
                 node_id=engine.workflow.start_node_id,
                 previous_node_id=None,

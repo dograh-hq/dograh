@@ -45,20 +45,36 @@ export const TURN_START_STRATEGY_OPTIONS: Array<{
     },
 ];
 
-export interface VoicemailDetectionConfiguration {
+export interface AnswerMessage {
+    text?: string;
+    recording_id?: string;
+    recording_pk?: number;
+}
+
+export interface AnswerSupervisorSettings {
+    listening_window_ms?: number;
+    human_utterance_max_ms?: number;
+    machine_utterance_cap_ms?: number;
+    classify_budget_ms?: number;
+    screening_wait_ms?: number;
+    max_screening_rearms?: number;
+    voicemail_action?: 'hangup' | 'leave_message';
+    voicemail_message?: AnswerMessage;
+    screening_message?: AnswerMessage;
+}
+
+export interface VoicemailDetectionConfiguration extends AnswerSupervisorSettings {
     enabled: boolean;
     use_workflow_llm: boolean;
     provider?: string;
     model?: string;
     api_key?: string;
-    system_prompt?: string;
-    long_speech_timeout: number;  // seconds cutoff for long speech detection
 }
 
 export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfiguration = {
     enabled: false,
     use_workflow_llm: true,
-    long_speech_timeout: 8.0,
+    voicemail_action: 'hangup',
 };
 
 export interface TranscriptConfiguration {

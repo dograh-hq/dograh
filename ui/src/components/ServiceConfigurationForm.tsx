@@ -30,6 +30,8 @@ interface SchemaProperty {
     enum?: string[];
     examples?: string[];
     model_options?: Record<string, string[]>;
+    visible_for_models?: string[];
+    hidden_for_models?: string[];
     allow_custom_input?: boolean;
     $ref?: string;
     description?: string;
@@ -149,6 +151,11 @@ function getSchemaDropdownOptions(
 function getNumberSchema(schema: SchemaProperty | undefined): SchemaProperty | undefined {
     if (schema?.type === "number") return schema;
     return schema?.anyOf?.find(option => option.type === "number");
+}
+
+function isVisibleForModel(schema: SchemaProperty | undefined, model?: string): boolean {
+    if (schema?.visible_for_models && !schema.visible_for_models.includes(model || "")) return false;
+    return !schema?.hidden_for_models?.includes(model || "");
 }
 
 export function ServiceConfigurationForm({
@@ -410,6 +417,32 @@ export function ServiceConfigurationForm({
         }
     }, [ttsModel, serviceProviders.tts, setValue, getValues, schemas, isCustomInput.tts_voice]);
 
+    const realtimeModel = watch("realtime_model");
+    useEffect(() => {
+        const voiceSchema = schemas?.realtime?.[serviceProviders.realtime]?.properties?.voice;
+        const voices = voiceSchema?.model_options?.[realtimeModel as string];
+        if (!voices?.length) return;
+        const currentVoice = getValues("realtime_voice") as string;
+        if (!voices.includes(currentVoice)) {
+            setValue("realtime_voice", voices[0], { shouldDirty: true });
+            setIsCustomInput(previous => ({ ...previous, realtime_voice: false }));
+        }
+    }, [realtimeModel, serviceProviders.realtime, schemas, getValues, setValue]);
+
+    // Reset language when TTS model changes if the provider has model-dependent language options
+    useEffect(() => {
+        const languageSchema = schemas?.tts?.[serviceProviders.tts]?.properties?.language;
+        const modelOptions = languageSchema?.model_options;
+        if (!modelOptions || !ttsModel) return;
+
+        const validLanguages = modelOptions[ttsModel as string];
+        const currentLanguage = getValues("tts_language") as string;
+        const isCustomLanguage = !!isCustomInput.tts_language;
+        if (validLanguages && currentLanguage && !validLanguages.includes(currentLanguage) && !isCustomLanguage) {
+            setValue("tts_language", validLanguages[0], { shouldDirty: true });
+        }
+    }, [ttsModel, serviceProviders.tts, setValue, getValues, schemas, isCustomInput.tts_language]);
+
     // Reset language when STT model changes if the provider has model-dependent language options
     const sttModel = watch("stt_model");
     useEffect(() => {
@@ -471,6 +504,8 @@ export function ServiceConfigurationForm({
             if (!property.startsWith(`${service}_`)) return;
             const field = property.slice(service.length + 1);
             if (field === "api_key" || field === "provider") return;
+            const fieldSchema = schemas?.[service]?.[serviceProviders[service]]?.properties[field];
+            if (!isVisibleForModel(fieldSchema, data[`${service}_model`] as string)) return;
             config[field] = value as string | number;
         });
         return config;
@@ -531,8 +566,10 @@ export function ServiceConfigurationForm({
         const currentProvider = serviceProviders[service];
         const providerSchema = schemas?.[service]?.[currentProvider];
         if (!providerSchema) return [];
+        const model = watch(`${service}_model`) as string;
         return Object.keys(providerSchema.properties).filter(
             field => field !== "provider" && field !== "api_key"
+                && isVisibleForModel(providerSchema.properties[field], model)
         );
     };
 

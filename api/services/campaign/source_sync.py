@@ -4,7 +4,10 @@ from typing import Any, Dict, List, Optional, Set
 
 from loguru import logger
 
-from api.utils.telephony_address import canonicalize_e164
+from api.utils.telephony_address import (
+    canonicalize_e164,
+    validate_destination_address,
+)
 
 
 @dataclass
@@ -34,8 +37,21 @@ class CampaignSourceSyncService(ABC):
         return [h.strip().lower() for h in headers]
 
     @staticmethod
+    def _format_rows(row_indexes: List[int]) -> str:
+        """Name the offending rows without pasting a whole column back."""
+        if len(row_indexes) > 5:
+            return (
+                f"{', '.join(map(str, row_indexes[:5]))} "
+                f"and {len(row_indexes) - 5} more"
+            )
+        return ", ".join(map(str, row_indexes))
+
+    @staticmethod
     def validate_source_data(
-        headers: List[str], rows: List[List[str]]
+        headers: List[str],
+        rows: List[List[str]],
+        *,
+        require_e164: bool = True,
     ) -> ValidationResult:
         """
         Validate source data for campaign creation.
@@ -43,6 +59,9 @@ class CampaignSourceSyncService(ABC):
         Args:
             headers: List of column headers
             rows: List of data rows (excluding header)
+            require_e164: Whether destinations must be E.164 numbers. Comes
+                from the provider that will dial them, because a PBX reaches
+                extensions and SIP URIs that no carrier would accept.
 
         Returns:
             ValidationResult with is_valid=True if valid, or error details if invalid
@@ -61,7 +80,8 @@ class CampaignSourceSyncService(ABC):
         phone_number_idx = normalized_headers.index("phone_number")
 
         # Validate phone numbers in all data rows
-        invalid_rows = []
+        invalid_rows: List[int] = []
+        first_reason: str | None = None
         for row_idx, row in enumerate(
             rows, start=2
         ):  # Start at 2 (1-indexed, skip header)
@@ -69,20 +89,25 @@ class CampaignSourceSyncService(ABC):
                 continue  # Skip rows that don't have enough columns
 
             phone_number = row[phone_number_idx].strip()
-            if phone_number and not phone_number.startswith("+"):
+            if not phone_number:
+                continue
+
+            reason = validate_destination_address(
+                phone_number, require_e164=require_e164
+            )
+            if reason:
                 invalid_rows.append(row_idx)
+                first_reason = first_reason or reason
 
         if invalid_rows:
-            # Limit the number of rows shown in error message
-            if len(invalid_rows) > 5:
-                rows_str = f"{', '.join(map(str, invalid_rows[:5]))} and {len(invalid_rows) - 5} more"
-            else:
-                rows_str = ", ".join(map(str, invalid_rows))
-
+            rows_str = CampaignSourceSyncService._format_rows(invalid_rows)
             return ValidationResult(
                 is_valid=False,
                 error=ValidationError(
-                    message=f"Invalid phone numbers in rows: {rows_str}. All phone numbers must include country code (start with '+')",
+                    message=(
+                        f"Invalid phone numbers in rows: {rows_str}. "
+                        f"Every phone number {first_reason}."
+                    ),
                     invalid_rows=invalid_rows,
                 ),
             )
@@ -111,10 +136,7 @@ class CampaignSourceSyncService(ABC):
                 seen_phones[key] = row_idx
 
         if duplicate_rows:
-            if len(duplicate_rows) > 5:
-                rows_str = f"{', '.join(map(str, duplicate_rows[:5]))} and {len(duplicate_rows) - 5} more"
-            else:
-                rows_str = ", ".join(map(str, duplicate_rows))
+            rows_str = CampaignSourceSyncService._format_rows(duplicate_rows)
 
             return ValidationResult(
                 is_valid=False,
@@ -175,7 +197,11 @@ class CampaignSourceSyncService(ABC):
 
     @abstractmethod
     async def validate_source(
-        self, source_id: str, organization_id: Optional[int] = None
+        self,
+        source_id: str,
+        organization_id: Optional[int] = None,
+        *,
+        require_e164: bool = True,
     ) -> ValidationResult:
         """Validate source data before campaign creation."""
         pass

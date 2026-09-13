@@ -496,6 +496,25 @@ async def test_playback_deadline_does_not_cancel_extraction_or_queueing(
 
 
 @pytest.mark.asyncio
+async def test_idle_farewell_queues_terminal_frame_if_end_call_raises(
+    farewell_engine,
+):
+    engine = farewell_engine
+    engine.perform_final_variable_extraction.side_effect = RuntimeError(
+        "extract failed"
+    )
+    engine.defer_end_call_until_bot_playback(IDLE_REASON, fallback_secs=0.01)
+    waiter = engine._pending_farewell_task
+    await asyncio.wait_for(waiter, 1)
+    engine.task.queue_frame.assert_awaited_once()
+    frame = engine.task.queue_frame.call_args.args[0]
+    assert isinstance(frame, CancelFrame)
+    assert frame.reason == EndTaskReason.PIPELINE_ERROR.value
+    assert engine.is_call_disposed()
+    assert engine._pending_farewell_task is None
+
+
+@pytest.mark.asyncio
 async def test_stop_at_deadline_disposes_once(farewell_engine):
     engine = farewell_engine
     loop = asyncio.get_running_loop()

@@ -1185,7 +1185,22 @@ class PipecatEngine:
             # Detach before termination so it cannot cancel its own extraction
             # or terminal frame. Those have a separate lifetime and timeout.
             self._pending_farewell_task = None
-            await self.end_call_with_reason(reason)
+            try:
+                await self.end_call_with_reason(reason)
+            except Exception as e:
+                # This task is unawaited. `end_call_with_reason` sets
+                # `_call_disposed` before extraction / `queue_frame`, so a
+                # later retry is a no-op and the user stays muted unless a
+                # terminal frame still goes out.
+                logger.error(
+                    f"Idle farewell termination failed: {e}",
+                    exc_info=True,
+                )
+                self._call_disposed = False
+                await self.end_call_with_reason(
+                    EndTaskReason.PIPELINE_ERROR.value,
+                    abort_immediately=True,
+                )
         finally:
             if self._pending_farewell_task is asyncio.current_task():
                 self._pending_farewell_task = None

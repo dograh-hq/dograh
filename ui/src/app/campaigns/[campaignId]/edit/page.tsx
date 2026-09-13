@@ -440,6 +440,7 @@ export default function EditCampaignPage() {
                             effectiveLimit={effectiveLimit}
                             orgConcurrentLimit={orgConcurrentLimit}
                             fromNumbersCount={effectiveFromNumbers}
+                            configuredPhoneNumberCount={matchingConfig?.phone_number_count ?? fromNumbersCount}
                             retryEnabled={retryEnabled}
                             onRetryEnabledChange={setRetryEnabled}
                             maxRetries={maxRetries}

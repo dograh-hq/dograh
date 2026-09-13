@@ -50,7 +50,12 @@ _E164_FORMATTING_RE = re.compile(r"[\s\-()\.]")
 # *instead of* the country code, never alongside it, so it has to be dropped
 # rather than have its brackets stripped - "+4402079460958" is a different,
 # wrong number that still looks like valid E.164.
-_TRUNK_PREFIX_RE = re.compile(r"^(\+\s*[0-9][0-9\s\-.]*?)\(\s*0\s*\)")
+#
+# Anchored to the country code, which is 1-3 digits: only a "(0)" sitting
+# directly after it is the trunk prefix. One appearing later is part of the
+# subscriber number's punctuation, and dropping its digit would change who
+# gets dialled - so that case falls through to plain bracket stripping.
+_TRUNK_PREFIX_RE = re.compile(r"^(\+\s*[0-9]{1,3}[\s\-.]*)\(\s*0\s*\)")
 
 
 def is_e164(raw: Optional[str]) -> bool:

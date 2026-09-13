@@ -59,6 +59,11 @@ export interface CampaignAdvancedSettingsProps {
     // True when the provider requires recipient consent before dialling: the
     // caller-ID based concurrency hints below do not apply to those campaigns.
     requiresCallPermission?: boolean;
+    // How many numbers the configuration actually has. Distinct from
+    // `fromNumbersCount`, which callers substitute with a sentinel when a
+    // provider's concurrency is not capped by caller IDs - a substitution that
+    // silently answered "does this campaign have a number at all?" with yes.
+    configuredPhoneNumberCount?: number;
 }
 
 /** Extract the string timezone value from ITimezoneOption | string */
@@ -119,6 +124,7 @@ export default function CampaignAdvancedSettings({
     circuitBreakerWindowSeconds, onCircuitBreakerWindowSecondsChange,
     circuitBreakerMinCalls, onCircuitBreakerMinCallsChange,
     requiresCallPermission,
+    configuredPhoneNumberCount,
 }: CampaignAdvancedSettingsProps) {
     const timezoneSelectId = useId();
 
@@ -145,12 +151,13 @@ export default function CampaignAdvancedSettings({
                         Concurrency is limited to {fromNumbersCount} by your configured phone numbers. To use the full org limit of {orgConcurrentLimit}, add more CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link>.
                     </p>
                 )}
-                {/* Not gated on requiresCallPermission, unlike the CLI-count
-                    hints above: those describe a concurrency cap that a
-                    consent-based provider does not have, but every provider
-                    still needs an active number to dial from, so hiding this
-                    hid the one warning that the campaign cannot run at all. */}
-                {fromNumbersCount === 0 && (
+                {/* Reads the real count, not the concurrency sentinel, and is
+                    not gated on requiresCallPermission: the CLI-count hints
+                    above describe a cap a consent-based provider does not
+                    have, but every provider still needs an active number to
+                    dial from, so this is the one warning that says the
+                    campaign cannot run at all. */}
+                {(configuredPhoneNumberCount ?? fromNumbersCount) === 0 && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
                         No phone numbers configured. Add one in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
                     </p>

@@ -67,6 +67,23 @@ class TestTelephonyAddress(unittest.TestCase):
         # Already canonical values pass through untouched.
         self.assertEqual(canonicalize_e164("+14155552671"), "+14155552671")
 
+    def test_canonicalize_e164_drops_only_a_trunk_prefix_after_the_country_code(self):
+        """ "(0)" is the trunk digit only where it can be one.
+
+        Directly after the country code it is dialled *instead of* it, so
+        keeping it produces a valid-looking E.164 that reaches someone else.
+        Anywhere later it is ordinary punctuation around a subscriber digit,
+        and dropping that digit would change the destination just as badly.
+        """
+        self.assertEqual(canonicalize_e164("+44 (0) 20 7946 0958"), "+442079460958")
+        self.assertEqual(canonicalize_e164("+44-(0)20 7946 0958"), "+442079460958")
+        self.assertEqual(canonicalize_e164("+44(0)2079460958"), "+442079460958")
+        self.assertEqual(canonicalize_e164("+353 (0) 1 234 5678"), "+35312345678")
+        # Not a trunk prefix: the zero belongs to the subscriber number.
+        self.assertEqual(canonicalize_e164("+1 415 (0) 555 2671"), "+141505552671")
+        # A bracketed area code is not a trunk prefix either.
+        self.assertEqual(canonicalize_e164("+1 (415) 555-2671"), "+14155552671")
+
     def test_canonicalize_e164_refuses_what_is_not_a_number(self):
         """Only formatting is removed - nothing is guessed."""
         self.assertIsNone(canonicalize_e164("14155552671"))  # no country code

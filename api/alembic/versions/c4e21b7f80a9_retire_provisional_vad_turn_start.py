@@ -57,13 +57,21 @@ def upgrade() -> None:
     conn = op.get_bind()
     for table, column in _TARGETS:
         # These are `json`, not `jsonb`, so key containment (`?`) is unavailable
-        # and a ::jsonb cast is avoided; `->>` works on both.
+        # and a ::jsonb cast is avoided.
+        #
+        # The two operators are not interchangeable here. `->>` extracts the
+        # value as text, which is what the strategy comparison wants, but it
+        # renders a JSON null as SQL NULL — indistinguishable from a missing
+        # key. Stored configs do carry explicit nulls for keys the user never
+        # configured (see WorkflowConfigurationDefaults._treat_null_as_unset),
+        # so the key check uses `->`, which returns the JSON value and is SQL
+        # NULL only when the key is genuinely absent.
         rows = conn.execute(
             sa.text(
                 f"SELECT id, {column} FROM {table} "
                 f"WHERE {column} IS NOT NULL "
                 f"AND ({column}->>'turn_start_strategy' = :retired "
-                f"     OR {column}->>'{_RETIRED_KEY}' IS NOT NULL)"
+                f"     OR {column}->'{_RETIRED_KEY}' IS NOT NULL)"
             ),
             {"retired": _RETIRED_STRATEGY},
         ).fetchall()

@@ -152,3 +152,43 @@ def test_deepgram_stt_rejects_eager_eot_threshold_above_eot_threshold():
             eot_threshold=0.6,
             eager_eot_threshold=0.7,
         )
+        
+        
+def test_deepgram_stt_rejects_eager_eot_threshold_below_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eager_eot_threshold=0.2,
+        )
+
+
+def test_deepgram_stt_rejects_eot_threshold_below_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_threshold=0.4,
+        )
+
+
+def test_deepgram_stt_rejects_eot_timeout_ms_below_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_timeout_ms=100,
+        )
+
+
+def test_deepgram_stt_rejects_eot_timeout_ms_above_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_timeout_ms=15000,
+        )

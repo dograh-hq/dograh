@@ -667,25 +667,6 @@ class PipecatEngine:
             f"Awaiting {len(self._pending_extraction_tasks)} pending extraction task(s): {task_names}"
         )
         start_time = asyncio.get_event_loop().time()
-<<<<<<< HEAD
-        try:
-            results = await asyncio.wait_for(
-                asyncio.gather(*self._pending_extraction_tasks, return_exceptions=True),
-                timeout=timeout,
-            )
-            elapsed = asyncio.get_event_loop().time() - start_time
-            # Log any exceptions returned by gather
-            for task_name, result in zip(task_names, results):
-                if isinstance(result, Exception):
-                    logger.error(
-                        f"Pending extraction task '{task_name}' failed: {result}"
-                    )
-            logger.debug(f"All pending extraction tasks completed in {elapsed:.2f}s")
-        except asyncio.TimeoutError:
-            incomplete = [
-                t.get_name() for t in self._pending_extraction_tasks if not t.done()
-            ]
-=======
 
         # Snapshot the tasks; new tasks added during the wait are not our concern here.
         pending_snapshot = set(self._pending_extraction_tasks)
@@ -704,13 +685,13 @@ class PipecatEngine:
 
         if still_pending:
             incomplete = [t.get_name() for t in still_pending]
->>>>>>> 8883c690 (fix: address PR review feedback)
             logger.warning(
                 f"Timed out waiting for pending extraction tasks after {timeout}s. "
                 f"Incomplete tasks will continue running in the background: {incomplete}"
             )
         else:
             logger.debug(f"All pending extraction tasks completed in {elapsed:.2f}s")
+
 
     async def flush_variable_extraction(self) -> Optional[dict]:
         """Refresh extracted variables without marking the call finalized.

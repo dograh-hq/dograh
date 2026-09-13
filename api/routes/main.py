@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
+from api.routes.avatar import router as avatar_router
+from api.routes.avatar_stream import router as avatar_stream_router
 from api.routes.campaign import router as campaign_router
 from api.routes.call_history import router as call_history_router
 from api.routes.credentials import router as credentials_router
@@ -57,6 +59,8 @@ router.include_router(reports_router)
 router.include_router(sakinah_router)
 router.include_router(webrtc_signaling_router)
 router.include_router(turn_credentials_router)
+router.include_router(avatar_router)
+router.include_router(avatar_stream_router)
 router.include_router(public_embed_router)
 router.include_router(public_embed_chat_router)
 router.include_router(public_agent_router)

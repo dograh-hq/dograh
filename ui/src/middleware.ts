@@ -10,7 +10,7 @@ const OSS_USER_COOKIE = 'dograh_auth_user';
 // `/embed` serves the public website widget (e.g. /embed/dograh-widget.js),
 // which must be fetchable without a session cookie so third-party sites can
 // embed it — otherwise the middleware 307-redirects the asset to /auth/login.
-const PUBLIC_PATHS = ['/auth/login', '/auth/signup', '/embed'];
+const PUBLIC_PATHS = ['/auth/login', '/auth/signup', '/embed', '/_avatarkit'];
 
 let cachedAuthProvider: string | null = null;
 
@@ -116,7 +116,11 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public static assets (anything with a file extension, e.g. /dograh-logo.png)
+     * - .wasm assets (e.g. the avatarkit WASM under /_avatarkit/*.wasm) — these
+     *   are fetched by the public embed with no auth cookie, so the middleware
+     *   must not 307-redirect them to /auth/login (the browser would then load
+     *   the HTML login page as the WASM binary and fail with a magic-word error).
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|otf)).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|otf|wasm)).*)',
   ],
 };

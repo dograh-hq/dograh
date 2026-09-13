@@ -108,7 +108,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({
 
   // Check if current route should have sidebar
   // Hide sidebar for root (/), /handler routes (Stack Auth routes), and /auth routes
-  const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler") && !pathname.startsWith("/auth");
+  const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler") && !pathname.startsWith("/auth") && !pathname.startsWith("/embed");
+  // Embed routes are standalone (iframe-able): no sidebar, no backend banner.
+  const isEmbed = pathname.startsWith("/embed");
 
   // Only match the exact editor page /workflow/<id>, not sub-routes like /workflow/<id>/runs
   const isWorkflowEditor = /^\/workflow\/\d+$/.test(pathname);
@@ -153,6 +155,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({
             </SidebarInset>
           </div>
         </LeadFormsProvider>
+      ) : isEmbed ? (
+        <div className="w-full flex-1">
+          {children}
+        </div>
       ) : (
         <div className="app-surface w-full flex-1">
           <BackendStatusBanner />

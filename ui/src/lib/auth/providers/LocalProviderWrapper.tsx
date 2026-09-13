@@ -24,8 +24,15 @@ export function LocalProviderWrapper({ children }: { children: React.ReactNode }
           setUser(data.user);
           logger.info('OSS auth initialized', { user: data.user });
         } else if (response.status === 401) {
-          // No token - redirect to login (but not if already on auth pages)
-          if (!window.location.pathname.startsWith('/auth/')) {
+          // No token - redirect to login, EXCEPT on auth pages and the public
+          // embed surface (/embed/* and its /_avatarkit/* assets), which must
+          // load for anonymous visitors without bouncing to /auth/login.
+          const path = window.location.pathname;
+          const isPublic =
+            path.startsWith('/auth/') ||
+            path.startsWith('/embed') ||
+            path.startsWith('/_avatarkit');
+          if (!isPublic) {
             window.location.href = '/auth/login';
             return;
           }

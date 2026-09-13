@@ -115,6 +115,11 @@ RUN groupadd --system dograh \
  && useradd --system --gid dograh --no-log-init --home-dir /app --shell /usr/sbin/nologin dograh \
  && chown dograh:dograh /app
 
+# libopus native library — required by avatarkit[opus] (SpatialReal avatar
+# host-mode audio encoding; see api/services/avatar/session_manager.py).
+RUN apt-get update && apt-get install -y --no-install-recommends libopus0 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Static ffmpeg + ffprobe (used by audio_converter, audio_file_cache, etc.)
 COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe

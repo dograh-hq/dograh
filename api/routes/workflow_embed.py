@@ -39,6 +39,25 @@ def generate_embed_script(token: EmbedTokenModel) -> str:
 </script>"""
 
 
+def generate_iframe_snippet(token: EmbedTokenModel) -> str:
+    """Generate a copy-paste <iframe> snippet that renders the avatar agent.
+
+    ``allow="microphone; autoplay"`` is required for the cross-origin iframe to
+    access the mic and unlock audio; the embedded page is served over the UI
+    host and must be HTTPS for that to work on any real site.
+    """
+    base_url = str(UI_APP_URL).rstrip("/")
+    src = f"{base_url}/embed/avatar/{token.token}"
+    return (
+        f'<iframe\n'
+        f'  src="{src}"\n'
+        f'  allow="microphone; autoplay"\n'
+        f'  width="400" height="620"\n'
+        f'  style="border:0;border-radius:16px;max-width:100%">\n'
+        f'</iframe>'
+    )
+
+
 class EmbedTokenRequest(BaseModel):
     allowed_domains: Optional[list[str]] = None
     settings: Optional[dict] = None
@@ -57,6 +76,7 @@ class EmbedTokenResponse(BaseModel):
     expires_at: Optional[datetime]
     created_at: datetime
     embed_script: str
+    embed_iframe: str
 
 
 @router.post("/{workflow_id}/embed-token")
@@ -136,6 +156,7 @@ async def create_or_update_embed_token(
         expires_at=token.expires_at,
         created_at=token.created_at,
         embed_script=embed_script,
+        embed_iframe=generate_iframe_snippet(token),
     )
 
 
@@ -181,6 +202,7 @@ async def get_embed_token(
         expires_at=token.expires_at,
         created_at=token.created_at,
         embed_script=embed_script,
+        embed_iframe=generate_iframe_snippet(token),
     )
 
 

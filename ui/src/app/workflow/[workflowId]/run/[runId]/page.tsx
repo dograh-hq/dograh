@@ -613,16 +613,27 @@ function SplitTracksSection({
     );
 }
 
+interface AvatarRunSummary {
+    mode?: string;
+    avatar_id?: string;
+    duration_seconds?: number;
+    first_frame_latency_ms?: number | null;
+    failed?: boolean;
+}
+
 function RunMetricsSection({
     costInfo,
     logs,
     gatheredContext,
+    annotations,
 }: {
     costInfo: WorkflowRunResponse['cost_info'];
     logs: WorkflowRunLogs | null;
     gatheredContext: Record<string, string | number | boolean | object> | null;
+    annotations: Record<string, unknown> | null;
 }) {
     const metrics = getTranscriptMetrics(logs, gatheredContext);
+    const avatar = (annotations?.avatar ?? null) as AvatarRunSummary | null;
 
     return (
         <Card className="border-border">
@@ -635,6 +646,16 @@ function RunMetricsSection({
                 <MetricCard label="Bot Turns" value={String(metrics.botTurns)} />
                 <MetricCard label="Tool Calls" value={String(metrics.toolCalls)} />
                 <MetricCard label="Nodes Visited" value={String(metrics.visitedNodes)} />
+                {avatar && (
+                    <MetricCard
+                        label="Avatar"
+                        value={
+                            avatar.failed
+                                ? 'Fell back to audio'
+                                : `${formatDuration(avatar.duration_seconds)}${avatar.first_frame_latency_ms != null ? ` · ${avatar.first_frame_latency_ms}ms to first frame` : ''}`
+                        }
+                    />
+                )}
             </CardContent>
         </Card>
     );
@@ -934,6 +955,7 @@ export default function WorkflowRunPage() {
                             costInfo={workflowRun?.cost_info ?? null}
                             logs={workflowRun?.logs ?? null}
                             gatheredContext={workflowRun?.gathered_context ?? null}
+                            annotations={workflowRun?.annotations ?? null}
                         />
 
                         {storageAudit && <StorageAuditSection audit={storageAudit} />}

@@ -1,6 +1,6 @@
 {
   "name": "ui",
-  "version": "1.46.0.4.2.D",
+  "version": "1.46.0.5",
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--enable-source-maps node scripts/dev-server.mjs",
@@ -34,6 +34,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@sentry/nextjs": "^10.63.0",
+    "@spatialwalk/avatarkit": "^1.0.0-beta.104",
     "@stackframe/stack": "^2.8.80",
     "@xyflow/react": "^12.10.2",
     "class-variance-authority": "^0.7.1",
@@ -81,5 +82,10 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "@spatialwalk/avatarkit": {
+      "vite": "^8.0.0"
+    }
   }
 }

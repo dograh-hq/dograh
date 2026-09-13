@@ -8284,6 +8284,27 @@ export type InitiateCallApiV1TelephonyInitiateCallPostResponses = {
     200: unknown;
 };
 
+export type HandleInboundRunApiV1TelephonyInboundRunGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/inbound/run';
+};
+
+export type HandleInboundRunApiV1TelephonyInboundRunGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleInboundRunApiV1TelephonyInboundRunGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type HandleInboundRunApiV1TelephonyInboundRunPostData = {
     body?: never;
     path?: never;
@@ -8299,27 +8320,6 @@ export type HandleInboundRunApiV1TelephonyInboundRunPostErrors = {
 };
 
 export type HandleInboundRunApiV1TelephonyInboundRunPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type HandleInboundRunApiV1TelephonyInboundRunPost2Data = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/v1/telephony/inbound/run';
-};
-
-export type HandleInboundRunApiV1TelephonyInboundRunPost2Errors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-};
-
-export type HandleInboundRunApiV1TelephonyInboundRunPost2Responses = {
     /**
      * Successful Response
      */

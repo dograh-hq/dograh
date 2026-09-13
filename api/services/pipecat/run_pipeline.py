@@ -201,13 +201,7 @@ def _create_non_realtime_user_turn_start_strategies(
     """Return user turn start strategies for non-realtime pipelines."""
 
     # An STT that reports its own turn boundaries decides the turn start,
-    # whatever `turn_start_strategy` asks for. The alternatives all gate the
-    # start on transcript text, which with such an STT means ignoring the
-    # provider's turn detection on the start side while still relying on it to
-    # end the turn — and resolving the start from a queued frame, so the
-    # interruption it broadcasts flushes the stop proposal queued behind it
-    # (`ProposedUserStoppedSpeakingFrame` carries `UninterruptibleFrame` to
-    # survive that, but the ordering is not worth depending on).
+    # whatever `turn_start_strategy` asks for.
     #
     # Local VAD is deliberately kept out of these start strategies too: it would
     # win the race on raw voice activity and start the turn before the STT

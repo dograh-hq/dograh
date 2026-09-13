@@ -73,6 +73,13 @@ The relay WebSocket must be proxied like the signaling WebSocket (same nginx
 `location` pattern with upgrade headers). No TURN involvement — the relay is
 a plain WebSocket to the API, not WebRTC media.
 
+For Kubernetes and AWS deployments, keep `SPATIALREAL_API_KEY` in a Kubernetes
+Secret or external secret provider. The Helm chart accepts the non-secret
+settings under `config.spatialreal*` and the API key through
+`secrets.spatialrealApiKey`. For production, prefer `secrets.existingSecret`
+and provide a Secret containing `SPATIALREAL_API_KEY`; do not commit a values
+override containing the real key.
+
 <Note>
 If the API key has ever been shared in chats, tickets, or logs, rotate it in
 SpatialReal Studio (Studio → API Keys) and update `.env`.

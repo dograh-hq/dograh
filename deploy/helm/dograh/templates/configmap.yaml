@@ -21,6 +21,18 @@ data:
   FASTAPI_WORKERS: {{ .Values.config.fastapiWorkers | quote }}
   ENABLE_SIGNUP: {{ .Values.config.enableSignup | quote }}
   TELEPHONY_WS_TOKEN_ENFORCE: {{ .Values.config.telephonyWsTokenEnforce | quote }}
+  SPATIALREAL_APP_ID: {{ .Values.config.spatialrealAppId | quote }}
+  SPATIALREAL_AVATAR_ID: {{ .Values.config.spatialrealAvatarId | quote }}
+  SPATIALREAL_REGION: {{ .Values.config.spatialrealRegion | quote }}
+  SPATIALREAL_MODE: {{ .Values.config.spatialrealMode | quote }}
+  SPATIALREAL_TOKEN_TTL: {{ .Values.config.spatialrealTokenTtl | quote }}
+  SPATIALREAL_MAX_SESSIONS: {{ .Values.config.spatialrealMaxSessions | quote }}
+  {{- if .Values.config.spatialrealConsoleEndpoint }}
+  SPATIALREAL_CONSOLE_ENDPOINT: {{ .Values.config.spatialrealConsoleEndpoint | quote }}
+  {{- end }}
+  {{- if .Values.config.spatialrealIngressEndpoint }}
+  SPATIALREAL_INGRESS_ENDPOINT: {{ .Values.config.spatialrealIngressEndpoint | quote }}
+  {{- end }}
   {{- /* MinIO endpoints derived from storage mode. */ -}}
   {{- if eq .Values.storage.mode "internalMinio" }}
   MINIO_ENDPOINT: {{ printf "%s:9000" (include "dograh.minioHost" .) | quote }}

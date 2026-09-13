@@ -123,6 +123,17 @@ config:
   # enabling this without a secret does nothing
   telephonyWsTokenEnforce: false
 
+  # SpatialReal AvatarKit. The app/avatar ids are non-secret deployment
+  # configuration; the API key belongs under secrets.spatialrealApiKey.
+  spatialrealAppId: ""
+  spatialrealAvatarId: ""
+  spatialrealRegion: us-west
+  spatialrealMode: sdk
+  spatialrealConsoleEndpoint: ""  # empty uses the region-derived SDK default
+  spatialrealIngressEndpoint: ""  # empty uses the region-derived SDK default
+  spatialrealTokenTtl: 43200
+  spatialrealMaxSessions: 10
+
 # -----------------------------------------------------------------------------
 # Secrets — rendered into a Kubernetes Secret unless secrets.existingSecret is
 # set. NEVER commit real values here; override via -f overrides.yaml or
@@ -172,6 +183,10 @@ secrets:
   # leaves the URLs unchanged and the check off. When using secrets.existingSecret, put it
   # under the TELEPHONY_WS_TOKEN_SECRET key there.
   telephonyWsTokenSecret: ""
+
+  # SpatialReal server credential. Prefer secrets.existingSecret in production;
+  # the referenced Secret must expose this as SPATIALREAL_API_KEY.
+  spatialrealApiKey: ""
 
 # -----------------------------------------------------------------------------
 # Web tier (FastAPI + WebSocket signaling)

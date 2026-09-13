@@ -294,6 +294,8 @@ services:
       # "sdk" = browser drives the avatar (Phase 1); "host" = backend drives
       # it from inside the pipeline (Phase 2); "off" disables the feature.
       SPATIALREAL_MODE: "${SPATIALREAL_MODE:-sdk}"
+      SPATIALREAL_TOKEN_TTL: "${SPATIALREAL_TOKEN_TTL:-43200}"
+      SPATIALREAL_MAX_SESSIONS: "${SPATIALREAL_MAX_SESSIONS:-10}"
 
       # Telephony media WebSocket capability token. The carrier dials the media
       # socket back, so its URL is caller-visible and the ids in it are otherwise

@@ -147,8 +147,31 @@ def test_create_dograh_flux_uses_custom_eot_params_when_set():
     assert kwargs["settings"].eot_threshold == 0.8
     assert kwargs["settings"].eager_eot_threshold == 0.4
     
+    
 def test_dograh_stt_schema_includes_eot_params():
     schema = DograhSTTService.model_json_schema()["properties"]
     assert "eot_threshold" in schema
     assert "eager_eot_threshold" in schema
     assert "eot_timeout_ms" in schema
+    
+    
+def test_create_dograh_flux_defaults_eot_params_when_unset():
+    user_config = SimpleNamespace(
+        stt=SimpleNamespace(
+            provider=ServiceProviders.DOGRAH.value,
+            api_key="mps-key",
+            model="default",
+            language="multi",
+        )
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.DograhFluxSTTService"
+    ) as flux_service:
+        create_stt_service(user_config, _audio_config())
+
+    kwargs = flux_service.call_args.kwargs
+    defaults = DograhSTTService.model_fields
+    assert kwargs["settings"].eot_timeout_ms == defaults["eot_timeout_ms"].default
+    assert kwargs["settings"].eot_threshold == defaults["eot_threshold"].default
+    assert kwargs["settings"].eager_eot_threshold == defaults["eager_eot_threshold"].default

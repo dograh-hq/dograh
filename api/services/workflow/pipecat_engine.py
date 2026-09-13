@@ -325,9 +325,33 @@ class PipecatEngine:
         await self.llm._update_settings(LLMSettings(system_instruction=system_prompt))
 
     def _format_prompt(self, prompt: str) -> str:
-        """Delegate prompt formatting to the shared workflow.utils implementation."""
+        """Render a prompt string, injecting both call-start context and any
+        variables extracted by earlier nodes in the same call.
 
-        return render_template(prompt, self._call_context_vars)
+        The render context is built as:
+            {**self._call_context_vars, "gathered_context": dict(self._gathered_context)}
+
+        Key ordering is intentional:
+        - ``_call_context_vars`` is spread first (may contain a "gathered_context"
+          key carrying previous-run callback data, used for resume-node routing).
+        - ``"gathered_context"`` is then overwritten with the live in-progress
+          ``_gathered_context`` so that {{gathered_context.*}} references in
+          node prompts always read from the current call's extraction output.
+
+        A snapshot (dict copy) is taken to prevent any concurrent background
+        extraction task from mutating the dict mid-render.
+
+        Note: a node can only read variables extracted by nodes that have
+        *already completed a transition away from them*.  A node cannot read
+        its own extraction output in its own prompt because extraction fires
+        when the LLM calls the transition function *out* of a node, which is
+        after the node's prompt has already been rendered and used.
+        """
+        render_ctx: dict = {
+            **self._call_context_vars,
+            "gathered_context": dict(self._gathered_context),
+        }
+        return render_template(prompt, render_ctx)
 
     async def _create_transition_func(
         self,
@@ -688,6 +712,18 @@ class PipecatEngine:
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
+        # Flush any in-flight background variable extraction tasks from the
+        # previous node before rendering this node's prompt.  This guarantees
+        # that {{gathered_context.*}} references in the prompt resolve to
+        # finalized values rather than a partial in-flight extraction result.
+        #
+        # Cost: zero when extraction is already done (asyncio.gather on
+        # completed tasks returns immediately).  When extraction is still
+        # running (e.g., the transition speech was very short), this adds
+        # one await — but the extraction LLM call was already in flight, so
+        # the actual delay is only the *remaining* tail of that call.
+        await self._await_pending_extractions()
+
         # Set OTel span name for tracing
         try:
             self.context.set_otel_span_name(f"llm-{node.name}")

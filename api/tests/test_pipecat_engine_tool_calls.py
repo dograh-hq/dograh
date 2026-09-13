@@ -86,9 +86,14 @@ async def run_pipeline_with_tool_calls(
     )
     assistant_context_aggregator = context_aggregator.assistant()
 
+    # Create a separate mock LLM for variable extraction so it doesn't advance
+    # the main LLM's step counter when the engine awaits extraction tasks.
+    var_llm = MockLLMService()
+
     # Create PipecatEngine with the workflow
     engine = PipecatEngine(
         llm=llm,
+        variable_extraction_llm=var_llm,
         context=context,
         workflow=workflow,
         call_context_vars={"customer_name": "Test User"},
@@ -208,12 +213,12 @@ class TestPipecatEngineToolCalls:
             num_text_steps=2,
         )
 
-        # Assert that the LLM generation was called a total of 2 times,
-        # 1st time when StartNode was executed, and second time
-        # when EndCall generation happened. The tool should not invoke
-        # an LLM generation
-        assert llm.get_current_step() == 2, (
-            "LLM generation should have happened 2 times"
+        # Assert that the LLM generation was called a total of 3 times:
+        # 1st time when StartNode was executed
+        # 2nd time when parallel tool calls complete (including transition IN_PROGRESS)
+        # 3rd time when EndCall generation happened.
+        assert llm.get_current_step() == 3, (
+            "LLM generation should have happened 3 times"
         )
 
         # Assert that the context was updated with END_CALL_SYSTEM_PROMPT

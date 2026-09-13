@@ -61,3 +61,18 @@ def test_clock_variables_still_render():
 
     assert rendered != "It is "
     assert "{{" not in rendered
+
+
+def test_gathered_context_nested_path_resolves():
+    context = {"gathered_context": {"order": {"id": "ORD-123"}}}
+    assert render_template("{{gathered_context.order.id}}", context) == "ORD-123"
+
+
+def test_gathered_context_missing_key_resolves_to_empty():
+    context = {"gathered_context": {}}
+    assert render_template("{{gathered_context.foo}}", context) == ""
+
+
+def test_gathered_context_with_fallback_filter():
+    context = {"gathered_context": {}}
+    assert render_template("{{gathered_context.foo | default_val}}", context) == "default_val"

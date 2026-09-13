@@ -5,6 +5,8 @@ import pytest
 from pipecat.services.settings import NOT_GIVEN
 from pipecat.transcriptions.language import Language
 
+from pydantic import ValidationError
+
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
     ServiceProviders,
@@ -129,3 +131,24 @@ def test_create_deepgram_flux_defaults_eot_params_when_unset():
     assert kwargs["settings"].eot_timeout_ms == defaults["eot_timeout_ms"].default
     assert kwargs["settings"].eot_threshold == defaults["eot_threshold"].default
     assert kwargs["settings"].eager_eot_threshold == defaults["eager_eot_threshold"].default
+    
+    
+def test_deepgram_stt_rejects_out_of_range_eot_threshold():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_threshold=0.95,
+        )
+
+
+def test_deepgram_stt_rejects_eager_eot_threshold_above_eot_threshold():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_threshold=0.6,
+            eager_eot_threshold=0.7,
+        )

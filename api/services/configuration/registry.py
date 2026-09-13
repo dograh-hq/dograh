@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from enum import Enum, auto
 from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from api.services.configuration.options import (
     AZURE_EMBEDDING_MODELS,
@@ -1710,8 +1710,8 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     eot_threshold: float = Field(
         default=0.7,
-        ge=0.0, 
-        le=1.0, 
+        ge=0.5, 
+        le=0.9, 
         description=(
             "Deepgram Flux end-of-turn probability threshold. Higher values "
             "wait longer before ending a turn. Only applies to Flux models."
@@ -1719,8 +1719,8 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     eager_eot_threshold: float = Field(
         default=0.5,
-        ge=0.0, 
-        le=1.0,
+        ge=0.3, 
+        le=0.9,
         description=(
             "Deepgram Flux eager end-of-turn probability threshold, used for "
             "early turn-end signaling. Only applies to Flux models."
@@ -1728,12 +1728,22 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     eot_timeout_ms: int = Field(
         default=3000,
-        gt=0,
+        ge=500,
+        le=10000,
         description=(
             "Deepgram Flux end-of-turn timeout backstop in milliseconds. "
             "Only applies to Flux models."
         ),
     )
+    @model_validator(mode="after")
+    def _validate_eager_eot_threshold(self):
+        if self.eager_eot_threshold > self.eot_threshold:
+            raise ValueError(
+                "eager_eot_threshold must be <= eot_threshold "
+                f"(got eager_eot_threshold={self.eager_eot_threshold}, "
+                f"eot_threshold={self.eot_threshold})"
+            )
+        return self
 
 
 @register_stt
@@ -1840,8 +1850,8 @@ class DograhSTTService(BaseSTTConfiguration):
     )
     eot_threshold: float = Field(
         default=0.7,
-        ge=0.0, 
-        le=1.0, 
+        ge=0.5, 
+        le=0.9, 
         description=(
             "Deepgram Flux end-of-turn probability threshold, used when this "
             "language routes through Dograh's managed Flux proxy. Higher "
@@ -1850,8 +1860,8 @@ class DograhSTTService(BaseSTTConfiguration):
     )
     eager_eot_threshold: float = Field(
         default=0.5,
-        ge=0.0, 
-        le=1.0, 
+        ge=0.3, 
+        le=0.9, 
         description=(
             "Deepgram Flux eager end-of-turn probability threshold, used "
             "when this language routes through Dograh's managed Flux proxy."
@@ -1859,12 +1869,22 @@ class DograhSTTService(BaseSTTConfiguration):
     )
     eot_timeout_ms: int = Field(
         default=3000,
-        gt=0,
+        ge=500,
+        le=10000,
         description=(
             "Deepgram Flux end-of-turn timeout backstop in milliseconds, "
             "used when this language routes through Dograh's managed Flux proxy."
         ),
     )
+    @model_validator(mode="after")
+    def _validate_eager_eot_threshold(self):
+        if self.eager_eot_threshold > self.eot_threshold:
+            raise ValueError(
+                "eager_eot_threshold must be <= eot_threshold "
+                f"(got eager_eot_threshold={self.eager_eot_threshold}, "
+                f"eot_threshold={self.eot_threshold})"
+            )
+        return self
 
 
 @register_stt

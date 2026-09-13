@@ -264,8 +264,18 @@ def _create_non_realtime_user_turn_stop_strategies(
     return [SpeechTimeoutUserTurnStopStrategy()]
 
 
-def _create_realtime_user_turn_config(provider: str):
+def _create_realtime_user_turn_config(provider: str, model: str | None = None):
     """Return user turn strategies and optional local VAD for realtime providers."""
+
+    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+        # Live keeps listening while speaking and handles barge-in itself.
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy(enable_interruptions=False)],
+                stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            None,
+        )
 
     def external_provider_turn_config():
         # Since pipecat 1.8 these services propose turn boundaries
@@ -928,6 +938,7 @@ async def _run_pipeline_impl(
         embeddings_endpoint=embeddings_endpoint,
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
+        is_realtime=is_realtime,
         context_compaction_enabled=context_compaction_enabled,
         call_dispositions=call_dispositions,
     )
@@ -977,7 +988,7 @@ async def _run_pipeline_impl(
         # Realtime services still need user-turn tracking even when the model
         # itself owns speech generation and interruption behavior.
         user_turn_strategies, user_vad_analyzer = _create_realtime_user_turn_config(
-            user_config.realtime.provider
+            user_config.realtime.provider, user_config.realtime.model
         )
     else:
         # Some STT services emit their own turn boundaries, so the aggregator
@@ -1022,7 +1033,13 @@ async def _run_pipeline_impl(
         context,
         assistant_params=assistant_params,
         user_params=user_params,
-        realtime_service_mode=is_realtime,
+        # Live publishes final user transcripts before delegation starts.
+        # Record them immediately, including while the assistant is speaking.
+        realtime_service_mode=is_realtime
+        and not (
+            user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+            and user_config.realtime.model == "gpt-live-1"
+        ),
     )
 
     # Create usage metrics aggregator with engine's callback

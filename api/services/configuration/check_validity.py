@@ -426,27 +426,9 @@ class UserConfigurationValidator:
         return True
 
     def _check_lmnt_api_key(self, model: str, api_key: str) -> bool:
-        # Best-effort smoke test against LMNT's voice-list endpoint. Only a clear
-        # auth failure rejects the save; other statuses are treated as
-        # inconclusive so transient errors or API changes don't block valid keys.
-        try:
-            response = httpx.get(
-                "https://api.lmnt.com/v1/ai/voice/list",
-                headers={"X-API-Key": api_key, "lmnt-version": "1.1"},
-                timeout=10.0,
-            )
-        except httpx.RequestError:
-            raise ValueError(
-                "Could not connect to the LMNT API. Please check your network "
-                "connection and try again."
-            )
-        if response.status_code == 401:
-            raise ValueError(
-                "Invalid LMNT API key. The key was rejected by the LMNT API. "
-                "Please check that your API key is correct and active. "
-                "You can find your key at https://app.lmnt.com."
-            )
-        return True
+        raise ValueError(
+            "LMNT is no longer available. Please select another TTS provider."
+        )
 
     def _check_speechify_api_key(self, model: str, api_key: str) -> bool:
         # Best-effort smoke test against Speechify's voice-list endpoint. Only a

@@ -145,6 +145,7 @@ Configure the following fields:
 | **App Password** | The ARI password configured in `ari.conf` | `your_secure_password` |
 | **WebSocket Client Name** | The connection name from `websocket_client.conf` | `dograh` |
 | **From Extensions** | Optional SIP extensions or trunk numbers for outbound calls | `PJSIP/6001` or `6001` |
+| **Dial String Template** | How a dialed number reaches your trunk. See [Outbound Calling](#outbound-calling) | `PJSIP/{number}@my-trunk` |
 
 **Stasis App Name** is not something you enter — Dograh generates it when you save and displays it on the configuration for you to copy.
 
@@ -183,6 +184,36 @@ Until the dialplan names the generated application, calls reach Asterisk but nev
 
 1. Add each SIP extension that should be reachable as a **phone number** (e.g. `8000`). For inbound, you'll assign a workflow to each extension separately — see [Inbound Calling](#inbound-calling) below.
 2. Create a test workflow and initiate a test call to verify the connection.
+
+## Outbound Calling
+
+Asterisk dials a channel technology and a route, not a number. Dograh builds that dial string from the **Dial String Template** on your configuration, replacing `{number}` with the number being called.
+
+The default is `PJSIP/{number}`, which dials a PJSIP endpoint *named after the number*. That is right when your endpoints are the extensions you dial, and wrong on an install whose endpoints are trunks — there, originating `PJSIP/+966500000000` fails with `Allocation failed`, because no endpoint by that name exists.
+
+Pick the template that matches how your dialplan places outbound calls:
+
+| Your Asterisk | Template | Dials |
+|---------------|----------|-------|
+| Endpoints named after extensions | `PJSIP/{number}` | `PJSIP/1001` |
+| One outbound trunk | `PJSIP/{number}@my-trunk` | `PJSIP/+966500000000@my-trunk` |
+| FreePBX, or any dialplan with outbound routes | `Local/{number}@from-internal` | `Local/+966500000000@from-internal` |
+
+Routing through a `Local` channel is usually the right choice on FreePBX: the call enters your dialplan, and your own outbound routes handle number translation and trunk selection exactly as they do for a deskphone.
+
+<Note>
+A destination that already names a channel technology — `PJSIP/1001@my-trunk`, `Local/1001@from-internal`, `SIP/1001` — is dialed exactly as written, whatever the template says. That is what lets one campaign row or one test call address a specific trunk without changing the configuration.
+</Note>
+
+### Campaign contacts
+
+A campaign's `phone_number` column is a destination for this Asterisk, not necessarily a phone number. Extensions (`1001`), SIP URIs (`sip:1001@pbx.local`) and dial strings (`PJSIP/1001@my-trunk`) are all accepted alongside E.164 numbers, and each row goes through the same template above.
+
+Two rules still apply: a destination cannot contain spaces, commas or ampersands, because each of those means something else inside a dial string; and destinations must be unique within a campaign.
+
+<Note>
+Other providers are carriers and reject anything that is not a routable number, so their campaign uploads still require E.164 (`+` and country code). The rule follows the configuration the campaign dials with.
+</Note>
 
 ## Inbound Calling
 

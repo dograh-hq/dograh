@@ -11,8 +11,8 @@ Layers Dograh engine integration quirks onto upstream-pristine
   reconnect (deferred until the bot turn ends if currently responding).
 - **Node-transition deferral.** Node-transition calls emitted mid-turn are
   queued and run when the bot stops speaking, to avoid cutting off its audio.
-- **User-mute audio gating.** ``UserMuteStarted/StoppedFrame`` from the
-  user aggregator gates whether incoming audio is forwarded to Gemini.
+- **Silent audio while muted.** The shared conversation mixin replaces muted
+  caller audio while preserving Gemini's readiness and activity windows.
 - **TTSSpeakFrame as greeting trigger.** The engine queues a TTSSpeakFrame
   to kick off the first response after node setup; the service intercepts
   it and runs the initial-context path.
@@ -27,14 +27,12 @@ from loguru import logger
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiLiveJSONSchemaAdapter,
 )
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
     FunctionCallFromLLM,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -42,7 +40,7 @@ from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
 
-class DograhGeminiLiveLLMService(GeminiLiveLLMService):
+class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService):
     """Gemini Live with Dograh engine integration quirks. See module docstring."""
 
     # Gemini input transcription is delivered independently from tool calls.
@@ -60,12 +58,6 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # User-mute state, driven by broadcast UserMute{Started,Stopped}Frames.
-        # Audio is not forwarded to Gemini while muted.
-        self._user_is_muted: bool = False
-        # Guards initial-response triggering against double-firing across the
-        # initial TTSSpeakFrame and any LLMContextFrame that may arrive.
-        self._handled_initial_context: bool = False
         # Node-transition calls emitted mid-bot-turn are deferred here so the
         # transition does not tear down Gemini while it is still producing audio.
         self._pending_node_transition_function_calls: list[FunctionCallFromLLM] = []
@@ -270,32 +262,6 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
     # ------------------------------------------------------------------
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TTSSpeakFrame):
-            # Greeting trigger: the engine queues a TTSSpeakFrame to start the
-            # bot's first turn after node setup. Gemini Live renders its own
-            # audio, so we don't pass the frame through. For configured static
-            # text greetings, ask Gemini to say the exact greeting; otherwise
-            # re-enter _handle_context to kick off the normal initial response.
-            if not self._handled_initial_context:
-                greeting_text = frame.text.strip() if frame.text else ""
-                if greeting_text:
-                    await self._handle_initial_greeting(self._context, greeting_text)
-                else:
-                    await self._handle_context(self._context)
-            else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame after initial context already "
-                    "handled — Gemini Live owns audio generation, ignoring"
-                )
-            return
         if isinstance(frame, BotStoppedSpeakingFrame):
             # Belt-and-suspenders: the main drain happens in
             # _set_bot_is_responding(False), but if Gemini delays turn_complete
@@ -304,11 +270,6 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             await self._run_pending_node_transition_function_calls()
             # Fall through to super for the actual push.
         await super().process_frame(frame, direction)
-
-    async def _send_user_audio(self, frame):
-        if self._user_is_muted:
-            return
-        await super()._send_user_audio(frame)
 
     # ------------------------------------------------------------------
     # Context lifecycle: Dograh pre-populates self._context via the engine,

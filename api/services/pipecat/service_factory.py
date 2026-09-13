@@ -66,7 +66,6 @@ from pipecat.services.huggingface.stt import (
     HuggingFaceSTTSettings,
 )
 from pipecat.services.inworld.tts import InworldTTSService, InworldTTSSettings
-from pipecat.services.lmnt.tts import LmntTTSService, LmntTTSSettings
 from pipecat.services.minimax.llm import MiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSSettings
 from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE
@@ -479,16 +478,15 @@ def create_stt_service(
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
         from pipecat.services.speechmatics.stt import (
             AdditionalVocabEntry,
-            OperatingPoint,
+            Model,
+            TurnDetectionMode,
         )
 
         language = getattr(user_config.stt, "language", None) or "en"
-        # Map model field to operating point (standard or enhanced)
-        operating_point = (
-            OperatingPoint.ENHANCED
-            if user_config.stt.model == "enhanced"
-            else OperatingPoint.STANDARD
-        )
+        # Saved configurations may still use the legacy operating-point names.
+        model = user_config.stt.model
+        if model in ("standard", "enhanced"):
+            model = Model.LINDEN_1.value
         # Convert keyterms to AdditionalVocabEntry objects for Speechmatics
         additional_vocab = []
         if keyterms:
@@ -497,7 +495,8 @@ def create_stt_service(
             api_key=user_config.stt.api_key,
             settings=SpeechmaticsSTTSettings(
                 language=language,
-                operating_point=operating_point,
+                model=model,
+                turn_detection_mode=TurnDetectionMode.EXTERNAL,
                 additional_vocab=additional_vocab,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
@@ -895,28 +894,8 @@ def create_tts_service(
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.LMNT.value:
-        voice = getattr(user_config.tts, "voice", None) or "lily"
-        model = getattr(user_config.tts, "model", None) or "aurora"
-        language_code = getattr(user_config.tts, "language", None) or "en"
-        try:
-            pipecat_language = Language(language_code)
-        except ValueError:
-            pipecat_language = Language.EN
-        return LmntTTSService(
-            api_key=user_config.tts.api_key,
-            sample_rate=audio_config.transport_out_sample_rate,
-            # LMNT's streaming `format` field expects "raw" for signed 16-bit PCM
-            # at the requested sample rate, which is what the output transport
-            # consumes; "pcm_s16le" is not a valid LMNT format value.
-            output_format="raw",
-            settings=LmntTTSSettings(
-                voice=voice,
-                language=pipecat_language,
-                model=model,
-            ),
-            text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+        raise ValueError(
+            "LMNT is no longer available. Please select another TTS provider."
         )
     elif user_config.tts.provider == ServiceProviders.SPEECHIFY.value:
         # SpeechifyHttpTTSService ships in upstream pipecat; imported lazily so
@@ -1054,14 +1033,23 @@ def create_llm_service_from_provider(
         model = _migrate_deprecated_google_model(model)
         return DograhGoogleLLMService(
             api_key=api_key,
-            settings=GoogleLLMSettings(model=model, temperature=0.1),
+            settings=GoogleLLMSettings(
+                model=model,
+                temperature=0.1,
+                # Pipecat executes tools; the SDK should return their calls.
+                extra={"automatic_function_calling": {"disable": True}},
+            ),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
         return DograhGoogleVertexLLMService(
             credentials=credentials,
             project_id=project_id,
             location=location or "us-east4",
-            settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
+            settings=GoogleVertexLLMSettings(
+                model=model,
+                temperature=0.1,
+                extra={"automatic_function_calling": {"disable": True}},
+            ),
         )
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:
@@ -1144,7 +1132,18 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}, language={language}"
     )
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value:
+    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+        from api.services.pipecat.realtime.openai_live import DograhOpenAILiveLLMService
+
+        return DograhOpenAILiveLLMService(
+            api_key=api_key,
+            backend_model=realtime_config.backend_model,
+            settings=DograhOpenAILiveLLMService.Settings(
+                model=model,
+                voice=voice or "marin",
+            ),
+        )
+    elif provider == ServiceProviders.OPENAI_REALTIME.value:
         from api.services.pipecat.realtime.openai_realtime import (
             DograhOpenAIRealtimeLLMService,
         )
@@ -1265,9 +1264,6 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         }
         if language:
             settings_kwargs["language"] = language
-        temperature = getattr(realtime_config, "temperature", None)
-        if temperature is not None:
-            settings_kwargs["temperature"] = temperature
         return DograhGeminiLiveLLMService(
             api_key=api_key,
             settings=DograhGeminiLiveLLMService.Settings(**settings_kwargs),
@@ -1287,9 +1283,6 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         }
         if language:
             settings_kwargs["language"] = language
-        temperature = getattr(realtime_config, "temperature", None)
-        if temperature is not None:
-            settings_kwargs["temperature"] = temperature
         return DograhGeminiLiveVertexLLMService(
             credentials=credentials,
             project_id=project_id,

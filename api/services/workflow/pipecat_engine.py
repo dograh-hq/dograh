@@ -131,12 +131,14 @@ class PipecatEngine:
         embeddings_endpoint: Optional[str] = None,
         embeddings_api_version: Optional[str] = None,
         has_recordings: bool = False,
+        is_realtime: bool = False,
         context_compaction_enabled: bool = False,
         run_transition_variable_extraction_in_background: bool = True,
         call_dispositions: Sequence[CallDispositionOption] | None = None,
     ):
         self.task = task
         self.llm = llm
+        self._is_realtime = is_realtime
         # LLM used for out-of-band inference (variable extraction, context
         # summarization). Falls back to the pipeline LLM when not provided.
         # In realtime mode the pipeline LLM is a speech-to-speech service
@@ -311,9 +313,9 @@ class PipecatEngine:
     async def _update_llm_context(self, system_prompt: str, functions: list[dict]):
         """Update LLM settings with the composed system prompt and tool list."""
 
-        if functions:
-            tools_schema = ToolsSchema(standard_tools=functions)
-            self.context.set_tools(tools_schema)
+        # An empty node tool list must clear the previous node's tools before
+        # providers update or reconnect their session.
+        self.context.set_tools(ToolsSchema(standard_tools=functions))
 
         # For Gemini Live, set context on the LLM before _update_settings so that
         # _connect (triggered by reconnect) can read tools from it.
@@ -379,34 +381,29 @@ class PipecatEngine:
                             f"Failed to fetch transition audio {transition_speech_recording_id}"
                         )
                 elif transition_speech:
-                    logger.info(f"Playing transition speech: {transition_speech}")
-                    self._queued_speech_mute_state = "waiting"
-                    await self.task.queue_frame(
-                        TTSSpeakFrame(
-                            transition_speech,
-                            append_to_context=False,
-                            persist_to_logs=True,
-                        )
-                    )
+                    await self.queue_text_message(transition_speech, mute_user=True)
 
                 # Set context for the new node, so that when the function call result
                 # frame is received by LLMContextAggregator and an LLM generation
                 # is done, we have updated context and functions
                 await self.set_node(transition_to_node)
 
-                async def on_context_updated() -> None:
-                    """
-                    pipecat framework will run this function after the function call result has been updated in the context.
-                    This way, when we do set_node from within this function, and go for LLM completion with updated
-                    system prompts, the context is updated with function call result.
-                    """
-                    # FIXME: There is a potential race condition, when we generate LLM Completion from UserContextAggregator
-                    # with FunctionCallResultFrame and we call end_call_with_reason where we queue EndFrame or CancelFrame.
-                    # If EndFrame reaches the LLM Processor before the ContextFrame, we might never run generation which
-                    # might be intended
+                is_end_node = self.workflow.nodes[transition_to_node].is_end
+                if is_end_node:
+                    # The tool result triggers the end node's closing response.
+                    # Arm before returning it: realtime can begin speaking before
+                    # the aggregator's on_context_updated callback runs.
+                    self.arm_speech_playback()
+                    self._mute_pipeline = True
 
-                    # Queue EndFrame if we just transitioned to EndNode
-                    if self._current_node.is_end:
+                async def on_context_updated() -> None:
+                    """Finish an end node after its response reaches the caller."""
+                    if is_end_node:
+                        # This callback runs in its own task, leaving input audio,
+                        # model generation, and transport playback free to continue.
+                        # EndFrame closes realtime sessions; transport draining
+                        # alone cannot recover audio the model hasn't sent yet.
+                        await self.wait_for_speech_playback()
                         await self.end_call_with_reason(EndTaskReason.END_CALL.value)
 
                 result = {"status": "done"}
@@ -1126,6 +1123,27 @@ class PipecatEngine:
             f"queueing frame {frame_to_push}"
         )
         await self.task.queue_frame(frame_to_push)
+
+    async def queue_text_message(
+        self, text: str, *, append_to_context: bool = False, mute_user: bool = False
+    ) -> bool:
+        """Queue edge/tool speech only when the pipeline has a TTS service.
+
+        Realtime services own their responses. Skip before arming mute or
+        reporting queued playback: discarded text cannot produce a completion
+        event to release either wait. Opening greetings use a separate path.
+        """
+        if self._is_realtime:
+            logger.debug("Skipping configured text speech in realtime mode")
+            return False
+        if mute_user:
+            self._queued_speech_mute_state = "waiting"
+        await self.task.queue_frame(
+            TTSSpeakFrame(
+                text, append_to_context=append_to_context, persist_to_logs=True
+            )
+        )
+        return True
 
     def arm_speech_playback(self) -> None:
         """Start tracking the next piece of speech queued to the transport.

@@ -31,6 +31,7 @@ class TestWhatsAppOutboundAnswerGating(IsolatedAsyncioTestCase):
             def decorator(fn):
                 registered_handlers[event_name] = fn
                 return fn
+
             return decorator
 
         mock_transport = MagicMock()
@@ -101,6 +102,7 @@ class TestWhatsAppOutboundAnswerGating(IsolatedAsyncioTestCase):
             def decorator(fn):
                 registered_handlers[event_name] = fn
                 return fn
+
             return decorator
 
         mock_transport = MagicMock()
@@ -176,7 +178,10 @@ class TestWhatsAppWebRTCAnswerDecoupling(IsolatedAsyncioTestCase):
         }
 
         try:
-            with patch("api.services.telephony.providers.whatsapp.routes._get_redis", AsyncMock(return_value=None)):
+            with patch(
+                "api.services.telephony.providers.whatsapp.routes._get_redis",
+                AsyncMock(return_value=None),
+            ):
                 await _handle_outbound_sdp_answer(call_data, {})
 
                 # SDP answer applied to peer connection
@@ -216,10 +221,18 @@ class TestWhatsAppWebRTCAnswerDecoupling(IsolatedAsyncioTestCase):
         }
 
         try:
-            with patch.object(db_client, "get_workflow_run", AsyncMock(return_value=mock_run)), \
-                 patch.object(db_client, "update_workflow_run", AsyncMock()) as mock_update_run, \
-                 patch("api.services.telephony.providers.whatsapp.routes._get_redis", AsyncMock(return_value=None)):
-
+            with (
+                patch.object(
+                    db_client, "get_workflow_run", AsyncMock(return_value=mock_run)
+                ),
+                patch.object(
+                    db_client, "update_workflow_run", AsyncMock()
+                ) as mock_update_run,
+                patch(
+                    "api.services.telephony.providers.whatsapp.routes._get_redis",
+                    AsyncMock(return_value=None),
+                ),
+            ):
                 await _handle_call_accepted(call_data, {})
 
                 # Answered event must be set so the pipeline greeting unblocks
@@ -246,22 +259,42 @@ class TestWhatsAppLivePermissions(IsolatedAsyncioTestCase):
             id=10,
             organization_id=1,
             provider="whatsapp",
-            credentials={"phone_number_id": "test_phone_id", "access_token": "test_token"},
+            credentials={
+                "phone_number_id": "test_phone_id",
+                "access_token": "test_token",
+            },
         )
         mock_client = MagicMock()
         # Meta returns no_permission after user disallowed calls
         mock_client.check_call_permission = AsyncMock(
             return_value={
                 "permission": {"status": "no_permission"},
-                "actions": [{"action_name": "send_call_permission_request", "can_perform_action": True}],
+                "actions": [
+                    {
+                        "action_name": "send_call_permission_request",
+                        "can_perform_action": True,
+                    }
+                ],
             }
         )
 
-        with patch.object(db_client, "get_telephony_configuration_for_org", AsyncMock(return_value=mock_config)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)), \
-             patch.object(db_client, "upsert_whatsapp_call_permission", AsyncMock()) as mock_upsert_db, \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client", return_value=mock_client):
-
+        with (
+            patch.object(
+                db_client,
+                "get_telephony_configuration_for_org",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch.object(
+                db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                db_client, "upsert_whatsapp_call_permission", AsyncMock()
+            ) as mock_upsert_db,
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client",
+                return_value=mock_client,
+            ),
+        ):
             res = await check_whatsapp_permission(
                 telephony_configuration_id=10,
                 recipient_phone_number="+447123456789",
@@ -287,20 +320,27 @@ class TestWhatsAppLivePermissions(IsolatedAsyncioTestCase):
         """Verify initiate_call blocks and raises 400 when Meta reports permission revoked."""
         from api.services.telephony.providers.whatsapp.provider import WhatsAppProvider
 
-        provider = WhatsAppProvider({
-            "access_token": "test_token",
-            "phone_number_id": "test_phone_id",
-            "webhook_verify_token": "test_verify_token",
-            "app_secret": "test_secret",
-            "from_numbers": ["+15551234567"],
-            "business_initiated_calls_enabled": True,
-        })
+        provider = WhatsAppProvider(
+            {
+                "access_token": "test_token",
+                "phone_number_id": "test_phone_id",
+                "webhook_verify_token": "test_verify_token",
+                "app_secret": "test_secret",
+                "from_numbers": ["+15551234567"],
+                "business_initiated_calls_enabled": True,
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.check_call_permission = AsyncMock(
             return_value={
                 "permission": {"status": "no_permission"},
-                "actions": [{"action_name": "send_call_permission_request", "can_perform_action": True}],
+                "actions": [
+                    {
+                        "action_name": "send_call_permission_request",
+                        "can_perform_action": True,
+                    }
+                ],
             }
         )
 
@@ -308,11 +348,21 @@ class TestWhatsAppLivePermissions(IsolatedAsyncioTestCase):
         # time, so the service module - not .routes - is the binding a patch has
         # to replace. The no-permission branch persists via
         # db_client.upsert_whatsapp_call_permission, so that must be stubbed too.
-        with patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client", return_value=mock_client), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)), \
-             patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=None)), \
-             patch.object(db_client, "upsert_whatsapp_call_permission", AsyncMock()):
-
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client",
+                return_value=mock_client,
+            ),
+            patch.object(
+                db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(db_client, "upsert_whatsapp_call_permission", AsyncMock()),
+        ):
             with self.assertRaises(HTTPException) as ctx:
                 await provider.initiate_call(
                     to_number="+447123456789",
@@ -323,7 +373,9 @@ class TestWhatsAppLivePermissions(IsolatedAsyncioTestCase):
                 )
 
             self.assertEqual(ctx.exception.status_code, 400)
-            self.assertIn("has not been granted or has been revoked", ctx.exception.detail)
+            self.assertIn(
+                "has not been granted or has been revoked", ctx.exception.detail
+            )
 
 
 class TestWhatsAppOfflinePermissionFallback(IsolatedAsyncioTestCase):
@@ -333,14 +385,16 @@ class TestWhatsAppOfflinePermissionFallback(IsolatedAsyncioTestCase):
     def _provider():
         from api.services.telephony.providers.whatsapp.provider import WhatsAppProvider
 
-        return WhatsAppProvider({
-            "access_token": "test_token",
-            "phone_number_id": "test_phone_id",
-            "webhook_verify_token": "test_verify_token",
-            "app_secret": "test_secret",
-            "from_numbers": ["+15551234567"],
-            "business_initiated_calls_enabled": True,
-        })
+        return WhatsAppProvider(
+            {
+                "access_token": "test_token",
+                "phone_number_id": "test_phone_id",
+                "webhook_verify_token": "test_verify_token",
+                "app_secret": "test_secret",
+                "from_numbers": ["+15551234567"],
+                "business_initiated_calls_enabled": True,
+            }
+        )
 
     async def _initiate_with(self, meta_behaviour, local_perm):
         provider = self._provider()
@@ -355,12 +409,30 @@ class TestWhatsAppOfflinePermissionFallback(IsolatedAsyncioTestCase):
 
         # provider.initiate_call imports these from .service at call time, so the
         # service module - not .routes - is the binding a patch has to replace.
-        with patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client", return_value=mock_client), \
-             patch("api.services.telephony.providers.whatsapp.service.register_outbound_active_connection"), \
-             patch("api.services.telephony.providers.whatsapp.service.get_whatsapp_redis", AsyncMock(return_value=None)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=local_perm)), \
-             patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=local_perm)), \
-             patch.object(db_client, "upsert_whatsapp_call_permission", AsyncMock()):
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.register_outbound_active_connection"
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_whatsapp_redis",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission",
+                AsyncMock(return_value=local_perm),
+            ),
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=local_perm),
+            ),
+            patch.object(db_client, "upsert_whatsapp_call_permission", AsyncMock()),
+        ):
             await provider.initiate_call(
                 to_number="+447123456789",
                 webhook_url="https://example.test/webhook",
@@ -373,7 +445,9 @@ class TestWhatsAppOfflinePermissionFallback(IsolatedAsyncioTestCase):
 
     async def test_temporary_grant_without_expiry_is_not_trusted_offline(self):
         """A temporary grant with no recorded expiry must not read as a permission that never lapses."""
-        meta_error = {"error": {"code": 4, "message": "Application request limit reached"}}
+        meta_error = {
+            "error": {"code": 4, "message": "Application request limit reached"}
+        }
         stale = MagicMock(status="granted_temporary", expires_at=None)
 
         with self.assertRaises(HTTPException) as ctx:
@@ -381,7 +455,9 @@ class TestWhatsAppOfflinePermissionFallback(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
 
     async def test_expired_temporary_grant_is_not_trusted_offline(self):
-        meta_error = {"error": {"code": 4, "message": "Application request limit reached"}}
+        meta_error = {
+            "error": {"code": 4, "message": "Application request limit reached"}
+        }
         expired = MagicMock(
             status="granted_temporary",
             expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
@@ -401,7 +477,9 @@ class TestWhatsAppOfflinePermissionFallback(IsolatedAsyncioTestCase):
 
     async def test_permanent_grant_is_trusted_offline(self):
         permanent = MagicMock(status="granted_permanent", expires_at=None)
-        client = await self._initiate_with(ConnectionError("Meta unreachable"), permanent)
+        client = await self._initiate_with(
+            ConnectionError("Meta unreachable"), permanent
+        )
         client.initiate_outbound_call.assert_awaited_once()
 
 
@@ -416,7 +494,9 @@ class TestWhatsAppTelephonyCallStatus(IsolatedAsyncioTestCase):
         call_id = "wacid.test_status_call"
         mock_conn = MagicMock()
         mock_conn.is_connected = MagicMock(return_value=True)
-        mock_conn.call_status = "initiated"  # WebRTC connected, but status is not in-progress yet
+        mock_conn.call_status = (
+            "initiated"  # WebRTC connected, but status is not in-progress yet
+        )
         mock_conn.connected_at = None
 
         _active_connections[call_id] = (mock_conn, 101, 1, "test_phone_id")
@@ -432,8 +512,12 @@ class TestWhatsAppTelephonyCallStatus(IsolatedAsyncioTestCase):
         mock_user = MagicMock(selected_organization_id=1)
 
         try:
-            with patch.object(db_client, "get_workflow_run", AsyncMock(return_value=mock_run)), \
-                 patch.object(db_client, "update_workflow_run", AsyncMock()):
+            with (
+                patch.object(
+                    db_client, "get_workflow_run", AsyncMock(return_value=mock_run)
+                ),
+                patch.object(db_client, "update_workflow_run", AsyncMock()),
+            ):
                 res = await get_workflow_run_call_status(
                     workflow_run_id=101,
                     user=mock_user,
@@ -452,8 +536,12 @@ class TestWhatsAppTelephonyCallStatus(IsolatedAsyncioTestCase):
                 "connected_at": now_str,
             }
 
-            with patch.object(db_client, "get_workflow_run", AsyncMock(return_value=mock_run)), \
-                 patch.object(db_client, "update_workflow_run", AsyncMock()):
+            with (
+                patch.object(
+                    db_client, "get_workflow_run", AsyncMock(return_value=mock_run)
+                ),
+                patch.object(db_client, "update_workflow_run", AsyncMock()),
+            ):
                 res = await get_workflow_run_call_status(
                     workflow_run_id=101,
                     user=mock_user,

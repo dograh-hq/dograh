@@ -504,9 +504,7 @@ class TelephonyProvider(ABC):
             f"{self.PROVIDER_NAME} cannot end a call from the API"
         )
 
-    async def send_call_permission_request(
-        self, to_number: str, **kwargs
-    ) -> Any:
+    async def send_call_permission_request(self, to_number: str, **kwargs) -> Any:
         """Ask ``to_number`` for permission to place a business-initiated call.
 
         Only meaningful for providers whose platform gates outbound calls on

@@ -102,7 +102,6 @@ from api.services.telephony.factory import (
     get_setup_checklist,
     get_sip_connectivity_details,
     get_telephony_provider_by_id,
-    provider_requires_call_permission,
 )
 from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
@@ -902,7 +901,9 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 name=row.name,
                 provider=row.provider,
                 connectivity=get_provider_connectivity(row.provider),
-        requires_call_permission=provider_requires_call_permission(row.provider),
+                requires_call_permission=_provider_requires_call_permission(
+                    row.provider
+                ),
                 is_default_outbound=row.is_default_outbound,
                 inactive=row.inactive,
                 inactive_since=row.inactive_since,
@@ -1172,7 +1173,7 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
         name=row.name,
         provider=row.provider,
         connectivity=get_provider_connectivity(row.provider),
-        requires_call_permission=provider_requires_call_permission(row.provider),
+        requires_call_permission=_provider_requires_call_permission(row.provider),
         is_default_outbound=row.is_default_outbound,
         inactive=row.inactive,
         inactive_since=row.inactive_since,
@@ -1213,6 +1214,19 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
 def _provider_supports_trunks(provider: str) -> bool:
     spec = telephony_registry.get_optional(provider)
     return bool(spec and spec.supports_trunks)
+
+
+def _provider_requires_call_permission(provider: str) -> bool:
+    """Whether the recipient must consent before this provider dials out.
+
+    Read straight off the registry here, like _provider_supports_trunks above,
+    rather than through a helper in the telephony factory: adding a provider
+    must not require an edit to shared telephony code. False for an
+    unregistered name, so a stale stored provider cannot break a list
+    response.
+    """
+    spec = telephony_registry.get_optional(provider)
+    return bool(spec and spec.requires_call_permission)
 
 
 async def _list_trunks_if_supported(provider: str, config_id: int):

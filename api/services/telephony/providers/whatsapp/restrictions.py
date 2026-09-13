@@ -4,11 +4,13 @@ from typing import Optional, Tuple
 try:
     from fastapi import HTTPException
 except ImportError:
+
     class HTTPException(Exception):  # type: ignore
         def __init__(self, status_code: int = 400, detail: str = ""):
             self.status_code = status_code
             self.detail = detail
             super().__init__(detail)
+
 
 # Meta officially restricts Business-Initiated Calls (BIC) in:
 # United States (+1), Canada (+1), Egypt (+20), Vietnam (+84), Nigeria (+234)

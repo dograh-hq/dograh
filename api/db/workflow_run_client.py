@@ -424,7 +424,9 @@ class WorkflowRunClient(BaseDBClient):
                 # whichever lands second was dropping the other's tags. Union
                 # them so a call keeps both its disposition and `user_speech`.
                 tags = append_unique_tags(
-                    run.gathered_context.get("call_tags") if run.gathered_context else None,
+                    run.gathered_context.get("call_tags")
+                    if run.gathered_context
+                    else None,
                     gathered_context.get("call_tags"),
                 )
                 if tags:

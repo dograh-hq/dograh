@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional, Set
 
 from loguru import logger
 
+from api.utils.telephony_address import canonicalize_e164
+
 
 @dataclass
 class ValidationError:
@@ -85,7 +87,13 @@ class CampaignSourceSyncService(ABC):
                 ),
             )
 
-        # Check for duplicate phone numbers
+        # Check for duplicate phone numbers.
+        #
+        # Compared as the number that will actually be stored and dialled, not
+        # as typed: ingest canonicalises to E.164, so "+44 7123 456789" and
+        # "+447123456789" are two spellings of one contact. Comparing the raw
+        # cells let both rows through and the campaign then placed two calls to
+        # the same person.
         seen_phones: dict[str, int] = {}  # phone -> first row where it appeared
         duplicate_rows = []
         for row_idx, row in enumerate(rows, start=2):
@@ -96,10 +104,11 @@ class CampaignSourceSyncService(ABC):
             if not phone_number:
                 continue
 
-            if phone_number in seen_phones:
+            key = canonicalize_e164(phone_number) or phone_number
+            if key in seen_phones:
                 duplicate_rows.append(row_idx)
             else:
-                seen_phones[phone_number] = row_idx
+                seen_phones[key] = row_idx
 
         if duplicate_rows:
             if len(duplicate_rows) > 5:

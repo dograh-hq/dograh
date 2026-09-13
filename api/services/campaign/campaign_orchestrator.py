@@ -592,7 +592,9 @@ class CampaignOrchestrator:
         )
 
         if claimable_count > 0:
-            logger.debug(f"campaign_id: {campaign_id} - Has {claimable_count} claimable queued runs")
+            logger.debug(
+                f"campaign_id: {campaign_id} - Has {claimable_count} claimable queued runs"
+            )
             return True
 
         return False

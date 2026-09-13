@@ -124,13 +124,16 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
         mock_config = MagicMock()
         mock_config.id = 42
 
-        with patch(
-            "api.services.telephony.providers.whatsapp.routes.WHATSAPP_WEBHOOK_VERIFY_TOKEN",
-            None,
-        ), patch.object(
-            db_client,
-            "get_whatsapp_configuration_by_verify_token",
-            AsyncMock(return_value=mock_config),
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.WHATSAPP_WEBHOOK_VERIFY_TOKEN",
+                None,
+            ),
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_verify_token",
+                AsyncMock(return_value=mock_config),
+            ),
         ):
             response = await handle_webhook_verification(
                 hub_mode="subscribe",
@@ -165,7 +168,9 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
         mock_phone = _build_mock_phone()
 
         mock_workflow = MagicMock()
@@ -184,28 +189,70 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             mock_call.id = call_id
             await connection_callback(mock_connection, mock_call)
 
-        mock_client.handle_webhook_request = AsyncMock(side_effect=fake_handle_webhook_request)
+        mock_client.handle_webhook_request = AsyncMock(
+            side_effect=fake_handle_webhook_request
+        )
 
-        with patch.object(db_client, "get_whatsapp_configuration_by_phone_number_id", AsyncMock(return_value=mock_config)), \
-             patch.object(db_client, "get_workflow_run_by_call_id", AsyncMock(return_value=None)), \
-             patch.object(db_client, "list_phone_numbers_for_config", AsyncMock(return_value=[mock_phone])), \
-             patch.object(db_client, "get_workflow", AsyncMock(return_value=mock_workflow)), \
-             patch.object(db_client, "create_workflow_run", AsyncMock(return_value=mock_workflow_run)), \
-             patch("api.services.call_concurrency.call_concurrency.acquire_org_slot", AsyncMock(return_value="slot1")), \
-             patch("api.services.call_concurrency.call_concurrency.bind_workflow_run", AsyncMock()), \
-             patch("api.services.telephony.providers.whatsapp.routes.prepare_workflow_run_inputs", AsyncMock(return_value=MagicMock(definition_id=1))), \
-             patch("api.services.telephony.providers.whatsapp.routes.authorize_workflow_run_start", AsyncMock(return_value=MagicMock(has_quota=True))), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client", return_value=mock_client), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_redis", AsyncMock(return_value=None)), \
-             patch("api.services.telephony.providers.whatsapp.routes._run_whatsapp_pipeline", AsyncMock()):
-
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_phone_number_id",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch.object(
+                db_client, "get_workflow_run_by_call_id", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                db_client,
+                "list_phone_numbers_for_config",
+                AsyncMock(return_value=[mock_phone]),
+            ),
+            patch.object(
+                db_client, "get_workflow", AsyncMock(return_value=mock_workflow)
+            ),
+            patch.object(
+                db_client,
+                "create_workflow_run",
+                AsyncMock(return_value=mock_workflow_run),
+            ),
+            patch(
+                "api.services.call_concurrency.call_concurrency.acquire_org_slot",
+                AsyncMock(return_value="slot1"),
+            ),
+            patch(
+                "api.services.call_concurrency.call_concurrency.bind_workflow_run",
+                AsyncMock(),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.prepare_workflow_run_inputs",
+                AsyncMock(return_value=MagicMock(definition_id=1)),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.authorize_workflow_run_start",
+                AsyncMock(return_value=MagicMock(has_quota=True)),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_redis",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._run_whatsapp_pipeline",
+                AsyncMock(),
+            ),
+        ):
             response = await handle_whatsapp_webhook(request)
 
             self.assertEqual(response, {"status": "success"})
             mock_client.handle_webhook_request.assert_called_once()
             self.assertIn(call_id, _active_connections)
             self.assertEqual(_active_connections[call_id][1], mock_workflow_run.id)
-            self.assertEqual(_active_connections[call_id][2], mock_workflow.organization_id)
+            self.assertEqual(
+                _active_connections[call_id][2], mock_workflow.organization_id
+            )
 
     async def test_webhook_connect_rejects_unmatched_destination(self):
         """Verify POST /webhook rejects call when destination does not match active configured numbers."""
@@ -227,17 +274,35 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             display_phone_number="+15559999999",
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
         mock_phone = _build_mock_phone()
 
-        with patch.object(db_client, "get_whatsapp_configuration_by_phone_number_id", AsyncMock(return_value=mock_config)), \
-             patch.object(db_client, "get_workflow_run_by_call_id", AsyncMock(return_value=None)), \
-             patch.object(db_client, "list_phone_numbers_for_config", AsyncMock(return_value=[mock_phone])), \
-             patch("api.services.telephony.providers.whatsapp.routes._reject_whatsapp_call", AsyncMock()) as mock_reject:
-
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_phone_number_id",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch.object(
+                db_client, "get_workflow_run_by_call_id", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                db_client,
+                "list_phone_numbers_for_config",
+                AsyncMock(return_value=[mock_phone]),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._reject_whatsapp_call",
+                AsyncMock(),
+            ) as mock_reject,
+        ):
             response = await handle_whatsapp_webhook(request)
             self.assertEqual(response, {"status": "success"})
-            mock_reject.assert_awaited_once_with(phone_number_id, call_id, "valid_token")
+            mock_reject.assert_awaited_once_with(
+                phone_number_id, call_id, "valid_token"
+            )
 
     async def test_webhook_connect_idempotent_on_duplicate_call_id(self):
         """Verify POST /webhook ignores retried connect event if call is already registered."""
@@ -256,14 +321,24 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
 
         # Put call_id in active connections
         _active_connections[call_id] = (AsyncMock(), 101, 10, phone_number_id)
 
-        with patch.object(db_client, "get_whatsapp_configuration_by_phone_number_id", AsyncMock(return_value=mock_config)), \
-             patch("api.services.call_concurrency.call_concurrency.acquire_org_slot", AsyncMock()) as mock_acquire:
-
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_phone_number_id",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.call_concurrency.call_concurrency.acquire_org_slot",
+                AsyncMock(),
+            ) as mock_acquire,
+        ):
             response = await handle_whatsapp_webhook(request)
             self.assertEqual(response, {"status": "success"})
             mock_acquire.assert_not_called()
@@ -287,26 +362,55 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
         mock_phone = _build_mock_phone()
 
         mock_workflow = MagicMock()
         mock_workflow.id = 99
         mock_workflow.organization_id = 10
 
-        with patch.object(db_client, "get_whatsapp_configuration_by_phone_number_id", AsyncMock(return_value=mock_config)), \
-             patch.object(db_client, "get_workflow_run_by_call_id", AsyncMock(return_value=None)), \
-             patch.object(db_client, "list_phone_numbers_for_config", AsyncMock(return_value=[mock_phone])), \
-             patch.object(db_client, "get_workflow", AsyncMock(return_value=mock_workflow)), \
-             patch("api.services.call_concurrency.call_concurrency.acquire_org_slot", AsyncMock(return_value="slot1")), \
-             patch("api.services.telephony.providers.whatsapp.routes.prepare_workflow_run_inputs", AsyncMock(side_effect=RuntimeError("inputs failed"))), \
-             patch("api.services.call_concurrency.call_concurrency.release_slot", AsyncMock()) as mock_release_slot, \
-             patch("api.services.telephony.providers.whatsapp.routes._reject_whatsapp_call", AsyncMock()) as mock_reject:
-
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_phone_number_id",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch.object(
+                db_client, "get_workflow_run_by_call_id", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                db_client,
+                "list_phone_numbers_for_config",
+                AsyncMock(return_value=[mock_phone]),
+            ),
+            patch.object(
+                db_client, "get_workflow", AsyncMock(return_value=mock_workflow)
+            ),
+            patch(
+                "api.services.call_concurrency.call_concurrency.acquire_org_slot",
+                AsyncMock(return_value="slot1"),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.prepare_workflow_run_inputs",
+                AsyncMock(side_effect=RuntimeError("inputs failed")),
+            ),
+            patch(
+                "api.services.call_concurrency.call_concurrency.release_slot",
+                AsyncMock(),
+            ) as mock_release_slot,
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._reject_whatsapp_call",
+                AsyncMock(),
+            ) as mock_reject,
+        ):
             response = await handle_whatsapp_webhook(request)
             self.assertEqual(response, {"status": "success"})
             mock_release_slot.assert_awaited_once_with("slot1")
-            mock_reject.assert_awaited_once_with(phone_number_id, call_id, "valid_token")
+            mock_reject.assert_awaited_once_with(
+                phone_number_id, call_id, "valid_token"
+            )
 
     async def test_webhook_connect_rejects_invalid_signature(self):
         """Verify POST /webhook raises 403 when signature does not match app_secret."""
@@ -318,7 +422,9 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, signature="sha256=wrong_signature")
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
 
         with patch.object(
             db_client,
@@ -341,7 +447,9 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload)  # No signature or secret provided
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
 
         with patch.object(
             db_client,
@@ -363,7 +471,9 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, signature="sha256=some_sig")
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=None)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=None
+        )
 
         with patch.object(
             db_client,
@@ -392,20 +502,25 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
 
-        with patch.object(
-            db_client,
-            "get_whatsapp_configuration_by_phone_number_id",
-            AsyncMock(return_value=mock_config),
-        ), patch.object(
-            db_client, "update_workflow_run", AsyncMock()
-        ), patch(
-            "api.services.call_concurrency.call_concurrency.release_workflow_run_slot",
-            AsyncMock(),
-        ), patch(
-            "api.services.telephony.providers.whatsapp.routes._get_redis",
-            AsyncMock(return_value=None),
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_phone_number_id",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch.object(db_client, "update_workflow_run", AsyncMock()),
+            patch(
+                "api.services.call_concurrency.call_concurrency.release_workflow_run_slot",
+                AsyncMock(),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_redis",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = await handle_whatsapp_webhook(request)
 
@@ -424,28 +539,34 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
 
         mock_run = MagicMock()
         mock_run.id = 555
         mock_run.is_completed = False
 
-        with patch.object(
-            db_client,
-            "get_whatsapp_configuration_by_phone_number_id",
-            AsyncMock(return_value=mock_config),
-        ), patch.object(
-            db_client,
-            "get_workflow_run_by_call_id",
-            AsyncMock(return_value=mock_run),
-        ), patch.object(
-            db_client, "update_workflow_run", AsyncMock()
-        ) as mock_update, patch(
-            "api.services.call_concurrency.call_concurrency.release_workflow_run_slot",
-            AsyncMock(),
-        ) as mock_release, patch(
-            "api.services.telephony.providers.whatsapp.routes._get_redis",
-            AsyncMock(return_value=None),
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_phone_number_id",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch.object(
+                db_client,
+                "get_workflow_run_by_call_id",
+                AsyncMock(return_value=mock_run),
+            ),
+            patch.object(db_client, "update_workflow_run", AsyncMock()) as mock_update,
+            patch(
+                "api.services.call_concurrency.call_concurrency.release_workflow_run_slot",
+                AsyncMock(),
+            ) as mock_release,
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_redis",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = await handle_whatsapp_webhook(request)
 
@@ -468,7 +589,9 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload)  # No signature or secret
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret="test_app_secret")
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret="test_app_secret"
+        )
 
         with patch.object(
             db_client,
@@ -495,7 +618,9 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, signature="sha256=forged_signature_digest")
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret="test_app_secret")
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret="test_app_secret"
+        )
 
         with patch.object(
             db_client,
@@ -521,29 +646,35 @@ class TestWhatsAppInboundCalling(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(phone_number_id=phone_number_id, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
         mock_redis = AsyncMock()
 
-        with patch.object(
-            db_client,
-            "get_whatsapp_configuration_by_phone_number_id",
-            AsyncMock(return_value=mock_config),
-        ), patch(
-            "api.services.telephony.providers.whatsapp.routes._get_redis",
-            AsyncMock(return_value=mock_redis),
-        ), patch(
-            # The terminate itself is handled in the service module, which
-            # resolves _get_redis from its own globals - patching only the
-            # routes name leaves this test talking to a real Redis.
-            "api.services.telephony.providers.whatsapp.service._get_redis",
-            AsyncMock(return_value=mock_redis),
-        ), patch.object(
-            db_client,
-            "get_workflow_run_by_call_id",
-            AsyncMock(return_value=None),
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_configuration_by_phone_number_id",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_redis",
+                AsyncMock(return_value=mock_redis),
+            ),
+            patch(
+                # The terminate itself is handled in the service module, which
+                # resolves _get_redis from its own globals - patching only the
+                # routes name leaves this test talking to a real Redis.
+                "api.services.telephony.providers.whatsapp.service._get_redis",
+                AsyncMock(return_value=mock_redis),
+            ),
+            patch.object(
+                db_client,
+                "get_workflow_run_by_call_id",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = await handle_whatsapp_webhook(request)
             self.assertEqual(response, {"status": "success"})
             mock_redis.publish.assert_awaited_once()
             mock_redis.delete.assert_awaited_once_with(f"whatsapp:call:{call_id}")
-

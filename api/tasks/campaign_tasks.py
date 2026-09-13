@@ -267,4 +267,3 @@ async def sweep_parked_whatsapp_permissions(ctx: Dict) -> int:
     except Exception as e:
         logger.warning(f"Error in sweep_parked_whatsapp_permissions cron: {e}")
         return 0
-

@@ -168,8 +168,13 @@ async def handle_webhook_verification(
         raise HTTPException(status_code=400, detail="Invalid hub.mode")
 
     # 1. Match against the global environment variable
-    if WHATSAPP_WEBHOOK_VERIFY_TOKEN and hub_verify_token == WHATSAPP_WEBHOOK_VERIFY_TOKEN:
-        logger.info("[WhatsApp] Webhook verification succeeded via environment verify token")
+    if (
+        WHATSAPP_WEBHOOK_VERIFY_TOKEN
+        and hub_verify_token == WHATSAPP_WEBHOOK_VERIFY_TOKEN
+    ):
+        logger.info(
+            "[WhatsApp] Webhook verification succeeded via environment verify token"
+        )
         return PlainTextResponse(hub_challenge, status_code=200)
 
     # 2. Fallback: Match against active WhatsApp telephony configurations in the DB
@@ -246,7 +251,9 @@ async def handle_whatsapp_webhook(request: Request):
             raise HTTPException(status_code=403, detail="Missing webhook signature")
 
         if not signature_header.startswith("sha256="):
-            logger.error(f"[WhatsApp] Invalid signature header format: {signature_header}")
+            logger.error(
+                f"[WhatsApp] Invalid signature header format: {signature_header}"
+            )
             raise HTTPException(status_code=403, detail="Invalid webhook signature")
 
         try:
@@ -332,8 +339,12 @@ async def handle_whatsapp_webhook(request: Request):
                         if msg_type == "interactive":
                             interactive_data = msg.get("interactive") or {}
                             if interactive_data.get("type") == "call_permission_reply":
-                                reply = interactive_data.get("call_permission_reply") or {}
-                                response_choice = reply.get("response")  # "accept" or "decline"
+                                reply = (
+                                    interactive_data.get("call_permission_reply") or {}
+                                )
+                                response_choice = reply.get(
+                                    "response"
+                                )  # "accept" or "decline"
                                 is_perm = reply.get("is_permanent", False)
                                 exp_ts = reply.get("expiration_timestamp")
                                 expires_at = parse_whatsapp_expiration(exp_ts)
@@ -343,7 +354,11 @@ async def handle_whatsapp_webhook(request: Request):
                                     else None
                                 )
                                 status = (
-                                    ("granted_permanent" if is_perm else "granted_temporary")
+                                    (
+                                        "granted_permanent"
+                                        if is_perm
+                                        else "granted_temporary"
+                                    )
                                     if response_choice == "accept"
                                     else "denied"
                                 )
@@ -383,19 +398,23 @@ async def handle_whatsapp_webhook(request: Request):
                                     try:
                                         await redis.publish(
                                             REDIS_PERMISSION_CHANNEL,
-                                            json.dumps({
-                                                "phone_number_id": phone_number_id,
-                                                "recipient_phone_number": from_wa_id,
-                                                "status": status,
-                                                "expires_at": (
-                                                    expires_at.isoformat()
-                                                    if expires_at
-                                                    else None
-                                                ),
-                                            }),
+                                            json.dumps(
+                                                {
+                                                    "phone_number_id": phone_number_id,
+                                                    "recipient_phone_number": from_wa_id,
+                                                    "status": status,
+                                                    "expires_at": (
+                                                        expires_at.isoformat()
+                                                        if expires_at
+                                                        else None
+                                                    ),
+                                                }
+                                            ),
                                         )
                                     except Exception as e:
-                                        logger.warning(f"[WhatsApp] Redis publish error: {e}")
+                                        logger.warning(
+                                            f"[WhatsApp] Redis publish error: {e}"
+                                        )
 
                                 # Reactivate parked campaign runs for this contact
                                 await reactivate_campaign_runs_for_recipient(
@@ -409,7 +428,9 @@ async def handle_whatsapp_webhook(request: Request):
                         st_name = st.get("status")
                         if not wamid:
                             continue
-                        logger.info(f"[WhatsApp] Message status update: wamid={wamid}, status={st_name}")
+                        logger.info(
+                            f"[WhatsApp] Message status update: wamid={wamid}, status={st_name}"
+                        )
                         if st_name == "failed":
                             err_list = st.get("errors") or []
                             first_err = err_list[0] if err_list else {}
@@ -422,7 +443,11 @@ async def handle_whatsapp_webhook(request: Request):
                             logger.warning(
                                 f"[WhatsApp] Outbound message {wamid} failed ({err_code}): {err_msg}"
                             )
-                            new_status = f"delivery_failed:{err_code}" if err_code else "delivery_failed"
+                            new_status = (
+                                f"delivery_failed:{err_code}"
+                                if err_code
+                                else "delivery_failed"
+                            )
                             updated = await db_client.update_whatsapp_call_permission_status_by_message_id(
                                 meta_message_id=wamid,
                                 status=new_status,
@@ -433,20 +458,26 @@ async def handle_whatsapp_webhook(request: Request):
                                     try:
                                         await redis.publish(
                                             REDIS_PERMISSION_CHANNEL,
-                                            json.dumps({
-                                                "phone_number_id": phone_number_id,
-                                                "recipient_phone_number": updated.recipient_phone_number,
-                                                "status": "delivery_failed",
-                                                "error_code": err_code,
-                                                "error_message": err_msg,
-                                            }),
+                                            json.dumps(
+                                                {
+                                                    "phone_number_id": phone_number_id,
+                                                    "recipient_phone_number": updated.recipient_phone_number,
+                                                    "status": "delivery_failed",
+                                                    "error_code": err_code,
+                                                    "error_message": err_msg,
+                                                }
+                                            ),
                                         )
                                     except Exception as e:
-                                        logger.warning(f"[WhatsApp] Redis publish error: {e}")
+                                        logger.warning(
+                                            f"[WhatsApp] Redis publish error: {e}"
+                                        )
                     continue
 
                 if field != "calls":
-                    logger.debug(f"[WhatsApp] Skipping non-calling webhook field: {field}")
+                    logger.debug(
+                        f"[WhatsApp] Skipping non-calling webhook field: {field}"
+                    )
                     continue
 
                 calls = value.get("calls") or []
@@ -653,7 +684,11 @@ async def _handle_inbound_call_connect(
                 if not getattr(p, "is_active", True):
                     continue
                 meta = getattr(p, "extra_metadata", {}) or {}
-                if str(meta.get("phone_number_id") or meta.get("meta_phone_number_id") or "") == str(phone_number_id):
+                if str(
+                    meta.get("phone_number_id")
+                    or meta.get("meta_phone_number_id")
+                    or ""
+                ) == str(phone_number_id):
                     phone_row = p
                     break
 
@@ -801,11 +836,13 @@ async def _handle_inbound_call_connect(
                 await redis.setex(
                     f"{WHATSAPP_CALL_KEY_PREFIX}{call.id}",
                     3600,
-                    json.dumps({
-                        "workflow_run_id": workflow_run.id,
-                        "organization_id": config.organization_id,
-                        "phone_number_id": phone_number_id,
-                    }),
+                    json.dumps(
+                        {
+                            "workflow_run_id": workflow_run.id,
+                            "organization_id": config.organization_id,
+                            "phone_number_id": phone_number_id,
+                        }
+                    ),
                 )
         except Exception as e:
             logger.warning(f"[WhatsApp] Failed to store call state in Redis: {e}")
@@ -839,7 +876,9 @@ async def _handle_inbound_call_connect(
             f"[WhatsApp] Successfully accepted call {call_id} and dispatched pipeline"
         )
     except Exception as e:
-        logger.error(f"[WhatsApp] Failed to establish WebRTC connection for call {call_id}: {e}")
+        logger.error(
+            f"[WhatsApp] Failed to establish WebRTC connection for call {call_id}: {e}"
+        )
         await mark_workflow_run_failed(
             workflow_run.id, f"WebRTC connection failed: {e}"
         )
@@ -877,12 +916,14 @@ async def _handle_outbound_sdp_answer(
         if redis:
             await redis.publish(
                 REDIS_CALL_EVENTS_CHANNEL,
-                json.dumps({
-                    "event": "sdp_answer",
-                    "call_id": call_id,
-                    "sdp": sdp,
-                    "sdp_type": sdp_type,
-                }),
+                json.dumps(
+                    {
+                        "event": "sdp_answer",
+                        "call_id": call_id,
+                        "sdp": sdp,
+                        "sdp_type": sdp_type,
+                    }
+                ),
             )
     except Exception as e:
         logger.warning(f"[WhatsApp] Failed publishing call sdp_answer event: {e}")
@@ -895,7 +936,9 @@ async def _handle_call_accepted(
     call_id = call_data.get("id") or ""
     if not call_id:
         return
-    logger.info(f"[WhatsApp] Processing accepted event (user answered) for call {call_id}")
+    logger.info(
+        f"[WhatsApp] Processing accepted event (user answered) for call {call_id}"
+    )
     session_data = call_data.get("session") or {}
     sdp = session_data.get("sdp")
     sdp_type = session_data.get("sdp_type", "answer")
@@ -908,7 +951,9 @@ async def _handle_call_accepted(
             if not getattr(conn, "_connect_invoked", False) or conn.is_connected():
                 await conn.connect()
         except Exception as e:
-            logger.warning(f"[WhatsApp] Failed applying SDP answer in accepted for call {call_id}: {e}")
+            logger.warning(
+                f"[WhatsApp] Failed applying SDP answer in accepted for call {call_id}: {e}"
+            )
 
     # Unblock voice pipeline locally if waiting for call answer
     answered_evt = _outbound_answered_events.get(call_id)
@@ -945,12 +990,14 @@ async def _handle_call_accepted(
         if redis:
             await redis.publish(
                 REDIS_CALL_EVENTS_CHANNEL,
-                json.dumps({
-                    "event": "accepted",
-                    "call_id": call_id,
-                    "sdp": sdp,
-                    "sdp_type": sdp_type,
-                }),
+                json.dumps(
+                    {
+                        "event": "accepted",
+                        "call_id": call_id,
+                        "sdp": sdp,
+                        "sdp_type": sdp_type,
+                    }
+                ),
             )
     except Exception as e:
         logger.warning(f"[WhatsApp] Failed publishing call accepted event: {e}")
@@ -1002,7 +1049,12 @@ async def _handle_user_call_permissions_change(
         user_permissions = []
 
     for perm in user_permissions:
-        user_wa_id = str(perm.get("user_wa_id") or perm.get("wa_id") or perm.get("recipient_id") or "")
+        user_wa_id = str(
+            perm.get("user_wa_id")
+            or perm.get("wa_id")
+            or perm.get("recipient_id")
+            or ""
+        )
         raw_status = perm.get("status")
         # Only canonical states may reach the permission record; a malformed or
         # future webhook value must not overwrite a valid grant with a placeholder.
@@ -1020,7 +1072,9 @@ async def _handle_user_call_permissions_change(
             expires_at = parse_whatsapp_expiration(expiration)
 
         perm_type = "permanent" if status == "granted_permanent" else "temporary"
-        granted_at = datetime.now(UTC) if status in GRANTED_PERMISSION_STATUSES else None
+        granted_at = (
+            datetime.now(UTC) if status in GRANTED_PERMISSION_STATUSES else None
+        )
 
         logger.info(
             f"[WhatsApp] Call permission update for phone_number_id={phone_number_id}, "
@@ -1044,14 +1098,18 @@ async def _handle_user_call_permissions_change(
             if redis:
                 await redis.publish(
                     REDIS_PERMISSION_CHANNEL,
-                    json.dumps({
-                        "phone_number_id": phone_number_id,
-                        "user_wa_id": user_wa_id,
-                        "status": status,
-                    }),
+                    json.dumps(
+                        {
+                            "phone_number_id": phone_number_id,
+                            "user_wa_id": user_wa_id,
+                            "status": status,
+                        }
+                    ),
                 )
         except Exception as e:
-            logger.warning(f"[WhatsApp] Failed to publish permission update to Redis: {e}")
+            logger.warning(
+                f"[WhatsApp] Failed to publish permission update to Redis: {e}"
+            )
 
         # Check for active campaign runs parked waiting for this recipient's permission
         await reactivate_campaign_runs_for_recipient(
@@ -1179,7 +1237,9 @@ async def check_whatsapp_permission(
                 meta_api_success = True
                 meta_perm = meta_res.get("permission") or {}
                 meta_status = meta_perm.get("status") or meta_res.get("status")
-                expiration = meta_perm.get("expiration_time") or meta_res.get("expiration")
+                expiration = meta_perm.get("expiration_time") or meta_res.get(
+                    "expiration"
+                )
                 meta_expires_at = parse_whatsapp_expiration(expiration)
 
                 actions = meta_res.get("actions") or []
@@ -1188,7 +1248,9 @@ async def check_whatsapp_permission(
                     if act_name == "start_call":
                         can_start_call = bool(act.get("can_perform_action", False))
                     elif act_name == "send_call_permission_request":
-                        can_request_permission = bool(act.get("can_perform_action", True))
+                        can_request_permission = bool(
+                            act.get("can_perform_action", True)
+                        )
                         if not can_request_permission:
                             limits = act.get("limits") or []
                             limit_texts = []
@@ -1199,18 +1261,28 @@ async def check_whatsapp_permission(
                                 if cur >= mx and mx > 0:
                                     limit_texts.append(f"{cur}/{mx} sent in {period}")
                             if limit_texts:
-                                request_limit_reason = (
-                                    f"Meta request limit reached ({', '.join(limit_texts)})."
-                                )
+                                request_limit_reason = f"Meta request limit reached ({', '.join(limit_texts)})."
                             else:
-                                request_limit_reason = (
-                                    "Meta allows at most 1 permission request per 24 hours (max 2 per 7 days)."
-                                )
+                                request_limit_reason = "Meta allows at most 1 permission request per 24 hours (max 2 per 7 days)."
 
             # If Meta granted permission (either via start_call action or permission.status)
-            if can_start_call or meta_status in ("granted", "temporary", "permanent", "granted_temporary", "granted_permanent"):
-                perm_type = "permanent" if meta_status in ("permanent", "granted_permanent") else "temporary"
-                actual_status = "granted_permanent" if perm_type == "permanent" else "granted_temporary"
+            if can_start_call or meta_status in (
+                "granted",
+                "temporary",
+                "permanent",
+                "granted_temporary",
+                "granted_permanent",
+            ):
+                perm_type = (
+                    "permanent"
+                    if meta_status in ("permanent", "granted_permanent")
+                    else "temporary"
+                )
+                actual_status = (
+                    "granted_permanent"
+                    if perm_type == "permanent"
+                    else "granted_temporary"
+                )
                 await db_client.upsert_whatsapp_call_permission(
                     organization_id=config.organization_id,
                     telephony_configuration_id=config.id,
@@ -1274,10 +1346,17 @@ async def check_whatsapp_permission(
                     can_request_permission=False,
                     request_limit_reason="WhatsApp access token has expired or is invalid.",
                 )
-            logger.warning(f"[WhatsApp] Failed querying call permission from Meta API: {he.detail}")
+            logger.warning(
+                f"[WhatsApp] Failed querying call permission from Meta API: {he.detail}"
+            )
         except Exception as e:
             err_str = str(e).lower()
-            if "190" in err_str or "102" in err_str or "token" in err_str or "oauthexception" in err_str:
+            if (
+                "190" in err_str
+                or "102" in err_str
+                or "token" in err_str
+                or "oauthexception" in err_str
+            ):
                 return WhatsAppPermissionCheckResponse(
                     can_call=False,
                     status="token_expired",
@@ -1289,10 +1368,16 @@ async def check_whatsapp_permission(
                     can_request_permission=False,
                     request_limit_reason="WhatsApp access token has expired or is invalid.",
                 )
-            logger.warning(f"[WhatsApp] Failed querying call permission from Meta API: {e}")
+            logger.warning(
+                f"[WhatsApp] Failed querying call permission from Meta API: {e}"
+            )
 
     # 2. Fallback to DB record if Meta API was not reachable
-    if not meta_api_success and perm and perm.status in ("granted_temporary", "granted_permanent"):
+    if (
+        not meta_api_success
+        and perm
+        and perm.status in ("granted_temporary", "granted_permanent")
+    ):
         if perm.expires_at and now > perm.expires_at:
             await db_client.update_whatsapp_call_permission_status_by_wa_id(
                 phone_number_id=phone_number_id,
@@ -1319,7 +1404,10 @@ async def check_whatsapp_permission(
     delivery_err = None
     hours_left = None
 
-    if perm and (perm.status.startswith("delivery_failed") or perm.status in ("failed", "undelivered")):
+    if perm and (
+        perm.status.startswith("delivery_failed")
+        or perm.status in ("failed", "undelivered")
+    ):
         effective_status = "delivery_failed"
         is_24h_window = "131047" in perm.status
         delivery_err = (
@@ -1409,7 +1497,12 @@ async def send_whatsapp_permission_request(
         raise
     except Exception as e:
         err_str = str(e).lower()
-        if "190" in err_str or "102" in err_str or "token" in err_str or "oauthexception" in err_str:
+        if (
+            "190" in err_str
+            or "102" in err_str
+            or "token" in err_str
+            or "oauthexception" in err_str
+        ):
             raise HTTPException(
                 status_code=401,
                 detail=(
@@ -1427,7 +1520,11 @@ async def send_whatsapp_permission_request(
         err = res.get("error", {})
         code = err.get("code")
         msg = err.get("message")
-        if code in (190, 102) or err.get("type") == "OAuthException" or "token" in str(msg).lower():
+        if (
+            code in (190, 102)
+            or err.get("type") == "OAuthException"
+            or "token" in str(msg).lower()
+        ):
             detail_msg = (
                 "Meta API Error (190): The WhatsApp access token has expired or is invalid. "
                 "Please generate a fresh access token (System User token recommended) in Meta Business Manager "
@@ -1443,7 +1540,6 @@ async def send_whatsapp_permission_request(
                 status_code=400,
                 detail=detail_msg,
             )
-
 
     messages = res.get("messages") or []
     message_id = messages[0].get("id") if messages else None

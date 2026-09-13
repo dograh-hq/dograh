@@ -176,7 +176,9 @@ class CreateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
-    whatsapp_permission_action: Optional[str] = Field(default="skip", pattern="^(skip|request_and_wait)$")
+    whatsapp_permission_action: Optional[str] = Field(
+        default="skip", pattern="^(skip|request_and_wait)$"
+    )
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -185,7 +187,9 @@ class UpdateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
-    whatsapp_permission_action: Optional[str] = Field(None, pattern="^(skip|request_and_wait)$")
+    whatsapp_permission_action: Optional[str] = Field(
+        None, pattern="^(skip|request_and_wait)$"
+    )
 
 
 class CampaignLogEntryResponse(BaseModel):

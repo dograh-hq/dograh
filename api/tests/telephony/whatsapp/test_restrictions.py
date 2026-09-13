@@ -6,11 +6,13 @@ from unittest.mock import MagicMock
 
 if "fastapi" not in sys.modules:
     fastapi_mock = MagicMock()
+
     class HTTPException(Exception):
         def __init__(self, status_code: int = 400, detail: str = ""):
             self.status_code = status_code
             self.detail = detail
             super().__init__(detail)
+
     fastapi_mock.HTTPException = HTTPException
     sys.modules["fastapi"] = fastapi_mock
 
@@ -24,7 +26,14 @@ if "api.constants" not in sys.modules:
     sys.modules["api.constants"] = const_mock
 
 # Load restrictions.py directly
-RESTRICTIONS_PATH = Path(__file__).resolve().parents[3] / "services" / "telephony" / "providers" / "whatsapp" / "restrictions.py"
+RESTRICTIONS_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "services"
+    / "telephony"
+    / "providers"
+    / "whatsapp"
+    / "restrictions.py"
+)
 spec = importlib.util.spec_from_file_location("restrictions", RESTRICTIONS_PATH)
 restrictions = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(restrictions)
@@ -100,10 +109,10 @@ class TestWhatsAppRestrictions(unittest.TestCase):
         allowed = [
             "+447911123456",  # UK
             "+919876543210",  # India
-            "+4915123456789", # Germany
-            "+5511999999999", # Brazil
+            "+4915123456789",  # Germany
+            "+5511999999999",  # Brazil
             "+819012345678",  # Japan
-            "+61412345678",   # Australia
+            "+61412345678",  # Australia
         ]
         for number in allowed:
             is_restr, reason = is_restricted_country(number)

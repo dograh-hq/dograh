@@ -424,10 +424,16 @@ class WhatsAppCallPermissionModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     organization_id = Column(
-        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     telephony_configuration_id = Column(
-        Integer, ForeignKey("telephony_configurations.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer,
+        ForeignKey("telephony_configurations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     phone_number_id = Column(String(64), nullable=False, index=True)
     recipient_phone_number = Column(String(32), nullable=False, index=True)

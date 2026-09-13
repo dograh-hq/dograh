@@ -63,6 +63,61 @@ class TestTerminationReentrancy(IsolatedAsyncioTestCase):
         "api.services.telephony.providers.whatsapp.service._get_redis",
         new_callable=AsyncMock,
     )
+    async def test_cancelling_the_teardown_owner_still_finishes_the_call(
+        self, mock_redis, mock_db, mock_concurrency
+    ):
+        """The owner's cleanup survives its own caller being cancelled.
+
+        The pipeline defers to whoever claimed the teardown, so it is no longer
+        an accidental fallback. If the owner is cancelled part-way through -
+        worker shutdown, a webhook request whose client went away - an
+        abandoned run would otherwise stay "running" with its concurrency slot
+        held until the stale timeout.
+        """
+        mock_redis.return_value = None
+        mock_db.get_workflow_run = AsyncMock(
+            return_value=MagicMock(gathered_context={})
+        )
+        mock_db.update_workflow_run = AsyncMock()
+        mock_concurrency.release_workflow_run_slot = AsyncMock()
+
+        disconnect_started = asyncio.Event()
+
+        async def slow_disconnect():
+            disconnect_started.set()
+            await asyncio.sleep(0.1)
+
+        connection = MagicMock()
+        connection.disconnect = slow_disconnect
+        service._active_connections[self.call_id] = (connection, 999, 1, "pn1")
+
+        terminate = asyncio.create_task(
+            service.handle_call_terminate({"id": self.call_id}, {})
+        )
+        await asyncio.wait_for(disconnect_started.wait(), timeout=5)
+
+        # The caller goes away mid-disconnect.
+        terminate.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await terminate
+
+        # The cleanup it owned still lands.
+        for _ in range(50):
+            if mock_concurrency.release_workflow_run_slot.await_count:
+                break
+            await asyncio.sleep(0.02)
+
+        mock_db.update_workflow_run.assert_awaited_once()
+        self.assertTrue(mock_db.update_workflow_run.await_args.kwargs["is_completed"])
+        mock_concurrency.release_workflow_run_slot.assert_awaited_once_with(999)
+        self.assertNotIn(self.call_id, service._active_connections)
+
+    @patch("api.services.telephony.providers.whatsapp.service.call_concurrency")
+    @patch("api.services.telephony.providers.whatsapp.service.db_client")
+    @patch(
+        "api.services.telephony.providers.whatsapp.service._get_redis",
+        new_callable=AsyncMock,
+    )
     async def test_cancelled_pipeline_does_not_reenter_teardown(
         self, mock_redis, mock_db, mock_concurrency
     ):

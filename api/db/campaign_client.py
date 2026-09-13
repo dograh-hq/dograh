@@ -1086,10 +1086,14 @@ class CampaignClient(BaseDBClient):
         # loading all parked runs into memory.
         candidate_filters = [
             QueuedRunModel.context_variables["phone_number"].as_string() == raw_trimmed,
-            QueuedRunModel.context_variables["phone_number"].as_string() == target_digits,
-            QueuedRunModel.context_variables["phone_number"].as_string() == f"+{target_digits}",
-            QueuedRunModel.context_variables["phone_number"].as_string() == target_canonical,
-            QueuedRunModel.context_variables["phone_number"].as_string() == target_no_plus,
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == target_digits,
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == f"+{target_digits}",
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == target_canonical,
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == target_no_plus,
         ]
 
         # Formatted variants ("+1 (555) 123-4567", "+33 6 12 34 56 78") never

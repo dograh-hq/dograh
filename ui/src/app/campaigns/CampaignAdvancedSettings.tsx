@@ -145,9 +145,14 @@ export default function CampaignAdvancedSettings({
                         Concurrency is limited to {fromNumbersCount} by your configured phone numbers. To use the full org limit of {orgConcurrentLimit}, add more CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link>.
                     </p>
                 )}
-                {!requiresCallPermission && fromNumbersCount === 0 && (
+                {/* Not gated on requiresCallPermission, unlike the CLI-count
+                    hints above: those describe a concurrency cap that a
+                    consent-based provider does not have, but every provider
+                    still needs an active number to dial from, so hiding this
+                    hid the one warning that the campaign cannot run at all. */}
+                {fromNumbersCount === 0 && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
-                        No phone numbers configured. Add CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
+                        No phone numbers configured. Add one in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
                     </p>
                 )}
             </div>

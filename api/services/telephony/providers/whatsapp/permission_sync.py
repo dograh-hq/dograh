@@ -72,7 +72,9 @@ async def reactivate_campaign_runs_for_recipient(
         # guess). Refuse rather than run unscoped.
         target_config_id = telephony_configuration_id
         if target_config_id is None and phone_number_id:
-            cfg = await db_client.get_whatsapp_configuration_by_phone_number_id(phone_number_id)
+            cfg = await db_client.get_whatsapp_configuration_by_phone_number_id(
+                phone_number_id
+            )
             if not cfg:
                 logger.error(
                     f"[WhatsApp] Cannot resolve a telephony configuration for "
@@ -89,9 +91,13 @@ async def reactivate_campaign_runs_for_recipient(
             )
             return 0
 
-        waiting_runs = await db_client.get_queued_runs_awaiting_whatsapp_permission(clean_phone)
+        waiting_runs = await db_client.get_queued_runs_awaiting_whatsapp_permission(
+            clean_phone
+        )
         if not waiting_runs:
-            waiting_runs = await db_client.get_queued_runs_awaiting_whatsapp_permission("+" + clean_phone)
+            waiting_runs = await db_client.get_queued_runs_awaiting_whatsapp_permission(
+                "+" + clean_phone
+            )
 
         if not waiting_runs:
             return 0
@@ -188,32 +194,43 @@ async def reactivate_campaign_runs_for_recipient(
             # one may report it.
             failed = 0
             denied_campaign_ids = set()
-            for q_run in filtered_runs:
-                claimed = await db_client.fail_queued_run_permission_denied(q_run.id)
-                if claimed is None:
-                    continue
-                failed += 1
-                if q_run.campaign_id:
-                    denied_campaign_ids.add(q_run.campaign_id)
-                logger.info(
-                    f"[WhatsApp] Marked queued run {q_run.id} as failed (permission_denied) "
-                    f"for recipient {clean_phone}."
-                )
-
-            # Once per campaign, after its denials are committed: the recount
-            # locks the campaign row, and one recipient can hold several parked
-            # leads in the same campaign. Failing here only leaves progress
-            # stale until the next recompute - the queued-run state it is
-            # derived from is already durable - so it must not undo a denial
-            # that has landed.
-            for camp_id in denied_campaign_ids:
-                try:
-                    await db_client.sync_campaign_processed_rows(camp_id)
-                except Exception as e:
-                    logger.warning(
-                        f"[WhatsApp] Failed to refresh processed_rows for campaign "
-                        f"{camp_id} after denying {clean_phone}: {e}"
+            try:
+                for q_run in filtered_runs:
+                    claimed = await db_client.fail_queued_run_permission_denied(
+                        q_run.id
                     )
+                    if claimed is None:
+                        continue
+                    failed += 1
+                    if q_run.campaign_id:
+                        denied_campaign_ids.add(q_run.campaign_id)
+                    logger.info(
+                        f"[WhatsApp] Marked queued run {q_run.id} as failed (permission_denied) "
+                        f"for recipient {clean_phone}."
+                    )
+            finally:
+                # Once per campaign, after its denials are committed: the
+                # recount locks the campaign row, and one recipient can hold
+                # several parked leads in the same campaign.
+                #
+                # In a finally because every denial above is already committed
+                # and irreversible. If a later one raises, the earlier ones
+                # still moved runs to "failed", and skipping the recount would
+                # leave campaign progress understating them until something
+                # else happened to recompute it.
+                #
+                # Failing here is survivable for the opposite reason: the
+                # queued-run state this is derived from is already durable, so
+                # a stale count corrects itself on the next recompute and must
+                # never undo a denial that has landed.
+                for camp_id in denied_campaign_ids:
+                    try:
+                        await db_client.sync_campaign_processed_rows(camp_id)
+                    except Exception as e:
+                        logger.warning(
+                            f"[WhatsApp] Failed to refresh processed_rows for campaign "
+                            f"{camp_id} after denying {clean_phone}: {e}"
+                        )
             return failed
     except Exception as e:
         logger.warning(
@@ -323,7 +340,9 @@ async def sync_whatsapp_permissions_for_campaign(
                 meta_status = meta_perm.get("status") or meta_res.get("status")
                 can_start_call = False
                 for act in meta_res.get("actions") or []:
-                    if act.get("action_name") == "start_call" and act.get("can_perform_action", False):
+                    if act.get("action_name") == "start_call" and act.get(
+                        "can_perform_action", False
+                    ):
                         can_start_call = True
 
                 normalized_status = normalize_whatsapp_permission_status(meta_status)
@@ -335,7 +354,9 @@ async def sync_whatsapp_permissions_for_campaign(
                         else "granted_temporary"
                     )
                     perm_type = (
-                        "permanent" if actual_status == "granted_permanent" else "temporary"
+                        "permanent"
+                        if actual_status == "granted_permanent"
+                        else "temporary"
                     )
                     # Persist Meta's expiry: a temporary grant stored without one
                     # would later read as a permission that never lapses.
@@ -383,7 +404,9 @@ async def sync_whatsapp_permissions_for_campaign(
 
         return WhatsAppPermissionSyncResult(reactivated=reactivated_total)
     except Exception as e:
-        logger.warning(f"[WhatsApp] Error in sync_whatsapp_permissions_for_campaign: {e}")
+        logger.warning(
+            f"[WhatsApp] Error in sync_whatsapp_permissions_for_campaign: {e}"
+        )
         return WhatsAppPermissionSyncResult()
 
 

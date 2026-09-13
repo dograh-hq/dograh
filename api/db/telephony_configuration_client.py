@@ -630,7 +630,8 @@ class TelephonyConfigurationClient(BaseDBClient):
             return await _select_permission_row(
                 session,
                 select(WhatsAppCallPermissionModel).where(
-                    WhatsAppCallPermissionModel.telephony_configuration_id == telephony_configuration_id,
+                    WhatsAppCallPermissionModel.telephony_configuration_id
+                    == telephony_configuration_id,
                     WhatsAppCallPermissionModel.recipient_phone_number.in_(candidates),
                 ),
                 recipient_phone_number,
@@ -675,9 +676,7 @@ class TelephonyConfigurationClient(BaseDBClient):
             session, phone_number_id
         )
         if len(configs) > 1:
-            _log_ambiguous_phone_number_id(
-                phone_number_id, configs, ambiguity_action
-            )
+            _log_ambiguous_phone_number_id(phone_number_id, configs, ambiguity_action)
             return None
 
         config = next(iter(configs.values()), None)
@@ -686,9 +685,7 @@ class TelephonyConfigurationClient(BaseDBClient):
                 WhatsAppCallPermissionModel.telephony_configuration_id == config.id
             )
         else:
-            key_clause = (
-                WhatsAppCallPermissionModel.phone_number_id == phone_number_id
-            )
+            key_clause = WhatsAppCallPermissionModel.phone_number_id == phone_number_id
 
         return await _select_permission_row(
             session,
@@ -729,8 +726,11 @@ class TelephonyConfigurationClient(BaseDBClient):
                 row = await _select_permission_row(
                     session,
                     select(WhatsAppCallPermissionModel).where(
-                        WhatsAppCallPermissionModel.telephony_configuration_id == telephony_configuration_id,
-                        WhatsAppCallPermissionModel.recipient_phone_number.in_(candidates),
+                        WhatsAppCallPermissionModel.telephony_configuration_id
+                        == telephony_configuration_id,
+                        WhatsAppCallPermissionModel.recipient_phone_number.in_(
+                            candidates
+                        ),
                     ),
                     recipient_phone_number,
                 )
@@ -775,8 +775,11 @@ class TelephonyConfigurationClient(BaseDBClient):
                 row = await _select_permission_row(
                     session,
                     select(WhatsAppCallPermissionModel).where(
-                        WhatsAppCallPermissionModel.telephony_configuration_id == telephony_configuration_id,
-                        WhatsAppCallPermissionModel.recipient_phone_number.in_(candidates),
+                        WhatsAppCallPermissionModel.telephony_configuration_id
+                        == telephony_configuration_id,
+                        WhatsAppCallPermissionModel.recipient_phone_number.in_(
+                            candidates
+                        ),
                     ),
                     recipient_phone_number,
                 )
@@ -877,5 +880,3 @@ class TelephonyConfigurationClient(BaseDBClient):
             await session.commit()
             await session.refresh(row)
             return row
-
-

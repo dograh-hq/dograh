@@ -196,7 +196,9 @@ async def get_telephony_provider_for_active_call(
     Returns ``None`` when the owning provider cannot be identified, so callers
     can say so instead of acting on the wrong carrier.
     """
-    recorded = (workflow_run.gathered_context or {}).get("provider") or workflow_run.mode
+    recorded = (workflow_run.gathered_context or {}).get(
+        "provider"
+    ) or workflow_run.mode
 
     cfg_id = (workflow_run.initial_context or {}).get("telephony_configuration_id")
     if cfg_id is not None:
@@ -232,8 +234,7 @@ async def get_telephony_provider_for_active_call(
         account_id = (workflow_run.gathered_context or {}).get(field) if field else None
         if account_id:
             matched = [
-                c for c in configs
-                if (c.credentials or {}).get(field) == account_id
+                c for c in configs if (c.credentials or {}).get(field) == account_id
             ]
             if matched:
                 configs = matched
@@ -332,18 +333,6 @@ def get_provider_connectivity(provider_name: str) -> ProviderConnectivity:
     """
     spec = registry.get_optional(provider_name)
     return spec.connectivity if spec else "api"
-
-
-def provider_requires_call_permission(provider_name: str) -> bool:
-    """Whether the recipient must consent before this provider dials out.
-
-    Falls back to False for an unregistered name, matching
-    get_provider_connectivity: a stale stored provider must not break a list
-    response, and claiming a permission step that does not exist would hide a
-    campaign's real controls.
-    """
-    spec = registry.get_optional(provider_name)
-    return bool(spec and spec.requires_call_permission)
 
 
 def get_setup_checklist(

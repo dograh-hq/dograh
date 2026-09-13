@@ -34,12 +34,15 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         self.assertEqual(response.body, b"123456789")
 
     async def test_whatsapp_webhook_verification_rejects_bad_token(self):
-        with patch(
-            "api.services.telephony.providers.whatsapp.routes.WHATSAPP_WEBHOOK_VERIFY_TOKEN",
-            "verify-me",
-        ), patch(
-            "api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_configuration_by_verify_token",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.WHATSAPP_WEBHOOK_VERIFY_TOKEN",
+                "verify-me",
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_configuration_by_verify_token",
+                AsyncMock(return_value=None),
+            ),
         ):
             with self.assertRaises(HTTPException) as ctx:
                 await handle_webhook_verification(
@@ -82,12 +85,15 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
     async def test_whatsapp_webhook_verification_matches_db_token(self):
         mock_config = MagicMock()
         mock_config.id = 42
-        with patch(
-            "api.services.telephony.providers.whatsapp.routes.WHATSAPP_WEBHOOK_VERIFY_TOKEN",
-            "",
-        ), patch(
-            "api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_configuration_by_verify_token",
-            AsyncMock(return_value=mock_config),
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.WHATSAPP_WEBHOOK_VERIFY_TOKEN",
+                "",
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_configuration_by_verify_token",
+                AsyncMock(return_value=mock_config),
+            ),
         ):
             response = await handle_webhook_verification(
                 hub_mode="subscribe",
@@ -108,6 +114,7 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         from api.services.telephony.providers.whatsapp.routes import (
             check_whatsapp_permission,
         )
+
         mock_user = MagicMock(selected_organization_id=1)
         res = await check_whatsapp_permission(
             telephony_configuration_id=10,
@@ -125,12 +132,16 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         from api.services.telephony.providers.whatsapp.routes import (
             check_whatsapp_permission,
         )
+
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
             organization_id=1,
             provider="whatsapp",
-            credentials={"phone_number_id": "test_phone_id", "access_token": "test_token"},
+            credentials={
+                "phone_number_id": "test_phone_id",
+                "access_token": "test_token",
+            },
         )
         mock_perm = MagicMock(
             status="granted_temporary",
@@ -143,15 +154,31 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             return_value={
                 "permission": {
                     "status": "granted_temporary",
-                    "expiration_time": int((datetime.now(timezone.utc) + timedelta(days=3)).timestamp()),
+                    "expiration_time": int(
+                        (datetime.now(timezone.utc) + timedelta(days=3)).timestamp()
+                    ),
                 },
                 "actions": [{"action_name": "start_call", "can_perform_action": True}],
             }
         )
-        with patch("api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org", AsyncMock(return_value=mock_config)), \
-             patch("api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_call_permission", AsyncMock(return_value=mock_perm)), \
-             patch("api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission", AsyncMock()), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client", return_value=mock_client):
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_call_permission",
+                AsyncMock(return_value=mock_perm),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission",
+                AsyncMock(),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client",
+                return_value=mock_client,
+            ),
+        ):
             res = await check_whatsapp_permission(
                 telephony_configuration_id=10,
                 recipient_phone_number="+447123456789",
@@ -167,6 +194,7 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             WhatsAppPermissionRequestPayload,
             send_whatsapp_permission_request,
         )
+
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
@@ -183,9 +211,19 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             recipient_phone_number="+447123456789",
             body_text="May we call you?",
         )
-        with patch("api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org", AsyncMock(return_value=mock_config)), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client") as mock_get_client, \
-             patch("api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission", AsyncMock()):
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client"
+            ) as mock_get_client,
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission",
+                AsyncMock(),
+            ),
+        ):
             mock_client = MagicMock()
             mock_client.send_call_permission_request = AsyncMock(
                 return_value={"messages": [{"id": "wamid.12345"}]}
@@ -210,6 +248,7 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             WhatsAppPermissionRequestPayload,
             send_whatsapp_permission_request,
         )
+
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
@@ -227,9 +266,19 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             recipient_phone_number="+447123456789",
             body_text=None,
         )
-        with patch("api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org", AsyncMock(return_value=mock_config)), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client") as mock_get_client, \
-             patch("api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission", AsyncMock()):
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client"
+            ) as mock_get_client,
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission",
+                AsyncMock(),
+            ),
+        ):
             mock_client = MagicMock()
             mock_client.send_call_permission_request = AsyncMock(
                 return_value={"messages": [{"id": "wamid.12345"}]}
@@ -254,6 +303,7 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             WhatsAppPermissionRequestPayload,
             send_whatsapp_permission_request,
         )
+
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
@@ -270,9 +320,19 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             recipient_phone_number="+447123456789",
             body_text=None,
         )
-        with patch("api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org", AsyncMock(return_value=mock_config)), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client") as mock_get_client, \
-             patch("api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission", AsyncMock()):
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client"
+            ) as mock_get_client,
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.upsert_whatsapp_call_permission",
+                AsyncMock(),
+            ),
+        ):
             mock_client = MagicMock()
             mock_client.send_call_permission_request = AsyncMock(
                 return_value={"messages": [{"id": "wamid.12345"}]}
@@ -293,12 +353,16 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         from api.services.telephony.providers.whatsapp.routes import (
             check_whatsapp_permission,
         )
+
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
             organization_id=1,
             provider="whatsapp",
-            credentials={"phone_number_id": "test_phone_id", "access_token": "expired_token"},
+            credentials={
+                "phone_number_id": "test_phone_id",
+                "access_token": "expired_token",
+            },
         )
         mock_client = MagicMock()
         mock_client.check_call_permission = AsyncMock(
@@ -307,9 +371,20 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
                 detail="Meta API Error (190): Error validating access token: Session has expired. The WhatsApp access token has expired or is invalid. Please generate a fresh token in Meta Business Manager and update your Telephony Configuration.",
             )
         )
-        with patch("api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org", AsyncMock(return_value=mock_config)), \
-             patch("api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_call_permission", AsyncMock(return_value=None)), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client", return_value=mock_client):
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_whatsapp_call_permission",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client",
+                return_value=mock_client,
+            ),
+        ):
             res = await check_whatsapp_permission(
                 telephony_configuration_id=10,
                 recipient_phone_number="+447123456789",
@@ -317,13 +392,17 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
             )
             self.assertFalse(res.can_call)
             self.assertEqual(res.status, "token_expired")
-            self.assertIn("The WhatsApp access token has expired or is invalid", res.delivery_error)
+            self.assertIn(
+                "The WhatsApp access token has expired or is invalid",
+                res.delivery_error,
+            )
 
     async def test_send_permission_request_token_expired(self):
         from api.services.telephony.providers.whatsapp.routes import (
             WhatsAppPermissionRequestPayload,
             send_whatsapp_permission_request,
         )
+
         mock_user = MagicMock(selected_organization_id=1)
         mock_config = MagicMock(
             id=10,
@@ -347,8 +426,16 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
                 detail="Meta API Error (190): Error validating access token. The WhatsApp access token has expired or is invalid.",
             )
         )
-        with patch("api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org", AsyncMock(return_value=mock_config)), \
-             patch("api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client", return_value=mock_client):
+        with (
+            patch(
+                "api.services.telephony.providers.whatsapp.routes.db_client.get_telephony_configuration_for_org",
+                AsyncMock(return_value=mock_config),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.routes._get_or_create_whatsapp_client",
+                return_value=mock_client,
+            ),
+        ):
             with self.assertRaises(HTTPException) as ctx:
                 await send_whatsapp_permission_request(
                     payload=payload,
@@ -361,7 +448,9 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         """Verify the provider package registers both sync-permissions and sync-whatsapp-permissions endpoints."""
         paths = [route.path for route in router.routes if getattr(route, "path", None)]
         self.assertIn("/whatsapp/campaigns/{campaign_id}/sync-permissions", paths)
-        self.assertIn("/whatsapp/campaigns/{campaign_id}/sync-whatsapp-permissions", paths)
+        self.assertIn(
+            "/whatsapp/campaigns/{campaign_id}/sync-whatsapp-permissions", paths
+        )
 
     def test_campaign_routes_and_app_do_not_import_whatsapp_routes(self):
         """Verify repository directives:
@@ -401,4 +490,3 @@ class TestWhatsAppRoutes(IsolatedAsyncioTestCase):
         campaign_imports = imported_modules(campaign_mod)
         self.assertNotIn(forbidden, campaign_imports)
         self.assertNotIn("sync-whatsapp-permissions", inspect.getsource(campaign_mod))
-

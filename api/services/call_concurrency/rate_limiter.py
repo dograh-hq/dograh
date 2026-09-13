@@ -531,7 +531,9 @@ class RateLimiter:
                     token = str(now)
                 else:
                     return None, None
-                logger.debug(f"Acquired from_number {from_number} for org {organization_id}")
+                logger.debug(
+                    f"Acquired from_number {from_number} for org {organization_id}"
+                )
                 return from_number, token
             return None, None
         except Exception as e:

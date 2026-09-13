@@ -166,7 +166,9 @@ def restore_masked_fields(
 
     *request* is edited in place.
     """
-    _restore_unchanged(build_sensitive_tree(sensitive_paths), request, existing, fields_set)
+    _restore_unchanged(
+        build_sensitive_tree(sensitive_paths), request, existing, fields_set
+    )
 
 
 def _restore_unchanged(

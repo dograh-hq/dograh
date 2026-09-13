@@ -64,36 +64,72 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         """A lead stored the way a person writes it still dials.
 
         Campaign ingest normalises now, but rows ingested before it did are
-        still formatted, and the gate below requires strict E.164 - so the
-        number is canonicalised first and the permission lookup sees the
-        canonical form.
+        still formatted, and the E.164 gate in initiate_call rejects those - so
+        the number is canonicalised first, and everything downstream (the
+        permission lookup, the Meta call, the stored record) sees the canonical
+        form rather than the spelling the spreadsheet happened to use.
         """
         provider = _provider(business_initiated_calls_enabled=True)
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)
+            ) as mock_lookup,
+            patch.object(
+                db_client, "upsert_whatsapp_call_permission", AsyncMock()
+            ) as mock_upsert,
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client"
+            ) as mock_get_client,
+        ):
+            mock_client = MagicMock()
+            mock_client.check_call_permission = AsyncMock(
+                return_value={
+                    "permission": {"status": "no_permission"},
+                    "actions": [
+                        {"action_name": "start_call", "can_perform_action": False}
+                    ],
+                }
+            )
+            mock_get_client.return_value = mock_client
 
-        with patch.object(
-            db_client, "get_whatsapp_call_permission_by_phone_id", new_callable=AsyncMock
-        ) as mock_lookup:
-            mock_lookup.return_value = None
-            with self.assertRaises(Exception) as ctx:
+            from api.services.telephony.providers.whatsapp.provider import (
+                WhatsAppPermissionRequiredError,
+            )
+
+            with self.assertRaises(WhatsAppPermissionRequiredError) as ctx:
                 await provider.initiate_call(
-                    to_number="+44 7123 456789",
-                    webhook_url="https://example.com/wh",
-                    workflow_id=1,
+                    to_number="+44 (0) 7123 456789",
+                    webhook_url="https://example.test/webhook",
+                    workflow_run_id=456,
                     organization_id=1,
+                    telephony_configuration_id=10,
+                    workflow_id=2,
                 )
 
-        # It got past validation - whatever it failed on later, it was not the
-        # 400 a formatted number used to earn here.
-        self.assertFalse(
-            isinstance(ctx.exception, HTTPException)
-            and ctx.exception.status_code == 400
-            and "E.164" in str(ctx.exception.detail),
-            f"formatted number was rejected by the E.164 gate: {ctx.exception}",
+        # Reached the permission step at all, rather than the 400 a formatted
+        # number used to earn from the E.164 gate.
+        self.assertEqual(ctx.exception.phone_number, "+447123456789")
+        # Meta is asked about the canonical digits, not the typed spelling, and
+        # the bracketed trunk prefix is dropped rather than kept as a leading 0.
+        mock_client.check_call_permission.assert_awaited_once_with(
+            user_wa_id="447123456789"
         )
-        mock_lookup.assert_awaited()
+        # The stored record is keyed by the canonical number, so a later lookup
+        # for the same recipient finds this row instead of inserting a second.
+        self.assertEqual(
+            mock_upsert.call_args[1].get("recipient_phone_number"), "+447123456789"
+        )
         self.assertIn(
             "+447123456789",
-            [c.kwargs.get("recipient_phone_number") for c in mock_lookup.await_args_list],
+            [
+                c.kwargs.get("recipient_phone_number")
+                for c in mock_lookup.await_args_list
+            ],
         )
 
     async def test_initialization_with_valid_config(self):
@@ -112,10 +148,12 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
     async def test_initialization_with_missing_required_fields(self):
         """Test provider fails initialization with missing required fields."""
         with self.assertRaises(ValueError):
-            WhatsAppProvider({
-                "access_token": "test_token"
-                # Missing phone_number_id, webhook_verify_token, app_secret
-            })
+            WhatsAppProvider(
+                {
+                    "access_token": "test_token"
+                    # Missing phone_number_id, webhook_verify_token, app_secret
+                }
+            )
 
     async def test_initialization_with_missing_phone_number_id(self):
         """Test provider fails initialization with missing phone_number_id."""
@@ -163,11 +201,23 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         # provider.initiate_call imports the client factory, redis accessor and
         # connection registry from .service at call time, so the service module -
         # not .routes - is the binding a patch has to replace.
-        with patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=None)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)), \
-             patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client") as mock_get_client:
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client"
+            ) as mock_get_client,
+        ):
             mock_client = MagicMock()
-            mock_client.check_call_permission = AsyncMock(return_value={"can_call": False, "status": "not_requested"})
+            mock_client.check_call_permission = AsyncMock(
+                return_value={"can_call": False, "status": "not_requested"}
+            )
             mock_get_client.return_value = mock_client
 
             with self.assertRaises(HTTPException) as ctx:
@@ -182,9 +232,19 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
     async def test_initiate_call_token_expired(self):
         """Test initiate_call raises 401 when Meta access token is expired."""
         provider = _provider(business_initiated_calls_enabled=True)
-        with patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=None)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)), \
-             patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client") as mock_get_client:
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client"
+            ) as mock_get_client,
+        ):
             mock_client = MagicMock()
             mock_client.check_call_permission = AsyncMock(
                 return_value={
@@ -205,8 +265,10 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
                     workflow_run_id=123,
                 )
             self.assertEqual(ctx.exception.status_code, 401)
-            self.assertIn("The WhatsApp access token has expired or is invalid", ctx.exception.detail)
-
+            self.assertIn(
+                "The WhatsApp access token has expired or is invalid",
+                ctx.exception.detail,
+            )
 
     async def test_initiate_call_success_with_granted_permission(self):
         """Test initiate_call succeeds and returns CallInitiationResult when permission is granted."""
@@ -215,21 +277,44 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
             status="granted_temporary",
             expires_at=None,
         )
-        with patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=mock_perm)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=mock_perm)), \
-             patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client") as mock_get_client, \
-             patch("api.services.telephony.providers.whatsapp.service.register_outbound_active_connection") as mock_reg, \
-             patch("api.services.telephony.providers.whatsapp.service.get_whatsapp_redis", AsyncMock(return_value=None)):
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=mock_perm),
+            ),
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission",
+                AsyncMock(return_value=mock_perm),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client"
+            ) as mock_get_client,
+            patch(
+                "api.services.telephony.providers.whatsapp.service.register_outbound_active_connection"
+            ) as mock_reg,
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_whatsapp_redis",
+                AsyncMock(return_value=None),
+            ),
+        ):
             mock_client = MagicMock()
             mock_conn = MagicMock()
             mock_client.check_call_permission = AsyncMock(
                 return_value={
                     "permission": {"status": "granted_temporary"},
-                    "actions": [{"action_name": "start_call", "can_perform_action": True}],
+                    "actions": [
+                        {"action_name": "start_call", "can_perform_action": True}
+                    ],
                 }
             )
             mock_client.initiate_outbound_call = AsyncMock(
-                return_value=("call_wa_outbound_123", mock_conn, {"id": "call_wa_outbound_123"})
+                return_value=(
+                    "call_wa_outbound_123",
+                    mock_conn,
+                    {"id": "call_wa_outbound_123"},
+                )
             )
             mock_get_client.return_value = mock_client
 
@@ -248,12 +333,29 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         """Test initiate_call raises 400 before creating peer connection if metadata is missing."""
         provider = _provider(business_initiated_calls_enabled=True)
         mock_perm = MagicMock(status="granted_temporary", expires_at=None)
-        with patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=mock_perm)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=mock_perm)), \
-             patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client") as mock_get_client:
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=mock_perm),
+            ),
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission",
+                AsyncMock(return_value=mock_perm),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client"
+            ) as mock_get_client,
+        ):
             mock_client = MagicMock()
             mock_client.check_call_permission = AsyncMock(
-                return_value={"permission": {"status": "granted_temporary"}, "actions": [{"action_name": "start_call", "can_perform_action": True}]}
+                return_value={
+                    "permission": {"status": "granted_temporary"},
+                    "actions": [
+                        {"action_name": "start_call", "can_perform_action": True}
+                    ],
+                }
             )
             mock_get_client.return_value = mock_client
 
@@ -266,23 +368,49 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
                     workflow_id=2,
                 )
             self.assertEqual(ctx.exception.status_code, 400)
-            self.assertIn("workflow_run_id, organization_id, and workflow_id are required", ctx.exception.detail)
+            self.assertIn(
+                "workflow_run_id, organization_id, and workflow_id are required",
+                ctx.exception.detail,
+            )
             mock_client.initiate_outbound_call.assert_not_called()
 
     async def test_initiate_call_cleans_up_connection_on_registration_failure(self):
         """Test initiate_call disconnects peer connection and terminates call if registration fails."""
         provider = _provider(business_initiated_calls_enabled=True)
         mock_perm = MagicMock(status="granted_temporary", expires_at=None)
-        with patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=mock_perm)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=mock_perm)), \
-             patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client") as mock_get_client, \
-             patch("api.services.telephony.providers.whatsapp.service.register_outbound_active_connection", side_effect=RuntimeError("registration crashed")), \
-             patch("api.services.telephony.providers.whatsapp.service.get_whatsapp_redis", AsyncMock(return_value=None)):
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=mock_perm),
+            ),
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission",
+                AsyncMock(return_value=mock_perm),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client"
+            ) as mock_get_client,
+            patch(
+                "api.services.telephony.providers.whatsapp.service.register_outbound_active_connection",
+                side_effect=RuntimeError("registration crashed"),
+            ),
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_whatsapp_redis",
+                AsyncMock(return_value=None),
+            ),
+        ):
             mock_client = MagicMock()
             mock_conn = MagicMock()
             mock_conn.disconnect = AsyncMock()
             mock_client.check_call_permission = AsyncMock(
-                return_value={"permission": {"status": "granted_temporary"}, "actions": [{"action_name": "start_call", "can_perform_action": True}]}
+                return_value={
+                    "permission": {"status": "granted_temporary"},
+                    "actions": [
+                        {"action_name": "start_call", "can_perform_action": True}
+                    ],
+                }
             )
             mock_client.initiate_outbound_call = AsyncMock(
                 return_value=("call_wa_outbound_leak_test", mock_conn, {})
@@ -300,7 +428,9 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
                 )
             self.assertEqual(ctx.exception.status_code, 500)
             mock_conn.disconnect.assert_called_once()
-            mock_client.terminate_call.assert_called_once_with("call_wa_outbound_leak_test")
+            mock_client.terminate_call.assert_called_once_with(
+                "call_wa_outbound_leak_test"
+            )
 
     async def test_initiate_call_preserves_no_permission_status(self):
         """Test initiate_call stores Meta 'no_permission' as-is, not as 'denied'.
@@ -310,15 +440,29 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         simply has not answered the prompt yet as 'denied' kills their lead.
         """
         provider = _provider(business_initiated_calls_enabled=True)
-        with patch.object(db_client, "get_whatsapp_call_permission_by_phone_id", AsyncMock(return_value=None)), \
-             patch.object(db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)), \
-             patch.object(db_client, "upsert_whatsapp_call_permission", AsyncMock()) as mock_upsert, \
-             patch("api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client") as mock_get_client:
+        with (
+            patch.object(
+                db_client,
+                "get_whatsapp_call_permission_by_phone_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                db_client, "get_whatsapp_call_permission", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                db_client, "upsert_whatsapp_call_permission", AsyncMock()
+            ) as mock_upsert,
+            patch(
+                "api.services.telephony.providers.whatsapp.service.get_or_create_whatsapp_client"
+            ) as mock_get_client,
+        ):
             mock_client = MagicMock()
             mock_client.check_call_permission = AsyncMock(
                 return_value={
                     "permission": {"status": "no_permission"},
-                    "actions": [{"action_name": "start_call", "can_perform_action": False}],
+                    "actions": [
+                        {"action_name": "start_call", "can_perform_action": False}
+                    ],
                 }
             )
             mock_get_client.return_value = mock_client
@@ -326,6 +470,7 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
             from api.services.telephony.providers.whatsapp.provider import (
                 WhatsAppPermissionRequiredError,
             )
+
             with self.assertRaises(WhatsAppPermissionRequiredError):
                 await provider.initiate_call(
                     to_number="+447123456789",
@@ -389,10 +534,13 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
 
         class DummyResponse:
             status = 200
+
             async def json(self):
                 return {"id": "call_999", "status": "permission_requested"}
+
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, *args):
                 pass
 
@@ -401,8 +549,10 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
                 nonlocal captured_payload
                 captured_payload = json
                 return DummyResponse()
+
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, *args):
                 pass
 
@@ -441,29 +591,44 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
     async def test_configure_inbound(self):
         """Test configure_inbound returns ok status."""
         provider = _provider()
-        result = await provider.configure_inbound("+15551234567", "https://example.com/webhook")
+        result = await provider.configure_inbound(
+            "+15551234567", "https://example.com/webhook"
+        )
         self.assertTrue(result.ok)
 
     async def test_can_handle_webhook(self):
         """Test webhook detection for whatsapp."""
-        self.assertTrue(WhatsAppProvider.can_handle_webhook(
-            {"object": "whatsapp_business_account"}, {}
-        ))
-        self.assertTrue(WhatsAppProvider.can_handle_webhook(
-            {"entry": [{"changes": [{"field": "calls"}]}]}, {}
-        ))
-        self.assertTrue(WhatsAppProvider.can_handle_webhook(
-            {"entry": [{"changes": [{"value": {"messaging_product": "whatsapp"}}]}]}, {}
-        ))
-        self.assertFalse(WhatsAppProvider.can_handle_webhook(
-            {"entry": [{"changes": []}]}, {}
-        ))
-        self.assertFalse(WhatsAppProvider.can_handle_webhook(
-            {"entry": [{"changes": [{"field": "feed"}]}]}, {}
-        ))
-        self.assertFalse(WhatsAppProvider.can_handle_webhook(
-            {"something_else": True}, {}
-        ))
+        self.assertTrue(
+            WhatsAppProvider.can_handle_webhook(
+                {"object": "whatsapp_business_account"}, {}
+            )
+        )
+        self.assertTrue(
+            WhatsAppProvider.can_handle_webhook(
+                {"entry": [{"changes": [{"field": "calls"}]}]}, {}
+            )
+        )
+        self.assertTrue(
+            WhatsAppProvider.can_handle_webhook(
+                {
+                    "entry": [
+                        {"changes": [{"value": {"messaging_product": "whatsapp"}}]}
+                    ]
+                },
+                {},
+            )
+        )
+        self.assertFalse(
+            WhatsAppProvider.can_handle_webhook({"entry": [{"changes": []}]}, {})
+        )
+        self.assertFalse(
+            WhatsAppProvider.can_handle_webhook(
+                {"entry": [{"changes": [{"field": "feed"}]}]}, {}
+            )
+        )
+        self.assertFalse(
+            WhatsAppProvider.can_handle_webhook({"something_else": True}, {})
+        )
 
     async def test_validate_account_id(self):
         """Test matching inbound webhook by phone_number_id."""
@@ -475,24 +640,28 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
     async def test_parse_inbound_webhook(self):
         """Test parsing inbound webhook payload into NormalizedInboundData."""
         whatsapp_webhook = {
-            "entry": [{
-                "changes": [{
-                    "field": "calls",
-                    "value": {
-                        "metadata": {
-                            "display_phone_number": "+15551234567",
-                            "phone_number_id": "test_phone_id",
-                        },
-                        "call": {
-                            "id": "call_id_123",
-                            "direction": "inbound",
-                            "from": "+15559876543",
-                            "to": "+15551234567",
-                            "status": "ringing",
-                        },
-                    },
-                }],
-            }],
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "calls",
+                            "value": {
+                                "metadata": {
+                                    "display_phone_number": "+15551234567",
+                                    "phone_number_id": "test_phone_id",
+                                },
+                                "call": {
+                                    "id": "call_id_123",
+                                    "direction": "inbound",
+                                    "from": "+15559876543",
+                                    "to": "+15551234567",
+                                    "status": "ringing",
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
         }
         res = WhatsAppProvider.parse_inbound_webhook(whatsapp_webhook)
         self.assertEqual(res.provider, "whatsapp")
@@ -505,48 +674,60 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
 
         # Also test with 'calls' array format
         calls_array_webhook = {
-            "entry": [{
-                "changes": [{
-                    "field": "calls",
-                    "value": {
-                        "metadata": {
-                            "display_phone_number": "+15551234567",
-                            "phone_number_id": "test_phone_id",
-                        },
-                        "calls": [{
-                            "id": "call_id_999",
-                            "direction": "inbound",
-                            "from": "+15559876543",
-                            "to": "+15551234567",
-                            "status": "ringing",
-                        }],
-                    },
-                }],
-            }],
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "calls",
+                            "value": {
+                                "metadata": {
+                                    "display_phone_number": "+15551234567",
+                                    "phone_number_id": "test_phone_id",
+                                },
+                                "calls": [
+                                    {
+                                        "id": "call_id_999",
+                                        "direction": "inbound",
+                                        "from": "+15559876543",
+                                        "to": "+15551234567",
+                                        "status": "ringing",
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
         }
         res_arr = WhatsAppProvider.parse_inbound_webhook(calls_array_webhook)
         self.assertEqual(res_arr.provider, "whatsapp")
         self.assertEqual(res_arr.call_id, "call_id_999")
 
-    async def test_normalize_inbound_data_converts_whatsapp_webhook_to_standard_format(self):
+    async def test_normalize_inbound_data_converts_whatsapp_webhook_to_standard_format(
+        self,
+    ):
         """Test WhatsApp webhook payloads convert to NormalizedInboundData."""
         provider = _provider()
         whatsapp_webhook = {
-            "entry": [{
-                "changes": [{
-                    "field": "calls",
-                    "value": {
-                        "display_phone_number": "+15551234567",
-                        "call": {
-                            "id": "call_id_123",
-                            "direction": "inbound",
-                            "from": "+15559876543",
-                            "to": "+15551234567",
-                            "status": "ringing",
-                        },
-                    },
-                }],
-            }],
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "calls",
+                            "value": {
+                                "display_phone_number": "+15551234567",
+                                "call": {
+                                    "id": "call_id_123",
+                                    "direction": "inbound",
+                                    "from": "+15559876543",
+                                    "to": "+15551234567",
+                                    "status": "ringing",
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
         }
         result = provider.normalize_inbound_data(whatsapp_webhook)
         self.assertEqual(result.provider, "whatsapp")
@@ -560,17 +741,21 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         """Test normalization fails when call_id is missing."""
         provider = _provider()
         whatsapp_webhook = {
-            "entry": [{
-                "changes": [{
-                    "field": "calls",
-                    "value": {
-                        "call": {
-                            "direction": "inbound",
-                            "from": "+15559876543",
-                        },
-                    },
-                }],
-            }],
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "calls",
+                            "value": {
+                                "call": {
+                                    "direction": "inbound",
+                                    "from": "+15559876543",
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
         }
         with self.assertRaisesRegex(ValueError, "Missing call_id"):
             provider.normalize_inbound_data(whatsapp_webhook)
@@ -641,7 +826,9 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         ]
         for whatsapp_status, expected_dograh_status in status_mappings:
             result = provider._map_whatsapp_status_to_dograh(whatsapp_status)
-            self.assertEqual(result, expected_dograh_status, f"Failed for {whatsapp_status}")
+            self.assertEqual(
+                result, expected_dograh_status, f"Failed for {whatsapp_status}"
+            )
 
     def test_map_whatsapp_status_unknown_maps_to_error(self):
         """Test unknown WhatsApp status maps to ERROR."""
@@ -694,10 +881,13 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
 
             def get(self, url, **kwargs):
                 if url.endswith("/test_phone_id"):
-                    return DummyResponse(200, {
-                        "display_phone_number": "+1 555-123-4567",
-                        "verified_name": "Test Business",
-                    })
+                    return DummyResponse(
+                        200,
+                        {
+                            "display_phone_number": "+1 555-123-4567",
+                            "verified_name": "Test Business",
+                        },
+                    )
                 return DummyResponse(404, {})
 
         with patch("aiohttp.ClientSession", return_value=DummySession()):
@@ -736,11 +926,14 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
                 if url.endswith("/test_phone_id"):
                     return DummyResponse(400, {"error": "Not a phone number ID"})
                 elif "test_phone_id/phone_numbers" in url:
-                    return DummyResponse(200, {
-                        "data": [
-                            {"display_phone_number": "+1 555-987-6543"},
-                        ]
-                    })
+                    return DummyResponse(
+                        200,
+                        {
+                            "data": [
+                                {"display_phone_number": "+1 555-987-6543"},
+                            ]
+                        },
+                    )
                 return DummyResponse(404, {})
 
         with patch("aiohttp.ClientSession", return_value=DummySession()):
@@ -751,7 +944,9 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         """Test validate_phone_number returns ok when number is owned."""
         provider = _provider()
         with patch.object(
-            provider, "get_available_phone_numbers", AsyncMock(return_value=["+15551234567"])
+            provider,
+            "get_available_phone_numbers",
+            AsyncMock(return_value=["+15551234567"]),
         ):
             res = await provider.validate_phone_number("+1 (555) 123-4567")
             self.assertTrue(res.ok)
@@ -760,7 +955,9 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         """Test validate_phone_number returns ok=False when number is not owned."""
         provider = _provider()
         with patch.object(
-            provider, "get_available_phone_numbers", AsyncMock(return_value=["+15551234567"])
+            provider,
+            "get_available_phone_numbers",
+            AsyncMock(return_value=["+15551234567"]),
         ):
             res = await provider.validate_phone_number("+15559999999")
             self.assertFalse(res.ok)
@@ -794,6 +991,7 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
             _credentials_for_display,
             preserve_masked_fields,
         )
+
         self._credentials_for_display = _credentials_for_display
         self.preserve_masked_fields = preserve_masked_fields
 
@@ -822,7 +1020,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
         self.assertIn("webhook_verify_token", displayed)
         self.assertNotEqual(displayed["access_token"], "secret_access_token_value")
         self.assertNotEqual(displayed["app_secret"], "secret_app_secret_value")
-        self.assertNotEqual(displayed["webhook_verify_token"], "secret_verify_token_value")
+        self.assertNotEqual(
+            displayed["webhook_verify_token"], "secret_verify_token_value"
+        )
 
     def test_preserve_masked_fields_restores_stored_secrets_when_masked(self):
         """When UI submits masked secrets back, stored unmasked values are restored."""
@@ -836,11 +1036,15 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
         request_dict = req.model_dump()
         fields_set = _get_model_fields_set_paths(req)
 
-        self.preserve_masked_fields("whatsapp", request_dict, self.stored, fields_set=fields_set)
+        self.preserve_masked_fields(
+            "whatsapp", request_dict, self.stored, fields_set=fields_set
+        )
 
         self.assertEqual(request_dict["access_token"], "secret_access_token_value")
         self.assertEqual(request_dict["app_secret"], "secret_app_secret_value")
-        self.assertEqual(request_dict["webhook_verify_token"], "secret_verify_token_value")
+        self.assertEqual(
+            request_dict["webhook_verify_token"], "secret_verify_token_value"
+        )
 
         # The round-trip has to carry the non-sensitive settings too. The save
         # path replaces credentials wholesale, so a flag that GET drops (or that
@@ -856,20 +1060,26 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
             WhatsAppConfigurationRequest,
         )
 
-        req = WhatsAppConfigurationRequest.model_validate({
-            "phone_number_id": "106540352242922",
-            "access_token": "new_rotated_access_token",
-            "app_secret": "new_rotated_app_secret",
-            "webhook_verify_token": "new_rotated_verify_token",
-        })
+        req = WhatsAppConfigurationRequest.model_validate(
+            {
+                "phone_number_id": "106540352242922",
+                "access_token": "new_rotated_access_token",
+                "app_secret": "new_rotated_app_secret",
+                "webhook_verify_token": "new_rotated_verify_token",
+            }
+        )
         request_dict = req.model_dump()
         fields_set = _get_model_fields_set_paths(req)
 
-        self.preserve_masked_fields("whatsapp", request_dict, self.stored, fields_set=fields_set)
+        self.preserve_masked_fields(
+            "whatsapp", request_dict, self.stored, fields_set=fields_set
+        )
 
         self.assertEqual(request_dict["access_token"], "new_rotated_access_token")
         self.assertEqual(request_dict["app_secret"], "new_rotated_app_secret")
-        self.assertEqual(request_dict["webhook_verify_token"], "new_rotated_verify_token")
+        self.assertEqual(
+            request_dict["webhook_verify_token"], "new_rotated_verify_token"
+        )
 
     def test_preserve_masked_fields_allows_clearing_optional_secrets(self):
         """When an optional sensitive credential is set to None or empty, it is not restored."""
@@ -886,16 +1096,20 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
             "private_key": "private_key_data_here",
             "signature_secret": "existing_sig_secret",
         }
-        req = VonageConfigurationRequest.model_validate({
-            "api_key": "k1",
-            "api_secret": mask_key(stored_vonage["api_secret"]),
-            "application_id": "app1",
-            "private_key": mask_key(stored_vonage["private_key"]),
-            "signature_secret": None,  # user explicitly cleared
-        })
+        req = VonageConfigurationRequest.model_validate(
+            {
+                "api_key": "k1",
+                "api_secret": mask_key(stored_vonage["api_secret"]),
+                "application_id": "app1",
+                "private_key": mask_key(stored_vonage["private_key"]),
+                "signature_secret": None,  # user explicitly cleared
+            }
+        )
         request_dict = req.model_dump()
         fields_set = _get_model_fields_set_paths(req)
-        self.preserve_masked_fields("vonage", request_dict, stored_vonage, fields_set=fields_set)
+        self.preserve_masked_fields(
+            "vonage", request_dict, stored_vonage, fields_set=fields_set
+        )
         self.assertEqual(request_dict["api_secret"], "secret_key_12345")
         self.assertEqual(request_dict["private_key"], "private_key_data_here")
         self.assertIsNone(request_dict["signature_secret"])
@@ -928,7 +1142,9 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
 
         req_dict = req.model_dump()
         fields_set = _get_model_fields_set_paths(req)
-        self.preserve_masked_fields("whatsapp", req_dict, self.stored, fields_set=fields_set)
+        self.preserve_masked_fields(
+            "whatsapp", req_dict, self.stored, fields_set=fields_set
+        )
         self.assertEqual(req_dict["access_token"], "secret_access_token_value")
         self.assertEqual(req_dict["app_secret"], "secret_app_secret_value")
 
@@ -948,18 +1164,22 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
             "signature_secret": "existing_sig_secret",
         }
         # Update payload omits signature_secret
-        req = VonageConfigurationRequest.model_validate({
-            "api_key": "k1",
-            "api_secret": mask_key(stored_vonage["api_secret"]),
-            "application_id": "app1",
-            "private_key": mask_key(stored_vonage["private_key"]),
-        })
+        req = VonageConfigurationRequest.model_validate(
+            {
+                "api_key": "k1",
+                "api_secret": mask_key(stored_vonage["api_secret"]),
+                "application_id": "app1",
+                "private_key": mask_key(stored_vonage["private_key"]),
+            }
+        )
         fields_set = _get_model_fields_set_paths(req)
         request_dict = req.model_dump()
         self.assertNotIn("signature_secret", fields_set)
         self.assertIsNone(request_dict["signature_secret"])
 
-        self.preserve_masked_fields("vonage", request_dict, stored_vonage, fields_set=fields_set)
+        self.preserve_masked_fields(
+            "vonage", request_dict, stored_vonage, fields_set=fields_set
+        )
         self.assertEqual(request_dict["signature_secret"], "existing_sig_secret")
         self.assertEqual(request_dict["api_secret"], "secret_key_12345")
 
@@ -978,18 +1198,22 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
             "private_key": "private_key_data_here",
             "signature_secret": "existing_sig_secret",
         }
-        req = VonageConfigurationRequest.model_validate({
-            "api_key": "k1",
-            "api_secret": mask_key(stored_vonage["api_secret"]),
-            "application_id": "app1",
-            "private_key": mask_key(stored_vonage["private_key"]),
-            "signature_secret": None,
-        })
+        req = VonageConfigurationRequest.model_validate(
+            {
+                "api_key": "k1",
+                "api_secret": mask_key(stored_vonage["api_secret"]),
+                "application_id": "app1",
+                "private_key": mask_key(stored_vonage["private_key"]),
+                "signature_secret": None,
+            }
+        )
         fields_set = _get_model_fields_set_paths(req)
         request_dict = req.model_dump()
         self.assertIn("signature_secret", fields_set)
 
-        self.preserve_masked_fields("vonage", request_dict, stored_vonage, fields_set=fields_set)
+        self.preserve_masked_fields(
+            "vonage", request_dict, stored_vonage, fields_set=fields_set
+        )
         self.assertIsNone(request_dict["signature_secret"])
         self.assertEqual(request_dict["api_secret"], "secret_key_12345")
 
@@ -1034,6 +1258,3 @@ class TestWhatsAppConfigurationDisplayAndMerge(IsolatedAsyncioTestCase):
         dummy_runner = lambda **kwargs: None
         set_pipeline_runner(dummy_runner)
         self.assertEqual(get_pipeline_runner(), dummy_runner)
-
-
-

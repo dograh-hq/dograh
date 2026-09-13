@@ -45,6 +45,12 @@ _E164_RE = re.compile(r"^\+[1-9][0-9]{7,14}$")
 # Presentation characters people type into a spreadsheet cell. Removing them
 # changes how a number reads, never which number it is.
 _E164_FORMATTING_RE = re.compile(r"[\s\-()\.]")
+# The national trunk prefix, written in brackets between the country code and
+# the subscriber number: "+44 (0) 20 7946 0958". It is the digit you dial
+# *instead of* the country code, never alongside it, so it has to be dropped
+# rather than have its brackets stripped - "+4402079460958" is a different,
+# wrong number that still looks like valid E.164.
+_TRUNK_PREFIX_RE = re.compile(r"^(\+\s*[0-9][0-9\s\-.]*?)\(\s*0\s*\)")
 
 
 def is_e164(raw: Optional[str]) -> bool:
@@ -70,9 +76,11 @@ def is_e164(raw: Optional[str]) -> bool:
 def canonicalize_e164(raw: Optional[str]) -> Optional[str]:
     """Return the strict E.164 form of ``raw``, or None if it is not one.
 
-    Only formatting is removed - spaces, dashes, brackets, dots - so this
-    converts "+44 7123 456789" to "+447123456789" and refuses anything whose
-    country code is missing or ambiguous, exactly like ``is_e164``.
+    Only formatting is removed - spaces, dashes, brackets, dots, and a
+    bracketed national trunk prefix - so this converts "+44 7123 456789" to
+    "+447123456789" and "+44 (0) 20 7946 0958" to "+442079460958", and refuses
+    anything whose country code is missing or ambiguous, exactly like
+    ``is_e164``.
 
     Campaign ingest runs every lead through this before storing it. Ingest
     used to accept any number starting with "+" and keep it verbatim, while
@@ -84,7 +92,10 @@ def canonicalize_e164(raw: Optional[str]) -> Optional[str]:
     """
     if not raw or not isinstance(raw, str):
         return None
-    candidate = _E164_FORMATTING_RE.sub("", raw.strip())
+    # Drop the trunk digit before the brackets around it are stripped, or it
+    # survives as a leading zero on the subscriber number.
+    candidate = _TRUNK_PREFIX_RE.sub(r"\1", raw.strip(), count=1)
+    candidate = _E164_FORMATTING_RE.sub("", candidate)
     return candidate if is_e164(candidate) else None
 
 

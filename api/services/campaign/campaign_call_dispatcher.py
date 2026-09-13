@@ -191,7 +191,9 @@ class CampaignCallDispatcher:
 
                     # Check whether the queued run is still waiting to be dialled
                     # (e.g. parked awaiting WhatsApp call permission).
-                    current_queued_run = await db_client.get_queued_run_by_id(queued_run.id)
+                    current_queued_run = await db_client.get_queued_run_by_id(
+                        queued_run.id
+                    )
                     is_awaiting_dial = _is_awaiting_dial(current_queued_run)
 
                     if is_awaiting_dial:
@@ -331,9 +333,7 @@ class CampaignCallDispatcher:
 
         try:
             actual = await db_client.sync_campaign_processed_rows(campaign_id)
-            logger.debug(
-                f"Campaign {campaign_id} processed_rows synced to {actual}"
-            )
+            logger.debug(f"Campaign {campaign_id} processed_rows synced to {actual}")
         except Exception as e:
             logger.error(
                 f"Failed to sync processed_rows for campaign {campaign_id}: {e}. "
@@ -590,7 +590,11 @@ class CampaignCallDispatcher:
                 # 24 hours just strands the lead until the timeout.
                 permission_request_sent = False
                 permission_request_error = None
-                if action == "request_and_wait" and getattr(e, "can_request_permission", True) and not is_timeout:
+                if (
+                    action == "request_and_wait"
+                    and getattr(e, "can_request_permission", True)
+                    and not is_timeout
+                ):
                     try:
                         # TelephonyProvider declares this hook and its default
                         # raises, so a provider that cannot ask for consent
@@ -709,7 +713,9 @@ class CampaignCallDispatcher:
                 campaign.id,
                 is_failure=True,
                 workflow_run_id=workflow_run.id,
-                reason="token_expired" if is_token_expired else "call_initiation_failed",
+                reason="token_expired"
+                if is_token_expired
+                else "call_initiation_failed",
             )
 
             await self.release_call_slot(workflow_run.id)

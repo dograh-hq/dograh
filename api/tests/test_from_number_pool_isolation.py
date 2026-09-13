@@ -578,7 +578,9 @@ class TestDispatcherThreadsTelephonyConfig:
             )
             mock_rl.release_from_number = AsyncMock()
             mock_rl.store_workflow_from_number_mapping = AsyncMock()
-            mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(return_value=None)
+            mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
+                return_value=None
+            )
 
             slot = CallConcurrencySlot(
                 organization_id=org_id,
@@ -593,10 +595,15 @@ class TestDispatcherThreadsTelephonyConfig:
             mock_mark_failed.assert_awaited_once()
             fail_args = mock_mark_failed.await_args
             assert fail_args.args[0] == workflow_run.id
-            assert fail_args.kwargs.get("disposition") == TelephonyCallStatus.TOKEN_EXPIRED.value
-            assert "The WhatsApp access token has expired" in fail_args.args[1] or "WhatsApp access token has expired" in fail_args.args[1]
+            assert (
+                fail_args.kwargs.get("disposition")
+                == TelephonyCallStatus.TOKEN_EXPIRED.value
+            )
+            assert (
+                "The WhatsApp access token has expired" in fail_args.args[1]
+                or "WhatsApp access token has expired" in fail_args.args[1]
+            )
 
             mock_circuit_breaker.assert_awaited_once()
             cb_kwargs = mock_circuit_breaker.await_args.kwargs
             assert cb_kwargs.get("reason") == "token_expired"
-

@@ -105,7 +105,9 @@ def test_sensitive_fields_match_config_request_schema():
             current_cls = req_cls
             parts = field.name.split(".")
             for idx, part in enumerate(parts):
-                assert current_cls is not None and hasattr(current_cls, "model_fields"), (
+                assert current_cls is not None and hasattr(
+                    current_cls, "model_fields"
+                ), (
                     f"Provider '{spec.name}' sensitive field '{field.name}' references non-model at '{part}'"
                 )
                 assert part in current_cls.model_fields, (
@@ -114,4 +116,3 @@ def test_sensitive_fields_match_config_request_schema():
                 if idx < len(parts) - 1:
                     field_info = current_cls.model_fields[part]
                     current_cls = _unwrap_model(field_info.annotation)
-

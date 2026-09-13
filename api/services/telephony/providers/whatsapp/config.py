@@ -9,9 +9,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-DEFAULT_WHATSAPP_PERMISSION_MESSAGE = (
-    "Hi! We'd like to speak with you over a quick WhatsApp call. Please tap 'Allow' below to connect with us."
-)
+DEFAULT_WHATSAPP_PERMISSION_MESSAGE = "Hi! We'd like to speak with you over a quick WhatsApp call. Please tap 'Allow' below to connect with us."
 
 
 def parse_whatsapp_expiration(expiration: Any) -> Optional[datetime]:
@@ -97,10 +95,10 @@ def is_revoked_permission_status(status: Any) -> bool:
 
 class WhatsAppConfigurationRequest(BaseModel):
     """Request schema for WhatsApp configuration.
-    
+
     This schema validates incoming configuration save requests and
     integrates with Dograh's metadata-driven UI forms.
-    
+
     Attributes:
         provider: Literal discriminator for union typing
         access_token: WhatsApp Business API access token
@@ -111,23 +109,28 @@ class WhatsAppConfigurationRequest(BaseModel):
         call_icon_visibility: Control call icon display in WhatsApp
         default_permission_message: Custom body text for call permission request messages
     """
-    
+
     provider: Literal["whatsapp"] = Field(default="whatsapp")
-    access_token: str = Field(..., min_length=1, description="WhatsApp Business API access token")
-    phone_number_id: str = Field(..., min_length=1, description="Business phone number ID")
-    webhook_verify_token: str = Field(..., min_length=1, description="Webhook verification token")
-    app_secret: str = Field(..., min_length=1, description="App secret for webhook signature validation")
+    access_token: str = Field(
+        ..., min_length=1, description="WhatsApp Business API access token"
+    )
+    phone_number_id: str = Field(
+        ..., min_length=1, description="Business phone number ID"
+    )
+    webhook_verify_token: str = Field(
+        ..., min_length=1, description="Webhook verification token"
+    )
+    app_secret: str = Field(
+        ..., min_length=1, description="App secret for webhook signature validation"
+    )
     business_initiated_calls_enabled: bool = Field(
-        default=False,
-        description="Enable business-initiated calls to WhatsApp users"
+        default=False, description="Enable business-initiated calls to WhatsApp users"
     )
     call_icon_visibility: Literal["enabled", "disabled", "business_hours"] = Field(
-        default="enabled",
-        description="Control when call icon appears to users"
+        default="enabled", description="Control when call icon appears to users"
     )
     default_permission_message: Optional[str] = Field(
-        default=None,
-        description="Custom body text sent with call permission requests"
+        default=None, description="Custom body text sent with call permission requests"
     )
 
 

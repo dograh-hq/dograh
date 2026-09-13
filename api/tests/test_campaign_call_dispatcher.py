@@ -353,7 +353,9 @@ class TestProcessBatchBasic:
                 side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
             )
             mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
-                side_effect=mock_rate_limiter["get_workflow_from_number_mapping_with_token"]
+                side_effect=mock_rate_limiter[
+                    "get_workflow_from_number_mapping_with_token"
+                ]
             )
             mock_rl.delete_workflow_from_number_mapping = AsyncMock(
                 side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
@@ -442,7 +444,9 @@ class TestProcessBatchConcurrency:
                     side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
                 )
                 mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
-                    side_effect=mock_rate_limiter["get_workflow_from_number_mapping_with_token"]
+                    side_effect=mock_rate_limiter[
+                        "get_workflow_from_number_mapping_with_token"
+                    ]
                 )
                 mock_rl.delete_workflow_from_number_mapping = AsyncMock(
                     side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
@@ -538,7 +542,9 @@ class TestProcessBatchConcurrency:
                     side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
                 )
                 mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
-                    side_effect=mock_rate_limiter["get_workflow_from_number_mapping_with_token"]
+                    side_effect=mock_rate_limiter[
+                        "get_workflow_from_number_mapping_with_token"
+                    ]
                 )
                 mock_rl.delete_workflow_from_number_mapping = AsyncMock(
                     side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
@@ -633,7 +639,9 @@ class TestProcessBatchConcurrency:
                     side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
                 )
                 mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
-                    side_effect=mock_rate_limiter["get_workflow_from_number_mapping_with_token"]
+                    side_effect=mock_rate_limiter[
+                        "get_workflow_from_number_mapping_with_token"
+                    ]
                 )
                 mock_rl.delete_workflow_from_number_mapping = AsyncMock(
                     side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
@@ -720,7 +728,9 @@ class TestProcessBatchConcurrency:
                 side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
             )
             mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
-                side_effect=mock_rate_limiter["get_workflow_from_number_mapping_with_token"]
+                side_effect=mock_rate_limiter[
+                    "get_workflow_from_number_mapping_with_token"
+                ]
             )
             mock_rl.delete_workflow_from_number_mapping = AsyncMock(
                 side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]

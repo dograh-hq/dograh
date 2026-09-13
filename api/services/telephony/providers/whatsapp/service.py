@@ -83,6 +83,8 @@ def _claim_pipeline_teardown(call_id: str, task: asyncio.Task) -> None:
 def _teardown_claimed_by_other(call_id: str) -> bool:
     """True when the current task is a pipeline whose teardown someone else owns."""
     return _pipeline_teardown_claims.get(call_id) is asyncio.current_task()
+
+
 _background_tasks: Set[asyncio.Task] = set()
 
 # Reusable aiohttp session and cached clients per phone_number_id
@@ -92,6 +94,7 @@ _clients: Dict[str, WhatsAppClient] = {}
 # Redis client and subscriber
 _redis_client: Optional[aioredis.Redis] = None
 _redis_subscriber_task: Optional[asyncio.Task] = None
+
 
 async def _run_whatsapp_pipeline(
     connection: SmallWebRTCConnection,
@@ -329,7 +332,9 @@ async def listen_for_remote_events() -> None:
                         continue
 
                     if channel == REDIS_TERMINATE_CHANNEL:
-                        answered_evt = _outbound_answered_events.pop(target_call_id, None)
+                        answered_evt = _outbound_answered_events.pop(
+                            target_call_id, None
+                        )
                         if answered_evt:
                             answered_evt.resolve(TERMINATED)
                         entry = _active_connections.pop(target_call_id, None)
@@ -372,7 +377,9 @@ async def listen_for_remote_events() -> None:
                                 # The webhook worker can only set this event when it
                                 # owns the connection, so the owning worker must
                                 # unblock its own waiting pipeline here.
-                                answered_evt = _outbound_answered_events.get(target_call_id)
+                                answered_evt = _outbound_answered_events.get(
+                                    target_call_id
+                                )
                                 if answered_evt and not answered_evt.is_set():
                                     logger.info(
                                         f"[WhatsApp] Unblocking pipeline for cross-worker answered call {target_call_id}"
@@ -390,14 +397,22 @@ async def listen_for_remote_events() -> None:
                                 # owning, worker.
                                 accept_entry = _active_connections.get(target_call_id)
                                 if accept_entry:
-                                    accept_conn, accept_run_id = accept_entry[0], accept_entry[1]
+                                    accept_conn, accept_run_id = (
+                                        accept_entry[0],
+                                        accept_entry[1],
+                                    )
                                     if hasattr(accept_conn, "call_status"):
                                         accept_conn.call_status = "in-progress"
                                     now_iso = datetime.now(timezone.utc).isoformat()
-                                    if hasattr(accept_conn, "connected_at") and not accept_conn.connected_at:
+                                    if (
+                                        hasattr(accept_conn, "connected_at")
+                                        and not accept_conn.connected_at
+                                    ):
                                         accept_conn.connected_at = now_iso
                                     try:
-                                        run = await db_client.get_workflow_run(accept_run_id)
+                                        run = await db_client.get_workflow_run(
+                                            accept_run_id
+                                        )
                                         if run:
                                             ctx = dict(run.gathered_context or {})
                                             ctx["call_status"] = "in-progress"
@@ -414,7 +429,9 @@ async def listen_for_remote_events() -> None:
                                             f"cross-worker accepted for {target_call_id}: {e}"
                                         )
                 except Exception as parse_err:
-                    logger.warning(f"[WhatsApp] Error handling cross-worker message: {parse_err}")
+                    logger.warning(
+                        f"[WhatsApp] Error handling cross-worker message: {parse_err}"
+                    )
         except asyncio.CancelledError:
             break
         except Exception as conn_err:
@@ -527,7 +544,9 @@ async def unregister_outbound_active_connection(
             "after cancellation; abandoning it."
         )
     except Exception as e:
-        logger.warning(f"[WhatsApp] Pipeline task for {call_id} errored during teardown: {e}")
+        logger.warning(
+            f"[WhatsApp] Pipeline task for {call_id} errored during teardown: {e}"
+        )
 
 
 # Aliases for backwards compatibility with existing private names
@@ -603,8 +622,35 @@ async def handle_call_terminate(
                     "after cancellation; abandoning it."
                 )
             except Exception as e:
-                logger.warning(f"[WhatsApp] Pipeline task for {call_id} errored during teardown: {e}")
+                logger.warning(
+                    f"[WhatsApp] Pipeline task for {call_id} errored during teardown: {e}"
+                )
 
+    # Shielded: our caller can be cancelled at any await below, and nothing
+    # else picks this up afterwards.
+    cleanup = asyncio.ensure_future(_complete_terminated_call(call_id, call_data))
+    _background_tasks.add(cleanup)
+    cleanup.add_done_callback(_background_tasks.discard)
+    try:
+        await asyncio.shield(cleanup)
+    except asyncio.CancelledError:
+        logger.warning(
+            f"[WhatsApp] Terminate for call {call_id} was cancelled; completing the "
+            "run and releasing its slot in the background"
+        )
+        raise
+
+
+async def _complete_terminated_call(call_id: str, call_data: Dict[str, Any]) -> None:
+    """Close the peer, finish the run and free its slot for a terminated call.
+
+    Split out of handle_call_terminate so it can be shielded: it is the only
+    path that still does this. The cancelled pipeline used to repeat the same
+    steps as an accidental fallback, and no longer does - so if the task that
+    owns the teardown is itself cancelled part-way through (worker shutdown, a
+    webhook request whose client went away), an abandoned run would stay
+    "running" with its concurrency slot held until the stale timeout.
+    """
     entry = _active_connections.pop(call_id, None)
     if entry:
         connection, workflow_run_id, org_id = entry[:3]
@@ -633,7 +679,9 @@ async def handle_call_terminate(
                 gathered_context=ctx,
             )
         except Exception as e:
-            logger.warning(f"[WhatsApp] Failed to update workflow run on termination: {e}")
+            logger.warning(
+                f"[WhatsApp] Failed to update workflow run on termination: {e}"
+            )
 
         try:
             await call_concurrency.release_workflow_run_slot(workflow_run_id)
@@ -706,7 +754,9 @@ async def terminate_whatsapp_call_by_id(
             run = await db_client.get_workflow_run(workflow_run_id)
             if run:
                 ctx = run.gathered_context or {}
-                phone_number_id = ctx.get("from_phone_number_id") or ctx.get("phone_number_id")
+                phone_number_id = ctx.get("from_phone_number_id") or ctx.get(
+                    "phone_number_id"
+                )
                 if not organization_id:
                     organization_id = run.organization_id
         except Exception:
@@ -738,13 +788,17 @@ async def terminate_whatsapp_call_by_id(
             creds = config.credentials or {}
             access_token = creds.get("access_token") or creds.get("api_key")
             app_secret = creds.get("app_secret")
-            config_phone_number_id = str(creds.get("phone_number_id") or phone_number_id or "")
+            config_phone_number_id = str(
+                creds.get("phone_number_id") or phone_number_id or ""
+            )
             if access_token and config_phone_number_id:
                 client = _get_or_create_whatsapp_client(
                     config_phone_number_id, access_token, app_secret
                 )
                 if client and client._whatsapp_api:
-                    resp = await client._whatsapp_api.terminate_call_to_whatsapp(call_id)
+                    resp = await client._whatsapp_api.terminate_call_to_whatsapp(
+                        call_id
+                    )
                     provider_terminated = True
                     logger.info(
                         f"[WhatsApp] Sent terminate request to Meta API for call {call_id}: resp={resp}"
@@ -843,4 +897,3 @@ def resolve_live_call_state(call_id, workflow_run_id):
         peer_connected=peer_connected,
         answered=getattr(connection, "call_status", None) == "in-progress",
     )
-

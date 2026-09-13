@@ -21,7 +21,15 @@ export type AmbientNoiseConfiguration = Omit<
 export type TurnStopStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_stop_strategy"]>;
 export type TurnStartStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_start_strategy"]>;
 export const DEFAULT_TURN_START_MIN_WORDS = 3;
-export const DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5;
+
+// "provisional_vad" was retired. Definitions saved before then still carry it,
+// so map it onto the option the backend now resolves such a value to, rather
+// than handing the select a value it has no entry for.
+function coerceTurnStartStrategy(value: string): TurnStartStrategy {
+    return TURN_START_STRATEGY_OPTIONS.some(o => o.value === value)
+        ? (value as TurnStartStrategy)
+        : 'default';
+}
 
 export const TURN_START_STRATEGY_OPTIONS: Array<{
     value: TurnStartStrategy;
@@ -37,11 +45,6 @@ export const TURN_START_STRATEGY_OPTIONS: Array<{
         value: 'min_words',
         label: 'Minimum words',
         description: 'Wait for a minimum number of transcribed words before interrupting bot speech.',
-    },
-    {
-        value: 'provisional_vad',
-        label: 'Provisional VAD',
-        description: 'Pause bot audio on voice activity, then confirm the interruption with transcription.',
     },
 ];
 
@@ -130,7 +133,6 @@ type WorkflowConfigurationBase = Omit<
     | "smart_turn_stop_secs"
     | "turn_start_strategy"
     | "turn_start_min_words"
-    | "provisional_vad_pause_secs"
     | "turn_stop_strategy"
     | "dictionary"
     | "context_compaction_enabled"
@@ -147,7 +149,6 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     smart_turn_stop_secs: number;  // Timeout in seconds for incomplete turn detection
     turn_start_strategy: TurnStartStrategy;  // Strategy for detecting start of user turn/interruption
     turn_start_min_words: number;  // Minimum transcribed words required for minimum-word interruptions
-    provisional_vad_pause_secs: number;  // Seconds to pause bot output while awaiting transcript confirmation
     turn_stop_strategy: TurnStopStrategy;  // Strategy for detecting end of user turn
     dictionary?: string;  // Comma-separated words for voice agent to listen for
     voicemail_detection?: VoicemailDetectionConfiguration;
@@ -172,7 +173,6 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     smart_turn_stop_secs: 2,  // 2 seconds
     turn_start_strategy: 'default',  // Default to platform-chosen user turn start detection
     turn_start_min_words: DEFAULT_TURN_START_MIN_WORDS,
-    provisional_vad_pause_secs: DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     turn_stop_strategy: 'transcription',  // Default to transcription-based detection
     dictionary: '',
     transcript_configuration: DEFAULT_TRANSCRIPT_CONFIGURATION,
@@ -207,18 +207,15 @@ export function resolveWorkflowConfigurations(
             configurations?.smart_turn_stop_secs
             ?? defaults?.smart_turn_stop_secs
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.smart_turn_stop_secs,
-        turn_start_strategy:
+        turn_start_strategy: coerceTurnStartStrategy(
             configurations?.turn_start_strategy
             ?? defaults?.turn_start_strategy
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.turn_start_strategy,
+        ),
         turn_start_min_words:
             configurations?.turn_start_min_words
             ?? defaults?.turn_start_min_words
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.turn_start_min_words,
-        provisional_vad_pause_secs:
-            configurations?.provisional_vad_pause_secs
-            ?? defaults?.provisional_vad_pause_secs
-            ?? FALLBACK_WORKFLOW_CONFIGURATIONS.provisional_vad_pause_secs,
         turn_stop_strategy:
             configurations?.turn_stop_strategy
             ?? defaults?.turn_stop_strategy

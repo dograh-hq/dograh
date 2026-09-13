@@ -36,12 +36,12 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useAppConfig } from "@/context/AppConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { useAppConfig } from "@/context/AppConfigContext";
-import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 import { cn } from "@/lib/utils";
+import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 interface ConfigFormDialogProps {
   open: boolean;

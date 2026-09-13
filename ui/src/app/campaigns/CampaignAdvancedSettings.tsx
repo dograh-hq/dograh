@@ -59,11 +59,16 @@ export interface CampaignAdvancedSettingsProps {
     // True when the provider requires recipient consent before dialling: the
     // caller-ID based concurrency hints below do not apply to those campaigns.
     requiresCallPermission?: boolean;
-    // How many numbers the configuration actually has. Distinct from
-    // `fromNumbersCount`, which callers substitute with a sentinel when a
-    // provider's concurrency is not capped by caller IDs - a substitution that
-    // silently answered "does this campaign have a number at all?" with yes.
-    configuredPhoneNumberCount?: number;
+    // How many numbers the configuration actually has.
+    //
+    // Required, and deliberately not defaulted to `fromNumbersCount`: that
+    // one is a concurrency input, which a caller may replace with a sentinel
+    // when a provider's concurrency is not capped by caller IDs. Falling back
+    // to it would answer "does this campaign have a number at all?" with that
+    // sentinel, which is how the warning below came to be unreachable on the
+    // edit page. Making it required means a caller that forgets is a type
+    // error rather than a silently suppressed warning.
+    configuredPhoneNumberCount: number;
 }
 
 /** Extract the string timezone value from ITimezoneOption | string */
@@ -157,7 +162,7 @@ export default function CampaignAdvancedSettings({
                     have, but every provider still needs an active number to
                     dial from, so this is the one warning that says the
                     campaign cannot run at all. */}
-                {(configuredPhoneNumberCount ?? fromNumbersCount) === 0 && (
+                {configuredPhoneNumberCount === 0 && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
                         No phone numbers configured. Add one in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
                     </p>

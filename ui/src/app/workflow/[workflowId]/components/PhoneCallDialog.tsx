@@ -46,8 +46,8 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useUserConfig } from "@/context/UserConfigContext";
-import { useAuth } from "@/lib/auth";
 import { detailFromError } from "@/lib/apiError";
+import { useAuth } from "@/lib/auth";
 
 interface PhoneCallDialogProps {
     open: boolean;
@@ -485,7 +485,7 @@ export const PhoneCallDialog = ({
                 'Content-Type': 'application/json',
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
             };
-            const payload: Record<string, any> = {
+            const payload: Record<string, string | number> = {
                 telephony_configuration_id: Number(selectedConfigId),
                 recipient_phone_number: phoneNumber,
             };
@@ -512,8 +512,10 @@ export const PhoneCallDialog = ({
             setWaPermissionFor(`${selectedConfigId}|${phoneNumber.trim()}`);
             setWaHoursRemaining(168);
             setWaDeliveryError(null);
-        } catch (err: any) {
-            setCallError(err.message || "Failed to send permission request");
+        } catch (err) {
+            setCallError(
+                err instanceof Error ? err.message : "Failed to send permission request",
+            );
         } finally {
             setRequestingWaPermission(false);
         }
@@ -736,7 +738,9 @@ export const PhoneCallDialog = ({
                 setCallError(errMsg);
                 setCallStatus("failed");
             } else {
-                const rawData = response.data as any;
+                const rawData = response.data as
+                    | { message?: string; workflow_run_id?: number }
+                    | undefined;
                 const msg = rawData?.message || "Call initiated successfully!";
                 const runId = rawData?.workflow_run_id;
                 if (runId) {

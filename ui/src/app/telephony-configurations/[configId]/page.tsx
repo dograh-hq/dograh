@@ -581,7 +581,7 @@ export default function TelephonyConfigurationDetailPage() {
                           ? String(
                               n.extra_metadata?.phone_number_id ||
                                 n.extra_metadata?.meta_phone_number_id ||
-                                (config?.credentials as Record<string, any>)?.phone_number_id ||
+                                (config?.credentials as Record<string, unknown>)?.phone_number_id ||
                                 n.id,
                             )
                           : String(n.id);

@@ -18,13 +18,15 @@ class TestCampaignSourcePhoneNumbers(unittest.TestCase):
         """Two spellings of one number are one contact, not two leads.
 
         Comparing the raw cells let both through, and the campaign then placed
-        two calls to the same person.
+        two calls to the same person. The variants here are ones the
+        dialability rule accepts - it rejects whitespace outright - so the
+        duplicate check is what has to catch them.
         """
         result = CampaignSourceSyncService.validate_source_data(
             ["phone_number", "name"],
             [
-                ["+44 7123 456789", "Ada"],
-                ["+447123456789", "Ada again"],
+                ["+44(0)2079460958", "Ada"],
+                ["+442079460958", "Ada again"],
             ],
         )
         self.assertFalse(result.is_valid)
@@ -34,12 +36,17 @@ class TestCampaignSourcePhoneNumbers(unittest.TestCase):
     def test_distinct_numbers_still_pass(self):
         result = CampaignSourceSyncService.validate_source_data(
             ["phone_number"],
-            [["+44 7123 456789"], ["+447123456780"]],
+            [["+442079460958"], ["+447123456780"]],
         )
         self.assertTrue(result.is_valid)
 
     def test_row_is_stored_in_canonical_form(self):
-        """What is stored is what will be dialled."""
+        """What is stored is what will be dialled.
+
+        Upload validation rejects whitespace, but brackets and dashes reach
+        here, so canonicalising is still what makes the stored value the one
+        every provider will accept.
+        """
         context = CSVSyncService._build_context_variables(
             ["phone_number", "name"], ["+44 (0) 20 7946 0958", "Ada"]
         )

@@ -55,7 +55,12 @@ _E164_FORMATTING_RE = re.compile(r"[\s\-()\.]")
 # directly after it is the trunk prefix. One appearing later is part of the
 # subscriber number's punctuation, and dropping its digit would change who
 # gets dialled - so that case falls through to plain bracket stripping.
-_TRUNK_PREFIX_RE = re.compile(r"^(\+\s*[0-9]{1,3}[\s\-.]*)\(\s*0\s*\)")
+#
+# The digits are counted, not required to be contiguous, because a spreadsheet
+# may space them out ("+3 53 (0) 1 234 5678"). Capping the count at three is
+# what keeps a "(0)" deeper in the number from being mistaken for a trunk
+# prefix, whatever it is punctuated with.
+_TRUNK_PREFIX_RE = re.compile(r"^(\+[\s\-.]*(?:[0-9][\s\-.]*){1,3})\(\s*0\s*\)")
 
 
 def is_e164(raw: Optional[str]) -> bool:

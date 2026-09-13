@@ -79,8 +79,13 @@ class TestTelephonyAddress(unittest.TestCase):
         self.assertEqual(canonicalize_e164("+44-(0)20 7946 0958"), "+442079460958")
         self.assertEqual(canonicalize_e164("+44(0)2079460958"), "+442079460958")
         self.assertEqual(canonicalize_e164("+353 (0) 1 234 5678"), "+35312345678")
+        # The country code's own digits may be spaced out by the spreadsheet;
+        # it is the count that bounds the prefix, not contiguity.
+        self.assertEqual(canonicalize_e164("+3 53 (0) 1 234 5678"), "+35312345678")
+        self.assertEqual(canonicalize_e164("+3-5-3-(0)-1-234-5678"), "+35312345678")
         # Not a trunk prefix: the zero belongs to the subscriber number.
         self.assertEqual(canonicalize_e164("+1 415 (0) 555 2671"), "+141505552671")
+        self.assertEqual(canonicalize_e164("+12 34 (0) 5678901"), "+123405678901")
         # A bracketed area code is not a trunk prefix either.
         self.assertEqual(canonicalize_e164("+1 (415) 555-2671"), "+14155552671")
 

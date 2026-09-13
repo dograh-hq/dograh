@@ -298,7 +298,11 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
         pc.addEventListener('track', (evt) => {
             if (evt.track.kind === 'audio' && audioRef.current) {
-                audioRef.current.srcObject = evt.streams[0];
+                const stream = (evt.streams && evt.streams[0]) ? evt.streams[0] : new MediaStream([evt.track]);
+                audioRef.current.srcObject = stream;
+                audioRef.current.play().catch((err) => {
+                    logger.warn('Failed to autoplay incoming audio track:', err);
+                });
             }
         });
 

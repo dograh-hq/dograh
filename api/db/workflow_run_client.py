@@ -110,6 +110,19 @@ class WorkflowRunClient(BaseDBClient):
             result = await session.execute(select(WorkflowRunModel))
             return result.scalars().all()
 
+    async def get_workflow_run_by_queued_run_id(
+        self, queued_run_id: int
+    ) -> Optional[WorkflowRunModel]:
+        """Get the latest workflow run associated with a queued run."""
+        async with self.async_session() as session:
+            query = (
+                select(WorkflowRunModel)
+                .where(WorkflowRunModel.queued_run_id == queued_run_id)
+                .order_by(WorkflowRunModel.created_at.desc())
+            )
+            result = await session.execute(query)
+            return result.scalars().first()
+
     async def get_workflow_runs_for_superadmin(
         self,
         limit: int = 50,
@@ -364,7 +377,8 @@ class WorkflowRunClient(BaseDBClient):
         state: str | None = None,
         annotations: dict | None = None,
         extra: dict | None = None,
-    ) -> WorkflowRunModel:
+        only_if_incomplete: bool = False,
+    ) -> Optional[WorkflowRunModel]:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
             result = await session.execute(
@@ -375,6 +389,8 @@ class WorkflowRunClient(BaseDBClient):
             run = result.scalars().first()
             if not run:
                 raise ValueError(f"Workflow run with ID {run_id} not found")
+            if only_if_incomplete and run.is_completed:
+                return None
             if recording_url:
                 run.recording_url = recording_url
             if transcript_url:
@@ -393,11 +409,14 @@ class WorkflowRunClient(BaseDBClient):
                     **initial_context,
                 }
             if gathered_context:
-                # Lets merge the incoming gathered context keys with the existing ones
-                merged = {
-                    **run.gathered_context,
-                    **gathered_context,
-                }
+                # Merge incoming gathered context keys, deleting keys explicitly set to None
+                merged = dict(run.gathered_context or {})
+                for k, v in gathered_context.items():
+                    if v is None:
+                        merged.pop(k, None)
+                    else:
+                        merged[k] = v
+
                 # `call_tags` is a list, so the key merge above replaces it
                 # wholesale. Two writers each hold their own snapshot of a
                 # finishing run -- the engine's `_gathered_context` and the copy
@@ -405,12 +424,17 @@ class WorkflowRunClient(BaseDBClient):
                 # whichever lands second was dropping the other's tags. Union
                 # them so a call keeps both its disposition and `user_speech`.
                 tags = append_unique_tags(
-                    run.gathered_context.get("call_tags"),
+                    run.gathered_context.get("call_tags")
+                    if run.gathered_context
+                    else None,
                     gathered_context.get("call_tags"),
                 )
                 if tags:
                     merged["call_tags"] = tags
                 run.gathered_context = merged
+                from sqlalchemy.orm.attributes import flag_modified
+
+                flag_modified(run, "gathered_context")
             if logs:
                 # Lets merge the incoming logs key with existing ones
                 run.logs = {**run.logs, **logs}

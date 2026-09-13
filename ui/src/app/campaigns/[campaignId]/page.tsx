@@ -10,12 +10,14 @@ import {
     downloadCampaignReportApiV1CampaignCampaignIdReportGet,
     getCampaignApiV1CampaignCampaignIdGet,
     getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet,
+    listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
     pauseCampaignApiV1CampaignCampaignIdPausePost,
     redialCampaignApiV1CampaignCampaignIdRedialPost,
     resumeCampaignApiV1CampaignCampaignIdResumePost,
     startCampaignApiV1CampaignCampaignIdStartPost,
+    syncCampaignWhatsappPermissionsApiV1TelephonyWhatsappCampaignsCampaignIdSyncPermissionsPost,
 } from '@/client/sdk.gen';
-import type { CampaignResponse } from '@/client/types.gen';
+import type { CampaignResponse, TelephonyConfigurationListItem } from '@/client/types.gen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -28,6 +30,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator';
 import { CampaignRuns } from '@/components/workflow-runs';
 import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 import { formatDate, formatDateTime } from '@/lib/dateTime';
 
@@ -53,6 +56,7 @@ export default function CampaignDetailPage() {
     // Action state
     const [isExecutingAction, setIsExecutingAction] = useState(false);
     const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+    const [runsRefreshTrigger, setRunsRefreshTrigger] = useState(0);
 
     // Report date range state
     const [reportStartDate, setReportStartDate] = useState<Date | undefined>(undefined);
@@ -60,6 +64,15 @@ export default function CampaignDetailPage() {
     const [reportEndDate, setReportEndDate] = useState<Date | undefined>(undefined);
     const [reportEndTime, setReportEndTime] = useState('23:59');
     const [isReportPopoverOpen, setIsReportPopoverOpen] = useState(false);
+
+    // Telephony configurations, needed to know the campaign's actual provider
+    const [telephonyConfigs, setTelephonyConfigs] = useState<TelephonyConfigurationListItem[]>([]);
+    // Whether the last lookup above failed. An empty `telephonyConfigs` from a
+    // failed request is indistinguishable from "no configs" unless this is
+    // tracked separately — and silently treating it as "no configs" makes a
+    // WhatsApp campaign look like plain voice (requiresCallPermission below stays
+    // false), which skips the Meta permission sync on the runs reload.
+    const [telephonyConfigsError, setTelephonyConfigsError] = useState(false);
 
     // Redial dialog state
     const [isRedialDialogOpen, setIsRedialDialogOpen] = useState(false);
@@ -95,10 +108,41 @@ export default function CampaignDetailPage() {
         }
     }, [user, getAccessToken, campaignId]);
 
+    const [isFetchingTelephonyConfigs, setIsFetchingTelephonyConfigs] = useState(false);
+
+    // Telephony configurations carry the provider, which the campaign response
+    // does not; it is what decides whether this is a WhatsApp campaign.
+    const fetchTelephonyConfigs = useCallback(async () => {
+        if (!user) return;
+        setIsFetchingTelephonyConfigs(true);
+        try {
+            const accessToken = await getAccessToken();
+            const res = await listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+            });
+            if (res.error) {
+                throw new Error(detailFromError(res.error, 'Failed to load telephony configurations'));
+            }
+            // The endpoint returns { configurations: [...] }, not a bare array.
+            setTelephonyConfigs(res.data?.configurations ?? []);
+            setTelephonyConfigsError(false);
+        } catch (error) {
+            console.error('Failed to fetch telephony configurations:', error);
+            // Do not fall back to an empty list here — that reads as "not a
+            // WhatsApp campaign" and would silently skip the Meta permission
+            // sync below. Surface the failure and let the user retry instead.
+            setTelephonyConfigsError(true);
+            toast.error('Failed to load telephony configuration. WhatsApp-specific actions may be unavailable until this is retried.');
+        } finally {
+            setIsFetchingTelephonyConfigs(false);
+        }
+    }, [user, getAccessToken]);
+
     // Initial load
     useEffect(() => {
         fetchCampaign();
-    }, [fetchCampaign]);
+        fetchTelephonyConfigs();
+    }, [fetchCampaign, fetchTelephonyConfigs]);
 
     // Handle back navigation
     const handleBack = () => {
@@ -198,6 +242,43 @@ export default function CampaignDetailPage() {
         setReportStartTime('00:00');
         setReportEndDate(undefined);
         setReportEndTime('23:59');
+    };
+
+    // Handle manual sync WhatsApp call permissions with Meta
+    const handleSyncWhatsAppPermissions = async () => {
+        if (!user) return;
+        try {
+            const accessToken = await getAccessToken();
+            const response = await syncCampaignWhatsappPermissionsApiV1TelephonyWhatsappCampaignsCampaignIdSyncPermissionsPost({
+                path: { campaign_id: campaignId },
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            });
+
+            if (response.data) {
+                if (response.data.throttled) {
+                    toast.info('Permission sync is on cooldown. Please wait a few seconds before trying again.');
+                } else {
+                    const reactivated = response.data.reactivated_count || 0;
+                    if (reactivated > 0) {
+                        toast.success(`WhatsApp permissions synced: ${reactivated} lead${reactivated > 1 ? 's' : ''} unparked and queued for calling!`);
+                    } else {
+                        toast.info('WhatsApp permissions synced. No new permissions were granted by recipients yet.');
+                    }
+                    // Only after a sync that actually ran: a cooldown response
+                    // changed nothing server-side, so refetching the campaign
+                    // and the runs table would show the same rows again.
+                    await fetchCampaign();
+                    setRunsRefreshTrigger((prev) => prev + 1);
+                }
+            } else if (response.error) {
+                toast.error(detailFromError(response.error, 'Failed to sync WhatsApp permissions'));
+            }
+        } catch (error) {
+            console.error('Failed to sync WhatsApp permissions:', error);
+            toast.error('Failed to sync WhatsApp permissions');
+        }
     };
 
     // Handle start campaign
@@ -374,6 +455,18 @@ export default function CampaignDetailPage() {
     };
 
     const canEdit = campaign && ['created', 'running', 'paused'].includes(campaign.state);
+
+    // Whether this campaign's recipients must consent before they can be
+    // called, as reported by the provider registry. Read from the capability
+    // rather than from the provider's name: a second provider with the same
+    // requirement must not need a change here, which is what
+    // providers/AGENTS.md means by pushing variation through the registry.
+    // (The earlier check also accepted a truthy whatsapp_permission_action,
+    // but the API always sends that field, defaulting to "skip", so every
+    // campaign matched.)
+    const requiresCallPermission =
+        telephonyConfigs.find((tc) => tc.id === campaign?.telephony_configuration_id)
+            ?.requires_call_permission === true;
 
     // Newest entries first. The backend appends chronologically; the UI is more
     // useful when the most recent failure / pause is at the top.
@@ -590,6 +683,24 @@ export default function CampaignDetailPage() {
                         </div>
                     </div>
                 </div>
+
+                {telephonyConfigsError && (
+                    <div className="mb-6 rounded-md bg-destructive/15 p-3 text-sm text-destructive flex items-center justify-between gap-3">
+                        <span>
+                            Failed to load telephony configuration. Whether this is a WhatsApp
+                            campaign — and the Meta permission sync on run reload — could not
+                            be determined.
+                        </span>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isFetchingTelephonyConfigs}
+                            onClick={() => fetchTelephonyConfigs()}
+                        >
+                            Retry
+                        </Button>
+                    </div>
+                )}
 
                 {/* Campaign Details */}
                 <Card className="mb-6">
@@ -881,6 +992,9 @@ export default function CampaignDetailPage() {
                     campaignId={campaignId}
                     workflowId={campaign.workflow_id}
                     searchParams={searchParams}
+                    refreshTrigger={runsRefreshTrigger}
+                    requiresCallPermission={requiresCallPermission}
+                    onSyncWhatsAppPermissions={handleSyncWhatsAppPermissions}
                 />
 
                 <Dialog open={isRedialDialogOpen} onOpenChange={setIsRedialDialogOpen}>

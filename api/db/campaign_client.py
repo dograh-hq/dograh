@@ -1,16 +1,76 @@
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, text, update
+from sqlalchemy import func, or_, text, update
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
 from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
+from api.enums import TelephonyCallStatus, WorkflowRunState
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
+from api.utils.telephony_address import normalize_telephony_address
+
+
+def is_same_recipient_number(
+    candidate: str,
+    target_digits: str,
+    target_canonical: str,
+    target_no_plus: str,
+) -> bool:
+    """Decide whether a stored phone number refers to the same recipient as the target.
+
+    This is a *consent* gate, not a data-cleanup helper: the caller acts on the
+    result by activating or failing a parked campaign run on the strength of a
+    permission webhook. A false positive therefore dials someone who never
+    consented, or cancels someone else's lead on a stranger's refusal. So the
+    rule is full-number equality on the canonical digits and nothing else. The
+    only differences forgiven are punctuation and a leading "+", because
+    neither carries any information about which subscriber is meant.
+
+    In particular this deliberately does NOT infer a missing country code.
+    Both sides are guaranteed to carry one:
+
+    * Campaign leads - ``CampaignSourceSyncService.validate_source_data``
+      (api/services/campaign/source_sync.py) rejects campaign creation with a
+      400 if any CSV row's ``phone_number`` does not start with "+", so a
+      stored lead is an international number, however it is punctuated.
+    * Webhook recipients - Meta reports the recipient as a ``wa_id``, which is
+      always a full international number.
+
+    Given that, two numbers that differ by a leading 1-3 digit prefix are two
+    different subscribers, not two spellings of one: "+441234567890" (UK) and
+    "+1234567890" may well belong to unrelated people, and a grant or denial
+    from one must never move the other's run. The target derivations are passed
+    in precomputed because this runs once per candidate row.
+    """
+    if not candidate:
+        return False
+
+    candidate_digits = re.sub(r"\D", "", candidate)
+
+    # 1. Canonical digit equality. Every formatting variant of one number -
+    #    "+1 (555) 123-4567", "1-555-123-4567", "+15551234567", "15551234567" -
+    #    reduces to the same digit string, so this covers punctuation and the
+    #    optional "+" without relaxing *which* number is meant.
+    if candidate_digits and candidate_digits == target_digits:
+        return True
+
+    # 2. Canonical match via normalize_telephony_address. For PSTN this agrees
+    #    with (1); it matters when the target is not a PSTN number at all
+    #    (e.g. a SIP address), where comparing digit runs says nothing.
+    try:
+        if normalize_telephony_address(candidate).canonical == target_canonical:
+            return True
+    except Exception:
+        pass
+
+    # 3. Leading plus-stripped string match, for the same non-PSTN case.
+    return candidate.lstrip("+") == target_no_plus
 
 
 class CampaignClient(BaseDBClient):
@@ -27,6 +87,7 @@ class CampaignClient(BaseDBClient):
         schedule_config: Optional[dict] = None,
         circuit_breaker: Optional[dict] = None,
         telephony_configuration_id: Optional[int] = None,
+        whatsapp_permission_action: Optional[str] = "skip",
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -38,6 +99,10 @@ class CampaignClient(BaseDBClient):
                 orchestrator_metadata["schedule_config"] = schedule_config
             if circuit_breaker is not None:
                 orchestrator_metadata["circuit_breaker"] = circuit_breaker
+            if whatsapp_permission_action is not None:
+                orchestrator_metadata["whatsapp_permission_action"] = (
+                    whatsapp_permission_action
+                )
 
             campaign = CampaignModel(
                 name=name,
@@ -265,10 +330,22 @@ class CampaignClient(BaseDBClient):
                     f"Campaign {parent_campaign.id} has already been redialed"
                 )
 
+            # whatsapp_permission_action is orchestrator behaviour, not a
+            # one-off of the parent run: campaign_call_dispatcher reads it with
+            # a default of "skip", so leaving it out of this allowlist silently
+            # downgrades a redial of a "request_and_wait" campaign to "skip" -
+            # the child stops asking recipients for call permission and drops
+            # every unpermitted lead instead of parking it.
             child_meta = {
                 k: v
                 for k, v in parent_meta.items()
-                if k in ("max_concurrency", "schedule_config", "circuit_breaker")
+                if k
+                in (
+                    "max_concurrency",
+                    "schedule_config",
+                    "circuit_breaker",
+                    "whatsapp_permission_action",
+                )
             }
             child_meta["parent_campaign_id"] = parent_campaign.id
 
@@ -285,6 +362,14 @@ class CampaignClient(BaseDBClient):
                     else CampaignModel.retry_config.default.arg
                 ),
                 orchestrator_metadata=child_meta,
+                # Pin the same telephony configuration as the parent. Without
+                # it the child falls back to the org's default outbound config
+                # in get_provider_for_campaign, so a redial of a WhatsApp
+                # campaign can leave via a different provider entirely - which
+                # would also make the inherited whatsapp_permission_action
+                # above inert. Same organization_id as the parent, so this
+                # references nothing outside the tenant.
+                telephony_configuration_id=parent_campaign.telephony_configuration_id,
                 rate_limit_per_second=parent_campaign.rate_limit_per_second,
                 total_rows=len(queued_runs_data),
                 source_sync_status="completed",
@@ -491,6 +576,114 @@ class CampaignClient(BaseDBClient):
                 await session.rollback()
                 raise
             return attempt
+
+    async def mark_queued_run_processed_if_owned(self, queued_run_id: int) -> bool:
+        """Move a claimed run to ``processed``, only if this claim still owns it.
+
+        ``claim_queued_runs_for_processing`` leaves the row in ``processing``, so
+        that state is the claim ticket. A run that was parked and later granted
+        goes back to ``queued`` and can be claimed and completed by a different
+        batch; re-marking it here would rewrite another batch's ``processed_at``
+        and double count it. Returns True only when this call performed the
+        transition.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(QueuedRunModel)
+                .where(
+                    QueuedRunModel.id == queued_run_id,
+                    QueuedRunModel.state == "processing",
+                )
+                .values(state="processed", processed_at=datetime.now(UTC))
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+            return result.rowcount > 0
+
+    async def sync_campaign_processed_rows(self, campaign_id: int) -> int:
+        """Set processed_rows to the number of finished queued runs.
+
+        ``processed_rows`` is a cache of queued-run state, not an independent
+        fact, and it used to be maintained by delta from several places (batch
+        dispatch, permission denial, redial). Deltas cannot be replayed: a
+        duplicate webhook or an overlapping batch inflated progress past the
+        number of finished contacts, and a failed write lost it for good.
+        Recomputing is idempotent, so this is the only writer of the column -
+        every path that finishes a run calls it instead of adding its own one.
+
+        The campaign row is locked before the count is taken, in two
+        statements, and that ordering is the point. PostgreSQL evaluates a
+        statement against the snapshot it started with, so a single
+        count-and-update that blocked on this lock would afterwards write a
+        count taken before the writer it waited for had committed - silently
+        undoing that run. Taking the lock first and counting in a new statement
+        gives the count a snapshot that includes everything committed up to the
+        moment the lock was granted.
+        """
+        async with self.async_session() as session:
+            locked = await session.execute(
+                text("SELECT id FROM campaigns WHERE id = :campaign_id FOR UPDATE"),
+                {"campaign_id": campaign_id},
+            )
+            if locked.scalar_one_or_none() is None:
+                await session.rollback()
+                raise ValueError(f"Campaign {campaign_id} not found")
+
+            result = await session.execute(
+                text(
+                    "UPDATE campaigns SET "
+                    "processed_rows = ("
+                    "  SELECT count(*) FROM queued_runs "
+                    "  WHERE queued_runs.campaign_id = campaigns.id "
+                    "  AND queued_runs.state IN ('processed', 'failed')"
+                    "), "
+                    "updated_at = :now "
+                    "WHERE campaigns.id = :campaign_id "
+                    "RETURNING campaigns.processed_rows"
+                ),
+                {"campaign_id": campaign_id, "now": datetime.now(UTC)},
+            )
+            actual = result.scalar_one()
+            await session.commit()
+            return actual
+
+    async def merge_campaign_orchestrator_metadata(
+        self, campaign_id: int, updates: Dict[str, Any]
+    ) -> Optional[CampaignModel]:
+        """Atomically merge `updates` into campaigns.orchestrator_metadata (SQL-side jsonb ||).
+
+        A last-write-wins Python read/merge/write would drop concurrent writers'
+        keys; the jsonb `||` merge below is done entirely in SQL so concurrent
+        callers each only ever add or overwrite their own keys.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE campaigns "
+                    "SET orchestrator_metadata = ("
+                    "        COALESCE(orchestrator_metadata::jsonb, '{}'::jsonb) "
+                    "        || CAST(:updates AS jsonb)"
+                    "    )::json, "
+                    "    updated_at = :now "
+                    "WHERE id = :campaign_id "
+                    "RETURNING id"
+                ),
+                {
+                    "campaign_id": campaign_id,
+                    "updates": json.dumps(updates),
+                    "now": datetime.now(UTC),
+                },
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                await session.rollback()
+                return None
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            return await session.get(CampaignModel, campaign_id)
 
     async def reset_campaign_metadata_counter(self, campaign_id: int, key: str) -> None:
         """Remove a counter field from campaign orchestrator_metadata."""
@@ -749,6 +942,25 @@ class CampaignClient(BaseDBClient):
             result = await session.execute(query)
             return result.scalar() or 0
 
+    async def get_claimable_queued_runs_count(
+        self,
+        campaign_id: int,
+        before: Optional[datetime] = None,
+    ) -> int:
+        """Get count of queued runs that are claimable right now (unscheduled or scheduled <= before)."""
+        now = before or datetime.now(UTC)
+        async with self.async_session() as session:
+            query = select(func.count(QueuedRunModel.id)).where(
+                QueuedRunModel.campaign_id == campaign_id,
+                QueuedRunModel.state == "queued",
+                or_(
+                    QueuedRunModel.scheduled_for.is_(None),
+                    QueuedRunModel.scheduled_for <= now,
+                ),
+            )
+            result = await session.execute(query)
+            return result.scalar() or 0
+
     async def get_scheduled_runs_count(
         self,
         campaign_id: int,
@@ -850,3 +1062,250 @@ class CampaignClient(BaseDBClient):
                 await session.refresh(run)
 
             return claimed_runs
+
+    async def get_queued_runs_awaiting_whatsapp_permission(
+        self, phone_number: str
+    ) -> List[QueuedRunModel]:
+        """Find active queued runs waiting for WhatsApp call permission from this phone number."""
+        if not phone_number:
+            return []
+
+        raw_trimmed = phone_number.strip()
+        target_digits = re.sub(r"\D", "", raw_trimmed)
+        if not target_digits:
+            return []
+
+        try:
+            target_canonical = normalize_telephony_address(raw_trimmed).canonical
+        except Exception:
+            target_canonical = f"+{target_digits}"
+
+        target_no_plus = target_canonical.lstrip("+")
+
+        # Build candidate filter conditions for SQL-level filtering to avoid
+        # loading all parked runs into memory.
+        candidate_filters = [
+            QueuedRunModel.context_variables["phone_number"].as_string() == raw_trimmed,
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == target_digits,
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == f"+{target_digits}",
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == target_canonical,
+            QueuedRunModel.context_variables["phone_number"].as_string()
+            == target_no_plus,
+        ]
+
+        # Formatted variants ("+1 (555) 123-4567", "+33 6 12 34 56 78") never
+        # equal any of the strings above, so compare the stored number with its
+        # punctuation removed - exactly the reduction is_same_recipient_number
+        # performs in Python. This replaces the previous last-7 / last-4 digit
+        # ILIKE prefilter, which had a real recall hole: punctuation inside the
+        # trailing digits defeats both windows at once. "+33 6 12 34 56 78"
+        # contains neither "2345678" nor "5678" as a substring, so a parked
+        # French lead was dropped in SQL before the matcher ever saw it - and
+        # 2-digit grouping is the normal spelling across much of Europe, not an
+        # exotic case. Stripping non-digits in SQL is immune to any separator.
+        if target_digits:
+            candidate_filters.append(
+                func.regexp_replace(
+                    QueuedRunModel.context_variables["phone_number"].as_string(),
+                    "[^0-9]",
+                    "",
+                    "g",
+                )
+                == target_digits
+            )
+
+        async with self.async_session() as session:
+            query = select(QueuedRunModel).where(
+                QueuedRunModel.state == "queued",
+                QueuedRunModel.retry_reason == "awaiting_whatsapp_permission",
+                or_(*candidate_filters),
+            )
+            result = await session.execute(query)
+            runs = list(result.scalars().all())
+
+            # Robust matching in Python across formatting differences. Only
+            # context_variables["phone_number"] is consulted, so a row the broad
+            # ILIKE prefilter pulled in on some other field is discarded here.
+            return [
+                r
+                for r in runs
+                if is_same_recipient_number(
+                    str((r.context_variables or {}).get("phone_number") or "").strip(),
+                    target_digits=target_digits,
+                    target_canonical=target_canonical,
+                    target_no_plus=target_no_plus,
+                )
+            ]
+
+    async def get_all_queued_runs_awaiting_whatsapp_permission(
+        self, campaign_id: Optional[int] = None
+    ) -> List[QueuedRunModel]:
+        """Find all active queued runs waiting for WhatsApp call permission across campaigns or for a specific campaign."""
+        async with self.async_session() as session:
+            conditions = [
+                QueuedRunModel.state == "queued",
+                QueuedRunModel.retry_reason == "awaiting_whatsapp_permission",
+            ]
+            if campaign_id is not None:
+                conditions.append(QueuedRunModel.campaign_id == campaign_id)
+            query = select(QueuedRunModel).where(*conditions)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def activate_queued_run_for_immediate_dial(
+        self, queued_run_id: int
+    ) -> Optional[QueuedRunModel]:
+        """Clears scheduled_for so the run is picked up in the next campaign batch,
+        and removes awaiting_permission disposition on the linked workflow run.
+
+        Returns None - changing nothing - if the run is no longer parked on this
+        permission. Meta redelivers permission webhooks, and the same grant can
+        additionally arrive over the messages webhook and the cron sync, so the
+        caller's "still queued and awaiting permission" read is stale by the
+        time we get here. The conditional UPDATE below is the atomic gate: only
+        the writer that observes the row still in ('queued',
+        'awaiting_whatsapp_permission') proceeds, so a duplicate grant cannot
+        un-fail a denied run or re-arm one that has already been claimed.
+        """
+        async with self.async_session() as session:
+            gate = await session.execute(
+                update(QueuedRunModel)
+                .where(
+                    QueuedRunModel.id == queued_run_id,
+                    QueuedRunModel.state == "queued",
+                    QueuedRunModel.retry_reason == "awaiting_whatsapp_permission",
+                )
+                .values(scheduled_for=None, retry_reason="permission_granted")
+                .execution_options(synchronize_session=False)
+            )
+            if gate.rowcount == 0:
+                await session.rollback()
+                return None
+
+            # The gate already persisted both fields, and it holds the row lock
+            # until this transaction commits, so this read sees them. Assigning
+            # them again through the ORM would make a second writer for state
+            # the gate alone should own.
+            run = await session.get(QueuedRunModel, queued_run_id)
+            if not run:
+                await session.rollback()
+                return None
+
+            # Reset awaiting_permission disposition on existing workflow run so UI
+            # immediately reverts to the default condition for a live/in-flight run
+            wf_query = (
+                select(WorkflowRunModel)
+                .where(WorkflowRunModel.queued_run_id == queued_run_id)
+                .order_by(WorkflowRunModel.created_at.desc())
+            )
+            wf_result = await session.execute(wf_query)
+            wf_run = wf_result.scalars().first()
+            if wf_run and not wf_run.is_completed:
+                ctx = dict(wf_run.gathered_context or {})
+                ctx.pop("call_disposition", None)
+                ctx.pop("mapped_call_disposition", None)
+                ctx.pop("call_status", None)
+                ctx.pop("error", None)
+                wf_run.gathered_context = ctx
+                from sqlalchemy.orm.attributes import flag_modified
+
+                flag_modified(wf_run, "gathered_context")
+
+            await session.commit()
+            await session.refresh(run)
+            return run
+
+    async def fail_queued_run_permission_denied(
+        self, queued_run_id: int
+    ) -> Optional[QueuedRunModel]:
+        """Marks a queued run as failed when recipient denies WhatsApp call permission.
+
+        Returns None - changing nothing - if the run is no longer parked on this
+        permission. The previous "state not in (failed, processed)" check was
+        read from an unlocked row, so two concurrent deliveries of the same
+        denial (Meta retries webhooks, and the messages webhook and cron sync
+        can carry the same event) could both observe 'queued' and each add one
+        to failed_rows. It also could not tell a fresh denial from a stale one
+        for a run that had since been granted and claimed. The conditional
+        UPDATE below is the atomic gate: exactly one writer sees the row in
+        ('queued', 'awaiting_whatsapp_permission'), and only that writer moves
+        failed_rows or recomputes processed_rows.
+        """
+        async with self.async_session() as session:
+            now = datetime.now(UTC)
+            gate = await session.execute(
+                update(QueuedRunModel)
+                .where(
+                    QueuedRunModel.id == queued_run_id,
+                    QueuedRunModel.state == "queued",
+                    QueuedRunModel.retry_reason == "awaiting_whatsapp_permission",
+                )
+                .values(
+                    state="failed",
+                    retry_reason="permission_denied",
+                    processed_at=now,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if gate.rowcount == 0:
+                await session.rollback()
+                return None
+
+            run = await session.get(QueuedRunModel, queued_run_id)
+            if not run:
+                await session.rollback()
+                return None
+
+            # The gate proved this run was still parked, so failed_rows moves
+            # exactly once per run. Incrementing SQL-side rather than reading
+            # the campaign and writing back keeps this from clobbering a
+            # concurrent writer of the same column.
+            #
+            # processed_rows is deliberately NOT touched here. It is derived
+            # from queued-run state, and this transaction is what makes that
+            # state true; adding a delta as well would make this a second
+            # writer of a value sync_campaign_processed_rows recomputes, and
+            # the two cannot both be right - that increment is what the
+            # recompute then had to be clamped not to undo, which in turn made
+            # an overcount permanent.
+            #
+            # The recompute is the caller's, once per campaign after its runs
+            # are committed: it locks the campaign row, so doing it per run
+            # would serialise N exclusive-lock recounts on a webhook that
+            # denied one recipient with N parked leads.
+            if run.campaign_id:
+                await session.execute(
+                    update(CampaignModel)
+                    .where(CampaignModel.id == run.campaign_id)
+                    .values(
+                        failed_rows=func.coalesce(CampaignModel.failed_rows, 0) + 1,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+
+            run.state = "failed"
+            run.retry_reason = "permission_denied"
+            run.processed_at = now
+            wf_query = (
+                select(WorkflowRunModel)
+                .where(WorkflowRunModel.queued_run_id == queued_run_id)
+                .order_by(WorkflowRunModel.created_at.desc())
+            )
+            wf_result = await session.execute(wf_query)
+            wf_run = wf_result.scalars().first()
+            if wf_run and not wf_run.is_completed:
+                wf_run.is_completed = True
+                wf_run.state = WorkflowRunState.COMPLETED.value
+                wf_run.gathered_context = {
+                    **(wf_run.gathered_context or {}),
+                    "call_disposition": TelephonyCallStatus.PERMISSION_DENIED.value,
+                    "mapped_call_disposition": TelephonyCallStatus.PERMISSION_DENIED.value,
+                    "call_status": TelephonyCallStatus.PERMISSION_DENIED.value,
+                    "error": "WhatsApp call permission was denied by recipient",
+                }
+            await session.commit()
+            await session.refresh(run)
+        return run

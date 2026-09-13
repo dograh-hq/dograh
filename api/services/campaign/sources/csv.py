@@ -13,6 +13,7 @@ from api.services.campaign.source_sync import (
     ValidationResult,
 )
 from api.services.storage import storage_fs
+from api.utils.telephony_address import canonicalize_e164
 
 
 class CSVSyncService(CampaignSourceSyncService):
@@ -29,6 +30,15 @@ class CSVSyncService(CampaignSourceSyncService):
         """Convert a flat CSV row into the initial context used by a campaign call."""
         padded_row = row_values + [""] * (len(headers) - len(row_values))
         context_vars: Dict[str, Any] = dict(zip(headers, padded_row))
+
+        # Store the lead's number in the one form every downstream consumer
+        # agrees on. A number that is only formatted - "+44 7123 456789" -
+        # passes upload validation but is rejected at dial time by providers
+        # that require strict E.164; anything this cannot canonicalise is left
+        # exactly as supplied, so validation still reports it the same way.
+        canonical_phone = canonicalize_e164(context_vars.get("phone_number"))
+        if canonical_phone:
+            context_vars["phone_number"] = canonical_phone
 
         override_type = (
             context_vars.pop(cls.GREETING_OVERRIDE_TYPE_COLUMN, "").strip().lower()

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, FileText, Info, Loader2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle, ChevronLeft, ChevronRight, Clock, ExternalLink, FileText, Info, KeyRound, Loader2, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -418,9 +418,27 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell>
                                                         {run.gathered_context?.mapped_call_disposition ? (
-                                                            <Badge variant="default">
-                                                                {run.gathered_context.mapped_call_disposition as string}
-                                                            </Badge>
+                                                            (run.gathered_context.mapped_call_disposition as string) === "awaiting_permission" ? (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800 flex items-center gap-1 font-medium w-fit"
+                                                                >
+                                                                    <Clock className="h-3 w-3" />
+                                                                    Awaiting Permission
+                                                                </Badge>
+                                                            ) : (run.gathered_context.mapped_call_disposition as string) === "token_expired" ? (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className="bg-red-50 text-red-700 border-red-300 dark:bg-red-950 dark:text-red-300 dark:border-red-800 flex items-center gap-1 font-medium w-fit"
+                                                                >
+                                                                    <KeyRound className="h-3 w-3" />
+                                                                    Token Expired
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge variant="default">
+                                                                    {run.gathered_context.mapped_call_disposition as string}
+                                                                </Badge>
+                                                            )
                                                         ) : (
                                                             <span className="text-sm text-muted-foreground">-</span>
                                                         )}

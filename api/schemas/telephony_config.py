@@ -37,6 +37,10 @@ from api.services.telephony.providers.vobiz.config import (
 from api.services.telephony.providers.vonage.config import (
     VonageConfigurationRequest,
 )
+from api.services.telephony.providers.whatsapp.config import (
+    WhatsAppConfigurationRequest,
+    WhatsAppConfigurationResponse,
+)
 from api.services.telephony.registry import (
     ProviderConnectivity,
     ProviderSetupChecklist,
@@ -55,6 +59,7 @@ TelephonyConfigRequest = Annotated[
         TwilioConfigurationRequest,
         VobizConfigurationRequest,
         VonageConfigurationRequest,
+        WhatsAppConfigurationRequest,
     ],
     Field(discriminator="provider"),
 ]
@@ -98,6 +103,11 @@ class TelephonyConfigurationListItem(BaseModel):
     # account apart from a bring-your-own-SIP connection without a second
     # request and without a hardcoded provider list of their own.
     connectivity: ProviderConnectivity = "api"
+    # Also from the registry: whether the recipient must consent before this
+    # provider places a business-initiated call. Clients branch on this rather
+    # than on `provider`, so a second provider with the same requirement needs
+    # no frontend change.
+    requires_call_permission: bool = False
     is_default_outbound: bool
     inactive: bool = False
     inactive_since: datetime | None = None
@@ -156,6 +166,11 @@ class TelephonyConfigurationDetail(BaseModel):
     name: str
     provider: str
     connectivity: ProviderConnectivity = "api"
+    # Also from the registry: whether the recipient must consent before this
+    # provider places a business-initiated call. Clients branch on this rather
+    # than on `provider`, so a second provider with the same requirement needs
+    # no frontend change.
+    requires_call_permission: bool = False
     is_default_outbound: bool
     inactive: bool = False
     inactive_since: datetime | None = None
@@ -193,4 +208,6 @@ __all__ = [
     "TwilioConfigurationRequest",
     "VobizConfigurationRequest",
     "VonageConfigurationRequest",
+    "WhatsAppConfigurationRequest",
+    "WhatsAppConfigurationResponse",
 ]

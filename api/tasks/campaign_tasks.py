@@ -249,3 +249,21 @@ async def process_campaign_batch(
             details={"error": str(e)},
         )
         raise
+
+
+async def sweep_parked_whatsapp_permissions(ctx: Dict) -> int:
+    """Cron job: periodic sweep across running campaigns to check and reactivate parked WhatsApp leads."""
+    try:
+        from api.services.telephony.providers.whatsapp.permission_sync import (
+            sync_all_parked_whatsapp_permissions,
+        )
+
+        reactivated = await sync_all_parked_whatsapp_permissions()
+        if reactivated > 0:
+            logger.info(
+                f"Reactivated {reactivated} parked WhatsApp leads during periodic sweep"
+            )
+        return reactivated
+    except Exception as e:
+        logger.warning(f"Error in sweep_parked_whatsapp_permissions cron: {e}")
+        return 0

@@ -41,6 +41,11 @@ class TelephonyCallStatus(str, Enum):
     NO_ANSWER = "no-answer"
     CANCELED = "canceled"
     ERROR = "error"
+    NO_PERMISSION = "no_permission"
+    AWAITING_PERMISSION = "awaiting_permission"
+    PERMISSION_DENIED = "permission_denied"
+    PERMISSION_TIMEOUT = "permission_timeout"
+    TOKEN_EXPIRED = "token_expired"
 
     @classmethod
     def from_raw(cls, value: object) -> "TelephonyCallStatus | None":
@@ -65,6 +70,7 @@ class WorkflowRunMode(Enum):
     CLOUDONIX = "cloudonix"
     EXOTEL = "exotel"
     TELNYX = "telnyx"
+    WHATSAPP = "whatsapp"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
     TEXTCHAT = "textchat"
@@ -101,6 +107,7 @@ WORKFLOW_RUN_MODES_BY_CHANNEL: dict[str, tuple[str, ...]] = {
         WorkflowRunMode.CLOUDONIX.value,
         WorkflowRunMode.EXOTEL.value,
         WorkflowRunMode.TELNYX.value,
+        WorkflowRunMode.WHATSAPP.value,
         WorkflowRunMode.STASIS.value,
         WorkflowRunMode.VOICE.value,
     ),

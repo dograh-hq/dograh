@@ -400,3 +400,51 @@ async def test_workflow_slot_mapping_round_trips_scope_key():
     finally:
         await redis_client.delete(mapping_key)
         await rl.close()
+
+
+@pytest.mark.asyncio
+async def test_release_workflow_run_slot_releases_from_number_mapping():
+    """release_workflow_run_slot should release both concurrency slot and mapped from_number."""
+    service = CallConcurrencyService()
+    workflow_run_id = 999
+
+    with (
+        patch(
+            "api.services.call_concurrency.service.rate_limiter"
+        ) as mock_rate_limiter,
+        patch("api.services.call_concurrency.service.logger"),
+    ):
+        # Concurrency slot mapping exists
+        mock_rate_limiter.get_workflow_slot_mapping = AsyncMock(
+            return_value=(1, "slot-abc", None)
+        )
+        mock_rate_limiter.release_concurrent_slot = AsyncMock(return_value=True)
+        mock_rate_limiter.delete_workflow_slot_mapping = AsyncMock()
+
+        # From number mapping exists. The 4th element is the ownership token -
+        # the acquisition score - which the release must present so it can only
+        # ever free its own acquisition, never one someone else has since taken.
+        mock_rate_limiter.get_workflow_from_number_mapping_with_token = AsyncMock(
+            return_value=(1, "+15551234567", 42, "1700000000.0")
+        )
+        mock_rate_limiter.release_from_number = AsyncMock(return_value=True)
+        mock_rate_limiter.delete_workflow_from_number_mapping = AsyncMock()
+
+        res = await service.release_workflow_run_slot(workflow_run_id)
+
+        assert res is True
+        mock_rate_limiter.release_concurrent_slot.assert_awaited_once_with(
+            1, "slot-abc", scope_key=None
+        )
+        mock_rate_limiter.delete_workflow_slot_mapping.assert_awaited_once_with(
+            workflow_run_id
+        )
+        mock_rate_limiter.release_from_number.assert_awaited_once_with(
+            1,
+            "+15551234567",
+            telephony_configuration_id=42,
+            expected_token="1700000000.0",
+        )
+        mock_rate_limiter.delete_workflow_from_number_mapping.assert_awaited_once_with(
+            workflow_run_id
+        )

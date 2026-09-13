@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 import uuid
 from dataclasses import dataclass
@@ -20,6 +22,22 @@ FLEET_CONCURRENT_KEY = "concurrent_calls_fleet"
 class ConcurrentSlotAcquisition:
     slot_id: str
     active_count: int
+
+
+@dataclass(frozen=True)
+class FromNumberAcquisition:
+    """A from_number plus the ownership token (acquisition-time score) that
+    was written for it in the pool ZSET.
+
+    The token must be carried into the workflow's from_number mapping and
+    passed back to ``release_from_number`` as ``expected_token`` so a stale
+    retry can never free a number that another call has since re-acquired
+    (it only frees the number when the pool's current score still equals
+    this token).
+    """
+
+    from_number: str
+    token: str
 
 
 class RateLimiter:
@@ -453,6 +471,75 @@ class RateLimiter:
             logger.error(f"Error initializing from_number pool: {e}")
             return False
 
+    _ACQUIRE_FROM_NUMBER_LUA = """
+    local key = KEYS[1]
+    local now = tonumber(ARGV[1])
+    local stale_cutoff = tonumber(ARGV[2])
+
+    -- Clean stale entries: members with score > 0 and score < stale_cutoff
+    local stale = redis.call('ZRANGEBYSCORE', key, 1, stale_cutoff)
+    for i, member in ipairs(stale) do
+        redis.call('ZADD', key, 0, member)
+    end
+
+    -- Find all available numbers (score == 0)
+    local available = redis.call('ZRANGEBYSCORE', key, 0, 0)
+    if #available == 0 then
+        return nil
+    end
+
+    -- Pick a random number from the available pool for uniform distribution
+    local idx = math.random(#available)
+    local chosen = available[idx]
+
+    -- Atomic sequence counter per pool key for monotonic uniqueness
+    local seq = redis.call('INCR', key .. ':seq')
+    redis.call('EXPIRE', key .. ':seq', 3600)
+
+    -- Build unique score: floor(now) seconds + (seq % 1000000) microseconds
+    local score = math.floor(now) + (seq % 1000000) * 0.000001
+    local score_str = string.format("%.6f", score)
+
+    -- Mark as in-use with unique timestamp score
+    redis.call('ZADD', key, score, chosen)
+    return {chosen, score_str}
+    """
+
+    async def _acquire_from_number_raw(
+        self, organization_id: int, telephony_configuration_id: int | None
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Shared implementation for acquire_from_number and
+        acquire_from_number_with_token. Returns (from_number_or_None, token_or_None) --
+        `token` is the unique score the Lua script atomically generated and ZADD'ed
+        for the returned number, ensuring collision-free ownership.
+        """
+        redis_client = await self._get_redis()
+        key = self._from_number_pool_key(organization_id, telephony_configuration_id)
+        now = time.time()
+        stale_cutoff = now - self.stale_call_timeout
+
+        try:
+            result = await redis_client.eval(
+                self._ACQUIRE_FROM_NUMBER_LUA, 1, key, now, stale_cutoff
+            )
+            if result:
+                if isinstance(result, (list, tuple)) and len(result) >= 2:
+                    from_number = result[0]
+                    token = str(result[1])
+                elif isinstance(result, str):
+                    from_number = result
+                    token = str(now)
+                else:
+                    return None, None
+                logger.debug(
+                    f"Acquired from_number {from_number} for org {organization_id}"
+                )
+                return from_number, token
+            return None, None
+        except Exception as e:
+            logger.error(f"Error acquiring from_number: {e}")
+            return None, None
+
     async def acquire_from_number(
         self, organization_id: int, telephony_configuration_id: int | None
     ) -> Optional[str]:
@@ -462,56 +549,67 @@ class RateLimiter:
         Cleans stale entries (score > 0 and older than 30 min) before acquiring.
 
         Returns the phone number if available, None if all numbers are in use.
+
+        See ``acquire_from_number_with_token`` for a variant that also
+        surfaces the ownership token new call sites should carry through the
+        workflow's from_number mapping so releases can be made race-safe.
         """
-        redis_client = await self._get_redis()
-        key = self._from_number_pool_key(organization_id, telephony_configuration_id)
-        now = time.time()
-        stale_cutoff = now - self.stale_call_timeout
+        from_number, _token = await self._acquire_from_number_raw(
+            organization_id, telephony_configuration_id
+        )
+        return from_number
 
-        lua_script = """
-        local key = KEYS[1]
-        local now = tonumber(ARGV[1])
-        local stale_cutoff = tonumber(ARGV[2])
-
-        -- Clean stale entries: members with score > 0 and score < stale_cutoff
-        local stale = redis.call('ZRANGEBYSCORE', key, 1, stale_cutoff)
-        for i, member in ipairs(stale) do
-            redis.call('ZADD', key, 0, member)
-        end
-
-        -- Find all available numbers (score == 0)
-        local available = redis.call('ZRANGEBYSCORE', key, 0, 0)
-        if #available == 0 then
-            return nil
-        end
-
-        -- Pick a random number from the available pool for uniform distribution
-        local idx = math.random(#available)
-        local chosen = available[idx]
-
-        -- Mark as in-use with current timestamp
-        redis.call('ZADD', key, now, chosen)
-        return chosen
+    async def acquire_from_number_with_token(
+        self, organization_id: int, telephony_configuration_id: int | None
+    ) -> Optional[FromNumberAcquisition]:
         """
-
-        try:
-            result = await redis_client.eval(lua_script, 1, key, now, stale_cutoff)
-            if result:
-                logger.debug(f"Acquired from_number {result} for org {organization_id}")
-            return result
-        except Exception as e:
-            logger.error(f"Error acquiring from_number: {e}")
+        Same as acquire_from_number, but also returns the ownership token
+        (the acquisition-time score) written for the number. Callers must
+        carry ``.token`` into the workflow's from_number mapping
+        (store_workflow_from_number_mapping) and pass it back on release
+        (release_from_number's ``expected_token``) so a release can never
+        free a number that has since been re-acquired by another call.
+        """
+        from_number, token = await self._acquire_from_number_raw(
+            organization_id, telephony_configuration_id
+        )
+        if from_number is None or token is None:
             return None
+        return FromNumberAcquisition(from_number=from_number, token=token)
 
     async def release_from_number(
         self,
         organization_id: int,
         from_number: str,
         telephony_configuration_id: int | None,
-    ) -> bool:
+        expected_token: str | None = None,
+    ) -> bool | None:
         """
         Release a from_number back to its (org, telephony config) pool by
-        setting its score to 0. Harmless if already released (score already 0).
+        setting its score to 0.
+
+        When ``expected_token`` is given (the ownership token returned by
+        acquire_from_number and carried through the workflow's from_number
+        mapping), the release is conditional on the pool's current score
+        still matching that token: the Lua script distinguishes
+        "absent from the pool" (0), "released by us" (1), and "present but
+        the score no longer matches our token" (2, e.g. it was already
+        released and/or re-acquired by another call since) -- outcome 2
+        leaves the pool untouched so a stale retry can never free a number
+        someone else is now using. When ``expected_token`` is omitted
+        (legacy mappings written before the token field existed), the
+        release is unconditional, matching the original behaviour -- note
+        that in Lua a score of 0 is truthy, so a number that is already
+        released still takes the "release" branch and returns 1; that is
+        NOT a signal that the number was absent.
+
+        Returns True if released by us (outcome 1), False if the number was
+        absent from the pool or is owned by someone else (outcomes 0/2 --
+        both mean "nothing more for us to do here"), or None on a Redis
+        error. Because the token check makes a release a no-op unless we
+        still own the number, a None result is now safe to retry: retrying
+        can only ever re-attempt freeing OUR OWN acquisition, never someone
+        else's.
         """
         if not from_number:
             return False
@@ -522,25 +620,52 @@ class RateLimiter:
         lua_script = """
         local key = KEYS[1]
         local from_number = ARGV[1]
+        local expected_token = ARGV[2]
 
         local score = redis.call('ZSCORE', key, from_number)
-        if score then
+        if not score then
+            return 0
+        end
+
+        if expected_token == '' then
+            -- No ownership token supplied (legacy mapping): unconditional
+            -- release, matching pre-token behaviour. Note 0 is truthy in
+            -- Lua, so an already-released number (score 0) still lands
+            -- here and returns 1 -- it does not mean "absent".
             redis.call('ZADD', key, 0, from_number)
             return 1
         end
-        return 0
+
+        if tonumber(score) == tonumber(expected_token) then
+            redis.call('ZADD', key, 0, from_number)
+            return 1
+        end
+
+        -- Present but the score no longer matches our token: either it was
+        -- already released (score 0) or re-acquired by another call (score
+        -- is their newer timestamp). Either way, do not touch the pool.
+        return 2
         """
 
         try:
-            result = await redis_client.eval(lua_script, 1, key, from_number)
-            if result:
+            result = await redis_client.eval(
+                lua_script, 1, key, from_number, expected_token or ""
+            )
+            if result == 1:
                 logger.debug(
                     f"Released from_number {from_number} for org {organization_id}"
                 )
-            return bool(result)
+            elif result == 2:
+                logger.debug(
+                    f"from_number {from_number} for org {organization_id} was "
+                    "not released: current score no longer matches the "
+                    "expected ownership token (already released and/or "
+                    "re-acquired by another call)"
+                )
+            return result == 1
         except Exception as e:
             logger.error(f"Error releasing from_number: {e}")
-            return False
+            return None
 
     async def store_workflow_from_number_mapping(
         self,
@@ -548,11 +673,20 @@ class RateLimiter:
         organization_id: int,
         from_number: str,
         telephony_configuration_id: int | None,
+        token: str | None = None,
     ) -> bool:
         """
         Store the mapping between workflow_run_id and its from_number, plus
         the telephony_configuration_id so cleanup can release back to the
         correct pool.
+
+        ``token`` is the ownership token from acquire_from_number_with_token
+        (the acquisition-time score). It is stored as an extra hash field so
+        a later release can be made conditional on still owning the number;
+        this is additive -- mappings written before this field existed (or
+        by call sites still using the plain acquire_from_number) simply lack
+        it, and release_from_number falls back to its unconditional legacy
+        behaviour when no token is supplied.
         """
         redis_client = await self._get_redis()
         mapping_key = f"workflow_from_number:{workflow_run_id}"
@@ -563,28 +697,24 @@ class RateLimiter:
             tcid_value = (
                 "" if telephony_configuration_id is None else telephony_configuration_id
             )
-            await redis_client.hset(
-                mapping_key,
-                mapping={
-                    "org_id": organization_id,
-                    "from_number": from_number,
-                    "telephony_configuration_id": tcid_value,
-                },
-            )
+            mapping = {
+                "org_id": organization_id,
+                "from_number": from_number,
+                "telephony_configuration_id": tcid_value,
+                "token": token or "",
+            }
+            await redis_client.hset(mapping_key, mapping=mapping)
             await redis_client.expire(mapping_key, 1800)  # 30 min TTL
             return True
         except Exception as e:
             logger.error(f"Error storing workflow from_number mapping: {e}")
             return False
 
-    async def get_workflow_from_number_mapping(
+    async def _get_workflow_from_number_mapping_raw(
         self, workflow_run_id: int
-    ) -> Optional[tuple[int, str, int | None]]:
-        """
-        Get the from_number mapping for a workflow run.
-        Returns (organization_id, from_number, telephony_configuration_id) or
-        None if not found. telephony_configuration_id is None for legacy entries.
-        """
+    ) -> Optional[tuple[int, str, int | None, str | None]]:
+        """Shared implementation for get_workflow_from_number_mapping and
+        get_workflow_from_number_mapping_with_token."""
         redis_client = await self._get_redis()
         mapping_key = f"workflow_from_number:{workflow_run_id}"
 
@@ -593,11 +723,42 @@ class RateLimiter:
             if mapping and "org_id" in mapping and "from_number" in mapping:
                 raw_tcid = mapping.get("telephony_configuration_id", "")
                 tcid = int(raw_tcid) if raw_tcid not in (None, "") else None
-                return (int(mapping["org_id"]), mapping["from_number"], tcid)
+                token = mapping.get("token") or None
+                return (int(mapping["org_id"]), mapping["from_number"], tcid, token)
             return None
         except Exception as e:
             logger.error(f"Error getting workflow from_number mapping: {e}")
             return None
+
+    async def get_workflow_from_number_mapping(
+        self, workflow_run_id: int
+    ) -> Optional[tuple[int, str, int | None]]:
+        """
+        Get the from_number mapping for a workflow run.
+        Returns (organization_id, from_number, telephony_configuration_id) or
+        None if not found. telephony_configuration_id is None for legacy entries.
+
+        See ``get_workflow_from_number_mapping_with_token`` for a variant
+        that also surfaces the ownership token for a race-safe release.
+        """
+        raw = await self._get_workflow_from_number_mapping_raw(workflow_run_id)
+        if raw is None:
+            return None
+        org_id, from_number, tcid, _token = raw
+        return (org_id, from_number, tcid)
+
+    async def get_workflow_from_number_mapping_with_token(
+        self, workflow_run_id: int
+    ) -> Optional[tuple[int, str, int | None, str | None]]:
+        """
+        Same as get_workflow_from_number_mapping, but also returns the
+        ownership token stored alongside the mapping (None for mappings
+        written before the token field existed, i.e. no token was recorded
+        at acquire time). Pass the token through to release_from_number's
+        ``expected_token`` so the release cannot free a number that has
+        since been re-acquired by another call.
+        """
+        return await self._get_workflow_from_number_mapping_raw(workflow_run_id)
 
     async def delete_workflow_from_number_mapping(self, workflow_run_id: int) -> bool:
         """

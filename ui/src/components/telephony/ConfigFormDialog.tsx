@@ -36,9 +36,12 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useAppConfig } from "@/context/AppConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { cn } from "@/lib/utils";
+import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 interface ConfigFormDialogProps {
   open: boolean;
@@ -57,6 +60,16 @@ interface ConfigFormDialogProps {
 
 type FieldValue = string | number | boolean | undefined;
 type FieldValues = Record<string, FieldValue>;
+
+const DEFAULT_WHATSAPP_PERMISSION_MESSAGE =
+  "Hi! We'd like to speak with you over a quick WhatsApp call. Please tap 'Allow' below to connect with us.";
+
+function generateWhatsAppVerifyToken(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().replace(/-/g, "").slice(0, 24);
+  }
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
 
 function flattenValues(
   value: Record<string, unknown>,
@@ -105,11 +118,14 @@ export function ConfigFormDialog({
   onSaved,
 }: ConfigFormDialogProps) {
   const { user, getAccessToken } = useAuth();
+  const { config: appConfig } = useAppConfig();
+  const whatsappWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}/api/v1/telephony/whatsapp/webhook`;
   const [providers, setProviders] = useState<TelephonyProviderMetadata[]>([]);
   const [providerName, setProviderName] = useState<string>("");
   const [name, setName] = useState<string>("");
   const [isDefault, setIsDefault] = useState<boolean>(false);
   const [values, setValues] = useState<FieldValues>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const isEdit = !!existing;
@@ -126,10 +142,6 @@ export function ConfigFormDialog({
       // filtering out of the generic credentials dialog.
       currentProvider?.fields.filter(
         (field) =>
-          // A readonly field reports a value the server assigned. Before the
-          // configuration exists there is nothing to report, and announcing a
-          // field that is not there yet reads as something the user forgot to
-          // fill in — so it appears only once it has a value.
           !(field.type === "readonly" && !values[field.name]) &&
           (!field.visible_when ||
             values[field.visible_when.field] === field.visible_when.equals),
@@ -157,8 +169,18 @@ export function ConfigFormDialog({
       } else {
         setIsDefault(suggestDefaultOutbound);
         if (list.length > 0 && !providerName) {
-          setProviderName(list[0].provider);
-          setValues({});
+          const defaultProvider = list[0].provider;
+          setProviderName(defaultProvider);
+          if (defaultProvider === "whatsapp") {
+            setValues({
+              webhook_verify_token: generateWhatsAppVerifyToken(),
+              call_icon_visibility: "enabled",
+              business_initiated_calls_enabled: false,
+              default_permission_message: DEFAULT_WHATSAPP_PERMISSION_MESSAGE,
+            });
+          } else {
+            setValues({});
+          }
         }
       }
     })();
@@ -168,10 +190,25 @@ export function ConfigFormDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existing, user, getAccessToken]);
 
-  // When provider changes during create, clear field values.
+  // When provider changes during create, set initial field values.
   useEffect(() => {
-    if (!isEdit) setValues({});
+    if (!isEdit) {
+      if (providerName === "whatsapp") {
+        setValues({
+          webhook_verify_token: generateWhatsAppVerifyToken(),
+          call_icon_visibility: "enabled",
+          business_initiated_calls_enabled: false,
+          default_permission_message: DEFAULT_WHATSAPP_PERMISSION_MESSAGE,
+        });
+      } else {
+        setValues({});
+      }
+    }
   }, [providerName, isEdit]);
+
+  useEffect(() => {
+    if (!open) setFieldErrors({});
+  }, [open]);
 
   const updateField = (fieldName: string, value: FieldValue) => {
     setValues((prev) => {
@@ -183,14 +220,56 @@ export function ConfigFormDialog({
       }
       return next;
     });
+    setFieldErrors((prev) => {
+      if (!prev[fieldName]) return prev;
+      const next = { ...prev };
+      delete next[fieldName];
+      return next;
+    });
+  };
+
+  const isFieldMissing = (
+    field: TelephonyProviderMetadata["fields"][number],
+    value: FieldValue,
+  ) =>
+    field.name !== "from_numbers" &&
+    field.required &&
+    field.type !== "readonly" &&
+    (value === undefined || value === null || value === "");
+
+  const fieldLabelByName = (fieldName: string) => {
+    if (fieldName === "name") return "Name";
+    return currentProvider?.fields.find((field) => field.name === fieldName)?.label ?? fieldName;
   };
 
   const handleSubmit = async () => {
     if (!currentProvider) return;
+    const nextFieldErrors: Record<string, string> = {};
+    const missingFields: string[] = [];
+
     if (!isEdit && !name.trim()) {
-      toast.error("Name is required");
+      nextFieldErrors.name = "Required";
+      missingFields.push("Name");
+    }
+
+    for (const field of visibleFields) {
+      if (isFieldMissing(field, values[field.name])) {
+        nextFieldErrors[field.name] = "Required";
+        missingFields.push(field.label);
+      }
+    }
+
+    if (missingFields.length > 0) {
+      setFieldErrors(nextFieldErrors);
+      toast.error(
+        missingFields.length === 1
+          ? `${missingFields[0]} is required`
+          : `Please fill in: ${missingFields.join(", ")}`,
+      );
       return;
     }
+
+    setFieldErrors({});
 
     setSubmitting(true);
     try {
@@ -229,7 +308,12 @@ export function ConfigFormDialog({
       onOpenChange(false);
       onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
+      const message = err instanceof Error ? err.message : "Failed to save";
+      toast.error(
+        message.includes("Field required Field required")
+          ? "Please fill in all required fields."
+          : message,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -275,8 +359,20 @@ export function ConfigFormDialog({
               id="cfg-name"
               placeholder="e.g. Twilio US prod"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setFieldErrors((prev) => {
+                  if (!prev.name) return prev;
+                  const next = { ...prev };
+                  delete next.name;
+                  return next;
+                });
+              }}
+              className={cn(fieldErrors.name && "border-destructive focus-visible:ring-destructive")}
             />
+            {fieldErrors.name && (
+              <p className="text-xs text-destructive">Name is required.</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -330,12 +426,42 @@ export function ConfigFormDialog({
           )}
 
           {currentProvider && (
-            <div className="space-y-3 border-t pt-3">
+            <div className="space-y-3 border-t pt-3 min-w-0 w-full">
               {visibleFields.map((field, index) => (
-                <div className="space-y-1" key={field.name}>
+                <div className="space-y-1 min-w-0 w-full" key={field.name}>
                   {field.section && field.section !== visibleFields[index - 1]?.section && (
-                    <div className="pb-2 pt-3">
+                    <div className="pb-1 pt-3">
                       <h3 className="text-sm font-semibold">{field.section}</h3>
+                    </div>
+                  )}
+                  {providerName === "whatsapp" && field.name === "webhook_verify_token" && (
+                    <div className="space-y-1 min-w-0 w-full pb-1">
+                      <Label htmlFor="cfg-callback-url">Callback URL</Label>
+                      <div className="relative flex items-center w-full min-w-0">
+                        <Input
+                          id="cfg-callback-url"
+                          readOnly
+                          value={whatsappWebhookUrl}
+                          className="pr-10 font-mono text-xs bg-muted/30 select-all cursor-default w-full min-w-0 truncate"
+                          title={whatsappWebhookUrl}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            copyTextToClipboard(whatsappWebhookUrl)
+                              .then(() => toast.success("Callback URL copied"))
+                              .catch(() => toast.error("Failed to copy URL"));
+                          }}
+                          title="Copy Callback URL"
+                          aria-label="Copy Callback URL"
+                          className="absolute right-2 text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Paste this into Meta Developer Console (WhatsApp &gt; Configuration &gt; Edit).
+                      </p>
                     </div>
                   )}
                   <Label htmlFor={`cfg-field-${field.name}`}>
@@ -351,7 +477,13 @@ export function ConfigFormDialog({
                     value={values[field.name]}
                     onChange={(v) => updateField(field.name, v)}
                     isEdit={isEdit}
+                    error={fieldErrors[field.name]}
                   />
+                  {fieldErrors[field.name] && (
+                    <p className="text-xs text-destructive">
+                      {fieldLabelByName(field.name)} is required.
+                    </p>
+                  )}
                   {field.description && (
                     <p className="text-xs text-muted-foreground">{field.description}</p>
                   )}
@@ -379,11 +511,12 @@ interface FieldInputProps {
   value: FieldValue;
   onChange: (v: FieldValue) => void;
   isEdit: boolean;
+  error?: string;
 }
 
 // Skip from_numbers in the metadata-driven form — phone numbers are managed
 // via the dedicated phone-numbers endpoints and a different UI.
-function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
+function FieldInput({ field, value, onChange, isEdit, error }: FieldInputProps) {
   if (field.name === "from_numbers") {
     return (
       <p className="text-xs text-muted-foreground">
@@ -426,7 +559,10 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
         value={(value as string) ?? ""}
         onChange={(e) => onChange(e.target.value)}
         rows={6}
-        className="field-sizing-fixed resize-y break-all font-mono text-xs"
+        className={cn(
+          "field-sizing-fixed resize-y break-all font-mono text-xs",
+          error && "border-destructive focus-visible:ring-destructive",
+        )}
       />
     );
   }
@@ -438,16 +574,19 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
         placeholder={placeholder}
         value={value as number | string | undefined ?? ""}
         onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+        className={cn(error && "border-destructive focus-visible:ring-destructive")}
       />
     );
   }
   if (field.type === "boolean") {
     return (
-      <Switch
-        id={`cfg-field-${field.name}`}
-        checked={Boolean(value)}
-        onCheckedChange={onChange}
-      />
+      <div className={cn("inline-flex rounded-md", error && "ring-2 ring-destructive/60")}>
+        <Switch
+          id={`cfg-field-${field.name}`}
+          checked={Boolean(value)}
+          onCheckedChange={onChange}
+        />
+      </div>
     );
   }
   if (field.type === "select") {
@@ -456,7 +595,13 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
         value={value === undefined ? "__none__" : String(value)}
         onValueChange={(next) => onChange(next === "__none__" ? undefined : next)}
       >
-        <SelectTrigger id={`cfg-field-${field.name}`}>
+        <SelectTrigger
+          id={`cfg-field-${field.name}`}
+          className={cn(
+            "w-full max-w-full min-w-0 [&>span]:truncate",
+            error && "border-destructive focus-visible:ring-destructive",
+          )}
+        >
           <SelectValue placeholder={placeholder || "Select an option"} />
         </SelectTrigger>
         <SelectContent>
@@ -470,6 +615,39 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
       </Select>
     );
   }
+  if (field.name === "webhook_verify_token") {
+    const tokenVal = (value as string) ?? "";
+    return (
+      <div className="relative flex items-center w-full min-w-0">
+        <Input
+          id={`cfg-field-${field.name}`}
+          type="text"
+          placeholder={placeholder}
+          value={tokenVal}
+          onChange={(e) => onChange(e.target.value)}
+          className={cn(
+            "pr-10 font-mono text-xs w-full min-w-0 truncate",
+            error && "border-destructive focus-visible:ring-destructive",
+          )}
+        />
+        {tokenVal ? (
+          <button
+            type="button"
+            onClick={() => {
+              copyTextToClipboard(tokenVal)
+                .then(() => toast.success("Verify token copied"))
+                .catch(() => toast.error("Failed to copy token"));
+            }}
+            title="Copy verify token"
+            aria-label="Copy verify token"
+            className="absolute right-2 text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <Input
       id={`cfg-field-${field.name}`}
@@ -478,6 +656,7 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
       value={(value as string) ?? ""}
       onChange={(e) => onChange(e.target.value)}
       autoComplete={field.sensitive ? "current-password" : undefined}
+      className={cn("w-full min-w-0", error && "border-destructive focus-visible:ring-destructive")}
     />
   );
 }

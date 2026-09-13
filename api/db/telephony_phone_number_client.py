@@ -362,6 +362,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         inbound_workflow_id: Optional[int] = None,
         telephony_trunk_id: Optional[int] = None,
         is_active: Optional[bool] = None,
+        is_default_caller_id: Optional[bool] = None,
         country_code: Optional[str] = None,
         extra_metadata: Optional[Dict[str, Any]] = None,
         clear_inbound_workflow: bool = False,
@@ -387,12 +388,30 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 row.telephony_trunk_id = None
             if is_active is not None:
                 row.is_active = is_active
+            if is_default_caller_id is not None:
+                if is_default_caller_id:
+                    # Another number may already be the configuration's
+                    # default; clear it first so setting this one doesn't
+                    # violate uq_phone_numbers_default_caller.
+                    await self._clear_default_caller_id(
+                        session, telephony_configuration_id
+                    )
+                row.is_default_caller_id = is_default_caller_id
             if country_code is not None:
                 row.country_code = country_code
             if extra_metadata is not None:
                 row.extra_metadata = extra_metadata
 
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError as e:
+                # Clearing the previous default and setting the new one are two
+                # statements, not one: a concurrent update on the same
+                # configuration can clear-then-set in between them and both
+                # commits then race for uq_phone_numbers_default_caller. Same
+                # failure mode create_phone_number already handles.
+                await session.rollback()
+                raise TelephonyPhoneNumberConflictError(str(e)) from e
             await session.refresh(row)
             return row
 
@@ -405,7 +424,11 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 return None
             await self._clear_default_caller_id(session, telephony_configuration_id)
             row.is_default_caller_id = True
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError as e:
+                await session.rollback()
+                raise TelephonyPhoneNumberConflictError(str(e)) from e
             await session.refresh(row)
             return row
 

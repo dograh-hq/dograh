@@ -1,5 +1,6 @@
 "use client";
 
+import { Clock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -16,9 +17,19 @@ interface CampaignRunsProps {
     campaignId: number;
     workflowId: number;
     searchParams?: URLSearchParams;
+    refreshTrigger?: number;
+    requiresCallPermission?: boolean;
+    onSyncWhatsAppPermissions?: () => Promise<void>;
 }
 
-export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignRunsProps) {
+export function CampaignRuns({
+    campaignId,
+    workflowId,
+    searchParams,
+    refreshTrigger,
+    requiresCallPermission,
+    onSyncWhatsAppPermissions,
+}: CampaignRunsProps) {
     const router = useRouter();
     const { isAuthenticated } = useAuth();
     const { codes: dispositionCodes } = useDispositionCodes();
@@ -138,7 +149,18 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
         if (isAuthenticated) {
             fetchCampaignRuns(currentPage, appliedFilters, sortBy, sortOrder);
         }
-    }, [currentPage, appliedFilters, fetchCampaignRuns, isAuthenticated, sortBy, sortOrder]);
+    }, [currentPage, appliedFilters, fetchCampaignRuns, isAuthenticated, sortBy, sortOrder, refreshTrigger]);
+
+    const hasAwaitingPermission = useMemo(() => {
+        return runs.some(
+            (run) =>
+                run.gathered_context?.mapped_call_disposition === "awaiting_permission" ||
+                // The dispatcher writes both keys into gathered_context when it
+                // parks a run; the raw one was being read off the run itself,
+                // where it does not exist, so this clause never matched.
+                run.gathered_context?.call_disposition === "awaiting_permission"
+        );
+    }, [runs]);
 
     const handleApplyFilters = useCallback(async () => {
         setIsExecutingFilters(true);
@@ -183,33 +205,50 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
         updatePageInUrl(1, appliedFilters, newSortBy, newSortOrder);
     }, [sortBy, sortOrder, updatePageInUrl, appliedFilters]);
 
-    const handleReload = useCallback(() => {
-        fetchCampaignRuns(currentPage, appliedFilters, sortBy, sortOrder);
-    }, [fetchCampaignRuns, currentPage, appliedFilters, sortBy, sortOrder]);
+    const handleReload = useCallback(async () => {
+        if (requiresCallPermission && onSyncWhatsAppPermissions) {
+            await onSyncWhatsAppPermissions();
+        } else {
+            await fetchCampaignRuns(currentPage, appliedFilters, sortBy, sortOrder);
+        }
+    }, [fetchCampaignRuns, currentPage, appliedFilters, sortBy, sortOrder, requiresCallPermission, onSyncWhatsAppPermissions]);
 
     return (
-        <WorkflowRunsTable
-            runs={runs}
-            loading={loading}
-            error={error}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalCount={totalCount}
-            onPageChange={handlePageChange}
-            availableAttributes={campaignFilterAttributes}
-            activeFilters={activeFilters}
-            onFiltersChange={handleFiltersChange}
-            onApplyFilters={handleApplyFilters}
-            onClearFilters={handleClearFilters}
-            isExecutingFilters={isExecutingFilters}
-            hasAppliedFilters={appliedFilters.length > 0}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onSort={handleSort}
-            workflowId={workflowId}
-            onReload={handleReload}
-            title="Campaign Workflow Runs"
-            emptyMessage="No workflow runs found for this campaign"
-        />
+        <div className="space-y-4">
+            {hasAwaitingPermission && (
+                <div className="flex items-center gap-3 p-4 rounded-lg border border-amber-300 bg-amber-50/70 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                    <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <div className="text-sm">
+                        <span className="font-semibold">Leads awaiting WhatsApp call permission: </span>
+                        <span>
+                            Dograh sent permission request templates to these contacts. Calls will trigger automatically as soon as contacts tap &ldquo;Allow&rdquo; in WhatsApp. You can also click the reload button on the runs table to recheck status with Meta immediately.
+                        </span>
+                    </div>
+                </div>
+            )}
+            <WorkflowRunsTable
+                runs={runs}
+                loading={loading}
+                error={error}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalCount={totalCount}
+                onPageChange={handlePageChange}
+                availableAttributes={campaignFilterAttributes}
+                activeFilters={activeFilters}
+                onFiltersChange={handleFiltersChange}
+                onApplyFilters={handleApplyFilters}
+                onClearFilters={handleClearFilters}
+                isExecutingFilters={isExecutingFilters}
+                hasAppliedFilters={appliedFilters.length > 0}
+                sortBy={sortBy}
+                sortOrder={sortOrder}
+                onSort={handleSort}
+                workflowId={workflowId}
+                onReload={handleReload}
+                title="Campaign Workflow Runs"
+                emptyMessage="No workflow runs found for this campaign"
+            />
+        </div>
     );
 }

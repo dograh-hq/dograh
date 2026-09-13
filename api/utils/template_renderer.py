@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
-
 # Regex for matching {{ variable }} template placeholders.
 # Captures: group(1) = variable path, group(2) = filter name, group(3) = filter value.
 TEMPLATE_VAR_PATTERN = r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\}\}"

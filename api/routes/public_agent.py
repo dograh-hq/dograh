@@ -29,6 +29,7 @@ from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import is_e164
 
 router = APIRouter(prefix="/public/agent")
 
@@ -227,6 +228,15 @@ async def _execute_resolved_target(
         raise HTTPException(
             status_code=400,
             detail="Telephony provider not configured for this organization",
+        )
+
+    if provider.PROVIDER_NAME == "whatsapp" and not is_e164(request.phone_number):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "phone_number must be in E.164 format, including the country "
+                f"code (e.g. +14155552671). Got: {request.phone_number}"
+            ),
         )
 
     # Resolve an explicit caller ID within the selected configuration.

@@ -284,6 +284,74 @@ class CallConcurrencyService:
                 f"Concurrent slot mapping for workflow run {workflow_run_id} "
                 "had no live slot; deleted stale mapping"
             )
+
+        # Release caller ID / from_number back to its pool if mapped
+        try:
+            from_number_mapping = (
+                await rate_limiter.get_workflow_from_number_mapping_with_token(
+                    workflow_run_id
+                )
+            )
+            if from_number_mapping:
+                fn_org_id, from_number, config_id, token = from_number_mapping
+                fn_released = await rate_limiter.release_from_number(
+                    fn_org_id,
+                    from_number,
+                    telephony_configuration_id=config_id,
+                    expected_token=token,
+                )
+                # release_from_number now conditions the release on an
+                # ownership token (the acquisition-time score, carried
+                # through the mapping): it only clears the pool entry when
+                # the pool's current score still equals that token, so this
+                # call can never free a number another call has since
+                # re-acquired. That makes the three possible outcomes safe
+                # to resolve here:
+                #   True  -- released by us (or, for a legacy mapping with no
+                #            token, the unconditional legacy path -- note 0
+                #            is truthy in Lua, so an already-released number
+                #            still lands here and returns True; that is not
+                #            a signal that it was absent).
+                #   False -- the number was absent from the pool, or it is
+                #            present but owned by someone else (already
+                #            released and/or re-acquired since). Either way
+                #            there is nothing left for us to release, so the
+                #            mapping is stale and safe to discard.
+                #   None  -- a genuine Redis error while evaluating the
+                #            script. Because the token check makes the
+                #            release a no-op unless we still own the number,
+                #            retrying is now safe -- it can only ever
+                #            re-attempt freeing OUR OWN acquisition, never
+                #            someone else's. So keep the mapping for a later
+                #            retry instead of discarding it.
+                if fn_released is None:
+                    logger.warning(
+                        f"release_from_number raised a Redis error for "
+                        f"{from_number} (workflow run {workflow_run_id}); "
+                        "keeping mapping for retry (safe: the ownership "
+                        "token check means a retry cannot free a number "
+                        "another call has since re-acquired)"
+                    )
+                else:
+                    await rate_limiter.delete_workflow_from_number_mapping(
+                        workflow_run_id
+                    )
+                    if fn_released:
+                        logger.debug(
+                            f"Released mapped from_number {from_number} for workflow run {workflow_run_id}"
+                        )
+                    else:
+                        logger.debug(
+                            f"from_number {from_number} for workflow run "
+                            f"{workflow_run_id} was not released by us (absent "
+                            "from the pool, or already released/re-acquired "
+                            "by another call); discarding the now-stale mapping"
+                        )
+        except Exception as e:
+            logger.warning(
+                f"Error releasing from_number for workflow run {workflow_run_id}: {e}"
+            )
+
         return released
 
 

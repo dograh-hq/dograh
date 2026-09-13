@@ -1,19 +1,23 @@
 import asyncio
 import time
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
+from fastapi import HTTPException
 from loguru import logger
 
 from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
-from api.enums import WorkflowRunState
+from api.enums import TelephonyCallStatus, WorkflowRunState
 from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     CallConcurrencySlot,
     call_concurrency,
 )
-from api.services.call_concurrency.rate_limiter import rate_limiter
+from api.services.call_concurrency.rate_limiter import (
+    FromNumberAcquisition,
+    rate_limiter,
+)
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.campaign.errors import (
     ConcurrentSlotAcquisitionError,
@@ -22,6 +26,7 @@ from api.services.campaign.errors import (
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
@@ -30,6 +35,54 @@ if TYPE_CHECKING:
     # chain and create a circular import. Runtime calls below lazy-import the
     # factory helpers inside methods instead.
     from api.services.telephony.base import TelephonyProvider
+
+
+# Retry reasons a queued run can carry while it is still waiting to be dialled.
+# "awaiting_<provider>_permission" is written when the run is parked pending
+# recipient consent; "permission_granted" is written by the activation path
+# (db_client.activate_queued_run_for_immediate_dial, reached from the WhatsApp
+# webhook and the Meta permission sync) once consent arrives. Both leave the
+# run in state "queued" for a later batch to dial.
+PERMISSION_GRANTED_RETRY_REASON = "permission_granted"
+
+
+def _is_awaiting_permission_retry_reason(retry_reason: Optional[str]) -> bool:
+    """True for the provider-scoped parked reason, e.g. awaiting_whatsapp_permission."""
+    return bool(
+        retry_reason
+        and retry_reason.startswith("awaiting_")
+        and retry_reason.endswith("_permission")
+    )
+
+
+def _is_awaiting_dial(queued_run: Optional[QueuedRunModel]) -> bool:
+    """True when a queued run must stay queued for a later batch to dial it."""
+    if not queued_run or queued_run.state != "queued":
+        return False
+    retry_reason = queued_run.retry_reason
+    return retry_reason == PERMISSION_GRANTED_RETRY_REASON or (
+        _is_awaiting_permission_retry_reason(retry_reason)
+    )
+
+
+class DispatchResult(NamedTuple):
+    """What one ``dispatch_call`` did with the queued run it was given.
+
+    ``queued_run_finalized`` is True when dispatch itself ended the run -
+    permission denied, or the 24h wait for consent timed out. Those paths
+    already move the row to "processed", so ``process_batch``'s
+    ownership-guarded update finds nothing left to claim and would report a
+    finished run as unprocessed.
+
+    Returned rather than stamped on the workflow run or parked on the
+    dispatcher: the caller reads it off the call it just made, so there is no
+    process-local state to keep in sync across instances or tasks, and a
+    stand-in workflow run cannot fabricate the flag by answering to any
+    attribute. Unpacked as a tuple at the call site for the same reason.
+    """
+
+    workflow_run: Optional[WorkflowRunModel]
+    queued_run_finalized: bool = False
 
 
 class CampaignCallDispatcher:
@@ -114,110 +167,179 @@ class CampaignCallDispatcher:
 
         processed_count = 0
         processed_run_ids: set[int] = set()
-        for i, queued_run in enumerate(queued_runs):
-            try:
-                # Apply rate limiting, i.e lets not initiate more than rate_limit_per_second
-                # calls per second. It is different than concurrency limit.
-                await self.apply_rate_limit(
-                    campaign.organization_id, campaign.rate_limit_per_second
-                )
-
-                # Acquire concurrent slot - waits until a slot is available
-                concurrency_slot = await self.acquire_concurrent_slot(
-                    campaign.organization_id, campaign
-                )
-
-                # Dispatch the call
-                workflow_run = await self.dispatch_call(
-                    queued_run, campaign, concurrency_slot
-                )
-
-                # Update queued run as processed
-                await db_client.update_queued_run(
-                    queued_run_id=queued_run.id,
-                    state="processed",
-                    workflow_run_id=workflow_run.id,
-                    processed_at=datetime.now(UTC),
-                )
-
-                processed_count += 1
-                processed_run_ids.add(queued_run.id)
-
-                # Update campaign processed count
-                await db_client.update_campaign(
-                    campaign_id=campaign_id, processed_rows=campaign.processed_rows + 1
-                )
-
-            except asyncio.CancelledError:
-                logger.warning(
-                    f"Campaign {campaign_id} batch cancelled; returning claimed "
-                    "queued runs that were not dispatched"
-                )
-                await self._return_unprocessed_claims(
-                    queued_runs, processed_run_ids, reason="task_cancelled"
-                )
-                raise
-
-            except OutboundReadinessError as e:
-                logger.warning(
-                    f"Outbound setup is incomplete for campaign {campaign_id}; "
-                    "returning claimed queued runs without dispatching calls: "
-                    f"{e}"
-                )
-                await self._return_unprocessed_claims(
-                    queued_runs,
-                    processed_run_ids,
-                    reason="outbound_readiness_failed",
-                )
-                raise
-
-            except PhoneNumberPoolExhaustedError as e:
-                logger.warning(
-                    f"Phone number pool exhausted for campaign {campaign_id}; "
-                    "returning claimed queued runs that were not dispatched: "
-                    f"{e}"
-                )
-                await self._return_unprocessed_claims(
-                    queued_runs,
-                    processed_run_ids,
-                    reason="phone_number_pool_exhausted",
-                )
-                # Re-raise to propagate to process_campaign_batch
-                raise
-
-            except ConcurrentSlotAcquisitionError as e:
-                logger.warning(
-                    f"Concurrent slot acquisition failed for campaign {campaign_id}; "
-                    "returning claimed queued runs that were not dispatched: "
-                    f"{e}"
-                )
-                await self._return_unprocessed_claims(
-                    queued_runs,
-                    processed_run_ids,
-                    reason="concurrent_slot_acquisition_failed",
-                )
-                # Re-raise to propagate to process_campaign_batch
-                raise
-
-            except Exception as e:
-                logger.warning(f"Error processing queued run {queued_run.id}: {e}")
-
-                # Mark the queued run as failed to prevent infinite retry loops
+        # Accumulated over the batch and written once, so a single stale
+        # campaign snapshot can't be used to write the same value N times.
+        pending_processed_rows = 0
+        try:
+            for i, queued_run in enumerate(queued_runs):
                 try:
-                    await db_client.update_queued_run(
-                        queued_run_id=queued_run.id,
-                        state="failed",
-                        processed_at=datetime.now(UTC),
+                    # Apply rate limiting, i.e lets not initiate more than rate_limit_per_second
+                    # calls per second. It is different than concurrency limit.
+                    await self.apply_rate_limit(
+                        campaign.organization_id, campaign.rate_limit_per_second
                     )
-                    logger.info(
-                        f"Marked queued run {queued_run.id} as failed due to error: {e}"
+
+                    # Acquire concurrent slot - waits until a slot is available
+                    concurrency_slot = await self.acquire_concurrent_slot(
+                        campaign.organization_id, campaign
                     )
-                except Exception as update_error:
-                    logger.error(
-                        f"Failed to mark queued run {queued_run.id} as failed: {update_error}"
+
+                    # Dispatch the call
+                    _, dispatch_finalized = await self.dispatch_call(
+                        queued_run, campaign, concurrency_slot
                     )
+
+                    # Check whether the queued run is still waiting to be dialled
+                    # (e.g. parked awaiting WhatsApp call permission).
+                    current_queued_run = await db_client.get_queued_run_by_id(
+                        queued_run.id
+                    )
+                    is_awaiting_dial = _is_awaiting_dial(current_queued_run)
+
+                    if is_awaiting_dial:
+                        # Keep in queued state so a later batch dials it. This
+                        # covers both the freshly parked run and one whose
+                        # permission was granted between dispatch and this read
+                        # (the activation path rewrites retry_reason to
+                        # "permission_granted" while leaving state "queued");
+                        # marking that run processed would silently drop its dial.
+                        processed_run_ids.add(queued_run.id)
+                        logger.info(
+                            f"[Campaign {campaign_id}] Queued run {queued_run.id} stays queued "
+                            f"(retry_reason={current_queued_run.retry_reason}) awaiting dial"
+                        )
+                    elif dispatch_finalized:
+                        # dispatch_call already moved this run to "processed";
+                        # it is finished by this batch and counts as such.
+                        processed_count += 1
+                        processed_run_ids.add(queued_run.id)
+                        pending_processed_rows += 1
+                    else:
+                        # Conditional on this batch still owning the claim. A run
+                        # that was parked, granted, then claimed and completed by
+                        # another batch is no longer ours: rewriting it here
+                        # would clobber that batch's processed_at.
+                        claimed = await db_client.mark_queued_run_processed_if_owned(
+                            queued_run.id
+                        )
+                        if not claimed:
+                            logger.info(
+                                f"[Campaign {campaign_id}] Queued run {queued_run.id} was "
+                                f"already finished elsewhere (state="
+                                f"{getattr(current_queued_run, 'state', None)}); leaving it alone"
+                            )
+                        else:
+                            processed_count += 1
+
+                        processed_run_ids.add(queued_run.id)
+
+                        # Only a signal that this batch changed something; the
+                        # actual counter is recomputed from queued-run state
+                        # below, so it cannot be inflated by a double write.
+                        pending_processed_rows += 1
+
+                except asyncio.CancelledError:
+                    logger.warning(
+                        f"Campaign {campaign_id} batch cancelled; returning claimed "
+                        "queued runs that were not dispatched"
+                    )
+                    await self._return_unprocessed_claims(
+                        queued_runs, processed_run_ids, reason="task_cancelled"
+                    )
+                    raise
+
+                except OutboundReadinessError as e:
+                    logger.warning(
+                        f"Outbound setup is incomplete for campaign {campaign_id}; "
+                        "returning claimed queued runs without dispatching calls: "
+                        f"{e}"
+                    )
+                    await self._return_unprocessed_claims(
+                        queued_runs,
+                        processed_run_ids,
+                        reason="outbound_readiness_failed",
+                    )
+                    raise
+
+                except PhoneNumberPoolExhaustedError as e:
+                    logger.warning(
+                        f"Phone number pool exhausted for campaign {campaign_id}; "
+                        "returning claimed queued runs that were not dispatched: "
+                        f"{e}"
+                    )
+                    await self._return_unprocessed_claims(
+                        queued_runs,
+                        processed_run_ids,
+                        reason="phone_number_pool_exhausted",
+                    )
+                    # Re-raise to propagate to process_campaign_batch
+                    raise
+
+                except ConcurrentSlotAcquisitionError as e:
+                    logger.warning(
+                        f"Concurrent slot acquisition failed for campaign {campaign_id}; "
+                        "returning claimed queued runs that were not dispatched: "
+                        f"{e}"
+                    )
+                    await self._return_unprocessed_claims(
+                        queued_runs,
+                        processed_run_ids,
+                        reason="concurrent_slot_acquisition_failed",
+                    )
+                    # Re-raise to propagate to process_campaign_batch
+                    raise
+
+                except Exception as e:
+                    logger.warning(f"Error processing queued run {queued_run.id}: {e}")
+
+                    # Mark the queued run as failed to prevent infinite retry loops
+                    try:
+                        await db_client.update_queued_run(
+                            queued_run_id=queued_run.id,
+                            state="failed",
+                            processed_at=datetime.now(UTC),
+                        )
+                        logger.info(
+                            f"Marked queued run {queued_run.id} as failed due to error: {e}"
+                        )
+                    except Exception as update_error:
+                        logger.error(
+                            f"Failed to mark queued run {queued_run.id} as failed: {update_error}"
+                        )
+        finally:
+            # Flush on every exit path (including the re-raised errors above)
+            # so dispatched calls are never missing from the progress counter.
+            await self._flush_processed_rows(campaign_id, pending_processed_rows)
 
         return processed_count
+
+    async def _flush_processed_rows(self, campaign_id: int, changed: int) -> None:
+        """Recompute the campaign's processed_rows from queued-run state.
+
+        ``changed`` is only a "did this batch finish anything" signal, not a
+        delta. Maintaining the counter by increment meant three writers (batch
+        dispatch, permission denial, redial) each adding their own, so a
+        duplicate webhook or an overlapping batch could push progress past the
+        number of finished contacts, and a failed write lost it permanently.
+        Recomputing is idempotent, so neither can happen.
+
+        Failure is survivable and deliberately not raised: the runs are already
+        marked processed, queued-run state remains authoritative, and campaign
+        completion is driven by queued counts rather than this number. The next
+        batch's sync corrects it.
+        """
+        if changed <= 0:
+            return
+
+        try:
+            actual = await db_client.sync_campaign_processed_rows(campaign_id)
+            logger.debug(f"Campaign {campaign_id} processed_rows synced to {actual}")
+        except Exception as e:
+            logger.error(
+                f"Failed to sync processed_rows for campaign {campaign_id}: {e}. "
+                "Progress will read stale until the next batch; queued-run state "
+                "remains authoritative and completion is unaffected."
+            )
 
     async def _return_unprocessed_claims(
         self,
@@ -256,11 +378,14 @@ class CampaignCallDispatcher:
         queued_run: QueuedRunModel,
         campaign: any,
         concurrency_slot: CallConcurrencySlot,
-    ) -> Optional[WorkflowRunModel]:
+    ) -> DispatchResult:
         """Creates workflow run and initiates call. Requires a pre-acquired slot."""
         from_number = None
+        from_number_token = None
         workflow_run = None
         slot_bound = False
+        # Set only by the paths below that end the queued run themselves.
+        queued_run_finalized = False
 
         try:
             # Get workflow details
@@ -283,14 +408,16 @@ class CampaignCallDispatcher:
             # Acquire a unique from_number from the pool scoped to this campaign's
             # telephony configuration so orgs with multiple configs don't leak
             # caller IDs across configs.
-            from_number = await self.acquire_from_number(
+            from_number_acquisition = await self.acquire_from_number_with_token(
                 campaign.organization_id,
                 telephony_configuration_id=campaign.telephony_configuration_id,
             )
-            if from_number is None:
+            if from_number_acquisition is None:
                 raise PhoneNumberPoolExhaustedError(
                     organization_id=campaign.organization_id
                 )
+            from_number = from_number_acquisition.from_number
+            from_number_token = from_number_acquisition.token
 
             logger.info(f"Provider name: {provider.PROVIDER_NAME}")
             logger.info(f"Queued run context: {queued_run.context_variables}")
@@ -309,20 +436,43 @@ class CampaignCallDispatcher:
 
             logger.info(f"Final initial_context: {initial_context}")
 
-            # Create workflow run with queued_run_id tracking
-            workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
-            run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
-            workflow_run = await db_client.create_workflow_run(
-                name=workflow_run_name,
-                workflow_id=campaign.workflow_id,
-                mode=workflow_run_mode,
-                user_id=campaign.created_by,
-                initial_context=initial_context,
-                campaign_id=campaign.id,
-                queued_run_id=queued_run.id,  # Link to queued run for retry tracking
-                organization_id=campaign.organization_id,
-                definition_id=run_inputs.definition_id,
+            # Create or reuse workflow run with queued_run_id tracking
+            workflow_run = None
+            existing_run = await db_client.get_workflow_run_by_queued_run_id(
+                queued_run.id
             )
+            if existing_run and not existing_run.is_completed:
+                workflow_run = existing_run
+                await db_client.update_workflow_run(
+                    run_id=workflow_run.id,
+                    initial_context=initial_context,
+                    gathered_context={
+                        "call_disposition": None,
+                        "mapped_call_disposition": None,
+                        "call_status": None,
+                        "error": None,
+                    },
+                    state=WorkflowRunState.INITIALIZED.value,
+                )
+                logger.info(
+                    f"[Campaign {campaign.id}] Reusing existing workflow run {workflow_run.id} "
+                    f"for queued run {queued_run.id}"
+                )
+
+            if not workflow_run:
+                workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
+                run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
+                workflow_run = await db_client.create_workflow_run(
+                    name=workflow_run_name,
+                    workflow_id=campaign.workflow_id,
+                    mode=workflow_run_mode,
+                    user_id=campaign.created_by,
+                    initial_context=initial_context,
+                    campaign_id=campaign.id,
+                    queued_run_id=queued_run.id,  # Link to queued run for retry tracking
+                    organization_id=campaign.organization_id,
+                    definition_id=run_inputs.definition_id,
+                )
             await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
             slot_bound = True
 
@@ -332,6 +482,7 @@ class CampaignCallDispatcher:
                 campaign.organization_id,
                 from_number,
                 telephony_configuration_id=campaign.telephony_configuration_id,
+                token=from_number_token,
             )
         except Exception:
             # Release slot and from_number on error
@@ -344,6 +495,7 @@ class CampaignCallDispatcher:
                     campaign.organization_id,
                     from_number,
                     telephony_configuration_id=campaign.telephony_configuration_id,
+                    expected_token=from_number_token,
                 )
             raise
 
@@ -398,6 +550,7 @@ class CampaignCallDispatcher:
                 from_number=from_number,
                 workflow_id=campaign.workflow_id,
                 organization_id=campaign.organization_id,
+                telephony_configuration_id=campaign.telephony_configuration_id,
             )
 
             # Store provider type and metadata in gathered_context
@@ -415,30 +568,144 @@ class CampaignCallDispatcher:
             )
 
         except Exception as e:
+            from api.services.telephony.base import TelephonyPermissionRequiredError
+
+            if isinstance(e, TelephonyPermissionRequiredError):
+                logger.info(
+                    f"[{provider.PROVIDER_NAME.upper()} Campaign] Missing call permission for workflow run {workflow_run.id} "
+                    f"(campaign {campaign.id}, lead: {phone_number}): {e}"
+                )
+                action = (campaign.orchestrator_metadata or {}).get(
+                    "whatsapp_permission_action", "skip"
+                )
+                retry_reason = f"awaiting_{provider.PROVIDER_NAME}_permission"
+                is_timeout = (
+                    queued_run.retry_reason == retry_reason
+                    or queued_run.retry_reason == "awaiting_whatsapp_permission"
+                )
+
+                # Parking is only justified once a request is actually on its way
+                # to the recipient. If sending it fails - or the provider cannot
+                # send one at all - nobody will ever be prompted, so parking for
+                # 24 hours just strands the lead until the timeout.
+                permission_request_sent = False
+                permission_request_error = None
+                if (
+                    action == "request_and_wait"
+                    and getattr(e, "can_request_permission", True)
+                    and not is_timeout
+                ):
+                    try:
+                        # TelephonyProvider declares this hook and its default
+                        # raises, so a provider that cannot ask for consent
+                        # reports it here rather than being probed for the
+                        # method and silently skipped.
+                        await provider.send_call_permission_request(
+                            to_number=phone_number,
+                            organization_id=campaign.organization_id,
+                            telephony_configuration_id=campaign.telephony_configuration_id,
+                        )
+                        permission_request_sent = True
+                        logger.info(
+                            f"[{provider.PROVIDER_NAME.upper()} Campaign] Sent permission request to {phone_number} "
+                            f"for campaign {campaign.id}"
+                        )
+                    except Exception as req_err:
+                        permission_request_error = str(req_err)
+                        logger.warning(
+                            f"[{provider.PROVIDER_NAME.upper()} Campaign] Failed to send permission request to {phone_number}: {req_err}"
+                        )
+
+                if permission_request_sent:
+                    # Park the queued run with 24-hour expiration
+                    await db_client.update_queued_run(
+                        queued_run_id=queued_run.id,
+                        state="queued",
+                        retry_reason=retry_reason,
+                        scheduled_for=datetime.now(UTC) + timedelta(hours=24),
+                    )
+
+                    # Update the existing workflow run with awaiting_permission disposition,
+                    # keeping is_completed=False so it can be resumed when permission is granted
+                    await db_client.update_workflow_run(
+                        run_id=workflow_run.id,
+                        is_completed=False,
+                        state=WorkflowRunState.INITIALIZED.value,
+                        gathered_context={
+                            "call_disposition": TelephonyCallStatus.AWAITING_PERMISSION.value,
+                            "mapped_call_disposition": TelephonyCallStatus.AWAITING_PERMISSION.value,
+                            "call_status": TelephonyCallStatus.AWAITING_PERMISSION.value,
+                            "error": f"Call permission requested; awaiting recipient response. {e}",
+                        },
+                    )
+                else:
+                    disposition = (
+                        TelephonyCallStatus.PERMISSION_TIMEOUT.value
+                        if is_timeout
+                        else (
+                            TelephonyCallStatus.PERMISSION_DENIED.value
+                            if getattr(e, "status", None) == "denied"
+                            else TelephonyCallStatus.NO_PERMISSION.value
+                        )
+                    )
+                    await mark_workflow_run_failed(
+                        workflow_run.id,
+                        f"{e} Permission request could not be sent: {permission_request_error}"
+                        if permission_request_error
+                        else str(e),
+                        disposition=disposition,
+                    )
+                    # Mark queued run as processed to prevent retrying
+                    await db_client.update_queued_run(
+                        queued_run_id=queued_run.id,
+                        state="processed",
+                        processed_at=datetime.now(UTC),
+                    )
+                    queued_run_finalized = True
+
+                # Missing consent is the recipient's choice, not an outage, so it
+                # must not trip the breaker. A permission request we could not
+                # deliver is an outage, and counting it keeps a broken Meta
+                # integration from silently burning through the whole campaign.
+                await circuit_breaker.record_and_evaluate(
+                    campaign.id,
+                    is_failure=permission_request_error is not None,
+                    workflow_run_id=workflow_run.id,
+                    reason=(
+                        "permission_request_failed"
+                        if permission_request_error
+                        else "whatsapp_permission_required"
+                    ),
+                )
+                await self.release_call_slot(workflow_run.id)
+                return DispatchResult(workflow_run, queued_run_finalized)
+
             logger.error(
                 f"Failed to initiate call for workflow run {workflow_run.id}: {e}"
             )
 
-            # Update workflow run as failed
-            telephony_callback_logs = workflow_run.logs.get(
-                "telephony_status_callbacks", []
+            is_token_expired = (
+                (isinstance(e, HTTPException) and e.status_code == 401)
+                or "token expired" in str(e).lower()
+                or "token has expired" in str(e).lower()
+                or "oauth" in str(e).lower()
+                or "invalid access token" in str(e).lower()
             )
-            telephony_callback_log = {
-                "status": "failed",
-                "timestamp": datetime.now(UTC).isoformat(),
-                "data": {"error": str(e)},
-            }
-            telephony_callback_logs.append(telephony_callback_log)
-            await db_client.update_workflow_run(
-                run_id=workflow_run.id,
-                is_completed=True,
-                state=WorkflowRunState.COMPLETED.value,
-                gathered_context={
-                    "error": str(e),
-                },
-                logs={
-                    "telephony_status_callbacks": telephony_callback_logs,
-                },
+            disposition = (
+                TelephonyCallStatus.TOKEN_EXPIRED.value
+                if is_token_expired
+                else TelephonyCallStatus.FAILED.value
+            )
+            clean_err = (
+                "WhatsApp access token has expired or is invalid. Please update credentials under Telephony Configuration."
+                if is_token_expired
+                else str(e)
+            )
+
+            await mark_workflow_run_failed(
+                workflow_run.id,
+                clean_err,
+                disposition=disposition,
             )
 
             # Record call initiation failure in circuit breaker
@@ -446,14 +713,16 @@ class CampaignCallDispatcher:
                 campaign.id,
                 is_failure=True,
                 workflow_run_id=workflow_run.id,
-                reason="call_initiation_failed",
+                reason="token_expired"
+                if is_token_expired
+                else "call_initiation_failed",
             )
 
             await self.release_call_slot(workflow_run.id)
 
             raise
 
-        return workflow_run
+        return DispatchResult(workflow_run, queued_run_finalized)
 
     async def apply_rate_limit(self, organization_id: int, rate_limit: int) -> None:
         """
@@ -537,23 +806,41 @@ class CampaignCallDispatcher:
         self,
         organization_id: int,
         telephony_configuration_id: int | None,
-        timeout: float = 600,
+        timeout: float = 600.0,
     ) -> Optional[str]:
         """
         Acquire a from_number from the (org, telephony config) pool with retry.
-        Waits up to timeout seconds, polling every 1s.
+        Convenience wrapper delegating to acquire_from_number_with_token for
+        backwards compatibility with existing consumers.
+        """
+        acquisition = await self.acquire_from_number_with_token(
+            organization_id, telephony_configuration_id, timeout=timeout
+        )
+        return acquisition.from_number if acquisition else None
 
-        Returns:
-            The acquired phone number as a string, or None if timeout is exceeded.
+    async def acquire_from_number_with_token(
+        self,
+        organization_id: int,
+        telephony_configuration_id: int | None,
+        timeout: float = 600.0,
+    ) -> Optional[FromNumberAcquisition]:
+        """
+        Acquires from the (org, telephony config) pool with retry, returning
+        the number together with the ownership token
+        (the acquisition-time score) for the acquired number. dispatch_call
+        must carry this token into store_workflow_from_number_mapping and
+        into any release_from_number call for this acquisition, so a release
+        can never free a number that has since been re-acquired by another
+        call.
         """
         wait_start = time.time()
 
         while True:
-            from_number = await rate_limiter.acquire_from_number(
+            acquisition = await rate_limiter.acquire_from_number_with_token(
                 organization_id, telephony_configuration_id
             )
-            if from_number:
-                return from_number
+            if acquisition:
+                return acquisition
 
             wait_time = time.time() - wait_start
             if wait_time > timeout:
@@ -580,14 +867,26 @@ class CampaignCallDispatcher:
             workflow_run_id
         )
 
-        # Release from_number back to its (org, telephony config) pool
-        from_number_mapping = await rate_limiter.get_workflow_from_number_mapping(
-            workflow_run_id
+        # Release from_number back to its (org, telephony config) pool. In the
+        # normal case release_workflow_run_slot above has already released
+        # and deleted this mapping as part of its own cleanup; this is a
+        # best-effort retry for the case where that attempt hit a Redis error
+        # and deliberately kept the mapping around. Fetching the ownership
+        # token (when the mapping has one) and passing it through keeps this
+        # retry race-safe: it can only ever free OUR OWN acquisition, never
+        # one another call has since re-acquired.
+        from_number_mapping = (
+            await rate_limiter.get_workflow_from_number_mapping_with_token(
+                workflow_run_id
+            )
         )
         if from_number_mapping:
-            fn_org_id, fn_number, fn_tcid = from_number_mapping
+            fn_org_id, fn_number, fn_tcid, fn_token = from_number_mapping
             fn_success = await rate_limiter.release_from_number(
-                fn_org_id, fn_number, telephony_configuration_id=fn_tcid
+                fn_org_id,
+                fn_number,
+                telephony_configuration_id=fn_tcid,
+                expected_token=fn_token,
             )
             if fn_success:
                 await rate_limiter.delete_workflow_from_number_mapping(workflow_run_id)

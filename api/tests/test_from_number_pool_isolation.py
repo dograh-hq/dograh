@@ -21,7 +21,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.services.call_concurrency import CallConcurrencySlot
-from api.services.call_concurrency.rate_limiter import RateLimiter
+from api.services.call_concurrency.rate_limiter import (
+    FromNumberAcquisition,
+    RateLimiter,
+)
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
 
 
@@ -327,13 +330,18 @@ class TestDispatcherThreadsTelephonyConfig:
                     )
                 ]
             )
+            # dispatch_call reuses an unfinished run for the same queued run
+            # before creating one, so this lookup has to answer.
+            mock_db.get_workflow_run_by_queued_run_id = AsyncMock(return_value=None)
             mock_db.create_workflow_run = AsyncMock(return_value=workflow_run)
             mock_db.update_workflow_run = AsyncMock()
             mock_concurrency.bind_workflow_run = AsyncMock()
             mock_concurrency.release_slot = AsyncMock()
             mock_concurrency.release_workflow_run_slot = AsyncMock()
 
-            mock_rl.acquire_from_number = AsyncMock(return_value="+15551110001")
+            mock_rl.acquire_from_number_with_token = AsyncMock(
+                return_value=FromNumberAcquisition("+15551110001", "1700000000.0")
+            )
             mock_rl.release_from_number = AsyncMock()
             mock_rl.store_workflow_from_number_mapping = AsyncMock()
 
@@ -345,15 +353,21 @@ class TestDispatcherThreadsTelephonyConfig:
             )
             await dispatcher.dispatch_call(queued_run, campaign, slot)
 
+            # The reuse lookup runs before a run is created; a regression that
+            # drops or reorders it would otherwise go unnoticed here.
+            mock_db.get_workflow_run_by_queued_run_id.assert_awaited_once_with(
+                queued_run.id
+            )
+
             mock_db.get_workflow.assert_awaited_once_with(
                 campaign.workflow_id,
                 organization_id=org_id,
             )
 
-            # acquire_from_number on rate_limiter must be called with the
+            # acquire_from_number_with_token on rate_limiter must be called with the
             # campaign's telephony_configuration_id.
-            assert mock_rl.acquire_from_number.await_count == 1
-            call = mock_rl.acquire_from_number.await_args
+            assert mock_rl.acquire_from_number_with_token.await_count == 1
+            call = mock_rl.acquire_from_number_with_token.await_args
             kwargs = call.kwargs
             args = call.args
             received_config = kwargs.get("telephony_configuration_id") or (
@@ -361,7 +375,7 @@ class TestDispatcherThreadsTelephonyConfig:
             )
             assert received_config == config_id, (
                 "dispatch_call must pass campaign.telephony_configuration_id "
-                f"({config_id}) to rate_limiter.acquire_from_number, got "
+                f"({config_id}) to rate_limiter.acquire_from_number_with_token, got "
                 f"args={args}, kwargs={kwargs}"
             )
 
@@ -458,8 +472,10 @@ class TestDispatcherThreadsTelephonyConfig:
             ) as mock_concurrency,
         ):
             mock_concurrency.release_workflow_run_slot = AsyncMock(return_value=False)
-            mock_rl.get_workflow_from_number_mapping = AsyncMock(
-                return_value=(org_id, from_number, config_id)
+            # 4-tuple: the trailing element is the ownership token that scopes
+            # the release to this acquisition.
+            mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
+                return_value=(org_id, from_number, config_id, "1700000000.0")
             )
             mock_rl.release_from_number = AsyncMock(return_value=True)
             mock_rl.delete_workflow_from_number_mapping = AsyncMock(return_value=True)
@@ -478,3 +494,116 @@ class TestDispatcherThreadsTelephonyConfig:
                 f"({config_id}) so the number is returned to its pool; got "
                 f"args={args}, kwargs={kwargs}"
             )
+
+    @pytest.mark.asyncio
+    async def test_dispatch_call_handles_token_expired(self):
+        """When initiate_call fails with token expired, dispatcher marks workflow run with token_expired disposition."""
+        from fastapi import HTTPException
+
+        from api.enums import TelephonyCallStatus
+
+        org_id = 7
+        config_id = 4242
+        campaign = _make_campaign(
+            organization_id=org_id, telephony_configuration_id=config_id
+        )
+        queued_run = _make_queued_run()
+        workflow_run = SimpleNamespace(id=555, logs={})
+
+        provider = MagicMock()
+        provider.PROVIDER_NAME = "whatsapp"
+        provider.WEBHOOK_ENDPOINT = "whatsapp/voice"
+        provider.from_numbers = ["+15551110001"]
+        provider.initiate_call = AsyncMock(
+            side_effect=HTTPException(
+                status_code=401,
+                detail="Meta API Error (190): The WhatsApp access token has expired or is invalid.",
+            )
+        )
+
+        dispatcher = CampaignCallDispatcher()
+
+        with (
+            patch.object(
+                dispatcher,
+                "get_provider_for_campaign",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.db_client"
+            ) as mock_db,
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.rate_limiter"
+            ) as mock_rl,
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.call_concurrency"
+            ) as mock_concurrency,
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.get_backend_endpoints",
+                AsyncMock(return_value=("https://example.com", None)),
+            ),
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.authorize_workflow_run_start",
+                AsyncMock(
+                    return_value=SimpleNamespace(has_quota=True, error_message="")
+                ),
+            ),
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.mark_workflow_run_failed"
+            ) as mock_mark_failed,
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.circuit_breaker.record_and_evaluate"
+            ) as mock_circuit_breaker,
+        ):
+            mock_concurrency.release_slot = AsyncMock()
+            mock_db.get_workflow = AsyncMock(return_value=SimpleNamespace(id=1))
+            mock_db.get_telephony_configuration_for_org = AsyncMock(
+                return_value=SimpleNamespace(
+                    id=config_id,
+                    name="WhatsApp campaign",
+                    provider="whatsapp",
+                    credentials={"phone_number_id": "phone_id_1"},
+                )
+            )
+            # dispatch_call reuses an unfinished run for the same queued run
+            # before creating one, so this lookup has to answer.
+            mock_db.get_workflow_run_by_queued_run_id = AsyncMock(return_value=None)
+            mock_db.create_workflow_run = AsyncMock(return_value=workflow_run)
+            mock_db.update_workflow_run = AsyncMock()
+            mock_concurrency.bind_workflow_run = AsyncMock()
+            mock_concurrency.release_workflow_run_slot = AsyncMock()
+
+            mock_rl.acquire_from_number_with_token = AsyncMock(
+                return_value=FromNumberAcquisition("+15551110001", "1700000000.0")
+            )
+            mock_rl.release_from_number = AsyncMock()
+            mock_rl.store_workflow_from_number_mapping = AsyncMock()
+            mock_rl.get_workflow_from_number_mapping_with_token = AsyncMock(
+                return_value=None
+            )
+
+            slot = CallConcurrencySlot(
+                organization_id=org_id,
+                slot_id="slot-1",
+                max_concurrent=1,
+                source="test",
+            )
+
+            with pytest.raises(HTTPException):
+                await dispatcher.dispatch_call(queued_run, campaign, slot)
+
+            mock_mark_failed.assert_awaited_once()
+            fail_args = mock_mark_failed.await_args
+            assert fail_args.args[0] == workflow_run.id
+            assert (
+                fail_args.kwargs.get("disposition")
+                == TelephonyCallStatus.TOKEN_EXPIRED.value
+            )
+            assert (
+                "The WhatsApp access token has expired" in fail_args.args[1]
+                or "WhatsApp access token has expired" in fail_args.args[1]
+            )
+
+            mock_circuit_breaker.assert_awaited_once()
+            cb_kwargs = mock_circuit_breaker.await_args.kwargs
+            assert cb_kwargs.get("reason") == "token_expired"

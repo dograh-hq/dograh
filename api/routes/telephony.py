@@ -5,6 +5,7 @@ Consolidated from split modules for easier maintenance.
 
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import (
@@ -37,6 +38,7 @@ from api.services.telephony.call_transfer_manager import get_call_transfer_manag
 from api.services.telephony.factory import (
     get_all_telephony_providers,
     get_telephony_provider_by_id,
+    get_telephony_provider_for_active_call,
     get_telephony_provider_for_run,
 )
 from api.services.telephony.outbound_readiness import (
@@ -51,6 +53,7 @@ from api.services.telephony.transfer_event_protocol import (
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import is_e164
 from api.utils.telephony_helper import (
     generic_hangup_response,
     normalize_webhook_data,
@@ -147,6 +150,17 @@ async def initiate_call(
         raise HTTPException(
             status_code=400,
             detail="Phone number must be provided in request or set in organization preferences",
+        )
+
+    # For WhatsApp outbound calling, ensure the phone number is in strict E.164
+    # format so destination country restrictions can be determined unambiguously.
+    if provider.PROVIDER_NAME == "whatsapp" and not is_e164(phone_number):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Phone number must be in E.164 format, including the country "
+                f"code (e.g. +14155552671). Got: {phone_number}"
+            ),
         )
 
     workflow = await db_client.get_workflow(
@@ -268,6 +282,8 @@ async def initiate_call(
         keywords = {
             "workflow_id": workflow.id,
             "organization_id": user.selected_organization_id,
+            "user_id": user.id,
+            "telephony_configuration_id": telephony_configuration_id,
         }
 
         # Initiate call via provider
@@ -303,7 +319,216 @@ async def initiate_call(
         initial_context=updated_initial_context,
     )
 
-    return {"message": f"Call initiated successfully with run name {workflow_run_name}"}
+    return {
+        "message": f"Call initiated successfully with run name {workflow_run_name}",
+        "workflow_run_id": workflow_run_id,
+        "workflow_run_name": workflow_run_name,
+        "call_id": result.call_id,
+    }
+
+
+@router.get("/runs/{workflow_run_id}/call-status")
+async def get_workflow_run_call_status(
+    workflow_run_id: int, user: UserModel = Depends(get_user)
+):
+    """Query live status of an active or recent telephony call."""
+    run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=user.selected_organization_id
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+
+    call_id = (run.gathered_context or {}).get("call_id")
+    connected_at = (run.gathered_context or {}).get("connected_at")
+    ended_at = (run.gathered_context or {}).get("ended_at")
+    error_msg = (run.gathered_context or {}).get("error")
+
+    # Ask each provider what it knows about this call in this process. The
+    # resolvers are pure and in-memory by contract, so this stays cheap enough
+    # for a once-a-second poll and keeps provider internals out of this module.
+    from api.services.telephony import registry as telephony_registry
+
+    live_state = None
+    for spec in telephony_registry.all_specs():
+        resolver = spec.live_call_state_resolver
+        if resolver is None:
+            continue
+        try:
+            live_state = resolver(call_id, workflow_run_id)
+        except Exception as e:
+            logger.warning(
+                f"live_call_state_resolver for {spec.name} raised for run "
+                f"{workflow_run_id}: {e}"
+            )
+            live_state = None
+        if live_state is not None:
+            call_id = live_state.call_id or call_id
+            break
+
+    call_status = (run.gathered_context or {}).get("call_status")
+
+    # A connected peer only means the call was answered on providers where media
+    # starts at answer time. Where it does not (WhatsApp rings with media
+    # already up), the provider reports answered separately.
+    if live_state and live_state.peer_connected and live_state.answered:
+        if not connected_at:
+            connected_at = datetime.now(timezone.utc).isoformat()
+            ctx = dict(run.gathered_context or {})
+            ctx["connected_at"] = connected_at
+            ctx["call_status"] = "in-progress"
+            await db_client.update_workflow_run(
+                run.id,
+                state=WorkflowRunState.RUNNING.value,
+                gathered_context=ctx,
+            )
+
+    if run.is_completed:
+        status = "failed" if error_msg else "completed"
+    elif live_state is not None:
+        status = (
+            "connected"
+            if live_state.answered and (connected_at or call_status == "in-progress")
+            else "ringing"
+        )
+    elif connected_at or (
+        run.state == WorkflowRunState.RUNNING.value and call_status != "ringing"
+    ):
+        status = "connected"
+    else:
+        status = "ringing"
+
+    # Compute duration in seconds (starting from when answered)
+    duration_seconds = 0
+    if connected_at and status in ("connected", "completed"):
+        try:
+            start_t = datetime.fromisoformat(connected_at)
+            end_t = (
+                datetime.fromisoformat(ended_at)
+                if ended_at
+                else datetime.now(timezone.utc)
+            )
+            duration_seconds = max(0, int((end_t - start_t).total_seconds()))
+        except Exception:
+            duration_seconds = 0
+
+    return {
+        "workflow_run_id": run.id,
+        "call_id": call_id,
+        "status": status,
+        "is_completed": run.is_completed,
+        "connected_at": connected_at,
+        "ended_at": ended_at,
+        "duration_seconds": duration_seconds,
+        "error": error_msg,
+    }
+
+
+@router.post("/runs/{workflow_run_id}/end-call")
+async def end_workflow_run_call(
+    workflow_run_id: int, user: UserModel = Depends(get_user)
+):
+    """End an active outbound telephony call."""
+    run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=user.selected_organization_id
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+
+    call_id = (run.gathered_context or {}).get("call_id")
+
+    # No call was ever placed, so there is nothing at the carrier to hang up and
+    # local bookkeeping is the whole job.
+    if not call_id:
+        await db_client.update_workflow_run(
+            run.id,
+            is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
+        )
+        await call_concurrency.release_workflow_run_slot(run.id)
+        return {"status": "success", "message": "Call ended successfully"}
+
+    async def _close_run_without_carrier_hangup(reason: str) -> dict:
+        """Close the run locally when we could not hang up at the carrier.
+
+        The run is finished from our side either way, and refusing to close it
+        would hold its concurrency slot for a call nothing is watching. What we
+        do not do is call that success - the recipient may still be connected,
+        and the caller needs to know the carrier was never told.
+        """
+        await db_client.update_workflow_run(
+            run.id,
+            is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
+        )
+        await call_concurrency.release_workflow_run_slot(run.id)
+        return {
+            "status": "partial",
+            "provider_terminated": False,
+            "message": reason,
+        }
+
+    # Anchored to the provider that actually placed the call. Resolving through
+    # get_telephony_provider_for_run would fall back to the org's current
+    # default for legacy runs, so a Twilio call in a WhatsApp-default org would
+    # be "ended" by asking Meta about a call id it has never seen.
+    try:
+        provider = await get_telephony_provider_for_active_call(
+            run, user.selected_organization_id
+        )
+    except ValueError as e:
+        # The pinned configuration was deleted or deactivated while the call was
+        # up. That is a closable run, not a 500.
+        logger.warning(
+            f"Could not resolve the provider for run {run.id} while ending its "
+            f"call: {e}"
+        )
+        provider = None
+
+    if provider is None:
+        return await _close_run_without_carrier_hangup(
+            "The run was closed, but the telephony provider that placed this "
+            "call could not be identified, so the carrier was not asked to "
+            "hang up. End the call from the handset if it is still connected."
+        )
+
+    try:
+        provider_terminated = await provider.end_call(
+            call_id=call_id,
+            workflow_run_id=run.id,
+            organization_id=user.selected_organization_id,
+        )
+    except NotImplementedError:
+        # Only WhatsApp implements end_call today. Every other provider reaches
+        # here, and before this endpoint routed through the provider they all
+        # closed the run and released the slot. Returning 501 instead stranded
+        # the run and held its slot - a regression for Twilio, Plivo, Telnyx,
+        # Vonage, Exotel, Vobiz, Cloudonix and ARI. Close it as before, but
+        # report "partial" rather than the "success" that used to be claimed.
+        return await _close_run_without_carrier_hangup(
+            f"The run was closed, but ending a call from the dashboard is not "
+            f"supported for {provider.PROVIDER_NAME}. Hang up from the handset "
+            "if the call is still connected."
+        )
+
+    if not provider_terminated:
+        # Local teardown ran, so the run is closed either way, but the carrier
+        # never confirmed. Saying "success" here is what lets the UI drop its
+        # retry path while the recipient is possibly still connected.
+        return {
+            "status": "partial",
+            "provider_terminated": False,
+            "message": (
+                "The call was closed on our side, but the provider did not "
+                "confirm the hang-up. If the recipient is still connected, end "
+                "the call from the handset."
+            ),
+        }
+
+    return {
+        "status": "success",
+        "provider_terminated": True,
+        "message": "Call ended successfully",
+    }
 
 
 async def _verify_organization_phone_number(
@@ -1309,6 +1534,14 @@ def _mount_provider_routers() -> None:
         provider_router = getattr(module, "router", None)
         if provider_router is not None:
             router.include_router(provider_router)
+        # A provider may also publish routes directly under /telephony rather
+        # than its own /<name> prefix - an external webhook URL a carrier is
+        # already configured against, for instance, which cannot move without
+        # breaking that configuration. Those handlers stay in the provider's
+        # module; this is generic glue, not a per-provider branch.
+        unprefixed_router = getattr(module, "unprefixed_router", None)
+        if unprefixed_router is not None:
+            router.include_router(unprefixed_router)
 
 
 _mount_provider_routers()

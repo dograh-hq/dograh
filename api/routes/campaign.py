@@ -177,6 +177,9 @@ class CreateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+    whatsapp_permission_action: Optional[str] = Field(
+        default="skip", pattern="^(skip|request_and_wait)$"
+    )
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -185,6 +188,9 @@ class UpdateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+    whatsapp_permission_action: Optional[str] = Field(
+        None, pattern="^(skip|request_and_wait)$"
+    )
 
 
 class CampaignLogEntryResponse(BaseModel):
@@ -225,6 +231,7 @@ class CampaignResponse(BaseModel):
     redialed_campaign_id: Optional[int] = None
     telephony_configuration_id: Optional[int] = None
     telephony_configuration_name: Optional[str] = None
+    whatsapp_permission_action: Optional[str] = "skip"
     logs: List[CampaignLogEntryResponse] = Field(default_factory=list)
 
 
@@ -287,6 +294,7 @@ def _build_campaign_response(
     circuit_breaker_config = CircuitBreakerConfigResponse()
     parent_campaign_id = None
     redialed_campaign_id = None
+    whatsapp_permission_action = "skip"
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
         sc = campaign.orchestrator_metadata.get("schedule_config")
@@ -302,6 +310,9 @@ def _build_campaign_response(
         parent_campaign_id = campaign.orchestrator_metadata.get("parent_campaign_id")
         redialed_campaign_id = campaign.orchestrator_metadata.get(
             "redialed_campaign_id"
+        )
+        whatsapp_permission_action = campaign.orchestrator_metadata.get(
+            "whatsapp_permission_action", "skip"
         )
 
     return CampaignResponse(
@@ -328,6 +339,7 @@ def _build_campaign_response(
         redialed_campaign_id=redialed_campaign_id,
         telephony_configuration_id=campaign.telephony_configuration_id,
         telephony_configuration_name=telephony_configuration_name,
+        whatsapp_permission_action=whatsapp_permission_action,
         logs=[
             CampaignLogEntryResponse(**entry)
             for entry in (campaign.logs or [])
@@ -473,6 +485,7 @@ async def create_campaign(
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
         telephony_configuration_id=telephony_configuration_id,
+        whatsapp_permission_action=request.whatsapp_permission_action,
     )
 
     cfg_name = await _get_telephony_configuration_name(
@@ -676,27 +689,32 @@ async def update_campaign(
     if request.retry_config is not None:
         update_kwargs["retry_config"] = request.retry_config.model_dump()
 
-    # Merge max_concurrency and schedule_config into orchestrator_metadata
-    metadata = campaign.orchestrator_metadata or {}
-    metadata_changed = False
+    # Only the keys this request actually changes, merged SQL-side. Reading the
+    # document and writing it back whole - even from a fresh read - loses any
+    # key a concurrent update writes in between; the jsonb merge cannot.
+    metadata_updates = {}
 
     if request.max_concurrency is not None:
-        metadata["max_concurrency"] = request.max_concurrency
-        metadata_changed = True
+        metadata_updates["max_concurrency"] = request.max_concurrency
 
     if request.schedule_config is not None:
-        metadata["schedule_config"] = request.schedule_config.model_dump()
-        metadata_changed = True
+        metadata_updates["schedule_config"] = request.schedule_config.model_dump()
 
     if request.circuit_breaker is not None:
-        metadata["circuit_breaker"] = request.circuit_breaker.model_dump()
-        metadata_changed = True
+        metadata_updates["circuit_breaker"] = request.circuit_breaker.model_dump()
 
-    if metadata_changed:
-        update_kwargs["orchestrator_metadata"] = metadata
+    if request.whatsapp_permission_action is not None:
+        metadata_updates["whatsapp_permission_action"] = (
+            request.whatsapp_permission_action
+        )
 
     if update_kwargs:
         await db_client.update_campaign(campaign_id=campaign_id, **update_kwargs)
+
+    if metadata_updates:
+        await db_client.merge_campaign_orchestrator_metadata(
+            campaign_id=campaign_id, updates=metadata_updates
+        )
 
     # Re-fetch to return updated data
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)

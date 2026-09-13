@@ -65,7 +65,10 @@ def _provider():
         WEBHOOK_ENDPOINT="twilio/voice",
         validate_config=Mock(return_value=True),
         initiate_call=AsyncMock(
+            # The route reports the provider's call id back to the caller, so
+            # the stand-in result carries one like CallInitiationResult does.
             return_value=SimpleNamespace(
+                call_id="call-123",
                 caller_number="+15550001111",
                 provider_metadata={"call_id": "call-123"},
             )

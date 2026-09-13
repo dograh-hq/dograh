@@ -1,0 +1,35 @@
+# Local build override for Dograh.
+#
+# This swaps the registry-backed images in docker-compose.yaml for builds from
+# the current checkout so local code changes are picked up on rebuild.
+#
+# WARNING: `docker compose` auto-loads any `docker-compose.override.yaml`
+# sitting next to `docker-compose.yaml` for EVERY invocation from this
+# directory — with no `-f` flag needed and no visible indication it happened.
+# That includes `./scripts/start_docker.sh` and `./remote_up.sh` (default,
+# non-`--build` "pull" mode): run from a full checkout that has this file, they
+# silently stop pulling `${REGISTRY}/dograh-api:latest` / `dograh-ui:latest`
+# and instead demand a local `dograh-local/...:local` image with
+# `pull_policy: never`. On a host that never ran `docker compose build`, `api`
+# and `ui` then fail to start with no image found, even though the operator
+# only asked for the prebuilt/registry stack.
+#
+# If you hit that: you want the registry images, not a source build — move,
+# rename, or delete this file (or pass an explicit `-f docker-compose.yaml`
+# to bypass the auto-load) before running the pull-mode scripts. Leave it in
+# place only when you deliberately want every `docker compose` command in
+# this directory to build and run api/ui from local source.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: dograh-local/dograh-api:local
+    pull_policy: never
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    image: dograh-local/dograh-ui:local
+    pull_policy: never

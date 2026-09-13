@@ -537,6 +537,17 @@ class CampaignOrchestrator:
             )
             return False
 
+        # Don't mark complete if any runs remain queued or processing (e.g. parked for permissions or scheduled for retry)
+        total_queued = await db_client.get_queued_runs_count(
+            campaign_id=campaign_id, states=["queued", "processing"]
+        )
+        if total_queued > 0:
+            logger.debug(
+                f"campaign_id: {campaign_id} - Has {total_queued} queued/processing runs, "
+                f"not marking complete"
+            )
+            return False
+
         # Check for any pending work
         has_work = await self._has_pending_work(campaign_id)
         if has_work:
@@ -574,24 +585,15 @@ class CampaignOrchestrator:
         return True
 
     async def _has_pending_work(self, campaign_id: int) -> bool:
-        """Check if campaign has any work to do."""
-        # Check queued runs
-        queued_count = await db_client.get_queued_runs_count(
-            campaign_id=campaign_id, states=["queued"]
+        """Check if campaign has any work that can be processed right now."""
+        # Check queued runs that are claimable right now (unscheduled or scheduled <= now)
+        claimable_count = await db_client.get_claimable_queued_runs_count(
+            campaign_id=campaign_id, before=datetime.now(UTC)
         )
 
-        if queued_count > 0:
-            logger.debug(f"campaign_id: {campaign_id} - Has {queued_count} queued runs")
-            return True
-
-        # Check scheduled retries that are due
-        scheduled_count = await db_client.get_scheduled_runs_count(
-            campaign_id=campaign_id, scheduled_before=datetime.now(UTC)
-        )
-
-        if scheduled_count > 0:
+        if claimable_count > 0:
             logger.debug(
-                f"campaign_id: {campaign_id} - Has {scheduled_count} scheduled retries due"
+                f"campaign_id: {campaign_id} - Has {claimable_count} claimable queued runs"
             )
             return True
 
@@ -602,10 +604,13 @@ class CampaignOrchestrator:
         campaign_id = campaign.id
 
         try:
-            # Double-check no pending work
-            if await self._has_pending_work(campaign_id):
+            # Double-check no pending work or queued/processing runs
+            total_queued = await db_client.get_queued_runs_count(
+                campaign_id=campaign_id, states=["queued", "processing"]
+            )
+            if total_queued > 0 or await self._has_pending_work(campaign_id):
                 logger.info(
-                    f"campaign_id: {campaign_id} - Found pending work, not completing"
+                    f"campaign_id: {campaign_id} - Found pending/queued work ({total_queued} runs), not completing"
                 )
                 return
 

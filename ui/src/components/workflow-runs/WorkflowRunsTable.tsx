@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Clock, ExternalLink, KeyRound, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
@@ -200,15 +200,33 @@ export function WorkflowRunsTable({
                                                     ? `${run.cost_info.call_duration_seconds.toFixed(1)}s`
                                                     : "-"}
                                             </TableCell>
-                                            <TableCell>
+                                             <TableCell>
                                                 {run.gathered_context?.mapped_call_disposition ? (
-                                                    <Badge variant="default">
-                                                        {run.gathered_context.mapped_call_disposition as string}
-                                                    </Badge>
+                                                    (run.gathered_context.mapped_call_disposition as string) === "awaiting_permission" ? (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800 flex items-center gap-1 font-medium w-fit"
+                                                        >
+                                                            <Clock className="h-3 w-3" />
+                                                            Awaiting Permission
+                                                        </Badge>
+                                                    ) : (run.gathered_context.mapped_call_disposition as string) === "token_expired" ? (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className="bg-red-50 text-red-700 border-red-300 dark:bg-red-950 dark:text-red-300 dark:border-red-800 flex items-center gap-1 font-medium w-fit"
+                                                        >
+                                                            <KeyRound className="h-3 w-3" />
+                                                            Token Expired
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge variant="default">
+                                                            {run.gathered_context.mapped_call_disposition as string}
+                                                        </Badge>
+                                                    )
                                                 ) : (
                                                     <span className="text-sm text-muted-foreground">-</span>
                                                 )}
-                                            </TableCell>
+                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
                                                     <MediaPreviewButton

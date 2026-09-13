@@ -125,6 +125,7 @@ def test_create_deepgram_flux_defaults_eot_params_when_unset():
         create_stt_service(user_config, audio_config)
 
     kwargs = mock_service.call_args.kwargs
-    assert kwargs["settings"].eot_timeout_ms == 3000
-    assert kwargs["settings"].eot_threshold == 0.7
-    assert kwargs["settings"].eager_eot_threshold == 0.5
+    defaults = DeepgramSTTConfiguration.model_fields
+    assert kwargs["settings"].eot_timeout_ms == defaults["eot_timeout_ms"].default
+    assert kwargs["settings"].eot_threshold == defaults["eot_threshold"].default
+    assert kwargs["settings"].eager_eot_threshold == defaults["eager_eot_threshold"].default

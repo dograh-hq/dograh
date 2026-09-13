@@ -84,6 +84,4 @@ def test_gpt5_model_does_not_hardcode_reasoning_effort():
     settings = mock_service.call_args.kwargs["settings"]
 
     assert settings.model == "gpt-5"
-
-    extra_args = getattr(settings, "extra", None) or {}
-    assert "reasoning_effort" not in extra_args
+    assert settings.extra == {"verbosity": "low"}

@@ -53,6 +53,18 @@ class CampaignCallDispatcher:
             campaign.organization_id,
             db=db_client,
         )
+        config_numbers = await db_client.list_phone_numbers_for_config(resolved_id)
+        cfg = await db_client.get_telephony_configuration_for_org(
+            resolved_id, campaign.organization_id, active_only=False
+        )
+        if (
+            (cfg and bool(cfg.name) and cfg.name.startswith("Platform - "))
+            or getattr(cfg, "is_platform_inventory", False)
+            or (bool(config_numbers) and any(getattr(n, "pool_type", None) == "shared_trial" for n in config_numbers))
+        ):
+            raise ValueError(
+                f"Campaign {campaign.id} cannot use shared trial telephony configuration {resolved_id}."
+            )
         if requested_id is None:
             logger.warning(
                 f"Campaign {campaign.id} has no telephony_configuration_id; "

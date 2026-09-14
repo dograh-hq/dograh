@@ -108,6 +108,7 @@ class TelephonyConfigurationListItem(BaseModel):
     # are ready as soon as their credentials are stored, hence the default.
     is_ready_for_outbound: bool = True
     outbound_blocked_reason: str | None = None
+    is_shared_trial: bool = False
     created_at: datetime
     updated_at: datetime
 

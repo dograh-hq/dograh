@@ -148,3 +148,45 @@ class OrganizationClient(BaseDBClient):
 
             await session.execute(stmt)
             await session.commit()
+
+    async def get_wallet_balance(self, organization_id: int) -> float:
+        """Get the current wallet balance in USD for an organization."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(OrganizationModel.wallet_balance_usd).where(
+                    OrganizationModel.id == organization_id
+                )
+            )
+            val = result.scalar()
+            return float(val) if val is not None else 0.0
+
+    async def update_wallet_balance(
+        self, organization_id: int, delta_usd: float
+    ) -> float:
+        """Atomically update organization wallet balance by delta_usd (can be positive or negative).
+
+        Returns the updated wallet balance in USD.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(OrganizationModel).where(OrganizationModel.id == organization_id)
+            )
+            org = result.scalars().first()
+            if not org:
+                raise ValueError(f"Organization {organization_id} not found")
+
+            current_bal = float(org.wallet_balance_usd or 0.0)
+            new_bal = round(current_bal + delta_usd, 4)
+            org.wallet_balance_usd = new_bal
+            session.add(org)
+            await session.commit()
+            await session.refresh(org)
+            return float(org.wallet_balance_usd)
+
+    async def list_all_organizations(self) -> list[OrganizationModel]:
+        """List all organizations with their wallet balances."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(OrganizationModel).order_by(OrganizationModel.id.desc())
+            )
+            return list(result.scalars().all())

@@ -209,6 +209,18 @@ class UserConfigurationValidator:
                 ]
 
         api_key = service_config.api_key
+        has_key = bool(api_key.strip()) if isinstance(api_key, str) else bool(api_key)
+        if not has_key:
+            from api.services.platform_keys import get_platform_master_key
+            master_key = get_platform_master_key(service_name, provider)
+            if master_key:
+                return []
+            return [
+                {
+                    "model": service_name,
+                    "message": f"API key is missing for {provider}, and no active platform master key is configured.",
+                }
+            ]
 
         try:
             if not self._check_api_key(provider, api_key, service_config):

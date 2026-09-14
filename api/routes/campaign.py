@@ -427,6 +427,22 @@ async def create_campaign(
             status_code=400, detail="telephony_configuration_not_found"
         ) from e
 
+    # Shared trial numbers are for testing only, not for bulk campaigns
+    config_numbers = await db_client.list_phone_numbers_for_config(telephony_configuration_id)
+    cfg = await db_client.get_telephony_configuration_for_org(
+        telephony_configuration_id, user.selected_organization_id, active_only=False
+    )
+    is_trial_config = (
+        (cfg and bool(cfg.name) and cfg.name.startswith("Platform - "))
+        or (getattr(cfg, "is_platform_inventory", False))
+        or (bool(config_numbers) and any(getattr(n, "pool_type", None) == "shared_trial" for n in config_numbers))
+    )
+    if is_trial_config:
+        raise HTTPException(
+            status_code=400,
+            detail="Shared trial numbers are for agent testing only and cannot be used for bulk campaigns. Please connect your own telephony provider or purchase a dedicated number.",
+        )
+
     if request.max_concurrency is not None:
         await _validate_max_concurrency(
             request.max_concurrency,

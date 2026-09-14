@@ -260,8 +260,8 @@ class OrganizationUsageClient(BaseDBClient):
                 }
 
                 # Add USD cost if available in cost_info
-                if run.cost_info and "charge_usd" in run.cost_info:
-                    run_data["charge_usd"] = run.cost_info["charge_usd"]
+                if run.cost_info:
+                    run_data["charge_usd"] = run.cost_info.get("charge_usd") if run.cost_info.get("charge_usd") is not None else run.cost_info.get("total_cost_usd")
 
                 formatted_runs.append(run_data)
 

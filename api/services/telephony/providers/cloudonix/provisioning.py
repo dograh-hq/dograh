@@ -23,7 +23,7 @@ def _managed_configuration(rows: list[Any]):
     for row in rows:
         credentials = row.credentials or {}
         if (
-            row.name == MANAGED_CONFIGURATION_NAME
+            row.name in (MANAGED_CONFIGURATION_NAME, "Dograh Cloudonix SIP")
             and row.provider == "cloudonix"
             and credentials.get("managed_by") == MANAGED_BY
         ):

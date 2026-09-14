@@ -78,6 +78,7 @@ from api.services.configuration.registry import (
     ServiceType,
 )
 from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
+from api.services.telephony.shared_trial_sync import sync_shared_trial_telephony_for_org
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.organization_context import (
     OrganizationContextResponse,
@@ -248,6 +249,9 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
     for spec in telephony_registry.all_specs():
         if spec.ui_metadata is None:
             continue
+        # Hide Cloudonix as it relies on Dograh MPS central service
+        if spec.name == "cloudonix":
+            continue
         providers.append(
             TelephonyProviderMetadata(
                 provider=spec.name,
@@ -366,6 +370,32 @@ async def get_model_configuration_v2_defaults(
         for service, provider in DEFAULT_SERVICE_PROVIDERS.items()
         if provider != ServiceProviders.DOGRAH.value
     }
+    # Gather active master keys safely (no secret api keys)
+    master_keys_summary: dict[str, dict[str, Any]] = {
+        "llm": {},
+        "stt": {},
+        "tts": {},
+    }
+    try:
+        from api.services.platform_keys import _MASTER_KEYS_CACHE
+        for s_type, prov_map in _MASTER_KEYS_CACHE.items():
+            st_lower = s_type.lower()
+            if st_lower not in master_keys_summary:
+                master_keys_summary[st_lower] = {}
+            for prov, data in prov_map.items():
+                is_def = bool(data.get("is_default"))
+                def_m = data.get("default_model")
+                master_keys_summary[st_lower][prov.lower()] = {
+                    "is_default": is_def,
+                    "default_model": def_m,
+                    "models_pricing": data.get("models_pricing") or {},
+                }
+                # If platform has a default master key for this service, update byok_default_providers
+                if is_def:
+                    byok_default_providers[st_lower] = prov.lower()
+    except Exception as e:
+        logger.warning("Could not load master keys cache for defaults: {}", e)
+
     return {
         "dograh": {
             "voices": [DOGRAH_DEFAULT_VOICE],
@@ -399,6 +429,7 @@ async def get_model_configuration_v2_defaults(
                 "default_providers": byok_default_providers,
             },
         },
+        "platform_master_keys": master_keys_summary,
     }
 
 
@@ -828,9 +859,22 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
+    try:
+        await sync_shared_trial_telephony_for_org(user.selected_organization_id)
+    except Exception as e:
+        logger.warning(
+            f"Failed to sync shared trial telephony for org {user.selected_organization_id}: {e}"
+        )
+
     rows = await db_client.list_telephony_configurations(user.selected_organization_id)
     items: List[TelephonyConfigurationListItem] = []
     for row in rows:
+        # Hide Cloudonix configs that rely on Dograh MPS
+        if row.provider == "cloudonix" and (
+            row.name in ("Dograh Cloudonix SIP", "Cloudonix")
+            or (row.credentials or {}).get("managed_by") == "dograh"
+        ):
+            continue
         numbers = await db_client.list_phone_numbers_for_config(row.id)
         active = [n for n in numbers if n.is_active]
         trunks = await _list_trunks_if_supported(row.provider, row.id)
@@ -845,6 +889,11 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
             unassigned_active_phone_number_count=len(
                 [n for n in active if n.telephony_trunk_id is None]
             ),
+        )
+        is_shared = (
+            (bool(row.name) and row.name.startswith("Platform - "))
+            or (len(active) > 0 and any(getattr(n, "pool_type", None) == "shared_trial" for n in active))
+            or getattr(row, "is_platform_inventory", False)
         )
         items.append(
             TelephonyConfigurationListItem(
@@ -863,6 +912,7 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 outbound_blocked_reason=(
                     checklist.outbound_blocked_reason if checklist else None
                 ),
+                is_shared_trial=is_shared,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )

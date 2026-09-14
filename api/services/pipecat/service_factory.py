@@ -263,6 +263,18 @@ def create_stt_service(
     logger.info(
         f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
     )
+    if not getattr(user_config.stt, "api_key", None):
+        from api.services.platform_keys import get_platform_master_key
+        master_key = get_platform_master_key("stt", user_config.stt.provider)
+        if master_key:
+            user_config.stt.api_key = master_key
+
+    if not getattr(user_config.stt, "model", None):
+        from api.services.platform_keys import get_platform_default_model
+        plat_model = get_platform_default_model("stt", user_config.stt.provider)
+        if plat_model:
+            user_config.stt.model = plat_model
+
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         if user_config.stt.model in DEEPGRAM_FLUX_MODELS:
             settings_kwargs = {
@@ -288,13 +300,16 @@ def create_stt_service(
         # Other models than flux
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
+        stt_model = getattr(user_config.stt, "model", None)
+        if not stt_model or stt_model == "default":
+            stt_model = "nova-3-general"
         return DeepgramSTTService(
             api_key=user_config.stt.api_key,
             settings=DeepgramSTTSettings(
                 language=language,
                 profanity_filter=False,
                 endpointing=100,
-                model=user_config.stt.model,
+                model=stt_model,
                 keyterm=keyterms or [],
             ),
             should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
@@ -563,6 +578,24 @@ def create_tts_service(
     logger.info(
         f"Creating TTS service: provider={user_config.tts.provider}, model={user_config.tts.model}"
     )
+    if not getattr(user_config.tts, "api_key", None):
+        from api.services.platform_keys import get_platform_master_key
+        master_key = get_platform_master_key("tts", user_config.tts.provider)
+        if master_key:
+            user_config.tts.api_key = master_key
+
+    if not getattr(user_config.tts, "model", None):
+        from api.services.platform_keys import get_platform_default_model
+        plat_model = get_platform_default_model("tts", user_config.tts.provider)
+        if plat_model:
+            user_config.tts.model = plat_model
+
+    if not getattr(user_config.tts, "voice", None) or user_config.tts.voice == "default":
+        from api.services.platform_keys import get_platform_default_voice
+        plat_voice = get_platform_default_voice("tts", user_config.tts.provider)
+        if plat_voice:
+            user_config.tts.voice = plat_voice
+
     # Create function call filter to prevent TTS from speaking function call tags
     xml_function_tag_filter = XMLFunctionTagFilter()
     if user_config.tts.provider == ServiceProviders.DEEPGRAM.value:
@@ -571,21 +604,18 @@ def create_tts_service(
             settings=DeepgramTTSSettings(voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
-        kwargs = {}
         base_url = getattr(user_config.tts, "base_url", None)
+        _validate_runtime_service_url(base_url, "base_url")
+        kwargs = {}
         if base_url:
-            _validate_runtime_service_url(base_url, "base_url")
             kwargs["base_url"] = base_url
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
-            sample_rate=OPENAI_SAMPLE_RATE,
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
             **kwargs,
         )
     elif user_config.tts.provider == ServiceProviders.GOOGLE.value:
@@ -595,44 +625,40 @@ def create_tts_service(
         speed = getattr(user_config.tts, "speed", None)
         location = getattr(user_config.tts, "location", None) or None
         credentials = getattr(user_config.tts, "credentials", None)
-
-        settings_kwargs = {
-            "model": model,
-            "voice": voice,
-            "language": language,
-        }
-        if speed is not None and speed != 1.0:
-            settings_kwargs["speaking_rate"] = speed
-
+        if credentials:
+            credentials = _serialize_credentials(credentials)
+        settings = GoogleTTSSettings(
+            model=model,
+            language=language,
+            voice=voice,
+            location=location,
+            credentials=credentials,
+        )
+        if speed and speed != 1.0:
+            settings.rate = speed
         return GoogleTTSService(
             credentials=credentials,
-            location=location,
-            settings=GoogleTTSSettings(**settings_kwargs),
+            settings=settings,
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
-        # Backward compatible with older configuration "Name - voice_id"
-        try:
+        if " - " in user_config.tts.voice:
+            # Handle format "Voice Name - voice_id"
             voice_id = user_config.tts.voice.split(" - ")[1]
-        except IndexError:
+        else:
             voice_id = user_config.tts.voice
-        # ElevenLabs TTS consumes the full normalized WebSocket URL. Realtime
-        # STT uses the same normalization before adapting it to Pipecat's
-        # scheme-less base_url contract.
+
         _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         elevenlabs_url = _elevenlabs_websocket_url(user_config.tts.base_url)
         return ElevenLabsTTSService(
-            reconnect_on_error=False,
             api_key=user_config.tts.api_key,
-            url=elevenlabs_url,
             settings=ElevenLabsTTSSettings(
-                voice=voice_id,
+                base_url=elevenlabs_url,
+                voice_id=voice_id,
                 model=user_config.tts.model,
-                stability=0.8,
+                output_format="pcm_16000",
                 speed=user_config.tts.speed,
-                similarity_boost=0.75,
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
@@ -650,11 +676,21 @@ def create_tts_service(
             GenerationConfig(**gen_config_kwargs) if gen_config_kwargs else None
         )
         language = getattr(user_config.tts, "language", None) or "en"
+        if not language or language in ("multi", "default"):
+            language = "en"
+        cartesia_voice = getattr(user_config.tts, "voice", None)
+        if not cartesia_voice or cartesia_voice in ("default", "248be419-c632-4f23-adf1-5324ed7dbf10"):
+            from api.services.platform_keys import get_platform_default_voice
+            plat_voice = get_platform_default_voice("tts", "cartesia")
+            cartesia_voice = plat_voice or "f786b574-daa5-4673-aa0c-cbe3e8534c02"
+        cartesia_model = getattr(user_config.tts, "model", None)
+        if not cartesia_model or cartesia_model == "default":
+            cartesia_model = "sonic-3.6"
         return CartesiaTTSService(
             api_key=user_config.tts.api_key,
             settings=CartesiaTTSSettings(
-                voice=user_config.tts.voice,
-                model=user_config.tts.model,
+                voice=cartesia_voice,
+                model=cartesia_model,
                 language=language,
                 **(
                     {"generation_config": generation_config}
@@ -966,6 +1002,14 @@ def _migrate_deprecated_google_model(model: str) -> str:
             f"Google model '{model}' is no longer supported; using '{migrated}' instead"
         )
         return migrated
+def _migrate_deprecated_groq_model(model: str) -> str:
+    """Groq retired ``llama-3.3-70b-versatile``. Transparently upgrade
+    any stored config that still references it to ``openai/gpt-oss-120b``."""
+    if not model or model == "llama-3.3-70b-versatile":
+        logger.warning(
+            f"Groq model '{model}' is retired by Groq; using 'openai/gpt-oss-120b' instead"
+        )
+        return "openai/gpt-oss-120b"
     return model
 
 
@@ -998,6 +1042,16 @@ def create_llm_service_from_provider(
             provider; ignored by other providers.
     """
     logger.info(f"Creating LLM service: provider={provider}, model={model}")
+    if not api_key:
+        from api.services.platform_keys import get_platform_master_key
+        api_key = get_platform_master_key("llm", provider)
+
+    if not model:
+        from api.services.platform_keys import get_platform_default_model
+        plat_model = get_platform_default_model("llm", provider)
+        if plat_model:
+            model = plat_model
+
     if provider in (
         ServiceProviders.OPENAI.value,
         ServiceProviders.ATLASCLOUD.value,
@@ -1021,6 +1075,7 @@ def create_llm_service_from_provider(
             **kwargs,
         )
     elif provider == ServiceProviders.GROQ.value:
+        model = _migrate_deprecated_groq_model(model)
         return GroqLLMService(
             api_key=api_key,
             settings=GroqLLMSettings(model=model, temperature=0.1),

@@ -13,10 +13,17 @@ from api.constants import (
     LANGFUSE_SECRET_KEY,
 )
 from pipecat.utils.run_context import get_current_org_id
-from pipecat.utils.tracing.langfuse_helpers import (
-    set_trace_public_resolver,
-    traces_public_from_env,
-)
+try:
+    from pipecat.utils.tracing.langfuse_helpers import (
+        set_trace_public_resolver,
+        traces_public_from_env,
+    )
+except ImportError:
+    def set_trace_public_resolver(resolver):
+        pass
+
+    def traces_public_from_env(default=False):
+        return default
 from pipecat.utils.tracing.setup import setup_tracing
 
 _tracing_initialized = False

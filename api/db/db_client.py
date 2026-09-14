@@ -8,6 +8,7 @@ from api.db.knowledge_base_client import KnowledgeBaseClient
 from api.db.organization_client import OrganizationClient
 from api.db.organization_configuration_client import OrganizationConfigurationClient
 from api.db.organization_usage_client import OrganizationUsageClient
+from api.db.platform_master_keys_client import PlatformMasterKeysClient
 from api.db.reports_client import ReportsClient
 from api.db.telephony_configuration_client import TelephonyConfigurationClient
 from api.db.telephony_phone_number_client import TelephonyPhoneNumberClient
@@ -24,6 +25,7 @@ from api.db.workflow_template_client import WorkflowTemplateClient
 
 
 class DBClient(
+    PlatformMasterKeysClient,
     WorkflowClient,
     WorkflowRunClient,
     WorkflowRunTextSessionClient,

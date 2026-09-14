@@ -35,7 +35,21 @@ def format_public_cost_info(
     if duration is None and dograh_token_usage == 0:
         return None
 
-    return {
+    result = {
         "dograh_token_usage": dograh_token_usage,
         "call_duration_seconds": duration,
     }
+
+    # Include actual billing fields if available
+    if cost_info:
+        if cost_info.get("charge_usd") is not None:
+            result["charge_usd"] = cost_info["charge_usd"]
+        if cost_info.get("total_cost_usd") is not None:
+            result["total_cost_usd"] = cost_info["total_cost_usd"]
+        if cost_info.get("rate_per_minute") is not None:
+            result["rate_per_minute"] = cost_info["rate_per_minute"]
+        if cost_info.get("rates") is not None:
+            result["rates"] = cost_info["rates"]
+
+    return result
+

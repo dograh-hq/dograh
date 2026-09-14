@@ -32,7 +32,7 @@ from api.services.configuration.ai_model_configuration import (
 from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
 from api.services.mps_service_key_client import mps_service_key_client
 
-MANAGED_SERVICE_KEY_NAME = "Default Dograh Model Service Key"
+MANAGED_SERVICE_KEY_NAME = "Default CallioAI Model Service Key"
 
 # A holder that dies mid-provisioning leaves its lease pending. This bounds how
 # long the organization waits before another request is allowed to take over.
@@ -166,6 +166,17 @@ async def _bootstrap_organization(
             organization_id, configuration
         )
 
+    # Also attempt to sync any shared trial platform telephony for immediate testing
+    try:
+        from api.services.telephony.shared_trial_sync import sync_shared_trial_telephony_for_org
+        await sync_shared_trial_telephony_for_org(organization_id)
+    except Exception:
+        logger.warning(
+            "Failed to sync shared trial telephony during bootstrap for organization {}",
+            organization_id,
+            exc_info=True,
+        )
+
     if sip_provisioned:
         return True
 
@@ -212,32 +223,6 @@ async def provision_managed_sip_connectivity(
     *,
     created_by: str,
 ) -> bool:
-    """Provision the organization's Dograh-managed SIP connectivity.
-
-    MPS owns the Cloudonix domain. OSS allocations are owned by ``created_by``;
-    hosted allocations are owned by ``organization_id``. Model configuration
-    and service-key rotation do not affect that identity.
-
-    Best effort by design, returning whether it succeeded: a telephony provider
-    outage must not fail authentication or discard independently provisioned
-    model configuration.
-    """
-    try:
-        from api.services.telephony.providers.cloudonix.provisioning import (
-            ensure_managed_cloudonix_configuration,
-        )
-
-        await ensure_managed_cloudonix_configuration(
-            organization_id,
-            mps_organization_id=(None if DEPLOYMENT_MODE == "oss" else organization_id),
-            created_by=created_by,
-        )
-    except Exception:
-        logger.error(
-            "Failed to provision managed Cloudonix SIP connectivity for "
-            "organization {}",
-            organization_id,
-            exc_info=True,
-        )
-        return False
+    """Dograh-managed Cloudonix SIP auto-provisioning is disabled to avoid dependency on Dograh MPS."""
     return True
+

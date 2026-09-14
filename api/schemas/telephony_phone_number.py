@@ -108,6 +108,7 @@ class PhoneNumberResponse(BaseModel):
     telephony_trunk_id: Optional[int] = None
     is_active: bool
     is_default_caller_id: bool
+    pool_type: Optional[str] = "dedicated"
     extra_metadata: Dict[str, Any]
     created_at: datetime
     updated_at: datetime

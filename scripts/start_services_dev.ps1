@@ -105,7 +105,7 @@ foreach ($spec in $serviceSpecs) {
 ###############################################################################
 
 if (-not $NoMigrations) {
-    alembic -c (Join-Path $BaseDir 'api/alembic.ini') upgrade head
+    python -m alembic -c (Join-Path $BaseDir 'api/alembic.ini') upgrade head
 }
 
 ###############################################################################

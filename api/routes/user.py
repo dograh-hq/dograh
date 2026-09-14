@@ -438,7 +438,7 @@ async def reactivate_api_key(
 
 
 # Voice Configuration Endpoints
-TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"]
+TTSProvider = str
 
 
 class VoiceInfo(BaseModel):
@@ -465,6 +465,85 @@ class VoicesResponse(BaseModel):
     facets: Optional[VoiceFacets] = None
 
 
+PRESET_VOICE_CATALOG: dict[str, list[dict]] = {
+    "cartesia": [
+        {"voice_id": "f786b574-daa5-4673-aa0c-cbe3e8534c02", "name": "Jasper - Service Specialist", "accent": "gb", "gender": "male", "language": "en", "description": "British · Male · English"},
+        {"voice_id": "3faa81ae-d3d8-4ab1-9e44-e50e46d33c30", "name": "Cartesia Default Voice", "accent": "us", "gender": "female", "language": "en", "description": "American · Female · English"},
+        {"voice_id": "a0e99841-438c-4a64-b679-ae501e7d6091", "name": "Barbershop Man", "accent": "us", "gender": "male", "language": "en", "description": "American · Male · English"},
+        {"voice_id": "79a125e8-cd45-4c13-8a67-188112f4dd22", "name": "British Lady", "accent": "gb", "gender": "female", "language": "en", "description": "British · Female · English"},
+        {"voice_id": "69267136-1bdc-4103-a11a-7a0676499302", "name": "Commercial Lady", "accent": "us", "gender": "female", "language": "en", "description": "American · Female · English"},
+    ],
+    "elevenlabs": [
+        {"voice_id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel", "accent": "us", "gender": "female", "language": "en", "description": "Calm & Friendly"},
+        {"voice_id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi", "accent": "us", "gender": "female", "language": "en", "description": "Strong & Engaged"},
+        {"voice_id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella", "accent": "us", "gender": "female", "language": "en", "description": "Soft & Expressive"},
+        {"voice_id": "ErXwobaYiN019PkySvjV", "name": "Antoni", "accent": "us", "gender": "male", "language": "en", "description": "Well-rounded"},
+        {"voice_id": "MF3mGyEYCl7XYWbV9V6O", "name": "Elli", "accent": "us", "gender": "female", "language": "en", "description": "Young Emotional"},
+        {"voice_id": "TxGEqnHWrfWFTfGW9XjX", "name": "Josh", "accent": "us", "gender": "male", "language": "en", "description": "Deep Authoritative"},
+    ],
+    "deepgram": [
+        {"voice_id": "aura-asteria-en", "name": "Asteria", "accent": "us", "gender": "female", "language": "en", "description": "Confident & Clear"},
+        {"voice_id": "aura-luna-en", "name": "Luna", "accent": "us", "gender": "female", "language": "en", "description": "Pleasant & Calm"},
+        {"voice_id": "aura-stella-en", "name": "Stella", "accent": "us", "gender": "female", "language": "en", "description": "Warm & Expressive"},
+        {"voice_id": "aura-athena-en", "name": "Athena", "accent": "gb", "gender": "female", "language": "en", "description": "Sophisticated British"},
+        {"voice_id": "aura-orion-en", "name": "Orion", "accent": "us", "gender": "male", "language": "en", "description": "Authoritative & Deep"},
+        {"voice_id": "aura-helios-en", "name": "Helios", "accent": "gb", "gender": "male", "language": "en", "description": "Clear British Male"},
+        {"voice_id": "aura-angus-en", "name": "Angus", "accent": "ie", "gender": "male", "language": "en", "description": "Irish Male"},
+        {"voice_id": "aura-zeus-en", "name": "Zeus", "accent": "us", "gender": "male", "language": "en", "description": "Deep Resonant Male"},
+    ],
+    "sarvam": [
+        {"voice_id": "anushka", "name": "Anushka", "accent": "in", "gender": "female", "language": "hi", "description": "Natural Indian Female"},
+        {"voice_id": "manisha", "name": "Manisha", "accent": "in", "gender": "female", "language": "hi", "description": "Clear Indian Female"},
+        {"voice_id": "vidya", "name": "Vidya", "accent": "in", "gender": "female", "language": "hi", "description": "Warm Indian Female"},
+        {"voice_id": "arya", "name": "Arya", "accent": "in", "gender": "female", "language": "hi", "description": "Engaging Indian Female"},
+        {"voice_id": "abhilash", "name": "Abhilash", "accent": "in", "gender": "male", "language": "hi", "description": "Professional Indian Male"},
+        {"voice_id": "karun", "name": "Karun", "accent": "in", "gender": "male", "language": "hi", "description": "Casual Indian Male"},
+        {"voice_id": "hitesh", "name": "Hitesh", "accent": "in", "gender": "male", "language": "hi", "description": "Conversational Indian Male"},
+    ],
+    "openai": [
+        {"voice_id": "alloy", "name": "Alloy", "accent": "us", "gender": "neutral", "language": "en", "description": "Balanced & Neutral"},
+        {"voice_id": "echo", "name": "Echo", "accent": "us", "gender": "male", "language": "en", "description": "Warm Male"},
+        {"voice_id": "fable", "name": "Fable", "accent": "gb", "gender": "male", "language": "en", "description": "British Expressive"},
+        {"voice_id": "onyx", "name": "Onyx", "accent": "us", "gender": "male", "language": "en", "description": "Deep Male"},
+        {"voice_id": "nova", "name": "Nova", "accent": "us", "gender": "female", "language": "en", "description": "Energetic Female"},
+        {"voice_id": "shimmer", "name": "Shimmer", "accent": "us", "gender": "female", "language": "en", "description": "Clear Female"},
+    ],
+    "google": [
+        {"voice_id": "en-US-Chirp3-HD-Charon", "name": "Charon", "accent": "us", "gender": "male", "language": "en", "description": "US English HD Male"},
+        {"voice_id": "en-US-Chirp3-HD-Aoede", "name": "Aoede", "accent": "us", "gender": "female", "language": "en", "description": "US English HD Female"},
+        {"voice_id": "en-US-Chirp3-HD-Fenrir", "name": "Fenrir", "accent": "us", "gender": "male", "language": "en", "description": "US English HD Male"},
+        {"voice_id": "en-US-Chirp3-HD-Kore", "name": "Kore", "accent": "us", "gender": "female", "language": "en", "description": "US English HD Female"},
+    ],
+    "smallest": [
+        {"voice_id": "sophia", "name": "Sophia", "accent": "us", "gender": "female", "language": "en", "description": "American Female"},
+        {"voice_id": "emily", "name": "Emily", "accent": "gb", "gender": "female", "language": "en", "description": "British Female"},
+        {"voice_id": "aravind", "name": "Aravind", "accent": "in", "gender": "male", "language": "en", "description": "Indian English Male"},
+        {"voice_id": "diya", "name": "Diya", "accent": "in", "gender": "female", "language": "hi", "description": "Hindi Indian Female"},
+    ],
+    "azure": [
+        {"voice_id": "en-US-AriaNeural", "name": "Aria", "accent": "us", "gender": "female", "language": "en", "description": "US English Neural Female"},
+        {"voice_id": "en-US-GuyNeural", "name": "Guy", "accent": "us", "gender": "male", "language": "en", "description": "US English Neural Male"},
+        {"voice_id": "en-US-JennyNeural", "name": "Jenny", "accent": "us", "gender": "female", "language": "en", "description": "US English Neural Female"},
+        {"voice_id": "en-IN-NeerjaNeural", "name": "Neerja", "accent": "in", "gender": "female", "language": "en", "description": "Indian English Female"},
+        {"voice_id": "en-IN-PrabhatNeural", "name": "Prabhat", "accent": "in", "gender": "male", "language": "en", "description": "Indian English Male"},
+    ],
+    "rime": [
+        {"voice_id": "celeste", "name": "Celeste", "accent": "us", "gender": "female", "language": "en", "description": "Natural Female"},
+        {"voice_id": "allison", "name": "Allison", "accent": "us", "gender": "female", "language": "en", "description": "Expressive Female"},
+        {"voice_id": "marsh", "name": "Marsh", "accent": "us", "gender": "male", "language": "en", "description": "Smooth Male"},
+        {"voice_id": "spire", "name": "Spire", "accent": "us", "gender": "male", "language": "en", "description": "Dynamic Male"},
+    ],
+    "inworld": [
+        {"voice_id": "Ashley", "name": "Ashley", "accent": "us", "gender": "female", "language": "en", "description": "Inworld Character Voice"},
+    ],
+    "camb": [
+        {"voice_id": "147320", "name": "Camb Default", "accent": "us", "gender": "female", "language": "en", "description": "Camb AI Voice"},
+    ],
+}
+
+MPS_VOICE_PROVIDERS = {"elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"}
+
+
 @router.get("/configurations/voices/{provider}")
 async def get_voices(
     provider: TTSProvider,
@@ -476,39 +555,63 @@ async def get_voices(
     user: UserModel = Depends(get_user),
 ) -> VoicesResponse:
     """Get available voices for a TTS provider."""
-    try:
-        result = await mps_service_key_client.get_voices(
-            provider=provider,
-            model=model,
-            language=language,
-            q=q,
-            gender=gender,
-            accent=accent,
-            organization_id=user.selected_organization_id,
-            created_by=user.provider_id,
-        )
-        return VoicesResponse(
-            provider=result.get("provider", provider),
-            voices=[VoiceInfo(**voice) for voice in result.get("voices", [])],
-            facets=result.get("facets"),
-        )
-    except MPSUnavailableError:
-        # The MPS boundary emitted the classified failure. The app-level handler
-        # converts this typed dependency failure to a customer-safe HTTP 503.
-        raise
-    except Exception as e:
-        log_failure(
-            classify_exception(
-                e,
-                source=ErrorSource.PLATFORM,
-                provider="dograh",
-                error_owner="operator",
-            ),
-            organization_id=user.selected_organization_id,
-            operation="validate_voice_catalog_response",
-            requested_provider=provider,
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch voices for {provider}",
-        ) from e
+    normalized_provider = provider.lower()
+
+    if normalized_provider in MPS_VOICE_PROVIDERS:
+        try:
+            result = await mps_service_key_client.get_voices(
+                provider=normalized_provider,
+                model=model,
+                language=language,
+                q=q,
+                gender=gender,
+                accent=accent,
+                organization_id=user.selected_organization_id,
+                created_by=user.provider_id,
+            )
+            raw_voices = result.get("voices", [])
+            if raw_voices:
+                return VoicesResponse(
+                    provider=result.get("provider", provider),
+                    voices=[VoiceInfo(**v) for v in raw_voices],
+                    facets=result.get("facets"),
+                )
+        except Exception:
+            pass
+
+    # Fallback to catalog presets
+    candidates = PRESET_VOICE_CATALOG.get(normalized_provider, [])
+    filtered = []
+    q_lower = q.lower().strip() if q else None
+    gender_lower = gender.lower().strip() if gender else None
+    accent_lower = accent.lower().strip() if accent else None
+    language_lower = language.lower().strip() if language else None
+
+    for item in candidates:
+        if q_lower and not (
+            q_lower in item.get("name", "").lower()
+            or q_lower in item.get("voice_id", "").lower()
+            or q_lower in item.get("description", "").lower()
+        ):
+            continue
+        if gender_lower and gender_lower != "__all__" and item.get("gender", "").lower() != gender_lower:
+            continue
+        if accent_lower and accent_lower != "__all__" and item.get("accent", "").lower() != accent_lower:
+            continue
+        if language_lower and language_lower != "__all__" and item.get("language", "").lower() != language_lower:
+            continue
+        filtered.append(VoiceInfo(**item))
+
+    # If q was for a specific voice ID that is not in the preset catalog, return a synthetic VoiceInfo
+    if q and not filtered:
+        filtered.append(VoiceInfo(voice_id=q, name=q, description=f"{provider} voice ID"))
+
+    genders = sorted(list({item["gender"] for item in candidates if item.get("gender")}))
+    accents = sorted(list({item["accent"] for item in candidates if item.get("accent")}))
+    languages = sorted(list({item["language"] for item in candidates if item.get("language")}))
+
+    return VoicesResponse(
+        provider=provider,
+        voices=filtered,
+        facets=VoiceFacets(genders=genders, accents=accents, languages=languages),
+    )

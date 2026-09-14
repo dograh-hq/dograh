@@ -24,6 +24,18 @@ class TelephonyConfigurationConflictError(Exception):
     """Raised when a telephony configuration violates a DB constraint."""
 
 
+def _rebrand_telephony_model(model: Optional[TelephonyConfigurationModel]) -> Optional[TelephonyConfigurationModel]:
+    if model and model.name == "Dograh Cloudonix SIP":
+        model.name = "CallioAI SIP Trunk"
+    return model
+
+
+def _rebrand_telephony_models(models: List[TelephonyConfigurationModel]) -> List[TelephonyConfigurationModel]:
+    for m in models:
+        _rebrand_telephony_model(m)
+    return models
+
+
 class TelephonyConfigurationClient(BaseDBClient):
     async def list_telephony_configurations(
         self, organization_id: int
@@ -34,7 +46,7 @@ class TelephonyConfigurationClient(BaseDBClient):
                 .where(TelephonyConfigurationModel.organization_id == organization_id)
                 .order_by(TelephonyConfigurationModel.created_at)
             )
-            return list(result.scalars().all())
+            return _rebrand_telephony_models(list(result.scalars().all()))
 
     async def list_outbound_telephony_configuration_candidates(
         self, organization_id: int
@@ -53,13 +65,13 @@ class TelephonyConfigurationClient(BaseDBClient):
                     TelephonyConfigurationModel.id,
                 )
             )
-            return list(result.scalars().all())
+            return _rebrand_telephony_models(list(result.scalars().all()))
 
     async def get_telephony_configuration(
         self, config_id: int
     ) -> Optional[TelephonyConfigurationModel]:
         async with self.async_session() as session:
-            return await session.get(TelephonyConfigurationModel, config_id)
+            return _rebrand_telephony_model(await session.get(TelephonyConfigurationModel, config_id))
 
     async def get_telephony_configuration_for_org(
         self,
@@ -80,7 +92,7 @@ class TelephonyConfigurationClient(BaseDBClient):
             if active_only:
                 query = query.where(TelephonyConfigurationModel.inactive.is_(False))
             result = await session.execute(query)
-            return result.scalars().first()
+            return _rebrand_telephony_model(result.scalars().first())
 
     async def get_default_telephony_configuration(
         self, organization_id: int, active_only: bool = True
@@ -94,7 +106,7 @@ class TelephonyConfigurationClient(BaseDBClient):
             if active_only:
                 query = query.where(TelephonyConfigurationModel.inactive.is_(False))
             result = await session.execute(query)
-            return result.scalars().first()
+            return _rebrand_telephony_model(result.scalars().first())
 
     async def list_telephony_configurations_by_provider(
         self, organization_id: int, provider: str, active_only: bool = True
@@ -108,7 +120,7 @@ class TelephonyConfigurationClient(BaseDBClient):
             if active_only:
                 query = query.where(TelephonyConfigurationModel.inactive.is_(False))
             result = await session.execute(query)
-            return list(result.scalars().all())
+            return _rebrand_telephony_models(list(result.scalars().all()))
 
     async def count_telnyx_configs_missing_webhook_public_key(
         self, organization_id: int

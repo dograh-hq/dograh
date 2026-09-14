@@ -139,7 +139,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.LMNT,
         ServiceProviders.RUMIK,
     ]
-    api_key: str | list[str]
+    api_key: str | list[str] = ""
 
     @field_validator("api_key")
     @classmethod
@@ -393,14 +393,13 @@ ATLASCLOUD_MODELS = [
 ]
 
 GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant",
     "deepseek-r1-distill-llama-70b",
     "qwen-qwq-32b",
     "meta-llama/llama-4-scout-17b-16e-instruct",
     "meta-llama/llama-4-maverick-17b-128e-instruct",
     "gemma2-9b-it",
-    "llama-3.1-8b-instant",
-    "openai/gpt-oss-120b",
 ]
 OPENROUTER_MODELS = [
     "openai/gpt-4.1",
@@ -501,7 +500,7 @@ class GroqLLMService(BaseLLMConfiguration):
     model_config = GROQ_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GROQ] = ServiceProviders.GROQ
     model: str = Field(
-        default="llama-3.3-70b-versatile",
+        default="openai/gpt-oss-120b",
         description="Groq-hosted model identifier.",
         json_schema_extra={"examples": GROQ_MODELS, "allow_custom_input": True},
     )

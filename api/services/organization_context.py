@@ -19,6 +19,7 @@ class OrganizationModelServicesContext(BaseModel):
 class OrganizationContextResponse(BaseModel):
     organization_id: Optional[int] = None
     organization_provider_id: Optional[str] = None
+    wallet_balance_usd: float = 0.0
     model_services: OrganizationModelServicesContext
 
 
@@ -35,9 +36,12 @@ async def get_organization_context(user: UserModel) -> OrganizationContextRespon
     )
     managed_service_version = resolved.effective.managed_service_version
 
+    wallet_bal = float(organization.wallet_balance_usd or 0.0) if organization else 0.0
+
     return OrganizationContextResponse(
         organization_id=organization_id,
         organization_provider_id=organization.provider_id if organization else None,
+        wallet_balance_usd=wallet_bal,
         model_services=OrganizationModelServicesContext(
             config_source=resolved.source,
             has_model_configuration_v2=resolved.source == "organization_v2",

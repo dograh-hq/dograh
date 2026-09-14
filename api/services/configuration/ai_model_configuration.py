@@ -52,6 +52,95 @@ class WorkflowAIModelConfigurationMigrationResult:
     workflow_ids: list[int] | None = None
 
 
+def populate_effective_config_from_platform_defaults(
+    effective: EffectiveAIModelConfiguration,
+) -> EffectiveAIModelConfiguration:
+    """If any service section (llm, stt, tts) is not configured or uses legacy Dograh proxy, fill from active default platform master key."""
+    from api.services.platform_keys import (
+        get_default_platform_provider_and_model,
+        get_platform_default_voice,
+    )
+    from api.services.configuration.registry import REGISTRY, ServiceProviders, ServiceType
+
+    replaced_any = False
+
+    # 1. LLM
+    is_dograh_llm = effective.llm is not None and getattr(effective.llm, "provider", None) in (
+        ServiceProviders.DOGRAH,
+        ServiceProviders.DOGRAH.value,
+        "dograh",
+    )
+    if effective.llm is None or is_dograh_llm:
+        def_llm = get_default_platform_provider_and_model("llm")
+        if def_llm:
+            prov, key, def_model = def_llm
+            cls = REGISTRY.get(ServiceType.LLM, {}).get(prov)
+            if cls:
+                try:
+                    kwargs: dict = {"provider": prov, "api_key": key}
+                    if def_model:
+                        if prov == "groq" and def_model == "llama-3.3-70b-versatile":
+                            def_model = "openai/gpt-oss-120b"
+                        kwargs["model"] = def_model
+                    effective.llm = cls(**kwargs)
+                    replaced_any = True
+                except Exception as e:
+                    logger.warning("Could not auto-populate default LLM service: {}", e)
+
+    # 2. STT
+    is_dograh_stt = effective.stt is not None and getattr(effective.stt, "provider", None) in (
+        ServiceProviders.DOGRAH,
+        ServiceProviders.DOGRAH.value,
+        "dograh",
+    )
+    if effective.stt is None or is_dograh_stt:
+        def_stt = get_default_platform_provider_and_model("stt")
+        if def_stt:
+            prov, key, def_model = def_stt
+            cls = REGISTRY.get(ServiceType.STT, {}).get(prov)
+            if cls:
+                try:
+                    kwargs = {"provider": prov, "api_key": key}
+                    if def_model:
+                        kwargs["model"] = def_model
+                    effective.stt = cls(**kwargs)
+                    replaced_any = True
+                except Exception as e:
+                    logger.warning("Could not auto-populate default STT service: {}", e)
+
+    # 3. TTS
+    is_dograh_tts = effective.tts is not None and getattr(effective.tts, "provider", None) in (
+        ServiceProviders.DOGRAH,
+        ServiceProviders.DOGRAH.value,
+        "dograh",
+    )
+    if effective.tts is None or is_dograh_tts:
+        def_tts = get_default_platform_provider_and_model("tts")
+        if def_tts:
+            prov, key, def_model = def_tts
+            cls = REGISTRY.get(ServiceType.TTS, {}).get(prov)
+            if cls:
+                try:
+                    kwargs = {"provider": prov, "api_key": key}
+                    if def_model:
+                        kwargs["model"] = def_model
+                    plat_voice = get_platform_default_voice("tts", prov)
+                    if plat_voice:
+                        kwargs["voice"] = plat_voice
+                    elif prov == "cartesia":
+                        kwargs["voice"] = "f786b574-daa5-4673-aa0c-cbe3e8534c02"
+                    effective.tts = cls(**kwargs)
+                    replaced_any = True
+                except Exception as e:
+                    logger.warning("Could not auto-populate default TTS service: {}", e)
+
+    # If any Dograh services were replaced by platform master keys, turn off managed MPS v2 proxy mode
+    if replaced_any and getattr(effective, "managed_service_version", None):
+        effective.managed_service_version = None
+
+    return effective
+
+
 async def get_resolved_ai_model_configuration(
     *,
     organization_id: int | None,
@@ -66,6 +155,7 @@ async def get_resolved_ai_model_configuration(
     )
     if organization_configuration is not None:
         effective = compile_ai_model_configuration_v2(organization_configuration)
+        effective = populate_effective_config_from_platform_defaults(effective)
         if organization_configuration_row is not None:
             effective.last_validated_at = (
                 organization_configuration_row.last_validated_at
@@ -76,9 +166,10 @@ async def get_resolved_ai_model_configuration(
             organization_configuration=organization_configuration,
         )
 
+    effective = populate_effective_config_from_platform_defaults(EffectiveAIModelConfiguration())
     return ResolvedAIModelConfiguration(
-        effective=EffectiveAIModelConfiguration(),
-        source="empty",
+        effective=effective,
+        source="platform_defaults" if (effective.llm or effective.stt or effective.tts) else "empty",
     )
 
 

@@ -150,6 +150,13 @@ class OrganizationModel(Base):
     )
 
     price_per_second_usd = Column(Float, nullable=True)
+    wallet_balance_usd = Column(
+        Float,
+        nullable=False,
+        default=10.0,
+        server_default=text("10.0"),
+        comment="Organization wallet balance in USD for platform credits",
+    )
 
     # Relationships
     users = relationship(
@@ -229,6 +236,9 @@ class TelephonyConfigurationModel(Base):
     provider = Column(String(32), nullable=False)
     credentials = Column(JSON, nullable=False, default=dict)
     is_default_outbound = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    is_platform_inventory = Column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     # Set by a connection worker when a config keeps failing (today only the ARI
@@ -374,6 +384,21 @@ class TelephonyPhoneNumberModel(Base):
     is_default_caller_id = Column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    is_platform_inventory = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    pool_type = Column(
+        String(32),
+        nullable=False,
+        default="dedicated",
+        server_default=text("'dedicated'"),
+    )
+    monthly_price_cents = Column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    assigned_organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
+    )
     extra_metadata = Column(
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
     )
@@ -389,6 +414,9 @@ class TelephonyPhoneNumberModel(Base):
     )
     trunk = relationship("TelephonyTrunkModel", back_populates="phone_numbers")
     inbound_workflow = relationship("WorkflowModel")
+    assigned_organization = relationship(
+        "OrganizationModel", foreign_keys=[assigned_organization_id]
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -543,6 +571,7 @@ class WorkflowModel(Base):
     workflow_configurations = Column(
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
     )
+    price_per_second = Column(Float, nullable=True)
     runs = relationship("WorkflowRunModel", back_populates="workflow")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
@@ -1536,3 +1565,30 @@ class KnowledgeBaseChunkModel(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+class PlatformMasterKeyModel(Base):
+    __tablename__ = "platform_master_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    service_type = Column(String(16), nullable=False)  # 'llm', 'stt', 'tts'
+    provider = Column(String(32), nullable=False)      # 'openai', 'groq', 'deepgram', 'cartesia', 'elevenlabs', etc.
+    api_key = Column(String(512), nullable=False)
+    key_prefix = Column(String(32), nullable=False)    # e.g. 'sk-proj...3a12'
+    is_default = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    default_model = Column(String(128), nullable=True)  # e.g. 'llama-3.3-70b-versatile'
+    default_voice = Column(String(128), nullable=True)  # e.g. 'f786b574-daa5-4673-aa0c-cbe3e8534c02'
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    models_pricing = Column(JSON, nullable=False, default=dict, server_default=text("'{}'::json"))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        Index("ix_platform_master_keys_type_provider", "service_type", "provider"),
+        Index("ix_platform_master_keys_default", "service_type", "is_default"),
+    )
+

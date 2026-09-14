@@ -766,6 +766,24 @@ async def authorize_workflow_run_start(
             workflow_configurations=workflow_configurations,
         )
 
+        # Check platform wallet balance (must be > $0.00 to initiate billable runs)
+        try:
+            if hasattr(db_client, "get_wallet_balance"):
+                balance_val = await db_client.get_wallet_balance(organization_id)
+                if isinstance(balance_val, (int, float)) and balance_val <= 0.0:
+                    logger.warning(
+                        "Workflow start authorization denied: org {} has non-positive wallet balance (${})",
+                        organization_id,
+                        balance_val,
+                    )
+                    return QuotaCheckResult(
+                        has_quota=False,
+                        error_code="insufficient_wallet_balance",
+                        error_message="Your platform wallet balance is insufficient ($0.00). Please recharge your account.",
+                    )
+        except Exception as e:
+            logger.debug("Wallet balance check error or skipped: {}", e)
+
         if DEPLOYMENT_MODE != "oss":
             return await _authorize_hosted_workflow_run_start(
                 workflow_owner=workflow_owner,

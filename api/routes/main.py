@@ -14,6 +14,7 @@ from api.routes.knowledge_base import router as knowledge_base_router
 from api.routes.node_types import router as node_types_router
 from api.routes.organization import router as organization_router
 from api.routes.organization_usage import router as organization_usage_router
+from api.routes.platform_numbers import router as platform_numbers_router
 from api.routes.public_agent import router as public_agent_router
 from api.routes.public_download import router as public_download_router
 from api.routes.public_embed import router as public_embed_router
@@ -50,6 +51,7 @@ router.include_router(organization_router)
 router.include_router(s3_router)
 router.include_router(service_keys_router)
 router.include_router(organization_usage_router)
+router.include_router(platform_numbers_router)
 router.include_router(reports_router)
 router.include_router(webrtc_signaling_router)
 router.include_router(turn_credentials_router)

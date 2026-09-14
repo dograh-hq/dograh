@@ -152,9 +152,30 @@ interface WidgetProps {
     onChange: (v: unknown) => void;
 }
 
+const PROMPT_VARIABLE_HINT_SPECS = new Set(["prompt", "greeting", "extraction_prompt"]);
+
+function VariableHint() {
+    return (
+        <details className="text-[10px] text-muted-foreground">
+            <summary className="cursor-pointer select-none hover:text-foreground transition-colors">
+                Available template variables
+            </summary>
+            <div className="mt-1.5 space-y-0.5 pl-2 border-l border-border/50">
+                <div><code className="font-mono">{"{{"} initial_context.field_name {"}}"}</code> — data passed in before the call starts</div>
+                <div><code className="font-mono">{"{{"} gathered_context.variable_name {"}}"}</code> — data extracted by an earlier node in this call</div>
+                <div><code className="font-mono">{"{{"} current_time {"}}"}</code> — current UTC time</div>
+                <div><code className="font-mono">{"{{"} current_weekday {"}}"}</code> — current day of week</div>
+                <div className="pt-0.5 text-muted-foreground/70">Add <code className="font-mono">| fallback</code> for a default: <code className="font-mono">{"{{"} gathered_context.name | Guest {"}}"}</code></div>
+            </div>
+        </details>
+    );
+}
+
 function StringWidget({ spec, value, onChange }: WidgetProps) {
     const v = (value as string | undefined) ?? "";
     const isMultiline = spec.editor === "textarea";
+    const showVariableHint = isMultiline && PROMPT_VARIABLE_HINT_SPECS.has(spec.name);
+
     return (
         <div className="grid gap-2">
             <StackedLabel spec={spec} />
@@ -173,6 +194,7 @@ function StringWidget({ spec, value, onChange }: WidgetProps) {
                     placeholder={spec.placeholder ?? undefined}
                 />
             )}
+            {showVariableHint && <VariableHint />}
         </div>
     );
 }
@@ -402,6 +424,7 @@ function MentionWidget({
     onChange,
     recordings,
 }: WidgetProps & { recordings: RecordingResponseSchema[] }) {
+    const showVariableHint = PROMPT_VARIABLE_HINT_SPECS.has(spec.name);
     return (
         <div className="grid gap-2">
             <StackedLabel spec={spec} />
@@ -412,6 +435,7 @@ function MentionWidget({
                 className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
                 recordings={recordings}
             />
+            {showVariableHint && <VariableHint />}
         </div>
     );
 }

@@ -325,9 +325,33 @@ class PipecatEngine:
         await self.llm._update_settings(LLMSettings(system_instruction=system_prompt))
 
     def _format_prompt(self, prompt: str) -> str:
-        """Delegate prompt formatting to the shared workflow.utils implementation."""
+        """Render a prompt string, injecting both call-start context and any
+        variables extracted by earlier nodes in the same call.
 
-        return render_template(prompt, self._call_context_vars)
+        The render context is built as:
+            {**self._call_context_vars, "gathered_context": dict(self._gathered_context)}
+
+        Key ordering is intentional:
+        - ``_call_context_vars`` is spread first (may contain a "gathered_context"
+          key carrying previous-run callback data, used for resume-node routing).
+        - ``"gathered_context"`` is then overwritten with the live in-progress
+          ``_gathered_context`` so that {{gathered_context.*}} references in
+          node prompts always read from the current call's extraction output.
+
+        A snapshot (dict copy) is taken to prevent any concurrent background
+        extraction task from mutating the dict mid-render.
+
+        Note: a node can only read variables extracted by nodes that have
+        *already completed a transition away from them*.  A node cannot read
+        its own extraction output in its own prompt because extraction fires
+        when the LLM calls the transition function *out* of a node, which is
+        after the node's prompt has already been rendered and used.
+        """
+        render_ctx: dict = {
+            **self._call_context_vars,
+            "gathered_context": dict(self._gathered_context),
+        }
+        return render_template(prompt, render_ctx)
 
     async def _create_transition_func(
         self,
@@ -627,6 +651,11 @@ class PipecatEngine:
     async def _await_pending_extractions(self, timeout: float = 30.0) -> None:
         """Await all in-flight background extraction tasks.
 
+        Uses asyncio.wait() instead of asyncio.wait_for() so that tasks that
+        exceed the timeout continue running in the background rather than being
+        cancelled.  Cancelling them here would silently discard their extracted
+        values and defeat the purpose of the synchronisation.
+
         Args:
             timeout: Maximum seconds to wait for pending extractions.
         """
@@ -638,27 +667,31 @@ class PipecatEngine:
             f"Awaiting {len(self._pending_extraction_tasks)} pending extraction task(s): {task_names}"
         )
         start_time = asyncio.get_event_loop().time()
-        try:
-            results = await asyncio.wait_for(
-                asyncio.gather(*self._pending_extraction_tasks, return_exceptions=True),
-                timeout=timeout,
-            )
-            elapsed = asyncio.get_event_loop().time() - start_time
-            # Log any exceptions returned by gather
-            for task_name, result in zip(task_names, results):
-                if isinstance(result, Exception):
-                    logger.error(
-                        f"Pending extraction task '{task_name}' failed: {result}"
-                    )
-            logger.debug(f"All pending extraction tasks completed in {elapsed:.2f}s")
-        except asyncio.TimeoutError:
-            incomplete = [
-                t.get_name() for t in self._pending_extraction_tasks if not t.done()
-            ]
+
+        # Snapshot the tasks; new tasks added during the wait are not our concern here.
+        pending_snapshot = set(self._pending_extraction_tasks)
+
+        done, still_pending = await asyncio.wait(pending_snapshot, timeout=timeout)
+
+        elapsed = asyncio.get_event_loop().time() - start_time
+
+        # Log any exceptions from completed tasks
+        for task in done:
+            exc = task.exception() if not task.cancelled() else None
+            if exc is not None:
+                logger.error(
+                    f"Pending extraction task '{task.get_name()}' failed: {exc}"
+                )
+
+        if still_pending:
+            incomplete = [t.get_name() for t in still_pending]
             logger.warning(
                 f"Timed out waiting for pending extraction tasks after {timeout}s. "
-                f"Incomplete: {incomplete}"
+                f"Incomplete tasks will continue running in the background: {incomplete}"
             )
+        else:
+            logger.debug(f"All pending extraction tasks completed in {elapsed:.2f}s")
+
 
     async def flush_variable_extraction(self) -> Optional[dict]:
         """Refresh extracted variables without marking the call finalized.
@@ -688,6 +721,18 @@ class PipecatEngine:
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
+        # Flush any in-flight background variable extraction tasks from the
+        # previous node before rendering this node's prompt.  This guarantees
+        # that {{gathered_context.*}} references in the prompt resolve to
+        # finalized values rather than a partial in-flight extraction result.
+        #
+        # Cost: zero when extraction is already done (asyncio.gather on
+        # completed tasks returns immediately).  When extraction is still
+        # running (e.g., the transition speech was very short), this adds
+        # one await — but the extraction LLM call was already in flight, so
+        # the actual delay is only the *remaining* tail of that call.
+        await self._await_pending_extractions()
+
         # Set OTel span name for tracing
         try:
             self.context.set_otel_span_name(f"llm-{node.name}")

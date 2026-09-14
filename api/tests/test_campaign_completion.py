@@ -34,6 +34,7 @@ def completion(monkeypatch):
         get_campaigns_by_status=AsyncMock(return_value=[campaign]),
         complete_campaign_if_idle=AsyncMock(return_value=campaign),
         has_dispatchable_campaign_runs=AsyncMock(return_value=False),
+        recover_stale_campaign_claims=AsyncMock(return_value=0),
         update_campaign=AsyncMock(),
     )
     enqueue = AsyncMock()
@@ -41,6 +42,11 @@ def completion(monkeypatch):
     orchestrator.publisher = SimpleNamespace(publish_campaign_completed=AsyncMock())
     monkeypatch.setattr(campaign_orchestrator, "db_client", db)
     monkeypatch.setattr(campaign_orchestrator, "enqueue_job", enqueue)
+    monkeypatch.setattr(
+        campaign_orchestrator,
+        "campaign_call_dispatcher",
+        SimpleNamespace(recover_stale_dispatches=AsyncMock()),
+    )
     monkeypatch.setattr(
         campaign_orchestrator,
         "circuit_breaker",

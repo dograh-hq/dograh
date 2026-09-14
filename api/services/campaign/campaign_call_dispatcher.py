@@ -1,6 +1,6 @@
 import asyncio
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import aiohttp
@@ -342,14 +342,25 @@ class CampaignCallDispatcher:
         if uncertain:
             # A request may have reached the provider. Never requeue it or free
             # a possibly live slot; terminal callbacks/stale recovery own release.
-            await db_client.update_queued_run(
-                queued_run_id=queued_run.id,
-                state="failed",
-                processed_at=datetime.now(UTC),
-            )
+            # Save recovery first in case updating the queue fails. The slot
+            # identity must survive expiration of its Redis mapping.
+            uncertain_at = datetime.now(UTC)
             await db_client.update_workflow_run(
                 run_id=workflow_run.id,
                 gathered_context={"error": message, "call_initiation_uncertain": True},
+                logs={
+                    "campaign_dispatch": {
+                        "outcome": "uncertain",
+                        "uncertain_at": uncertain_at.isoformat(),
+                        "slot_id": slot.slot_id,
+                        "scope_key": slot.scope_key,
+                    }
+                },
+            )
+            await db_client.update_queued_run(
+                queued_run_id=queued_run.id,
+                state="failed",
+                processed_at=uncertain_at,
             )
             logger.warning(
                 f"Uncertain call initiation for run {workflow_run.id}; slot retained"
@@ -398,6 +409,31 @@ class CampaignCallDispatcher:
                     await call_concurrency.release_workflow_run_slot(workflow_run.id)
             finally:
                 await call_concurrency.release_slot(slot)
+
+    async def recover_stale_dispatches(self) -> None:
+        """Settle uncertain calls without callbacks and retry durable slot cleanup."""
+        pending = await db_client.recover_stale_campaign_dispatches(
+            stale_before=datetime.now(UTC)
+            - timedelta(seconds=rate_limiter.stale_call_timeout)
+        )
+        for recovery in pending:
+            try:
+                await rate_limiter.reconcile_workflow_slot_mapping(
+                    recovery["workflow_run_id"],
+                    organization_id=recovery["organization_id"],
+                    slot_id=recovery["slot_id"],
+                    scope_key=recovery["scope_key"],
+                )
+                await db_client.mark_campaign_dispatch_slot_reconciled(
+                    recovery["workflow_run_id"], recovery["organization_id"]
+                )
+            except Exception:
+                # This persisted cleanup record is scanned even after its
+                # campaign completes, pauses or stops.
+                logger.exception(
+                    f"Stale dispatch slot cleanup failed for run "
+                    f"{recovery['workflow_run_id']}; will retry"
+                )
 
     async def apply_rate_limit(
         self,

@@ -12,17 +12,18 @@ setup_logging()
 
 import asyncio
 import signal
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Dict
 from zoneinfo import ZoneInfo
 
 import redis.asyncio as aioredis
 from loguru import logger
 
-from api.constants import REDIS_URL
+from api.constants import CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS, REDIS_URL
 from api.db import db_client
 from api.db.models import CampaignModel
 from api.enums import RedisChannel
+from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_protocol import (
     BatchCompletedEvent,
     BatchFailedEvent,
@@ -389,11 +390,26 @@ class CampaignOrchestrator:
         """Check all running campaigns for completion or orphaned work."""
         logger.debug("Checking for stale campaigns...")
 
+        await campaign_call_dispatcher.recover_stale_dispatches()
         campaigns = await db_client.get_campaigns_by_status(statuses=["running"])
 
         for campaign in campaigns:
             try:
                 campaign_id = campaign.id
+
+                # A killed worker cannot return its persisted claims in finally.
+                # Recover them before looking for dispatchable work or completion,
+                # even after an orchestrator restart has lost the batch flags.
+                recovered = await db_client.recover_stale_campaign_claims(
+                    campaign_id,
+                    campaign.organization_id,
+                    claimed_before=datetime.now(UTC)
+                    - timedelta(seconds=CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS),
+                )
+                if recovered:
+                    logger.warning(
+                        f"campaign_id: {campaign_id} - Recovered {recovered} expired claims"
+                    )
 
                 # Check if batch is stuck (initiated > 5 minutes ago but no completion)
                 if campaign_id in self._batch_in_progress:

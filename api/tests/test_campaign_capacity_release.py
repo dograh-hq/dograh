@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.enums import TelephonyCallStatus, WorkflowRunState
+from api.services.campaign import campaign_retry
 from api.services.telephony import ari_manager, status_processor
 from api.tasks.function_names import FunctionNames
 
@@ -174,6 +175,46 @@ async def test_channel_destroyed_before_stasis_returns_its_reservation(
         )
     else:
         call.retry.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("cause", "expected_status"),
+    [(17, TelephonyCallStatus.BUSY), (19, TelephonyCallStatus.NO_ANSWER)],
+)
+async def test_campaign_without_queue_link_still_completes(
+    terminal_call, monkeypatch, cause, expected_status
+):
+    call = terminal_call
+    call.run.queued_run_id = None
+    call.db.get_campaign = AsyncMock(
+        return_value=SimpleNamespace(id=49, state="running", retry_config={})
+    )
+    call.db.get_queued_run_by_id = AsyncMock(return_value=None)
+    call.db.record_campaign_retry_decision = AsyncMock()
+    monkeypatch.setattr(campaign_retry, "db_client", call.db)
+    monkeypatch.setattr(
+        status_processor,
+        "schedule_campaign_retry",
+        campaign_retry.schedule_campaign_retry,
+    )
+
+    await call.connection._release_destroyed_channel(
+        call.channel_id, cause, "PBX hangup"
+    )
+
+    assert call.run.state == WorkflowRunState.COMPLETED.value
+    assert call.run.is_completed is True
+    assert call.run.gathered_context["call_status"] == expected_status.value
+    assert call.run.gathered_context["call_disposition"] == expected_status.value
+    call.db.get_queued_run_by_id.assert_not_awaited()
+    call.db.record_campaign_retry_decision.assert_not_awaited()
+    call.release.assert_awaited_once_with(RUN_ID)
+    assert call.mappings == {}
+    call.notify_completed.assert_awaited_once_with(49, RUN_ID)
+    call.enqueue.assert_awaited_once_with(
+        FunctionNames.RUN_INTEGRATIONS_POST_WORKFLOW_RUN, RUN_ID
+    )
 
 
 @pytest.mark.asyncio

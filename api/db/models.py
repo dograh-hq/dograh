@@ -884,6 +884,7 @@ class QueuedRunModel(Base):
         default="queued",
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
     processed_at = Column(DateTime(timezone=True), nullable=True)
 
     # New retry-related fields

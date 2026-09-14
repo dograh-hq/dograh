@@ -4,13 +4,13 @@ Origination happens wherever the call was dispatched from - a campaign worker,
 an API request - while ARI's events arrive in the ari_manager process. The two
 share nothing but Redis, so the mapping lives there.
 
-It is written the moment the channel exists rather than when the channel enters
-Stasis, and that timing is the whole point. A call that is rejected, busy or
-simply never answered is created, destroyed, and never enters Stasis at all, so
-a mapping written at StasisStart never exists for exactly the calls that need
-cleaning up. Those are also the majority of calls on a real dialer, and each
-one was holding a concurrency slot and a caller ID until the stale sweep
-reclaimed them 20 minutes later.
+The provider assigns a channel ID and registers it before sending the originate
+request. A rejected or busy call can be destroyed before the HTTP response and
+never enter Stasis, so registering at either of those later points can miss the
+event that releases its concurrency slot and finalizes its workflow run.
+
+Explicit origination errors remove the mapping. Transport failures leave it
+until destruction or expiry because Asterisk may have accepted the call.
 """
 
 from __future__ import annotations
@@ -36,13 +36,13 @@ async def _get_redis() -> aioredis.Redis:
     return _redis_client
 
 
-async def register_channel(channel_id: str, workflow_run_id: int | str) -> None:
+async def register_channel(channel_id: str, workflow_run_id: int | str | None) -> None:
     """Record that ``channel_id`` belongs to ``workflow_run_id``.
 
     Failure is logged rather than raised: losing the mapping costs a delayed
     cleanup, whereas failing the call costs the call.
     """
-    if not channel_id:
+    if not channel_id or workflow_run_id is None:
         return
     try:
         client = await _get_redis()
@@ -55,4 +55,16 @@ async def register_channel(channel_id: str, workflow_run_id: int | str) -> None:
         logger.warning(
             f"[ARI] Could not register channel {channel_id} for workflow run "
             f"{workflow_run_id}: {e}. Cleanup falls back to the stale sweep."
+        )
+
+
+async def unregister_channel(channel_id: str) -> None:
+    """Remove a rejected origination's mapping without masking its error."""
+    try:
+        client = await _get_redis()
+        await client.delete(f"{CHANNEL_KEY_PREFIX}{channel_id}")
+    except Exception as e:
+        logger.warning(
+            f"[ARI] Could not unregister channel {channel_id}: {e}. "
+            "The mapping will expire."
         )

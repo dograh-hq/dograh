@@ -6,6 +6,7 @@ The ARI WebSocket event listener runs as a separate process (ari_manager.py).
 """
 
 import json
+import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -22,7 +23,10 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
-from api.services.telephony.providers.ari.channel_registry import register_channel
+from api.services.telephony.providers.ari.channel_registry import (
+    register_channel,
+    unregister_channel,
+)
 from api.services.telephony.providers.ari.dial_string import (
     DEFAULT_DIAL_STRING_TEMPLATE,
     build_dial_string,
@@ -109,7 +113,9 @@ class ARIProvider(TelephonyProvider):
         dial_string = build_dial_string(to_number, self.dial_string_template)
 
         # Prepare channel creation data
+        channel_id = f"dograh-call-{uuid.uuid4()}"
         params = {
+            "channelId": channel_id,
             "endpoint": dial_string,
             "app": self.stasis_app_name,
             "appArgs": ",".join(
@@ -135,6 +141,10 @@ class ARIProvider(TelephonyProvider):
         )
 
         async with aiohttp.ClientSession() as session:
+            # Asterisk can destroy a rejected/busy channel before this POST
+            # returns, without ever entering Stasis. Publish our chosen ID
+            # first so the manager can resolve even that earliest event.
+            await register_channel(channel_id, workflow_run_id)
             async with session.post(
                 endpoint,
                 params=params,
@@ -143,24 +153,18 @@ class ARIProvider(TelephonyProvider):
                 response_text = await response.text()
 
                 if response.status != 200:
+                    await unregister_channel(channel_id)
                     raise HTTPException(
                         status_code=response.status,
                         detail=f"Failed to create ARI channel: {response_text}",
                     )
 
                 response_data = json.loads(response_text)
-                channel_id = response_data.get("id", "")
 
                 logger.info(
                     f"[ARI] Channel created: {channel_id} "
                     f"state={response_data.get('state')}"
                 )
-
-                # Recorded here rather than at StasisStart because a call that
-                # is rejected, busy or never answered is destroyed without ever
-                # entering Stasis - and that is the call whose slot and caller
-                # ID would otherwise be held until the stale sweep.
-                await register_channel(channel_id, workflow_run_id)
 
                 return CallInitiationResult(
                     call_id=channel_id,

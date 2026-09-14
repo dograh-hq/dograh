@@ -3,6 +3,7 @@
 import asyncio
 import time
 import uuid
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -184,6 +185,13 @@ async def test_cancelled_setup_releases_only_when_no_provider_request_started(
         assert s.db.update_workflow_run.await_args.kwargs["gathered_context"][
             "call_initiation_uncertain"
         ]
+        recovery = s.db.update_workflow_run.await_args.kwargs["logs"][
+            "campaign_dispatch"
+        ]
+        assert recovery["outcome"] == "uncertain"
+        assert recovery["slot_id"] == s.slot.slot_id
+        assert recovery["scope_key"] == s.slot.scope_key
+        assert datetime.fromisoformat(recovery["uncertain_at"]).tzinfo is not None
     else:
         s.concurrency.release_slot.assert_awaited_once_with(s.slot)
         s.provider.initiate_call.assert_not_awaited()

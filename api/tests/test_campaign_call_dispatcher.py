@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from api.constants import CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS
 from api.db import db_client
 from api.db.models import (
     CampaignModel,
@@ -22,6 +23,12 @@ from api.db.models import (
 from api.services.call_concurrency import CallConcurrencySlot
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
 from api.services.campaign.campaign_retry import schedule_campaign_retry
+
+
+def expired_claim_time():
+    return datetime.now(UTC) - timedelta(
+        seconds=CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS + 1
+    )
 
 
 @pytest.fixture(scope="module")
@@ -555,3 +562,273 @@ async def test_retry_decision_cannot_cross_organizations(finished_campaign):
     )
     assert result is None
     assert await db_client.get_queued_runs_count(s.campaign.id, ["queued"]) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stale_batch_flag", [False, True])
+async def test_crashed_worker_claims_are_redispatched_then_campaign_completes(
+    campaign_data, dispatcher, sessions, stale_batch_flag
+):
+    from api.services.campaign import campaign_orchestrator
+    from api.services.campaign.campaign_event_protocol import BatchCompletedEvent
+
+    s = campaign_data
+    instance, seen = dispatcher
+    await db_client.update_campaign(s.campaign.id, source_sync_status="completed")
+    claimed = await db_client.claim_queued_runs_for_processing(
+        s.campaign.id, datetime.now(UTC), limit=10
+    )
+    assert len(claimed) == 10
+    # A killed worker cannot run the dispatcher's finally block.
+    async with sessions() as session:
+        await session.execute(
+            update(QueuedRunModel)
+            .where(QueuedRunModel.campaign_id == s.campaign.id)
+            .values(claimed_at=expired_claim_time())
+        )
+        await session.commit()
+    assert not await db_client.has_dispatchable_campaign_runs(s.campaign.id, s.org.id)
+    assert await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is None
+
+    orchestrator = campaign_orchestrator.CampaignOrchestrator(AsyncMock())
+    orchestrator.publisher.publish_campaign_completed = AsyncMock()
+    if stale_batch_flag:
+        orchestrator._batch_in_progress[s.campaign.id] = expired_claim_time()
+    with (
+        patch.object(
+            db_client, "get_campaigns_by_status", AsyncMock(return_value=[s.campaign])
+        ),
+        patch.object(campaign_orchestrator, "enqueue_job", AsyncMock()) as enqueue,
+        patch.object(
+            campaign_orchestrator.circuit_breaker,
+            "is_circuit_open",
+            AsyncMock(return_value=(False, None)),
+        ),
+    ):
+        await orchestrator._check_stale_campaigns()
+        enqueue.assert_awaited_once()
+        orchestrator.publisher.publish_campaign_completed.assert_not_awaited()
+        assert await instance.process_batch(s.campaign.id, 10) == 10
+        assert len(seen) == len(set(seen)) == 10
+        async with sessions() as session:
+            await session.execute(
+                update(WorkflowRunModel)
+                .where(WorkflowRunModel.campaign_id == s.campaign.id)
+                .values(state="completed", is_completed=True)
+            )
+            await session.commit()
+        await orchestrator._handle_event(BatchCompletedEvent(campaign_id=s.campaign.id))
+        orchestrator.publisher.publish_campaign_completed.assert_awaited_once()
+    campaign = await db_client.get_campaign_by_id(s.campaign.id)
+    assert campaign.state == "completed"
+    assert campaign.processed_rows == 10
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheduled", [False, True])
+async def test_fresh_claim_lease_ignores_source_age_and_resets_on_reclaim(
+    campaign_data, sessions, scheduled
+):
+    s = campaign_data
+    old = datetime.now(UTC) - timedelta(days=1)
+    async with sessions() as session:
+        await session.execute(
+            update(QueuedRunModel)
+            .where(QueuedRunModel.campaign_id == s.campaign.id)
+            .values(
+                created_at=old, claimed_at=old, scheduled_for=old if scheduled else None
+            )
+        )
+        await session.commit()
+    before_claim = datetime.now(UTC)
+    claimed = await db_client.claim_queued_runs_for_processing(
+        s.campaign.id, before_claim, limit=10
+    )
+    assert len(claimed) == 10
+    assert all(row.claimed_at >= before_claim for row in claimed)
+    assert (
+        await db_client.recover_stale_campaign_claims(
+            s.campaign.id, s.org.id, claimed_before=expired_claim_time()
+        )
+        == 0
+    )
+    assert (
+        await db_client.return_processing_queued_runs_without_workflow([claimed[0].id])
+        == 1
+    )
+    before_reclaim = datetime.now(UTC)
+    reclaimed = await db_client.claim_queued_runs_for_processing(
+        s.campaign.id, before_reclaim, limit=10
+    )
+    assert len(reclaimed) == 1
+    assert reclaimed[0].id == claimed[0].id
+    assert reclaimed[0].claimed_at >= before_reclaim
+
+
+@pytest.mark.asyncio
+async def test_legacy_processing_claim_gets_a_full_lease_before_recovery(
+    campaign_data, sessions
+):
+    s = campaign_data
+    row = s.rows[0]
+    await db_client.update_queued_run(
+        row.id, state="processing", created_at=expired_claim_time(), claimed_at=None
+    )
+    before_scan = datetime.now(UTC)
+    assert (
+        await db_client.recover_stale_campaign_claims(
+            s.campaign.id, s.org.id, claimed_before=expired_claim_time()
+        )
+        == 0
+    )
+    async with sessions() as session:
+        leased = await session.get(QueuedRunModel, row.id)
+    assert leased.state == "processing"
+    assert leased.claimed_at >= before_scan
+    # Repeated scans must not extend the legacy lease indefinitely.
+    assert (
+        await db_client.recover_stale_campaign_claims(
+            s.campaign.id, s.org.id, claimed_before=expired_claim_time()
+        )
+        == 0
+    )
+    async with sessions() as session:
+        unchanged = await session.get(QueuedRunModel, row.id)
+    assert unchanged.claimed_at == leased.claimed_at
+    assert (
+        await db_client.recover_stale_campaign_claims(
+            s.campaign.id, s.org.id, claimed_before=leased.claimed_at
+        )
+        == 1
+    )
+    async with sessions() as session:
+        recovered = await session.get(QueuedRunModel, row.id)
+    assert recovered.state == "queued"
+    assert recovered.claimed_at is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("active_call", [False, True])
+async def test_expired_dispatch_bookkeeping_is_recovered_once_without_redial(
+    finished_campaign, sessions, active_call
+):
+    s = finished_campaign
+    await db_client.update_campaign(s.campaign.id, processed_rows=9)
+    await db_client.update_queued_run(
+        s.rows[0].id,
+        state="processing",
+        claimed_at=expired_claim_time(),
+        processed_at=None,
+    )
+    if active_call:
+        await db_client.update_workflow_run(
+            s.run.id,
+            state="initialized",
+            is_completed=False,
+            gathered_context={"call_initiation_uncertain": True},
+        )
+    recovered = await asyncio.wait_for(
+        asyncio.gather(
+            *(
+                db_client.recover_stale_campaign_claims(
+                    s.campaign.id, s.org.id, claimed_before=expired_claim_time()
+                )
+                for _ in range(3)
+            )
+        ),
+        timeout=5,
+    )
+    assert sum(recovered) == 1
+    assert not await db_client.mark_campaign_run_dispatched(
+        s.rows[0].id, s.run.id, s.campaign.id, s.org.id
+    )
+    async with sessions() as session:
+        row = await session.get(QueuedRunModel, s.rows[0].id)
+        campaign = await session.get(CampaignModel, s.campaign.id)
+    assert row.state == "processed"
+    assert row.processed_at is not None
+    assert row.claimed_at is None
+    assert campaign.processed_rows == 10
+    assert not await db_client.has_dispatchable_campaign_runs(s.campaign.id, s.org.id)
+    if active_call:
+        assert (
+            await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is None
+        )
+        await db_client.update_workflow_run(
+            s.run.id, state="completed", is_completed=True
+        )
+    assert (
+        await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is not None
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("also_dialed", [False, True])
+async def test_stale_claim_only_requeues_when_entire_workflow_history_never_dialed(
+    finished_campaign, sessions, also_dialed
+):
+    s = finished_campaign
+    await db_client.update_campaign(s.campaign.id, processed_rows=9)
+    await db_client.update_queued_run(
+        s.rows[0].id, state="processing", claimed_at=expired_claim_time()
+    )
+    await db_client.update_workflow_run(
+        s.run.id, logs={"campaign_dispatch": {"outcome": "not_started"}}
+    )
+    if also_dialed:
+        async with sessions() as session:
+            session.add(
+                WorkflowRunModel(
+                    name="later dial attempt",
+                    workflow_id=s.campaign.workflow_id,
+                    campaign_id=s.campaign.id,
+                    queued_run_id=s.rows[0].id,
+                    mode="ari",
+                    state="completed",
+                    is_completed=True,
+                )
+            )
+            await session.commit()
+    assert (
+        await db_client.recover_stale_campaign_claims(
+            s.campaign.id, s.org.id, claimed_before=expired_claim_time()
+        )
+        == 1
+    )
+    async with sessions() as session:
+        row = await session.get(QueuedRunModel, s.rows[0].id)
+        campaign = await session.get(CampaignModel, s.campaign.id)
+    assert row.state == ("processed" if also_dialed else "queued")
+    assert campaign.processed_rows == (10 if also_dialed else 9)
+    if not also_dialed:
+        assert row.processed_at is None
+        assert (
+            await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is None
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("inactive_campaign", [False, True])
+async def test_claim_recovery_requires_running_campaign_and_matching_org(
+    campaign_data, sessions, inactive_campaign
+):
+    s = campaign_data
+    await db_client.update_queued_run(
+        s.rows[0].id, state="processing", claimed_at=expired_claim_time()
+    )
+    await db_client.update_queued_run(s.rows[1].id, state="processing", claimed_at=None)
+    if inactive_campaign:
+        await db_client.update_campaign(s.campaign.id, state="paused")
+    assert (
+        await db_client.recover_stale_campaign_claims(
+            s.campaign.id,
+            s.org.id if inactive_campaign else s.org.id + 1000000,
+            claimed_before=expired_claim_time(),
+        )
+        == 0
+    )
+    async with sessions() as session:
+        expired = await session.get(QueuedRunModel, s.rows[0].id)
+        legacy = await session.get(QueuedRunModel, s.rows[1].id)
+    assert expired.state == legacy.state == "processing"
+    assert legacy.claimed_at is None

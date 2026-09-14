@@ -13,6 +13,9 @@ async def schedule_campaign_retry(
 ) -> None:
     if not workflow_run.campaign_id:
         return
+    # Legacy campaign runs may have no queue link and cannot be retried.
+    if workflow_run.queued_run_id is None:
+        return
     campaign = await db_client.get_campaign(
         workflow_run.campaign_id, organization_id=organization_id
     )

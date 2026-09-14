@@ -401,6 +401,37 @@ class RateLimiter:
             logger.error(f"Error getting workflow slot mapping: {e}")
             return None
 
+    async def reconcile_workflow_slot_mapping(
+        self,
+        workflow_run_id: int,
+        *,
+        organization_id: int,
+        slot_id: str | None = None,
+        scope_key: str | None = None,
+    ) -> None:
+        """Durable cleanup, including after the workflow mapping's TTL expires.
+
+        Errors propagate so the DB cleanup marker stays pending until every
+        counter and the mapping have been cleared. Repeating cleanup is safe.
+        """
+        redis_client = await self._get_redis()
+        mapping_key = f"workflow_slot_mapping:{workflow_run_id}"
+        mapping = await redis_client.hgetall(mapping_key)
+        slots = {(slot_id, scope_key)} if slot_id else set()
+        if mapping:
+            if int(mapping["org_id"]) != organization_id:
+                raise ValueError(
+                    f"Slot mapping organization mismatch for run {workflow_run_id}"
+                )
+            slots.add((mapping["slot_id"], mapping.get("scope_key") or None))
+        for reserved_slot_id, reserved_scope in slots:
+            released = await self.release_concurrent_slot(
+                organization_id, reserved_slot_id, scope_key=reserved_scope
+            )
+            if released is None:
+                raise ConnectionError(f"Slot cleanup failed for run {workflow_run_id}")
+        await redis_client.delete(mapping_key)
+
     async def delete_workflow_slot_mapping(self, workflow_run_id: int) -> bool:
         """
         Delete the workflow slot mapping after releasing the slot.

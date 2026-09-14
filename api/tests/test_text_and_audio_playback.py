@@ -641,6 +641,8 @@ class TestPlayConfigMessage:
     def mock_engine(self):
         """Create a mock engine with frame capture on task.queue_frame."""
         engine = Mock()
+        engine._is_realtime = False
+        engine.queue_text_message = PipecatEngine.queue_text_message.__get__(engine)
         engine._workflow_run_id = 1
         engine._call_context_vars = {}
         engine._fetch_recording_audio = None

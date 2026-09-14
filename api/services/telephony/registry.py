@@ -283,6 +283,10 @@ class ProviderSpec:
             Only providers that can originate without a caller ID (a PBX
             dialling an extension, say) opt out. Ignored when the provider
             supplies its own ``setup_checklist_resolver``.
+        requires_e164_destinations: Whether destinations must be E.164 numbers.
+            True for every carrier. Campaign uploads are checked against it, so
+            a provider that reaches extensions or SIP URIs opts out rather than
+            having those rows rejected as malformed numbers.
         trunk_settings_cls: Schema for a trunk's provider-specific settings.
             Providing it declares that this provider's calls travel over named
             carrier paths, which phone numbers are then assigned to. Paired
@@ -329,6 +333,12 @@ class ProviderSpec:
     # Whether outbound calls need a phone number on the configuration. True by
     # default so a provider is never reported ready when it cannot dial.
     requires_caller_id: bool = True
+    # Whether every destination this provider dials has to be an E.164 number.
+    # True for a carrier, which hands the call to the PSTN. False only for a
+    # provider that also reaches destinations the PSTN has no name for -- a PBX
+    # extension, a SIP URI, a dial string naming a trunk -- where demanding
+    # E.164 rejects the addresses the customer actually dials.
+    requires_e164_destinations: bool = True
     # Schema for a trunk's provider-specific settings. Setting it is what
     # declares that this provider has trunks at all: the trunk endpoints,
     # the checklist's trunk step and the number-to-trunk picker all key off it.

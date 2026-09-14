@@ -69,6 +69,7 @@ class UserConfigurationValidator:
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
             ServiceProviders.XAI.value: self._check_xai_api_key,
             ServiceProviders.LMNT.value: self._check_lmnt_api_key,
+            ServiceProviders.SPEECHIFY.value: self._check_speechify_api_key,
         }
 
     async def validate(
@@ -425,25 +426,35 @@ class UserConfigurationValidator:
         return True
 
     def _check_lmnt_api_key(self, model: str, api_key: str) -> bool:
-        # Best-effort smoke test against LMNT's voice-list endpoint. Only a clear
-        # auth failure rejects the save; other statuses are treated as
-        # inconclusive so transient errors or API changes don't block valid keys.
+        raise ValueError(
+            "LMNT is no longer available. Please select another TTS provider."
+        )
+
+    def _check_speechify_api_key(self, model: str, api_key: str) -> bool:
+        # Best-effort smoke test against Speechify's voice-list endpoint. Only a
+        # clear auth failure rejects the save; connection failures and other
+        # statuses are treated as inconclusive so transient errors or API
+        # changes don't block valid keys.
         try:
             response = httpx.get(
-                "https://api.lmnt.com/v1/ai/voice/list",
-                headers={"X-API-Key": api_key, "lmnt-version": "1.1"},
+                "https://api.speechify.ai/v1/voices?limit=1",
+                headers={"Authorization": f"Bearer {api_key}"},
                 timeout=10.0,
             )
         except httpx.RequestError:
-            raise ValueError(
-                "Could not connect to the LMNT API. Please check your network "
-                "connection and try again."
-            )
+            return True
         if response.status_code == 401:
             raise ValueError(
-                "Invalid LMNT API key. The key was rejected by the LMNT API. "
+                "Invalid Speechify API key. The key was rejected by the Speechify API. "
                 "Please check that your API key is correct and active. "
-                "You can find your key at https://app.lmnt.com."
+                "You can find your key at https://platform.speechify.ai."
+            )
+        if response.status_code == 403:
+            raise ValueError(
+                "Speechify API authorization failed: the key was recognized but is "
+                "not allowed to access the TTS API (expired plan, revoked key, or "
+                "missing scope). Check your key and plan at "
+                "https://platform.speechify.ai."
             )
         return True
 

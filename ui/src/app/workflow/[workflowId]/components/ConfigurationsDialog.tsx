@@ -10,7 +10,6 @@ import { Switch } from "@/components/ui/switch";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 import {
     AmbientNoiseConfiguration,
-    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     ExternalPBXFieldMapping,
     resolveWorkflowConfigurations,
@@ -56,9 +55,6 @@ export const ConfigurationsDialog = ({
     const [turnStartMinWords, setTurnStartMinWords] = useState<number>(
         resolvedWorkflowConfigurations.turn_start_min_words
     );
-    const [provisionalVadPauseSecs, setProvisionalVadPauseSecs] = useState<number>(
-        resolvedWorkflowConfigurations.provisional_vad_pause_secs
-    );
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
         resolvedWorkflowConfigurations.turn_stop_strategy
     );
@@ -89,7 +85,6 @@ export const ConfigurationsDialog = ({
                 smart_turn_stop_secs: smartTurnStopSecs,
                 turn_start_strategy: turnStartStrategy,
                 turn_start_min_words: turnStartMinWords,
-                provisional_vad_pause_secs: provisionalVadPauseSecs,
                 turn_stop_strategy: turnStopStrategy,
                 transcript_configuration: resolvedWorkflowConfigurations.transcript_configuration,
                 context_compaction_enabled: contextCompactionEnabled,
@@ -114,7 +109,6 @@ export const ConfigurationsDialog = ({
             setSmartTurnStopSecs(nextWorkflowConfigurations.smart_turn_stop_secs);
             setTurnStartStrategy(nextWorkflowConfigurations.turn_start_strategy);
             setTurnStartMinWords(nextWorkflowConfigurations.turn_start_min_words);
-            setProvisionalVadPauseSecs(nextWorkflowConfigurations.provisional_vad_pause_secs);
             setTurnStopStrategy(nextWorkflowConfigurations.turn_stop_strategy);
             setContextCompactionEnabled(nextWorkflowConfigurations.context_compaction_enabled);
             setExternalPbxFieldMappings(nextWorkflowConfigurations.external_pbx_field_mappings);
@@ -314,31 +308,6 @@ export const ConfigurationsDialog = ({
                                 />
                                 <p className="text-xs text-muted-foreground">
                                     Number of transcribed words needed to interrupt while the bot is speaking. Default: {DEFAULT_TURN_START_MIN_WORDS}
-                                </p>
-                            </div>
-                        )}
-
-                        {turnStartStrategy === 'provisional_vad' && (
-                            <div className="space-y-2">
-                                <Label htmlFor="provisional_vad_pause_secs" className="text-xs">
-                                    Provisional Pause (seconds)
-                                </Label>
-                                <Input
-                                    id="provisional_vad_pause_secs"
-                                    type="number"
-                                    step="0.1"
-                                    min="0.1"
-                                    max="5"
-                                    value={provisionalVadPauseSecs}
-                                    onChange={(e) => {
-                                        const value = parseFloat(e.target.value);
-                                        if (!isNaN(value) && value >= 0.1) {
-                                            setProvisionalVadPauseSecs(value);
-                                        }
-                                    }}
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    Seconds to pause bot audio while waiting for transcript confirmation. Default: {DEFAULT_PROVISIONAL_VAD_PAUSE_SECS}
                                 </p>
                             </div>
                         )}

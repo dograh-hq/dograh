@@ -4,6 +4,11 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from api.services.telephony.providers.ari.dial_string import (
+    DEFAULT_DIAL_STRING_TEMPLATE,
+    has_channel_technology,
+)
+
 
 class VicidialAgentAPIConfiguration(BaseModel):
     """VICIdial remote-agent call-control API configuration."""
@@ -81,7 +86,36 @@ class ARIConfigurationRequest(BaseModel):
         default="",
         description="websocket_client.conf connection name for externalMedia (e.g., dograh_staging)",
     )
+    dial_string_template: str = Field(
+        default=DEFAULT_DIAL_STRING_TEMPLATE,
+        description=(
+            "How a plain number becomes an Asterisk dial string. ``{number}`` "
+            "is substituted; anything already carrying a channel technology "
+            "(``PJSIP/...``, ``Local/...``) is dialled as written."
+        ),
+    )
     external_pbx: Optional[VicidialExternalPBXConfiguration] = Field(
         default=None,
         description="Optional external PBX connected through this Asterisk instance",
     )
+
+    @field_validator("dial_string_template")
+    @classmethod
+    def validate_dial_string_template(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            return DEFAULT_DIAL_STRING_TEMPLATE
+        try:
+            rendered = stripped.format(number="probe")
+        except (IndexError, KeyError) as error:
+            raise ValueError(
+                "Dial string template accepts only the {number} placeholder"
+            ) from error
+        if rendered == stripped:
+            raise ValueError("Dial string template must contain {number}")
+        if not has_channel_technology(stripped):
+            raise ValueError(
+                "Dial string template must start with a channel technology, "
+                "e.g. PJSIP/{number}@my-trunk or Local/{number}@from-internal"
+            )
+        return stripped

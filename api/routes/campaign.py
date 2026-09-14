@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from loguru import logger
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.constants import (
@@ -24,6 +25,7 @@ from api.services.storage import storage_fs
 from api.services.telephony.outbound_readiness import (
     OutboundConfigurationNotFoundError,
     OutboundSetupIncompleteError,
+    requires_e164_destinations,
     resolve_outbound_configuration_id,
 )
 
@@ -65,31 +67,60 @@ async def _get_from_numbers_count(
     return 0
 
 
+# Caller IDs rotate independently of the concurrency ceiling.
+CLI_CONCURRENCY_WARNING = (
+    "max_concurrency ({max_concurrency}) is above the {from_numbers_count} caller "
+    "ID(s) configured. Caller IDs rotate and may be reused on simultaneous calls."
+)
+
+
 async def _validate_max_concurrency(
     max_concurrency: int,
     organization_id: int,
     telephony_configuration_id: int | None,
-) -> None:
-    """Validate max_concurrency against org limit and configured phone numbers.
+) -> list[str]:
+    """Check max_concurrency and return any warnings for the operator.
 
-    Raises HTTPException(400) if the value exceeds the effective limit.
+    The organization limit is a hard ceiling and still raises, because it is
+    the capacity the platform has agreed to carry. The caller-ID pool is not:
+    caller IDs rotate and can be reused by simultaneous calls.
+
+    Raises:
+        HTTPException: 400 when the organization limit is exceeded.
     """
     org_limit = await _get_org_concurrent_limit(organization_id)
+    if max_concurrency > org_limit:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"max_concurrency ({max_concurrency}) cannot exceed organization "
+                f"limit ({org_limit})"
+            ),
+        )
+
     from_numbers_count = await _get_from_numbers_count(
         organization_id, telephony_configuration_id
     )
-    effective_limit = (
-        min(org_limit, from_numbers_count) if from_numbers_count > 0 else org_limit
-    )
-    if max_concurrency > effective_limit:
-        if from_numbers_count > 0 and from_numbers_count < org_limit:
-            raise HTTPException(
-                status_code=400,
-                detail=f"max_concurrency ({max_concurrency}) cannot exceed {effective_limit}. You have {from_numbers_count} phone number(s) configured. Add more CLIs in telephony configuration to increase concurrency.",
-            )
+    if 0 < from_numbers_count < max_concurrency:
+        warning = CLI_CONCURRENCY_WARNING.format(
+            max_concurrency=max_concurrency,
+            from_numbers_count=from_numbers_count,
+        )
+        logger.warning(
+            f"Campaign concurrency above CLI pool for org {organization_id}, "
+            f"config {telephony_configuration_id}: {warning}"
+        )
+        return [warning]
+
+    return []
+
+
+async def _validate_dial_rate(rate: int, organization_id: int) -> None:
+    org_limit = await _get_org_concurrent_limit(organization_id)
+    if rate > org_limit:
         raise HTTPException(
             status_code=400,
-            detail=f"max_concurrency ({max_concurrency}) cannot exceed organization limit ({effective_limit})",
+            detail=f"rate_limit_per_second ({rate}) cannot exceed organization limit ({org_limit})",
         )
 
 
@@ -173,7 +204,8 @@ class CreateCampaignRequest(BaseModel):
     # the marked default and then another ready active configuration.
     telephony_configuration_id: Optional[int] = None
     retry_config: Optional[RetryConfigRequest] = None
-    max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
+    max_concurrency: Optional[int] = Field(default=None, ge=1)
+    rate_limit_per_second: int = Field(default=1, ge=1, strict=True)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 
@@ -181,7 +213,8 @@ class CreateCampaignRequest(BaseModel):
 class UpdateCampaignRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     retry_config: Optional[RetryConfigRequest] = None
-    max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
+    max_concurrency: Optional[int] = Field(default=None, ge=1)
+    rate_limit_per_second: Optional[int] = Field(default=None, ge=1, strict=True)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 
@@ -216,6 +249,7 @@ class CampaignResponse(BaseModel):
     completed_at: Optional[datetime]
     retry_config: RetryConfigResponse
     max_concurrency: Optional[int] = None
+    rate_limit_per_second: int = 1
     schedule_config: Optional[ScheduleConfigResponse] = None
     circuit_breaker: Optional[CircuitBreakerConfigResponse] = None
     executed_count: int = 0
@@ -225,6 +259,9 @@ class CampaignResponse(BaseModel):
     telephony_configuration_id: Optional[int] = None
     telephony_configuration_name: Optional[str] = None
     logs: List[CampaignLogEntryResponse] = Field(default_factory=list)
+    # Things the operator should know that are not errors - dialling wider
+    # than the caller-ID pool, for instance.
+    warnings: List[str] = Field(default_factory=list)
 
 
 class CampaignsResponse(BaseModel):
@@ -271,6 +308,7 @@ def _build_campaign_response(
     executed_count: int = 0,
     total_queued_count: int = 0,
     telephony_configuration_name: Optional[str] = None,
+    warnings: Optional[List[str]] = None,
 ) -> CampaignResponse:
     """Build a CampaignResponse from a campaign model."""
     # Get retry_config from campaign or use defaults
@@ -304,6 +342,7 @@ def _build_campaign_response(
         )
 
     return CampaignResponse(
+        warnings=warnings or [],
         id=campaign.id,
         name=campaign.name,
         workflow_id=campaign.workflow_id,
@@ -319,6 +358,7 @@ def _build_campaign_response(
         completed_at=campaign.completed_at,
         retry_config=RetryConfigResponse(**retry_config),
         max_concurrency=max_concurrency,
+        rate_limit_per_second=campaign.rate_limit_per_second,
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
         executed_count=executed_count,
@@ -372,10 +412,34 @@ async def create_campaign(
         raise HTTPException(status_code=404, detail="Workflow not found")
     workflow_name = workflow.name
 
+    # Resolved before the source is validated: which addresses count as
+    # dialable is the provider's answer, and a PBX reaches destinations no
+    # carrier would accept.
+    try:
+        telephony_configuration_id = await resolve_outbound_configuration_id(
+            request.telephony_configuration_id,
+            user.selected_organization_id,
+            db=db_client,
+        )
+    except OutboundSetupIncompleteError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except OutboundConfigurationNotFoundError as e:
+        raise HTTPException(
+            status_code=400, detail="telephony_configuration_not_found"
+        ) from e
+
+    require_e164 = await requires_e164_destinations(
+        telephony_configuration_id,
+        user.selected_organization_id,
+        db=db_client,
+    )
+
     # Validate source data (phone_number column and format)
     sync_service = get_sync_service(request.source_type)
     validation_result = await sync_service.validate_source(
-        request.source_id, user.selected_organization_id
+        request.source_id,
+        user.selected_organization_id,
+        require_e164=require_e164,
     )
     if not validation_result.is_valid:
         raise HTTPException(status_code=400, detail=validation_result.error.message)
@@ -414,25 +478,17 @@ async def create_campaign(
             except Exception:
                 pass  # Don't block campaign creation if template extraction fails
 
-    try:
-        telephony_configuration_id = await resolve_outbound_configuration_id(
-            request.telephony_configuration_id,
-            user.selected_organization_id,
-            db=db_client,
-        )
-    except OutboundSetupIncompleteError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except OutboundConfigurationNotFoundError as e:
-        raise HTTPException(
-            status_code=400, detail="telephony_configuration_not_found"
-        ) from e
-
+    warnings: List[str] = []
     if request.max_concurrency is not None:
-        await _validate_max_concurrency(
+        warnings = await _validate_max_concurrency(
             request.max_concurrency,
             user.selected_organization_id,
             telephony_configuration_id,
         )
+
+    await _validate_dial_rate(
+        request.rate_limit_per_second, user.selected_organization_id
+    )
 
     # Build retry_config dict if provided
     retry_config = None
@@ -461,13 +517,17 @@ async def create_campaign(
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
         telephony_configuration_id=telephony_configuration_id,
+        rate_limit_per_second=request.rate_limit_per_second,
     )
 
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
     )
     return _build_campaign_response(
-        campaign, workflow_name, telephony_configuration_name=cfg_name
+        campaign,
+        workflow_name,
+        telephony_configuration_name=cfg_name,
+        warnings=warnings,
     )
 
 
@@ -648,11 +708,17 @@ async def update_campaign(
             detail=f"Cannot update a {campaign.state} campaign",
         )
 
+    warnings: List[str] = []
     if request.max_concurrency is not None:
-        await _validate_max_concurrency(
+        warnings = await _validate_max_concurrency(
             request.max_concurrency,
             user.selected_organization_id,
             campaign.telephony_configuration_id,
+        )
+
+    if request.rate_limit_per_second is not None:
+        await _validate_dial_rate(
+            request.rate_limit_per_second, user.selected_organization_id
         )
 
     # Build update kwargs
@@ -661,6 +727,9 @@ async def update_campaign(
     if request.name is not None:
         update_kwargs["name"] = request.name
 
+    if request.rate_limit_per_second is not None:
+        update_kwargs["rate_limit_per_second"] = request.rate_limit_per_second
+
     if request.retry_config is not None:
         update_kwargs["retry_config"] = request.retry_config.model_dump()
 
@@ -668,8 +737,11 @@ async def update_campaign(
     metadata = campaign.orchestrator_metadata or {}
     metadata_changed = False
 
-    if request.max_concurrency is not None:
-        metadata["max_concurrency"] = request.max_concurrency
+    if "max_concurrency" in request.model_fields_set:
+        if request.max_concurrency is None:
+            metadata.pop("max_concurrency", None)
+        else:
+            metadata["max_concurrency"] = request.max_concurrency
         metadata_changed = True
 
     if request.schedule_config is not None:
@@ -702,6 +774,7 @@ async def update_campaign(
         executed,
         total,
         telephony_configuration_name=cfg_name,
+        warnings=warnings,
     )
 
 

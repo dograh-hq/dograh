@@ -5,6 +5,9 @@ from loguru import logger
 from api.constants import ENABLE_CALL_RECORDING_UPLOAD
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
+from api.services.campaign.campaign_event_publisher import (
+    notify_campaign_call_completed,
+)
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
@@ -16,6 +19,7 @@ from api.services.pipecat.in_memory_buffers import (
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
+    is_terminal_error,
 )
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
@@ -80,6 +84,7 @@ def register_event_handlers(
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
     include_transcript_end_timestamps: bool = False,
+    answer_supervisor=None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -119,6 +124,9 @@ def register_event_handlers(
             and not ready_state["initial_response_triggered"]
         ):
             ready_state["initial_response_triggered"] = True
+
+            if answer_supervisor is not None:
+                answer_supervisor.arm()
 
             asyncio.create_task(
                 _capture_call_event(
@@ -168,6 +176,9 @@ def register_event_handlers(
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)
+            if answer_supervisor is not None:
+                await engine.handle_answer_supervision()
+                return
             await engine.queue_node_opening(
                 node_id=engine.workflow.start_node_id,
                 previous_node_id=None,
@@ -252,11 +263,12 @@ def register_event_handlers(
     @task.event_handler("on_pipeline_error")
     async def on_pipeline_error(_task: PipelineWorker, frame: Frame):
         # Pipecat emits recoverable ErrorFrames for reconnect/retry paths. The
-        # observer classifies them, but only fatal frames should dispose the call.
-        if isinstance(frame, ErrorFrame) and not frame.fatal:
+        # observer classifies them; only an error the call cannot survive
+        # disposes of it.
+        if isinstance(frame, ErrorFrame) and not is_terminal_error(frame):
             return
         # Only errors raised by the input transport get this far: the funnel
-        # intercepts every other fatal ErrorFrame on its way up the pipeline
+        # intercepts every other terminal ErrorFrame on its way up the pipeline
         # and disposes of the call through the same path. Reaching here means
         # the worker is about to cancel the pipeline on its own, so this is a
         # race the funnel cannot close -- see TerminationFunnelProcessor.
@@ -374,6 +386,9 @@ def register_event_handlers(
             gathered_context=gathered_context,
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
+        )
+        await notify_campaign_call_completed(
+            workflow_run.campaign_id if workflow_run else None, workflow_run_id
         )
 
         asyncio.create_task(

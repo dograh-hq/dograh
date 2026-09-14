@@ -40,21 +40,20 @@ def build_pipeline(
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
     termination_funnel,
-    voicemail_detector=None,
     recording_router=None,
+    answer_supervisor=None,
 ):
     """Build the main pipeline with all components.
 
     Args:
         audio_buffer: AudioBufferProcessor that handles both input and output audio recording.
-        voicemail_detector: Optional native pipecat VoicemailDetector. When provided,
-            inserts voicemail detection after STT. Note: We don't use the TTS gate
-            to avoid blocking TTS frames during classification.
+        answer_supervisor: Optional answer sensor before the user aggregator,
+            with its context gate immediately after the aggregator.
         recording_router: Optional RecordingRouterProcessor. When provided,
             inserts between callback processor and TTS to route between
             pre-recorded audio playback and dynamic TTS.
     """
-    # Build processors list with optional voicemail detection.
+    # Build processors with optional answer handling.
     #
     # The termination funnel sits directly behind the input transport so every
     # other processor's upstream frames pass through it -- that is the only
@@ -66,16 +65,8 @@ def build_pipeline(
         stt,
     ]
 
-    # Insert voicemail detector after STT if enabled
-    # Note: We intentionally do NOT use voicemail_detector.gate() to allow TTS
-    # frames to continue flowing during classification (non-blocking detection)
-
-    # Note: We must keep user_context_aggregator after voicemail_detector
-    # or else, LLMContextFrames generated from user_context_aggregator will
-    # start generating LLM Completion from Voicemail Classifier
-    if voicemail_detector:
-        logger.info("Adding native voicemail detector to pipeline")
-        processors.append(voicemail_detector.detector())
+    if answer_supervisor is not None:
+        processors.append(answer_supervisor)
 
     # Continue with the rest of the pipeline
     post_llm = [pipeline_engine_callback_processor]
@@ -84,11 +75,8 @@ def build_pipeline(
 
     processors.append(user_context_aggregator)
 
-    # Insert LLM gate before the main LLM when voicemail detection is enabled.
-    # This prevents the main LLM from being triggered until classification
-    # determines whether a human or voicemail answered the call.
-    if voicemail_detector:
-        processors.append(voicemail_detector.llm_gate())
+    if answer_supervisor is not None:
+        processors.append(answer_supervisor.llm_gate())
 
     processors.extend(
         [
@@ -114,32 +102,11 @@ def build_realtime_pipeline(
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
     termination_funnel,
-    voicemail_detector=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
     Realtime services (e.g. OpenAI Realtime, Gemini Live) handle STT+LLM+TTS
     internally, so no separate STT or TTS processors are needed.
-
-    Args:
-        voicemail_detector: Optional VoicemailDetector. Placed *below* the
-            realtime LLM. This is asymmetric with the non-realtime layout
-            (where the detector sits between STT and the main user aggregator)
-            because the realtime LLM is both the source of TranscriptionFrame
-            (broadcast downstream) and the sink of LLMContextFrame (consumed
-            by _handle_context without forwarding). Placing the detector below
-            the realtime LLM means: downstream TranscriptionFrames reach the
-            classifier branch, UserStartedSpeakingFrame /
-            UserStoppedSpeakingFrame are forwarded through by the LLM, and the
-            main aggregator's LLMContextFrame is absorbed by the realtime LLM
-            and never leaks into the classifier (which would otherwise run a
-            voicemail completion on the workflow's main context).
-
-            The TTS gate and LLM gate are intentionally not used: the realtime
-            LLM reacts to audio directly, not to LLMContextFrames. On voicemail
-            detection we drop the call via end_call_with_reason; the detector's
-            ConversationGate also blocks downstream audio output until the call
-            ends.
     """
     processors = [
         transport.input(),
@@ -147,10 +114,6 @@ def build_realtime_pipeline(
         user_context_aggregator,
         realtime_llm,
     ]
-
-    if voicemail_detector:
-        logger.info("Adding native voicemail detector to realtime pipeline")
-        processors.append(voicemail_detector.detector())
 
     processors.extend(
         [

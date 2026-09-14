@@ -6,7 +6,7 @@ so this wrapper stays close to the OpenAI realtime shim.
 
 Adds:
 
-- **User-mute audio gating** via ``UserMuteStarted/StoppedFrame``.
+- **Silent audio while muted** via ``UserMuteStarted/StoppedFrame``.
 - **TTSSpeakFrame as initial-response trigger** so the engine's greeting
   flow kicks off the bot's first response.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
@@ -23,6 +23,7 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -32,9 +33,6 @@ from pipecat.frames.frames import (
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -43,39 +41,16 @@ from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from pipecat.utils.time import time_now_iso8601
 
 
-class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
+class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMService):
     """Grok Realtime with Dograh engine integration quirks."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._user_is_muted: bool = False
-        self._handled_initial_context: bool = False
         self._bot_is_speaking: bool = False
         self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TTSSpeakFrame):
-            if not self._handled_initial_context:
-                greeting_text = frame.text.strip() if frame.text else ""
-                if greeting_text:
-                    await self._handle_initial_greeting(self._context, greeting_text)
-                else:
-                    await self._handle_context(self._context)
-            else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame after initial context already "
-                    "handled — Grok Realtime owns audio generation, ignoring"
-                )
-            return
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
@@ -193,11 +168,6 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         elif self._run_llm_when_api_session_ready:
             self._run_llm_when_api_session_ready = False
             await self._create_response()
-
-    async def _send_user_audio(self, frame):
-        if self._user_is_muted:
-            return
-        await super()._send_user_audio(frame)
 
     def _message_to_conversation_item(
         self, message: Any

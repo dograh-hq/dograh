@@ -204,6 +204,9 @@ COUNTRY_CODES = {
 DEFAULT_ORG_CONCURRENCY_LIMIT = max(
     1, int(os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", "10"))
 )
+# Outlast both the dispatcher's 240-second timeout and ARQ's 300-second deadline.
+CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS = 360
+
 DEFAULT_CAMPAIGN_RETRY_CONFIG = {
     "enabled": True,
     "max_retries": 1,

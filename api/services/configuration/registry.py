@@ -3,7 +3,14 @@ from collections.abc import Iterable
 from enum import Enum, auto
 from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from api.services.configuration.options import (
     AZURE_EMBEDDING_MODELS,
@@ -19,6 +26,8 @@ from api.services.configuration.options import (
     CARTESIA_INK_WHISPER_STT_LANGUAGES,
     CARTESIA_STT_LANGUAGES,
     CARTESIA_STT_MODELS,
+    DEEPGRAM_BASE_URLS,
+    DEEPGRAM_DEFAULT_BASE_URL,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
@@ -53,7 +62,11 @@ from api.services.configuration.options import (
     SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
 )
-from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
+from api.services.configuration.options.google import (
+    GOOGLE_VERTEX_DEFAULT_LOCATION,
+    GOOGLE_VERTEX_LOCATIONS,
+    GOOGLE_VERTEX_MODELS,
+)
 
 
 class ServiceType(Enum):
@@ -99,6 +112,7 @@ class ServiceProviders(str, Enum):
     SMALLEST = "smallest"
     XAI = "xai"
     LMNT = "lmnt"
+    SPEECHIFY = "speechify"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -133,6 +147,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
+        ServiceProviders.SPEECHIFY,
     ]
     api_key: str | list[str]
 
@@ -305,7 +320,7 @@ AZURE_OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("Azure OpenAI")
 DOGRAH_PROVIDER_MODEL_CONFIG = provider_model_config("Dograh")
 AWS_BEDROCK_PROVIDER_MODEL_CONFIG = provider_model_config("AWS Bedrock")
 GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG = provider_model_config("Google Vertex")
-OPENAI_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI Realtime")
+OPENAI_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI")
 GROK_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Grok Realtime")
 ULTRAVOX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Ultravox Realtime")
 GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Google Realtime")
@@ -317,6 +332,10 @@ ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
 XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
 LMNT_PROVIDER_MODEL_CONFIG = provider_model_config("LMNT")
+SPEECHIFY_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Speechify",
+    provider_docs_url="https://docs.speechify.ai",
+)
 INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Inworld",
     description=(
@@ -466,8 +485,18 @@ class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
     )
     project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
     location: str = Field(
-        default="global",
-        description="GCP region for the Vertex AI endpoint (e.g. 'global').",
+        default=GOOGLE_VERTEX_DEFAULT_LOCATION,
+        description=(
+            "Vertex AI location, which decides where requests are processed. "
+            "'eu' and 'us' are multi-regions that keep processing inside that "
+            "geography; a single region such as 'europe-west4' pins it further; "
+            "'global' routes anywhere in the world and carries no data "
+            "residency guarantee. Model availability varies by location."
+        ),
+        json_schema_extra={
+            "examples": list(GOOGLE_VERTEX_LOCATIONS),
+            "allow_custom_input": True,
+        },
     )
     credentials: str | None = Field(
         default=None,
@@ -667,7 +696,13 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
     )
 
 
-OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
+OPENAI_REALTIME_MODELS = [
+    "gpt-live-1",
+    "gpt-realtime-2.1",
+    "gpt-realtime-2.1-mini",
+    "gpt-realtime-2",
+]
+OPENAI_LIVE_VOICES = ["marin", "cedar"]
 # ISO 639-1 codes accepted by the Realtime API's input_audio_transcription.
 # Not exhaustive — the field allows custom input.
 OPENAI_REALTIME_LANGUAGES = [
@@ -691,6 +726,8 @@ OPENAI_REALTIME_VOICES = [
     "sage",
     "shimmer",
     "verse",
+    "marin",
+    "cedar",
 ]
 AWS_NOVA_SONIC_MODELS = ["amazon.nova-2-sonic-v1:0"]
 AWS_NOVA_SONIC_VOICES = [
@@ -728,7 +765,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     model: str = Field(
         default="gpt-realtime-2",
-        description="OpenAI realtime (speech-to-speech) model.",
+        description="Choose GPT-Live for full-duplex speech or a GPT-Realtime model.",
         json_schema_extra={
             "examples": OPENAI_REALTIME_MODELS,
             "allow_custom_input": True,
@@ -739,6 +776,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         description="Voice the model speaks in.",
         json_schema_extra={
             "examples": OPENAI_REALTIME_VOICES,
+            "model_options": {"gpt-live-1": OPENAI_LIVE_VOICES},
             "allow_custom_input": True,
         },
     )
@@ -751,8 +789,33 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         json_schema_extra={
             "examples": OPENAI_REALTIME_LANGUAGES,
             "allow_custom_input": True,
+            "hidden_for_models": ["gpt-live-1"],
         },
     )
+    backend_model: str = Field(
+        default="gpt-5.4-mini",
+        min_length=1,
+        description=(
+            "OpenAI Responses model that follows your workflow and calls tools. "
+            "Uses the same API key; backend usage is billed separately from voice."
+        ),
+        json_schema_extra={
+            "examples": ["gpt-5.4-mini"],
+            "allow_custom_input": True,
+            "visible_for_models": ["gpt-live-1"],
+        },
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_live_voice(cls, data):
+        if (
+            isinstance(data, dict)
+            and data.get("model") == "gpt-live-1"
+            and not data.get("voice")
+        ):
+            return {**data, "voice": "marin"}
+        return data
 
 
 @register_service(ServiceType.REALTIME)
@@ -917,12 +980,6 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
-    temperature: float | None = Field(
-        default=None,
-        ge=0.0,
-        le=2.0,
-        description="Sampling temperature for Gemini Live (0.0 to 2.0).",
-    )
 
 
 @register_service(ServiceType.REALTIME)
@@ -955,16 +1012,20 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
-    temperature: float | None = Field(
-        default=None,
-        ge=0.0,
-        le=2.0,
-        description="Sampling temperature for Gemini Live (0.0 to 2.0).",
-    )
     project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
     location: str = Field(
-        default="global",
-        description="GCP region for the Vertex AI endpoint (e.g. 'global').",
+        default=GOOGLE_VERTEX_DEFAULT_LOCATION,
+        description=(
+            "Vertex AI location, which decides where requests are processed. "
+            "'eu' and 'us' are multi-regions that keep processing inside that "
+            "geography; a single region such as 'europe-west4' pins it further; "
+            "'global' routes anywhere in the world and carries no data "
+            "residency guarantee. Model availability varies by location."
+        ),
+        json_schema_extra={
+            "examples": list(GOOGLE_VERTEX_LOCATIONS),
+            "allow_custom_input": True,
+        },
     )
     credentials: str | None = Field(
         default=None,
@@ -1071,6 +1132,19 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
     voice: str = Field(
         default="aura-2-helena-en",
         description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
+    )
+    base_url: str = Field(
+        default=DEEPGRAM_DEFAULT_BASE_URL,
+        description=(
+            "Deepgram API endpoint. This is what decides where your text is "
+            "processed: use https://api.eu.deepgram.com to keep processing "
+            "inside the EU, or https://api.au.deepgram.com for Australia. The "
+            "same API key works on every regional endpoint."
+        ),
+        json_schema_extra={
+            "examples": list(DEEPGRAM_BASE_URLS),
+            "allow_custom_input": True,
+        },
     )
 
     @computed_field
@@ -1555,8 +1629,9 @@ LMNT_TTS_MODELS = ["aurora", "blizzard"]
 LMNT_TTS_VOICES = ["lily", "daniel", "ava", "caleb", "leah", "zeke"]
 
 
-@register_tts
 class LmntTTSConfiguration(BaseTTSConfiguration):
+    """Stored LMNT configurations remain readable after the provider's retirement."""
+
     model_config = LMNT_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.LMNT] = ServiceProviders.LMNT
     model: str = Field(
@@ -1585,6 +1660,71 @@ class LmntTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+# Only the streaming-native Simba models: pipecat's SpeechifyHttpTTSService
+# uses the /v1/audio/stream/with-timestamps endpoint, which rejects the legacy
+# simba-english/simba-multilingual models.
+SPEECHIFY_TTS_MODELS = [
+    "simba-3.2",
+    "simba-3.0",
+]
+SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
+# The API rejects voices outside a model's allow-list (HTTP 400): simba-3.2
+# only accepts voices that list it in GET /v1/voices, currently its dedicated
+# "_32" voices. simba-3.0 accepts the general shared catalog.
+SPEECHIFY_TTS_VOICES_BY_MODEL = {
+    "simba-3.2": ["beatrice_32", "geffen_32"],
+    "simba-3.0": SPEECHIFY_TTS_VOICES,
+}
+# Documented languages per model, used to filter the language dropdown. The
+# API accepts other codes (synthesis succeeds), so this steers rather than
+# hard-blocks: allow_custom_input still permits manual entry.
+SPEECHIFY_TTS_LANGUAGES_BY_MODEL = {
+    "simba-3.2": ["en"],
+    "simba-3.0": ["en", "de", "es", "fr", "it", "pt-BR"],
+}
+
+
+@register_tts
+class SpeechifyTTSConfiguration(BaseTTSConfiguration):
+    model_config = SPEECHIFY_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SPEECHIFY] = ServiceProviders.SPEECHIFY
+    model: str = Field(
+        default="simba-3.2",
+        description=(
+            "Speechify TTS model. 'simba-3.2' is the streaming-native English "
+            "model with the lowest latency; 'simba-3.0' adds German, Spanish, "
+            "French, Italian, and Portuguese."
+        ),
+        json_schema_extra={"examples": SPEECHIFY_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="beatrice_32",
+        description=(
+            "Speechify voice ID. Options are filtered to voices available for "
+            "the selected model; a custom or cloned voice ID must support the "
+            "selected model (see GET /v1/voices), or synthesis fails."
+        ),
+        json_schema_extra={
+            "examples": SPEECHIFY_TTS_VOICES,
+            "allow_custom_input": True,
+            "model_options": SPEECHIFY_TTS_VOICES_BY_MODEL,
+        },
+    )
+    language: str = Field(
+        default="en",
+        description=(
+            "Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', "
+            "'pt-BR'). Options are filtered to the selected model's documented "
+            "languages; simba-3.2 is documented as English-only."
+        ),
+        json_schema_extra={
+            "examples": SPEECHIFY_TTS_LANGUAGES_BY_MODEL["simba-3.0"],
+            "allow_custom_input": True,
+            "model_options": SPEECHIFY_TTS_LANGUAGES_BY_MODEL,
+        },
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1603,6 +1743,7 @@ TTSConfig = Annotated[
         SmallestAITTSConfiguration,
         XAITTSConfiguration,
         LmntTTSConfiguration,
+        SpeechifyTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1634,6 +1775,19 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
                 "flux-general-en": ("en",),
                 "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },
+        },
+    )
+    base_url: str = Field(
+        default=DEEPGRAM_DEFAULT_BASE_URL,
+        description=(
+            "Deepgram API endpoint. This is what decides where call audio is "
+            "processed: use https://api.eu.deepgram.com to keep processing "
+            "inside the EU, or https://api.au.deepgram.com for Australia. The "
+            "same API key works on every regional endpoint."
+        ),
+        json_schema_extra={
+            "examples": list(DEEPGRAM_BASE_URLS),
+            "allow_custom_input": True,
         },
     )
 
@@ -1774,8 +1928,9 @@ class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
     model_config = SPEECHMATICS_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS
     model: str = Field(
-        default="enhanced",
-        description="Speechmatics operating point: 'standard' or 'enhanced'.",
+        default="linden-1",
+        description="Speechmatics Agent STT model.",
+        json_schema_extra={"examples": ["linden-1"]},
     )
     language: str = Field(
         default="en",

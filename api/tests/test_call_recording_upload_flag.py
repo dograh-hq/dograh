@@ -23,7 +23,9 @@ class _EventSource:
         return decorator
 
 
-async def _run_pipeline_finished(monkeypatch, *, recording_upload_enabled: bool):
+async def _run_pipeline_finished(
+    monkeypatch, *, recording_upload_enabled: bool, campaign_id: int | None = None
+):
     """Drive on_pipeline_finished with audio in the buffers, returning the
     kwargs the artifact upload was called with."""
     monkeypatch.setattr(
@@ -42,7 +44,13 @@ async def _run_pipeline_finished(monkeypatch, *, recording_upload_enabled: bool)
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers.db_client.get_workflow_run_by_id",
-        AsyncMock(return_value=None),
+        AsyncMock(
+            return_value=(
+                SimpleNamespace(campaign_id=campaign_id, workflow_id=1)
+                if campaign_id
+                else None
+            )
+        ),
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers.db_client.update_workflow_run",
@@ -99,6 +107,33 @@ async def _run_pipeline_finished(monkeypatch, *, recording_upload_enabled: bool)
 
     await task.handlers["on_pipeline_finished"](task, None)
     return uploads
+
+
+@pytest.mark.asyncio
+async def test_campaign_is_notified_after_pipeline_run_is_terminal(monkeypatch):
+    from api.services.campaign import campaign_event_publisher
+    from api.services.pipecat import event_handlers
+
+    updates_at_notification = []
+
+    async def publish(campaign_id, run_id):
+        updates_at_notification.append(
+            event_handlers.db_client.update_workflow_run.await_args.kwargs
+        )
+
+    publisher = SimpleNamespace(publish_call_completed=AsyncMock(side_effect=publish))
+    monkeypatch.setattr(
+        campaign_event_publisher,
+        "get_campaign_event_publisher",
+        AsyncMock(return_value=publisher),
+    )
+    uploads = await _run_pipeline_finished(
+        monkeypatch, recording_upload_enabled=True, campaign_id=48
+    )
+    publisher.publish_call_completed.assert_awaited_once_with(48, 88)
+    assert updates_at_notification[0]["state"] == "completed"
+    assert updates_at_notification[0]["is_completed"] is True
+    assert uploads["mixed_audio_wav"]
 
 
 @pytest.mark.asyncio

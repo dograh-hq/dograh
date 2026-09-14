@@ -443,16 +443,18 @@ async def test_fast_batch_completion_schedules_next_batch_without_duplicate_jobs
     from api.services.campaign.campaign_orchestrator import CampaignOrchestrator
 
     orchestrator = CampaignOrchestrator(MagicMock())
-    campaign = SimpleNamespace(id=48, state="running", orchestrator_metadata={})
+    campaign = SimpleNamespace(
+        id=48, organization_id=206, state="running", orchestrator_metadata={}
+    )
     with (
         patch("api.services.campaign.campaign_orchestrator.db_client") as db,
         patch(
             "api.services.campaign.campaign_orchestrator.enqueue_job", AsyncMock()
         ) as enqueue,
         patch("api.services.campaign.campaign_orchestrator.circuit_breaker") as breaker,
-        patch.object(orchestrator, "_has_pending_work", AsyncMock(return_value=True)),
     ):
         db.get_campaign_by_id = AsyncMock(return_value=campaign)
+        db.has_dispatchable_campaign_runs = AsyncMock(return_value=True)
         db.update_campaign = AsyncMock()
         breaker.is_circuit_open = AsyncMock(return_value=(False, None))
         await orchestrator._schedule_next_batch(48)

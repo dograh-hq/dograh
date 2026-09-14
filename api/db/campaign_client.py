@@ -2,18 +2,190 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, text, update
+from sqlalchemy import func, or_, text, update
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
 from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
+from api.enums import WorkflowRunState
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class CampaignClient(BaseDBClient):
+    async def has_dispatchable_campaign_runs(
+        self, campaign_id: int, organization_id: int
+    ) -> bool:
+        """Whether queued work is ready now; future retries are not dispatchable."""
+        async with self.async_session() as session:
+            return bool(
+                await session.scalar(
+                    select(
+                        select(QueuedRunModel.id)
+                        .join(
+                            CampaignModel,
+                            CampaignModel.id == QueuedRunModel.campaign_id,
+                        )
+                        .where(
+                            CampaignModel.id == campaign_id,
+                            CampaignModel.organization_id == organization_id,
+                            QueuedRunModel.state == "queued",
+                            or_(
+                                QueuedRunModel.scheduled_for.is_(None),
+                                QueuedRunModel.scheduled_for <= datetime.now(UTC),
+                            ),
+                        )
+                        .exists()
+                    )
+                )
+            )
+
+    async def complete_campaign_if_idle(
+        self, campaign_id: int, organization_id: int
+    ) -> Optional[CampaignModel]:
+        """Complete once, only after source sync, dispatch and calls have settled.
+
+        Future retries remain queued and block completion. Retry decisions must
+        be persisted before the original workflow run becomes terminal.
+        """
+        pending_rows = (
+            select(QueuedRunModel.id)
+            .where(
+                QueuedRunModel.campaign_id == CampaignModel.id,
+                QueuedRunModel.state.in_(["queued", "processing"]),
+            )
+            .exists()
+        )
+        active_calls = (
+            select(WorkflowRunModel.id)
+            .where(
+                WorkflowRunModel.campaign_id == CampaignModel.id,
+                or_(
+                    WorkflowRunModel.state != WorkflowRunState.COMPLETED.value,
+                    WorkflowRunModel.is_completed.is_not(True),
+                ),
+            )
+            .exists()
+        )
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(CampaignModel)
+                .where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                    CampaignModel.state == "running",
+                    CampaignModel.source_sync_status == "completed",
+                    ~pending_rows,
+                    ~active_calls,
+                )
+                .values(state="completed", completed_at=datetime.now(UTC))
+                .returning(CampaignModel)
+                .execution_options(synchronize_session=False)
+            )
+            campaign = result.scalar_one_or_none()
+            await session.commit()
+            return campaign
+
+    async def record_campaign_retry_decision(
+        self,
+        workflow_run_id: int,
+        campaign_id: int,
+        organization_id: int,
+        reason: str,
+        scheduled_for: Optional[datetime],
+    ) -> Optional[int]:
+        """Persist a retry (or exhausted attempt) once, before run finalization.
+
+        The decision and new queue row/counter share a transaction. Serializing
+        on the run makes duplicate provider callbacks and legacy retry events
+        harmless. A missing scheduled_for means the retry limit was reached.
+        """
+        async with self.async_session() as session:
+            campaign = await session.scalar(
+                select(CampaignModel).where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                    CampaignModel.state.in_(["running", "syncing", "paused"]),
+                )
+            )
+            if campaign is None:
+                return None
+            run = await session.scalar(
+                select(WorkflowRunModel)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowRunModel.campaign_id == campaign_id,
+                    WorkflowRunModel.workflow_id == campaign.workflow_id,
+                )
+                .with_for_update()
+            )
+            if run is None:
+                return None
+            previous = (run.logs or {}).get("campaign_retry_decision")
+            if previous is not None:
+                return previous.get("retry_run_id")
+            original = await session.scalar(
+                select(QueuedRunModel).where(
+                    QueuedRunModel.id == run.queued_run_id,
+                    QueuedRunModel.campaign_id == campaign_id,
+                )
+            )
+            if original is None:
+                raise ValueError(
+                    f"Campaign run {workflow_run_id} has no matching queue row"
+                )
+
+            # Recognize retries created by the earlier event-driven path too.
+            retry = await session.scalar(
+                select(QueuedRunModel)
+                .where(
+                    QueuedRunModel.parent_queued_run_id == original.id,
+                    QueuedRunModel.campaign_id == campaign_id,
+                )
+                .limit(1)
+            )
+            if retry is None and scheduled_for is not None:
+                retry = QueuedRunModel(
+                    campaign_id=campaign_id,
+                    source_uuid=f"{original.source_uuid}_retry_{original.retry_count + 1}",
+                    context_variables={
+                        **original.context_variables,
+                        "is_retry": True,
+                        "retry_attempt": original.retry_count + 1,
+                        "retry_reason": reason,
+                    },
+                    state="queued",
+                    retry_count=original.retry_count + 1,
+                    parent_queued_run_id=original.id,
+                    scheduled_for=scheduled_for,
+                    retry_reason=reason,
+                )
+                session.add(retry)
+                await session.flush()
+            elif retry is None:
+                await session.execute(
+                    update(CampaignModel)
+                    .where(
+                        CampaignModel.id == campaign_id,
+                        CampaignModel.organization_id == organization_id,
+                    )
+                    .values(failed_rows=CampaignModel.failed_rows + 1)
+                )
+
+            retry_id = retry.id if retry else None
+            run.logs = {
+                **(run.logs or {}),
+                "campaign_retry_decision": {
+                    "reason": reason,
+                    "retry_run_id": retry_id,
+                    "outcome": "scheduled" if retry else "exhausted",
+                },
+            }
+            await session.commit()
+            return retry_id
+
     async def create_campaign(
         self,
         name: str,

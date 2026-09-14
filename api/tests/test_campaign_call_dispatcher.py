@@ -1,12 +1,13 @@
-"""Real DB checks for disjoint parallel claims and atomic dispatch progress."""
+"""Real DB checks for dispatch claims, retry decisions and campaign completion."""
 
 import asyncio
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api.db import db_client
@@ -20,6 +21,7 @@ from api.db.models import (
 )
 from api.services.call_concurrency import CallConcurrencySlot
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
+from api.services.campaign.campaign_retry import schedule_campaign_retry
 
 
 @pytest.fixture(scope="module")
@@ -276,3 +278,252 @@ async def test_prior_undialed_workflow_does_not_strand_a_reclaimed_contact(
     async with sessions() as session:
         requeued = await session.get(QueuedRunModel, row.id)
         assert requeued.state == "queued"
+
+
+@pytest.fixture
+async def finished_campaign(campaign_data, sessions):
+    campaign = campaign_data.campaign
+    async with sessions() as session:
+        await session.execute(
+            update(CampaignModel)
+            .where(CampaignModel.id == campaign.id)
+            .values(
+                source_sync_status="completed",
+                processed_rows=10,
+                total_rows=10,
+                last_activity_at=datetime.now(UTC),
+            )
+        )
+        await session.execute(
+            update(QueuedRunModel)
+            .where(QueuedRunModel.campaign_id == campaign.id)
+            .values(state="processed")
+        )
+        runs = [
+            WorkflowRunModel(
+                name="finished call",
+                workflow_id=campaign.workflow_id,
+                campaign_id=campaign.id,
+                queued_run_id=row.id,
+                mode="ari",
+                state="completed",
+                is_completed=True,
+            )
+            for row in campaign_data.rows
+        ]
+        session.add_all(runs)
+        await session.commit()
+    return SimpleNamespace(**vars(campaign_data), run=runs[0])
+
+
+@pytest.mark.asyncio
+async def test_campaign_completion_is_atomic_and_org_scoped(finished_campaign):
+    s = finished_campaign
+    assert (
+        await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id + 1000000)
+        is None
+    )
+    results = await asyncio.gather(
+        *(
+            db_client.complete_campaign_if_idle(s.campaign.id, s.org.id)
+            for _ in range(3)
+        )
+    )
+    completed = [campaign for campaign in results if campaign is not None]
+    assert len(completed) == 1
+    assert completed[0].state == "completed"
+    assert completed[0].completed_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state,completed",
+    [
+        ("initialized", False),
+        ("running", False),
+        ("completed", False),
+        ("initialized", True),
+        ("running", True),
+    ],
+)
+async def test_campaign_waits_for_all_calls(
+    finished_campaign, sessions, state, completed
+):
+    s = finished_campaign
+    async with sessions() as session:
+        await session.execute(
+            update(WorkflowRunModel)
+            .where(WorkflowRunModel.id == s.run.id)
+            .values(state=state, is_completed=completed)
+        )
+        await session.commit()
+    assert await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state,delay,blocks,dispatchable",
+    [
+        ("queued", None, True, True),
+        ("queued", 120, True, False),
+        ("queued", -1, True, True),
+        ("processing", None, True, False),
+        ("failed", None, False, False),
+        ("processed", None, False, False),
+    ],
+)
+async def test_campaign_counts_future_retries_and_processing_rows(
+    finished_campaign, sessions, state, delay, blocks, dispatchable
+):
+    s = finished_campaign
+    scheduled = (
+        datetime.now(UTC) + timedelta(seconds=delay) if delay is not None else None
+    )
+    async with sessions() as session:
+        await session.execute(
+            update(QueuedRunModel)
+            .where(QueuedRunModel.id == s.rows[0].id)
+            .values(state=state, scheduled_for=scheduled)
+        )
+        await session.commit()
+    assert (
+        await db_client.has_dispatchable_campaign_runs(s.campaign.id, s.org.id)
+        is dispatchable
+    )
+    assert not await db_client.has_dispatchable_campaign_runs(
+        s.campaign.id, s.org.id + 1000000
+    )
+    result = await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id)
+    assert (result is None) is blocks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state,sync_status",
+    [
+        ("running", "pending"),
+        ("running", "in_progress"),
+        ("running", "failed"),
+        ("syncing", "completed"),
+        ("paused", "completed"),
+        ("failed", "completed"),
+    ],
+)
+async def test_only_running_fully_synced_campaigns_complete(
+    finished_campaign, sessions, state, sync_status
+):
+    s = finished_campaign
+    await db_client.update_campaign(
+        s.campaign.id, state=state, source_sync_status=sync_status
+    )
+    assert await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is None
+
+
+@pytest.mark.asyncio
+async def test_empty_synced_campaign_completes(finished_campaign, sessions):
+    s = finished_campaign
+    async with sessions() as session:
+        await session.execute(
+            delete(WorkflowRunModel).where(
+                WorkflowRunModel.campaign_id == s.campaign.id
+            )
+        )
+        await session.execute(
+            delete(QueuedRunModel).where(QueuedRunModel.campaign_id == s.campaign.id)
+        )
+        await session.commit()
+    assert (
+        await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is not None
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exhausted", [False, True])
+async def test_duplicate_retry_decisions_are_atomic_and_block_completion(
+    finished_campaign, sessions, exhausted
+):
+    s = finished_campaign
+    await db_client.update_campaign(
+        s.campaign.id,
+        retry_config={
+            "enabled": True,
+            "max_retries": 1,
+            "retry_delay_seconds": 120,
+        },
+    )
+    await db_client.update_workflow_run(
+        s.run.id, state="initialized", is_completed=False
+    )
+    if exhausted:
+        await db_client.update_queued_run(s.rows[0].id, retry_count=1)
+    await asyncio.gather(
+        *(
+            schedule_campaign_retry(s.run, "busy", organization_id=s.org.id)
+            for _ in range(3)
+        )
+    )
+    async with sessions() as session:
+        retries = list(
+            (
+                await session.scalars(
+                    select(QueuedRunModel).where(
+                        QueuedRunModel.parent_queued_run_id == s.rows[0].id
+                    )
+                )
+            ).all()
+        )
+        run = await session.get(WorkflowRunModel, s.run.id)
+        campaign = await session.get(CampaignModel, s.campaign.id)
+    assert len(retries) == (0 if exhausted else 1)
+    assert campaign.failed_rows == (1 if exhausted else 0)
+    assert run.logs["campaign_retry_decision"]["outcome"] == (
+        "exhausted" if exhausted else "scheduled"
+    )
+    assert await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is None
+
+    await db_client.update_workflow_run(s.run.id, state="completed", is_completed=True)
+    result = await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id)
+    assert (result is not None) is exhausted
+    if not exhausted:
+        assert retries[0].scheduled_for > datetime.now(UTC)
+        assert retries[0].context_variables["retry_attempt"] == 1
+        assert not await db_client.has_dispatchable_campaign_runs(
+            s.campaign.id, s.org.id
+        )
+        await db_client.update_queued_run(retries[0].id, state="failed")
+        assert (
+            await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id)
+            is not None
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "config,reason",
+    [
+        ({"enabled": False}, "busy"),
+        ({"retry_on_busy": False}, "busy"),
+        ({"retry_on_no_answer": False}, "no_answer"),
+        ({"retry_on_voicemail": False}, "voicemail"),
+    ],
+)
+async def test_disabled_retries_do_not_block_completion(
+    finished_campaign, config, reason
+):
+    s = finished_campaign
+    await db_client.update_campaign(s.campaign.id, retry_config=config)
+    await schedule_campaign_retry(s.run, reason, organization_id=s.org.id)
+    assert await db_client.get_queued_runs_count(s.campaign.id, ["queued"]) == 0
+    assert (
+        await db_client.complete_campaign_if_idle(s.campaign.id, s.org.id) is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_decision_cannot_cross_organizations(finished_campaign):
+    s = finished_campaign
+    result = await db_client.record_campaign_retry_decision(
+        s.run.id, s.campaign.id, s.org.id + 1000000, "busy", datetime.now(UTC)
+    )
+    assert result is None
+    assert await db_client.get_queued_runs_count(s.campaign.id, ["queued"]) == 0

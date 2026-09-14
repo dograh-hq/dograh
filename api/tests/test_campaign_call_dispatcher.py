@@ -336,6 +336,34 @@ async def test_campaign_completion_is_atomic_and_org_scoped(finished_campaign):
 
 
 @pytest.mark.asyncio
+async def test_completion_publishes_and_cleans_up_with_default_sessions(
+    finished_campaign,
+):
+    from api.services.campaign.campaign_orchestrator import CampaignOrchestrator
+
+    campaign = finished_campaign.campaign
+    orchestrator = CampaignOrchestrator(AsyncMock())
+    publish = AsyncMock()
+    orchestrator.publisher.publish_campaign_completed = publish
+    orchestrator._processing_locks[campaign.id] = datetime.now(UTC)
+
+    # The application uses the default expire_on_commit=True. Fixture sessions
+    # keep attributes loaded, which previously hid the detached-object error.
+    with patch.object(db_client, "async_session", async_sessionmaker(db_client.engine)):
+        await orchestrator._complete_campaign(campaign)
+        await orchestrator._complete_campaign(campaign)
+
+    publish.assert_awaited_once_with(
+        campaign_id=campaign.id,
+        total_rows=10,
+        processed_rows=10,
+        failed_rows=0,
+        duration_seconds=None,
+    )
+    assert campaign.id not in orchestrator._processing_locks
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "state,completed",
     [

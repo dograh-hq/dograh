@@ -86,6 +86,8 @@ class CampaignClient(BaseDBClient):
             )
             campaign = result.scalar_one_or_none()
             await session.commit()
+            if campaign is not None:
+                await session.refresh(campaign)
             return campaign
 
     async def record_campaign_retry_decision(

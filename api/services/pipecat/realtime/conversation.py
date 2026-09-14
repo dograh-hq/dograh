@@ -18,10 +18,13 @@ from pipecat.processors.frame_processor import FrameDirection
 class RealtimeConversationMixin:
     """Share greeting and mute policy without owning provider session state.
 
-    Providers implement ``_handle_initial_greeting`` and ``_handle_context``;
-    both mark ``_handled_initial_context`` once they accept the opening turn.
-    That flag belongs to the conversation and survives node reconnects.
-    Session readiness, turn detection, and reconnects remain upstream concerns.
+    Providers implement ``_handle_initial_greeting``, ``_handle_context`` and
+    ``_open_after_prerecorded_greeting``. The first two mark
+    ``_handled_initial_context`` themselves once they accept the opening turn;
+    the third does not, because ``handle_prerecorded_greeting`` has already
+    set it on the provider's behalf. That flag belongs to the conversation and
+    survives node reconnects. Session readiness, turn detection, and
+    reconnects remain upstream concerns.
     """
 
     def __init__(self, **kwargs):
@@ -48,6 +51,39 @@ class RealtimeConversationMixin:
                 await self._handle_context(self._context)
             return
         await super().process_frame(frame, direction)
+
+    async def handle_prerecorded_greeting(
+        self, context, transcript: str | None
+    ) -> None:
+        """Open the conversation after a recording has greeted the caller.
+
+        An audio greeting is queued straight to the output transport, so the
+        opening ``TTSSpeakFrame`` never reaches the service. The session still
+        has to be seeded and start accepting caller audio — providers that gate
+        input on the opening turn (Gemini Live) otherwise drop every caller
+        frame — but nothing may be generated, because the caller has already
+        been greeted.
+
+        ``transcript`` is the greeting the caller just heard, seeded as an
+        assistant turn so the model does not greet them a second time. It
+        arrives here rather than through ``LLMContext`` because the recording
+        is still playing: the aggregator commits it once playback drains,
+        after this seed has been sent.
+        """
+        if self._handled_initial_context:
+            return
+        if context is None:
+            logger.warning(
+                f"{self}: received prerecorded greeting before context was set"
+            )
+            return
+        self._handled_initial_context = True
+        self._context = context
+        await self._open_after_prerecorded_greeting(transcript)
+
+    async def _open_after_prerecorded_greeting(self, transcript: str | None) -> None:
+        """Seed the spoken greeting, accept caller audio, and stay silent."""
+        raise NotImplementedError
 
     async def _send_user_audio(self, frame: InputAudioRawFrame):
         await super()._send_user_audio(await self._prepare_user_audio(frame))

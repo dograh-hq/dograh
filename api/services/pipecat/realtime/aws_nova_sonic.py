@@ -88,6 +88,9 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._input_content_lock = asyncio.Lock()
+        # Set for the length of an open that follows a recorded greeting, so
+        # nothing sent while connecting can ask Nova for a turn.
+        self._opening_after_prerecorded_greeting: bool = False
         self._pending_initial_prompt: str | None = None
         self._pending_message_batches: list[tuple[list[tuple[Role, str]], bool]] = []
         self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
@@ -180,6 +183,62 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
             return
 
         await self._process_completed_function_calls(send_new_results=True)
+
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Connect and seed the greeting without letting Nova take a turn.
+
+        Two things would otherwise have it speak over the recording. Upstream's
+        connect path holds back a trailing USER message and re-sends it with
+        ``interactive=True``, which is Nova's "generate now" signal -- and the
+        context does end on a user turn whenever the answer supervisor releases
+        after the callee has already spoken. On top of that, the greeting batch
+        only flushes once that connect returns, so the trigger would land
+        before the model had been told what the recording said.
+
+        Suppressing interactive for the length of the open closes both:
+        nothing sent while connecting can ask for a turn, whatever order it
+        goes in.
+        """
+        if self._disconnecting:
+            return
+        if transcript:
+            self._pending_message_batches.append(
+                (self._prerecorded_greeting_turns(transcript), False)
+            )
+        self._opening_after_prerecorded_greeting = True
+        try:
+            await self._finish_connecting_if_context_available()
+            await self._flush_pending_text_inputs()
+        finally:
+            self._opening_after_prerecorded_greeting = False
+
+    def _prerecorded_greeting_turns(self, transcript: str) -> list[tuple[Role, str]]:
+        """The greeting as Nova history: never opening on ASSISTANT, alternating.
+
+        AWS rejects history that begins with ASSISTANT and requires roles to
+        alternate, so the greeting needs a user turn to answer -- unless the
+        conversation already supplied one, in which case adding another would
+        put two USER turns back to back.
+        """
+        messages = []
+        if self._context is not None:
+            messages = self.get_llm_adapter().get_llm_invocation_params(self._context)[
+                "messages"
+            ]
+        turns: list[tuple[Role, str]] = []
+        if not messages or messages[-1].role is not Role.USER:
+            turns.append((Role.USER, _INITIAL_RESPONSE_PROMPT))
+        turns.append((Role.ASSISTANT, transcript))
+        return turns
+
+    async def _send_text_event(self, text: str, role: Role, interactive: bool = False):
+        # `interactive=True` is what asks Nova to generate. While opening after
+        # a recording the caller has already been greeted, so nothing sent may
+        # ask for a turn -- including the trailing user message upstream
+        # deliberately replays to trigger one.
+        if self._opening_after_prerecorded_greeting:
+            interactive = False
+        await super()._send_text_event(text, role, interactive=interactive)
 
     async def _handle_initial_prompt(self, context: LLMContext | None, prompt: str):
         if context is None:

@@ -16,6 +16,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.services.aws.nova_sonic.llm import Role
 from pipecat.services.google.gemini_live.vertex.llm import GeminiLiveVertexLLMService
 
 from api.services.pipecat.realtime.aws_nova_sonic import DograhAWSNovaSonicLLMService
@@ -254,6 +255,46 @@ async def test_tool_message_reports_playback_only_when_text_is_queued(
 
 
 @pytest.mark.asyncio
+async def test_nova_recorded_greeting_never_asks_for_a_turn():
+    """Upstream replays a trailing user message with interactive=True.
+
+    That is Nova's "generate now", and the context does end on a user turn
+    whenever the answer supervisor releases after the callee has spoken. The
+    open has to swallow it, or the model talks over the recording.
+    """
+    service = DograhAWSNovaSonicLLMService(
+        secret_access_key="test", access_key_id="test", region="us-east-1"
+    )
+    context = LLMContext()
+    context.add_message({"role": "user", "content": "Hello?"})
+    service._context = context
+    service._audio_input_started = True
+    service._stream = SimpleNamespace()
+    service._prompt_name = "bench"
+    sent = []
+    service.send_text = AsyncMock(
+        side_effect=lambda text, role, prompt, stream, interactive: sent.append(
+            (role, text, interactive)
+        )
+    )
+
+    async def connect():
+        # Stand in for upstream's connect: it replays the trailing user turn
+        # as interactive, which is precisely what must not survive.
+        await service._send_text_event("Hello?", Role.USER, interactive=True)
+
+    service._finish_connecting_if_context_available = AsyncMock(side_effect=connect)
+
+    await service.handle_prerecorded_greeting(context, GREETING)
+
+    assert not any(interactive for _, _, interactive in sent), sent
+    # The conversation already supplied a user turn for the greeting to answer,
+    # so padding another would put two USER turns back to back.
+    assert [role for role, _, _ in sent] == [Role.USER.value, Role.ASSISTANT.value]
+    assert sent[-1][1] == GREETING
+
+
+@pytest.mark.asyncio
 async def test_gemini_mute_preserves_readiness_and_manual_activity_windows(monkeypatch):
     monkeypatch.setattr(DograhGeminiLiveLLMService, "create_client", lambda self: None)
     service = DograhGeminiLiveLLMService(api_key="test")
@@ -368,3 +409,145 @@ async def test_openai_encoded_audio_uses_codec_silence(encoding, silence):
     event = service.send_client_event.await_args.args[0]
     assert base64.b64decode(event.audio) == bytes([silence]) * 160
     assert frame.audio == b"\x01" * 160
+
+
+GREETING = "Hi, this is Sarah."
+
+
+def prerecorded_greeting_probe(service):
+    """Open each provider at the point a recorded greeting reaches it.
+
+    Returns a callable run after ``handle_prerecorded_greeting`` that checks
+    the provider seeded the spoken greeting without requesting a turn.
+    """
+    if isinstance(service, DograhGeminiLiveLLMService):
+        service._session = SimpleNamespace(
+            send_client_content=AsyncMock(), send_realtime_input=AsyncMock()
+        )
+
+        def check():
+            send = service._session.send_client_content
+            assert send.await_args.kwargs["turn_complete"] is False
+            spoken = [
+                part.text
+                for turn in send.await_args.kwargs["turns"]
+                if turn.role == "model"
+                for part in turn.parts
+            ]
+            assert spoken == [GREETING]
+            # The " " nudge is the only thing that makes Gemini 3 generate.
+            service._session.send_realtime_input.assert_not_awaited()
+            # Without this the service discards every caller audio frame.
+            assert service._ready_for_realtime_input is True
+
+        return check
+
+    if isinstance(service, DograhUltravoxRealtimeLLMService):
+        service._connect_call = AsyncMock()
+
+        def check():
+            # A one-shot call has no history channel; waiting is all it can do.
+            service._connect_call.assert_awaited_once_with(
+                greeting_text=None, agent_speaks_first=False
+            )
+
+        return check
+
+    if isinstance(service, DograhAWSNovaSonicLLMService):
+        # Replace only the wire, not _send_text_event: the interactive
+        # suppression that keeps Nova silent lives in that method, and mocking
+        # it would step over the thing under test. Upstream's connect path is
+        # still stubbed -- it opens a real AWS stream.
+        service._finish_connecting_if_context_available = AsyncMock()
+        service._audio_input_started = True
+        service._stream = SimpleNamespace()
+        service._prompt_name = "bench"
+        sent = []
+        service.send_text = AsyncMock(
+            side_effect=lambda text, role, prompt, stream, interactive: sent.append(
+                (role, text, interactive)
+            )
+        )
+
+        def check():
+            service._finish_connecting_if_context_available.assert_awaited_once()
+            assert service._pending_initial_prompt is None
+            # AWS rejects history that opens on ASSISTANT.
+            assert [role for role, _, _ in sent] == [
+                Role.USER.value,
+                Role.ASSISTANT.value,
+            ]
+            assert sent[-1][1] == GREETING
+            # `interactive=True` is Nova's "generate now"; none may be set.
+            assert not any(interactive for _, _, interactive in sent)
+            assert service._opening_after_prerecorded_greeting is False
+
+        return check
+
+    if isinstance(service, DograhOpenAILiveLLMService):
+        service._session_started = True
+        service.send_client_event = AsyncMock()
+
+        def check():
+            assert service._initial_backend_request is False
+            appended = [
+                call.args[0]
+                for call in service.send_client_event.await_args_list
+                if type(call.args[0]).__name__ == "SessionThinkingAppendEvent"
+            ]
+            assert appended and GREETING in appended[0].content
+            # Commentary is the channel it paraphrases aloud.
+            assert not any(
+                type(call.args[0]).__name__ == "SessionCommentaryAppendEvent"
+                for call in service.send_client_event.await_args_list
+            )
+
+        return check
+
+    service._api_session_ready = True
+
+    def check():
+        sent = [call.args[0] for call in service.send_client_event.await_args_list]
+        assert not any(event.type == "response.create" for event in sent), (
+            f"{service} asked for a response after a recorded greeting"
+        )
+        assert service._llm_needs_conversation_setup is False
+        items = [
+            event.item for event in sent if event.type == "conversation.item.create"
+        ]
+        # Sent as its own assistant item: the adapter would otherwise repack it
+        # as a "previously saved conversation" user turn.
+        assert [(item.role, item.content[0].text) for item in items] == [
+            ("assistant", GREETING)
+        ]
+        assert items[0].content[0].type == "output_text"
+
+    return check
+
+
+@pytest.mark.asyncio
+async def test_recorded_greeting_opens_the_session_without_speaking(realtime_service):
+    """A greeting played to the transport still has to open the session.
+
+    Nothing else does: the recording bypasses the service entirely, so
+    without this the provider is never seeded and Gemini Live drops every
+    caller frame.
+    """
+    service = realtime_service
+    context = LLMContext()
+    service._context = context
+    check = prerecorded_greeting_probe(service)
+
+    await service.handle_prerecorded_greeting(context, GREETING)
+
+    assert service._handled_initial_context
+    check()
+    # The aggregator owns the context write, once playback drains.
+    assert context.get_messages() == []
+
+    # The opening turn is spent: a later TTSSpeakFrame must not re-greet.
+    await service.process_frame(TTSSpeakFrame("Hello!"), FrameDirection.DOWNSTREAM)
+    assert not any(
+        isinstance(call.args[0], TTSSpeakFrame)
+        for call in service.push_frame.await_args_list
+    )

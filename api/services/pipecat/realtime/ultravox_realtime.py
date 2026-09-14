@@ -129,6 +129,16 @@ class DograhUltravoxRealtimeLLMService(
         self._context = context
         await self._connect_call(greeting_text=greeting_text, agent_speaks_first=True)
 
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Join the call with the caller as first speaker.
+
+        The recording has already greeted them, so the agent must wait rather
+        than open with a turn of its own. ``transcript`` is not seeded: a
+        one-shot call carries only a system prompt, with no history channel to
+        put an already-spoken turn on.
+        """
+        await self._connect_call(greeting_text=None, agent_speaks_first=False)
+
     async def _handle_context(self, context: LLMContext):
         self._handled_initial_context = True
         self._context = context

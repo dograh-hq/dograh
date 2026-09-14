@@ -891,6 +891,9 @@ class PipecatEngine:
                             transcript=result.transcript,
                             append_to_context=True,
                         )
+                        await self._open_realtime_after_recorded_greeting(
+                            result.transcript
+                        )
                         return "greeting"
                     logger.warning(
                         f"Failed to fetch audio greeting {greeting_value}, "
@@ -918,6 +921,34 @@ class PipecatEngine:
             return "llm"
 
         return "none"
+
+    async def _open_realtime_after_recorded_greeting(
+        self, transcript: str | None
+    ) -> None:
+        """Hand the opening turn to a realtime service after a recording.
+
+        Realtime providers seed their session, and open their caller-audio
+        gate, off the opening turn the engine gives them. A recorded greeting
+        is queued straight to the output transport, so without this the
+        session stays unseeded and Gemini Live discards every caller frame -
+        the bot greets, then never answers.
+
+        The transcript goes with it because the handoff happens while the
+        recording is still playing: the assistant aggregator only commits it
+        to ``LLMContext`` once playback drains, which is too late to be part
+        of the provider's session seed. Waiting for that commit instead would
+        leave the caller unheard for the length of the greeting, and an
+        interruptible node does not mute them.
+
+        A no-op for text LLMs, which hold no session and re-read the context
+        on every generation.
+        """
+        handle_prerecorded_greeting = getattr(
+            self.llm, "handle_prerecorded_greeting", None
+        )
+        if handle_prerecorded_greeting is None:
+            return
+        await handle_prerecorded_greeting(self.context, transcript)
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""

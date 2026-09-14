@@ -11,7 +11,6 @@ from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 def resolve(config, **kwargs):
     return resolve_answer_supervisor_config(
         config,
-        call_direction=kwargs.get("direction", "outbound"),
         is_realtime=kwargs.get("realtime", False),
         start_node=kwargs.get(
             "start_node",
@@ -20,11 +19,14 @@ def resolve(config, **kwargs):
     )
 
 
-@pytest.mark.parametrize(
-    "kwargs", [{"direction": "inbound"}, {"direction": None}, {"realtime": True}]
-)
-def test_supervision_is_scoped_to_outbound_cascade_calls(kwargs):
-    assert resolve({"enabled": True}, **kwargs) is None
+def test_realtime_workflows_do_not_get_a_supervisor():
+    assert resolve({"enabled": True}, realtime=True) is None
+
+
+def test_enabling_is_the_only_switch_regardless_of_call_direction():
+    """An external-PBX fronter call arrives as a Stasis entry recorded as
+    inbound, so direction must not decide whether answer handling runs."""
+    assert resolve({"enabled": True}) is not None
 
 
 def test_disabled_handling_does_not_create_a_supervisor():

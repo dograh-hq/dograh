@@ -812,3 +812,38 @@ async def test_shutdown_cancels_managed_classifier_and_waits_for_cleanup(screeni
     assert not any(
         task.get_name().startswith(task_prefix) for task in task_manager.current_tasks()
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text, reason",
+    [
+        ("Leave a message after the tone.", "voicemail"),
+        ("The mailbox is full.", "no_message"),
+    ],
+)
+async def test_short_recognised_machine_greeting_is_not_released_as_human(text, reason):
+    """A positively identified machine greeting must outrank the short-turn
+    shortcut. Listing subtypes omitted VOICEMAIL and NO_MESSAGE, so a brief
+    voicemail prompt was released as human and the agent pitched the machine."""
+    classifier = AsyncMock()
+    async with call(classify=classifier) as c:
+        await c.say(text, duration=0.005)
+        result = await verdict(c)
+        assert result.action == "drop"
+        assert result.reason == reason
+        # Patterns already decided; no classifier round trip is spent.
+        classifier.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_short_unrecognised_turn_is_still_called_human_without_the_classifier():
+    """The accepted trade-off: an unmatched short turn stays on the fast path,
+    so a real "Hello?" is answered without waiting for a classifier."""
+    classifier = AsyncMock(return_value=MachineSubtype.SCREENER)
+    async with call(classify=classifier) as c:
+        await c.say("Who's calling?")
+        result = await verdict(c)
+        assert result.action == "release"
+        assert result.reason == "human_turn"
+        classifier.assert_not_awaited()

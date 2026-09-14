@@ -96,21 +96,24 @@ class AnswerSupervisorConfig(BaseModel):
 def resolve_answer_supervisor_config(
     voicemail_config: dict,
     *,
-    call_direction: str | None,
     is_realtime: bool,
     start_node,
 ) -> AnswerSupervisorConfig | None:
-    """Use the supervisor for every enabled outbound cascade workflow.
+    """Use the supervisor for every enabled cascade workflow.
+
+    Enabling answer handling is the opt-in; call direction is deliberately not
+    consulted. A call placed by an external PBX -- a fronter dialing the lead
+    and bridging the answered leg into Asterisk -- reaches us as a Stasis entry
+    recorded as inbound, even though the callee is being dialed and needs
+    exactly this screening and voicemail handling. Gating on direction silently
+    skipped the supervisor for every such call, so a configured screening
+    message could never play.
 
     The Start node's enabled Delayed Start duration supplies the listening
     window, ahead of a saved window or its 1200 ms default. This is a listening
     deadline, not a separate sleep during node setup.
     """
-    if (
-        call_direction != "outbound"
-        or is_realtime
-        or not voicemail_config.get("enabled", False)
-    ):
+    if is_realtime or not voicemail_config.get("enabled", False):
         return None
     values = dict(voicemail_config)
     if start_node and start_node.delayed_start:

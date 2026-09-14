@@ -208,14 +208,15 @@ class AnswerSupervisor(FrameProcessor):
         if self._utterance_task:
             self._utterance_task.cancel()
         subtype = classify_machine_utterance(text)
-        # IVR instructions, clipped screener prompts, and screening acknowledgments
-        # can be brief. Recognize them before applying the short-human-turn
-        # shortcut, along with machine prompts while waiting for the subscriber.
-        machine_turn = subtype in (
-            MachineSubtype.IVR,
-            MachineSubtype.SCREENER,
-            MachineSubtype.SCREENING_WAIT,
-        ) or (self._screening and subtype != MachineSubtype.UNKNOWN)
+        # Any pattern that matched is positive machine evidence and outranks the
+        # short-human-turn shortcut, which is only a latency optimisation. Turn
+        # length is not evidence: carrier and jitter-buffer delay clip machine
+        # prompts below any threshold, so a recognised voicemail or IVR greeting
+        # can be brief. Listing subtypes here previously omitted VOICEMAIL and
+        # NO_MESSAGE, releasing a positively identified voicemail as human.
+        # An unmatched short turn is still called human without a classifier
+        # round trip, which is what keeps a real "Hello?" answered promptly.
+        machine_turn = subtype != MachineSubtype.UNKNOWN
         # A short continuation must not bypass classification of earlier speech.
         if (
             len(self._turn_texts) == 1

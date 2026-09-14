@@ -169,7 +169,6 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
             "system_prompt": "Obsolete binary classifier prompt",
             "long_speech_timeout": 8,
         },
-        call_direction="outbound",
         is_realtime=False,
         start_node=None,
         context=context,
@@ -213,12 +212,9 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
         await supervisor.close()
 
 
-@pytest.mark.parametrize(
-    "direction, realtime, enabled",
-    [("inbound", False, True), ("outbound", True, True), ("outbound", False, False)],
-)
+@pytest.mark.parametrize("realtime, enabled", [(True, True), (False, False)])
 def test_unsupported_or_disabled_calls_do_not_create_a_classifier(
-    monkeypatch, direction, realtime, enabled
+    monkeypatch, realtime, enabled
 ):
     from pipecat.processors.aggregators.llm_context import LLMContext
 
@@ -232,7 +228,6 @@ def test_unsupported_or_disabled_calls_do_not_create_a_classifier(
     assert (
         _create_answer_supervisor(
             {"enabled": enabled},
-            call_direction=direction,
             is_realtime=realtime,
             start_node=None,
             context=LLMContext(),

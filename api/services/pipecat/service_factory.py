@@ -13,7 +13,11 @@ from api.errors.failure import (
     classify_exception,
     log_failure,
 )
-from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
+from api.services.configuration.options import (
+    DEEPGRAM_DEFAULT_BASE_URL,
+    DEEPGRAM_FLUX_MODELS,
+    GOOGLE_VERTEX_DEFAULT_LOCATION,
+)
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
@@ -250,6 +254,71 @@ def _validate_runtime_service_url(url: str, field_name: str) -> None:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+def _deepgram_base_url(service_config) -> str:
+    """Resolve the Deepgram endpoint for an STT or TTS config section.
+
+    Deepgram's regional hosts are the only thing that decides which
+    jurisdiction processes the audio, so this is the single place the value is
+    normalised and checked. Everything downstream builds on the result.
+    """
+    base_url = (getattr(service_config, "base_url", None) or "").strip()
+    if not base_url:
+        return DEEPGRAM_DEFAULT_BASE_URL
+    # Deepgram documents the regional switch as "replace api.deepgram.com with
+    # api.eu.deepgram.com", so operators reasonably type a bare host. The URL
+    # validator - and the SaaS SSRF checks behind it - need a scheme, so assume
+    # TLS rather than reject a value that is obviously well intentioned.
+    if "://" not in base_url:
+        base_url = f"https://{base_url}"
+    _validate_runtime_service_url(base_url, "base_url")
+    return base_url.rstrip("/")
+
+
+def _deepgram_websocket_url(base_url: str, path: str = "") -> str:
+    """Rewrite a Deepgram base URL as the WebSocket URL a service expects.
+
+    Each Deepgram service in pipecat wants a different shape of the same host:
+    ``DeepgramSTTService`` takes the base URL and derives both schemes itself,
+    ``DeepgramFluxSTTService`` wants a full ``wss://host/v2/listen``, and
+    ``DeepgramTTSService`` wants ``wss://host`` and appends its own path.
+    Deriving all three from one configured value keeps a single source of truth
+    for where audio goes. Expects the output of :func:`_deepgram_base_url`,
+    which guarantees a scheme.
+    """
+    parsed = urlparse(base_url)
+    scheme = {"http": "ws", "https": "wss"}.get(parsed.scheme, parsed.scheme)
+    return urlunparse(
+        parsed._replace(scheme=scheme, path=parsed.path.rstrip("/") + path)
+    )
+
+
+def _google_vertex_location(location: str | None, service: str) -> str:
+    """Resolve the Vertex location a service will connect to.
+
+    Vertex derives its endpoint from the location, and only the regional and
+    multi-region endpoints keep processing inside a geography - global routes
+    anywhere. Falling back to anything other than the configured default would
+    mean an operator who left the field alone gets a region nobody chose and
+    cannot see, which is the wrong answer for anyone with residency
+    obligations.
+    """
+    resolved = (location or "").strip()
+    if resolved:
+        # The resolved value is reported by the caller, on the same line as the
+        # service being created - one decision, one line.
+        return resolved
+
+    # Unset is the one case where nobody picked the endpoint, and the default
+    # carries no residency commitment, so it gets a line of its own rather than
+    # riding along with the successful cases.
+    logger.warning(
+        f"Google Vertex {service}: no location configured, falling back to "
+        f"{GOOGLE_VERTEX_DEFAULT_LOCATION!r}, which carries no data residency "
+        f"guarantee"
+    )
+    return GOOGLE_VERTEX_DEFAULT_LOCATION
+
+
 @_report_service_factory_failures(ErrorSource.STT, config_section="stt")
 def create_stt_service(
     user_config,
@@ -263,10 +332,21 @@ def create_stt_service(
         user_config: User configuration containing STT settings
         keyterms: Optional list of keyterms for speech recognition boosting (Deepgram only)
     """
+    # Resolved before the line below so that where the audio is processed is
+    # recorded alongside what processes it. The endpoint decides which
+    # jurisdiction transcribes the call, and that is the only record an operator
+    # has that the configured region was the one actually used - but it is one
+    # fact about one service, so it belongs on one line.
+    is_deepgram = user_config.stt.provider == ServiceProviders.DEEPGRAM.value
+    deepgram_base_url = _deepgram_base_url(user_config.stt) if is_deepgram else None
+
     logger.info(
-        f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
+        f"Creating STT service: provider={user_config.stt.provider}, "
+        f"model={user_config.stt.model}"
+        + (f", endpoint={deepgram_base_url}" if deepgram_base_url else "")
     )
-    if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
+
+    if is_deepgram:
         if user_config.stt.model in DEEPGRAM_FLUX_MODELS:
             settings_kwargs = {
                 "model": user_config.stt.model,
@@ -283,6 +363,8 @@ def create_stt_service(
 
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
+                # Flux takes a fully-qualified socket URL, not a host.
+                url=_deepgram_websocket_url(deepgram_base_url, "/v2/listen"),
                 settings=DeepgramFluxSTTSettings(**settings_kwargs),
                 should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
                 sample_rate=audio_config.transport_in_sample_rate,
@@ -293,6 +375,8 @@ def create_stt_service(
         language = getattr(user_config.stt, "language", None) or "multi"
         return DeepgramSTTService(
             api_key=user_config.stt.api_key,
+            # Takes the host and derives the wss and https URLs itself.
+            base_url=deepgram_base_url,
             settings=DeepgramSTTSettings(
                 language=language,
                 profanity_filter=False,
@@ -563,14 +647,25 @@ def create_tts_service(
         user_config: User configuration containing TTS settings
         transport_type: Type of transport (e.g., 'twilio', 'webrtc')
     """
+    # Synthesis carries the same residency question as transcription - the text
+    # sent for speaking is drawn from the conversation - so the endpoint is
+    # resolved up front and reported on the creation line.
+    is_deepgram = user_config.tts.provider == ServiceProviders.DEEPGRAM.value
+    deepgram_base_url = _deepgram_base_url(user_config.tts) if is_deepgram else None
+
     logger.info(
-        f"Creating TTS service: provider={user_config.tts.provider}, model={user_config.tts.model}"
+        f"Creating TTS service: provider={user_config.tts.provider}, "
+        f"model={user_config.tts.model}"
+        + (f", endpoint={deepgram_base_url}" if deepgram_base_url else "")
     )
+
     # Create function call filter to prevent TTS from speaking function call tags
     xml_function_tag_filter = XMLFunctionTagFilter()
-    if user_config.tts.provider == ServiceProviders.DEEPGRAM.value:
+    if is_deepgram:
         return DeepgramTTSService(
             api_key=user_config.tts.api_key,
+            # Wants wss://host with no path; it appends /v1/speak itself.
+            base_url=_deepgram_websocket_url(deepgram_base_url),
             settings=DeepgramTTSSettings(voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
@@ -990,7 +1085,19 @@ def create_llm_service_from_provider(
             (e.g. "voicemail_detection"). Sent as request metadata by the Dograh
             provider; ignored by other providers.
     """
-    logger.info(f"Creating LLM service: provider={provider}, model={model}")
+    # Vertex builds its endpoint from the location, so it is part of what this
+    # service is, not a separate event. Resolved here to keep it on one line.
+    vertex_location = (
+        _google_vertex_location(location, "LLM")
+        if provider == ServiceProviders.GOOGLE_VERTEX.value
+        else None
+    )
+
+    logger.info(
+        f"Creating LLM service: provider={provider}, model={model}"
+        + (f", location={vertex_location}" if vertex_location else "")
+    )
+
     if provider in (
         ServiceProviders.OPENAI.value,
         ServiceProviders.ATLASCLOUD.value,
@@ -1043,7 +1150,7 @@ def create_llm_service_from_provider(
         return DograhGoogleVertexLLMService(
             credentials=credentials,
             project_id=project_id,
-            location=location or "us-east4",
+            location=vertex_location,
             settings=GoogleVertexLLMSettings(
                 model=model,
                 temperature=0.1,
@@ -1127,8 +1234,16 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     voice = getattr(realtime_config, "voice", None)
     language = getattr(realtime_config, "language", None)
 
+    vertex_location = (
+        _google_vertex_location(getattr(realtime_config, "location", None), "Realtime")
+        if provider == ServiceProviders.GOOGLE_VERTEX_REALTIME.value
+        else None
+    )
+
     logger.info(
-        f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}, language={language}"
+        f"Creating realtime LLM service: provider={provider}, model={model}, "
+        f"voice={voice}, language={language}"
+        + (f", location={vertex_location}" if vertex_location else "")
     )
 
     if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
@@ -1273,7 +1388,6 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         )
 
         project_id = getattr(realtime_config, "project_id", None)
-        location = getattr(realtime_config, "location", None) or "us-east4"
         credentials = getattr(realtime_config, "credentials", None)
 
         settings_kwargs = {
@@ -1285,7 +1399,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         return DograhGeminiLiveVertexLLMService(
             credentials=credentials,
             project_id=project_id,
-            location=location,
+            location=vertex_location,
             settings=DograhGeminiLiveVertexLLMService.Settings(**settings_kwargs),
         )
     elif provider == ServiceProviders.AZURE_REALTIME.value:

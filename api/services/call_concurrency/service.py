@@ -259,6 +259,7 @@ class CallConcurrencyService:
         return bool(released)
 
     async def release_workflow_run_slot(self, workflow_run_id: int) -> bool:
+        """Release the org/campaign slot held by a workflow run."""
         mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run_id)
         if not mapping:
             return False

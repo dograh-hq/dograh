@@ -27,6 +27,7 @@ class CampaignClient(BaseDBClient):
         schedule_config: Optional[dict] = None,
         circuit_breaker: Optional[dict] = None,
         telephony_configuration_id: Optional[int] = None,
+        rate_limit_per_second: int = 1,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -53,6 +54,7 @@ class CampaignClient(BaseDBClient):
                 ),
                 orchestrator_metadata=orchestrator_metadata,
                 telephony_configuration_id=telephony_configuration_id,
+                rate_limit_per_second=rate_limit_per_second,
             )
             session.add(campaign)
             try:
@@ -62,6 +64,56 @@ class CampaignClient(BaseDBClient):
                 raise e
             await session.refresh(campaign)
             return campaign
+
+    async def mark_campaign_run_dispatched(
+        self,
+        queued_run_id: int,
+        workflow_run_id: int,
+        campaign_id: int,
+        organization_id: int,
+    ) -> bool:
+        """Record a dispatch and its campaign progress once, in one transaction."""
+        async with self.async_session() as session:
+            owned_campaign = select(CampaignModel.id).where(
+                CampaignModel.id == campaign_id,
+                CampaignModel.organization_id == organization_id,
+            )
+            dispatched_run = (
+                select(WorkflowRunModel.id)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowRunModel.queued_run_id == QueuedRunModel.id,
+                    WorkflowRunModel.campaign_id == campaign_id,
+                )
+                .exists()
+            )
+            result = await session.execute(
+                update(QueuedRunModel)
+                .where(
+                    QueuedRunModel.id == queued_run_id,
+                    QueuedRunModel.campaign_id.in_(owned_campaign),
+                    QueuedRunModel.state == "processing",
+                    dispatched_run,
+                )
+                .values(
+                    state="processed",
+                    processed_at=datetime.now(UTC),
+                )
+            )
+            if result.rowcount:
+                await session.execute(
+                    update(CampaignModel)
+                    .where(
+                        CampaignModel.id == campaign_id,
+                        CampaignModel.organization_id == organization_id,
+                    )
+                    .values(
+                        processed_rows=CampaignModel.processed_rows + 1,
+                        updated_at=datetime.now(UTC),
+                    )
+                )
+            await session.commit()
+            return bool(result.rowcount)
 
     async def get_campaigns(
         self,
@@ -554,13 +606,24 @@ class CampaignClient(BaseDBClient):
     async def return_processing_queued_runs_without_workflow(
         self, queued_run_ids: list[int]
     ) -> int:
-        """Return claimed queued_runs to queued if no workflow was created for them."""
+        """Return claims unless a run may have contacted its telephony provider.
+
+        A previous cancelled setup can leave a workflow history row. Its explicit
+        not_started outcome must not strand later claims waiting for capacity.
+        """
         if not queued_run_ids:
             return 0
 
         workflow_exists = (
             select(WorkflowRunModel.id)
-            .where(WorkflowRunModel.queued_run_id == QueuedRunModel.id)
+            .where(
+                WorkflowRunModel.queued_run_id == QueuedRunModel.id,
+                func.coalesce(
+                    WorkflowRunModel.logs["campaign_dispatch"]["outcome"].as_string(),
+                    "unknown",
+                )
+                != "not_started",
+            )
             .exists()
         )
         async with self.async_session() as session:

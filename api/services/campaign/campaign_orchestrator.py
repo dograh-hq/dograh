@@ -335,6 +335,9 @@ class CampaignOrchestrator:
     async def _schedule_next_batch(self, campaign_id: int):
         """Schedule next batch immediately if work available."""
 
+        if campaign_id in self._batch_in_progress:
+            return
+
         # Prevent duplicate scheduling with in-memory lock
         if campaign_id in self._processing_locks:
             lock_time = self._processing_locks[campaign_id]
@@ -413,10 +416,11 @@ class CampaignOrchestrator:
 
             if has_work:
                 # Schedule batch immediately
+                self._batch_in_progress[campaign_id] = datetime.now(UTC)
                 await enqueue_job(
                     FunctionNames.PROCESS_CAMPAIGN_BATCH,
                     campaign_id,
-                    10,  # batch_size
+                    20,  # batch_size; setup parallelism is bounded by the dispatcher
                 )
                 logger.info(f"campaign_id: {campaign_id} - Scheduled next batch")
 
@@ -436,17 +440,12 @@ class CampaignOrchestrator:
                 )
 
         except Exception as e:
+            self._batch_in_progress.pop(campaign_id, None)
             logger.error(f"campaign_id: {campaign_id} - Error scheduling batch: {e}")
         finally:
-            # Release lock after a short delay
-            asyncio.create_task(self._release_lock_after_delay(campaign_id, 5))
-
-    async def _release_lock_after_delay(self, campaign_id: int, delay: int):
-        """Release processing lock after delay."""
-        await asyncio.sleep(delay)
-        if campaign_id in self._processing_locks:
-            del self._processing_locks[campaign_id]
-            logger.debug(f"campaign_id: {campaign_id} - Released processing lock")
+            # The in-progress flag prevents duplicate batches. A time-based
+            # lock would discard completion events for batches finishing in <5s.
+            self._processing_locks.pop(campaign_id, None)
 
     def _clear_campaign_state(self, campaign_id: int):
         """Clear all in-memory state for a campaign."""

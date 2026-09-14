@@ -22,6 +22,7 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.ari.channel_registry import register_channel
 from api.services.telephony.providers.ari.dial_string import (
     DEFAULT_DIAL_STRING_TEMPLATE,
     build_dial_string,
@@ -154,6 +155,12 @@ class ARIProvider(TelephonyProvider):
                     f"[ARI] Channel created: {channel_id} "
                     f"state={response_data.get('state')}"
                 )
+
+                # Recorded here rather than at StasisStart because a call that
+                # is rejected, busy or never answered is destroyed without ever
+                # entering Stasis - and that is the call whose slot and caller
+                # ID would otherwise be held until the stale sweep.
+                await register_channel(channel_id, workflow_run_id)
 
                 return CallInitiationResult(
                     call_id=channel_id,

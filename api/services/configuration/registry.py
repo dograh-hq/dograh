@@ -1740,8 +1740,8 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     eot_threshold: float = Field(
         default=0.7,
-        ge=0.5, 
-        le=0.9, 
+        ge=0.5,
+        le=0.9,
         description=(
             "Deepgram Flux end-of-turn probability threshold. Higher values "
             "wait longer before ending a turn. Only applies to Flux models."
@@ -1749,7 +1749,7 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     eager_eot_threshold: float = Field(
         default=0.5,
-        ge=0.3, 
+        ge=0.3,
         le=0.9,
         description=(
             "Deepgram Flux eager end-of-turn probability threshold, used for "
@@ -1880,8 +1880,8 @@ class DograhSTTService(BaseSTTConfiguration):
     )
     eot_threshold: float = Field(
         default=0.7,
-        ge=0.5, 
-        le=0.9, 
+        ge=0.5,
+        le=0.9,
         description=(
             "Deepgram Flux end-of-turn probability threshold, used when this "
             "language routes through Dograh's managed Flux proxy. Higher "
@@ -1890,8 +1890,8 @@ class DograhSTTService(BaseSTTConfiguration):
     )
     eager_eot_threshold: float = Field(
         default=0.5,
-        ge=0.3, 
-        le=0.9, 
+        ge=0.3,
+        le=0.9,
         description=(
             "Deepgram Flux eager end-of-turn probability threshold, used "
             "when this language routes through Dograh's managed Flux proxy."

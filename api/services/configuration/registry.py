@@ -1712,8 +1712,56 @@ TTSConfig = Annotated[
 ###################################################### STT ########################################################################
 
 
+class FluxEOTConfigMixin(BaseModel):
+    """Shared Deepgram Flux end-of-turn config fields.
+
+    Used by both the BYOK Deepgram path and Dograh's managed Flux proxy,
+    so the valid ranges and the cross-field invariant can't drift apart
+    between the two.
+    """
+
+    eot_threshold: float = Field(
+        default=0.7,
+        ge=0.5,
+        le=0.9,
+        description=(
+            "Deepgram Flux end-of-turn probability threshold. Higher values "
+            "wait longer before ending a turn. Only applies to Flux models."
+        ),
+    )
+    eager_eot_threshold: float = Field(
+        default=0.5,
+        ge=0.3,
+        le=0.9,
+        description=(
+            "Deepgram Flux eager end-of-turn probability threshold, used for "
+            "early turn-end signaling. Must be <= eot_threshold. Only "
+            "applies to Flux models."
+        ),
+    )
+    eot_timeout_ms: int = Field(
+        default=3000,
+        ge=500,
+        le=10000,
+        description=(
+            "Deepgram Flux end-of-turn timeout backstop in milliseconds. "
+            "Only applies to Flux models."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_eager_eot_threshold(self):
+        if self.eager_eot_threshold > self.eot_threshold:
+            raise ValueError(
+                "eager_eot_threshold must be <= eot_threshold "
+                f"(got eager_eot_threshold={self.eager_eot_threshold}, "
+                f"eot_threshold={self.eot_threshold})"
+            )
+        return self
+
+
 @register_stt
-class DeepgramSTTConfiguration(BaseSTTConfiguration):
+class DeepgramSTTConfiguration(FluxEOTConfigMixin, BaseSTTConfiguration):
     model_config = DEEPGRAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
     model: str = Field(
@@ -1738,7 +1786,7 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
             },
         },
     )
-
+    
 
 @register_stt
 class CartesiaSTTConfiguration(BaseSTTConfiguration):
@@ -1829,7 +1877,7 @@ DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES = DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
 
 
 @register_stt
-class DograhSTTService(BaseSTTConfiguration):
+class DograhSTTService(FluxEOTConfigMixin, BaseSTTConfiguration):
     model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(

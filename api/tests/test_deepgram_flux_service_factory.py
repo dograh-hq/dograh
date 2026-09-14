@@ -5,6 +5,8 @@ import pytest
 from pipecat.services.settings import NOT_GIVEN
 from pipecat.transcriptions.language import Language
 
+from pydantic import ValidationError
+
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
     ServiceProviders,
@@ -75,3 +77,118 @@ def test_create_deepgram_flux_multi_omits_auto_detect_language_hint():
     kwargs = mock_service.call_args.kwargs
     assert kwargs["settings"].model == "flux-general-multi"
     assert kwargs["settings"].language_hints is NOT_GIVEN
+
+
+def test_create_deepgram_flux_uses_custom_eot_params_when_set():
+    user_config = SimpleNamespace(
+        stt=SimpleNamespace(
+            provider=ServiceProviders.DEEPGRAM.value,
+            api_key="test-key",
+            model="flux-general-en",
+            language="en",
+            eot_timeout_ms=5000,
+            eot_threshold=0.9,
+            eager_eot_threshold=0.3,
+        )
+    )
+    audio_config = AudioConfig(
+        transport_in_sample_rate=16000,
+        transport_out_sample_rate=16000,
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.DeepgramFluxSTTService"
+    ) as mock_service:
+        create_stt_service(user_config, audio_config)
+
+    kwargs = mock_service.call_args.kwargs
+    assert kwargs["settings"].eot_timeout_ms == 5000
+    assert kwargs["settings"].eot_threshold == 0.9
+    assert kwargs["settings"].eager_eot_threshold == 0.3
+
+
+def test_create_deepgram_flux_defaults_eot_params_when_unset():
+    user_config = SimpleNamespace(
+        stt=SimpleNamespace(
+            provider=ServiceProviders.DEEPGRAM.value,
+            api_key="test-key",
+            model="flux-general-en",
+            language="en",
+        )
+    )
+    audio_config = AudioConfig(
+        transport_in_sample_rate=16000,
+        transport_out_sample_rate=16000,
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.DeepgramFluxSTTService"
+    ) as mock_service:
+        create_stt_service(user_config, audio_config)
+
+    kwargs = mock_service.call_args.kwargs
+    defaults = DeepgramSTTConfiguration.model_fields
+    assert kwargs["settings"].eot_timeout_ms == defaults["eot_timeout_ms"].default
+    assert kwargs["settings"].eot_threshold == defaults["eot_threshold"].default
+    assert kwargs["settings"].eager_eot_threshold == defaults["eager_eot_threshold"].default
+    
+    
+def test_deepgram_stt_rejects_out_of_range_eot_threshold():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_threshold=0.95,
+        )
+
+
+def test_deepgram_stt_rejects_eager_eot_threshold_above_eot_threshold():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_threshold=0.6,
+            eager_eot_threshold=0.7,
+        )
+        
+        
+def test_deepgram_stt_rejects_eager_eot_threshold_below_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eager_eot_threshold=0.2,
+        )
+
+
+def test_deepgram_stt_rejects_eot_threshold_below_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_threshold=0.4,
+        )
+
+
+def test_deepgram_stt_rejects_eot_timeout_ms_below_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_timeout_ms=100,
+        )
+
+
+def test_deepgram_stt_rejects_eot_timeout_ms_above_range():
+    with pytest.raises(ValidationError):
+        DeepgramSTTConfiguration(
+            provider=ServiceProviders.DEEPGRAM,
+            api_key="test-key",
+            model="flux-general-en",
+            eot_timeout_ms=15000,
+        )

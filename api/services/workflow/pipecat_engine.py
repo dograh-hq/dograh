@@ -162,6 +162,7 @@ class PipecatEngine:
         self._current_node: Optional[Node] = None
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
+        self._pending_farewell_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
         # True once terminal call disposal has run its synchronous extraction.
         # Recoverable operations such as a failed transfer use a repeatable
@@ -1032,6 +1033,10 @@ class PipecatEngine:
 
         self._call_disposed = True
 
+        farewell_task = self._pending_farewell_task
+        if farewell_task and farewell_task is not asyncio.current_task():
+            farewell_task.cancel()
+
         # Mute the pipeline
         self._mute_pipeline = True
 
@@ -1144,6 +1149,61 @@ class PipecatEngine:
             )
         )
         return True
+
+    def defer_end_call_until_bot_playback(
+        self, reason: str, fallback_secs: float = 8.0
+    ) -> bool:
+        """Arm a terminal farewell before its prompt is delivered.
+
+        Keep frame processing free to report playback while a single background
+        task waits. Other termination paths can still win during this wait.
+        """
+        if self._call_disposed or self._pending_farewell_task is not None:
+            return False
+
+        self._mute_pipeline = True
+        self.arm_speech_playback()
+        deadline = asyncio.get_running_loop().time() + fallback_secs
+        self._pending_farewell_task = asyncio.create_task(
+            self._end_call_after_bot_playback(reason, deadline, fallback_secs),
+            name="idle-farewell-playback",
+        )
+        return True
+
+    async def _end_call_after_bot_playback(
+        self, reason: str, deadline: float, fallback_secs: float
+    ) -> None:
+        try:
+            try:
+                async with asyncio.timeout_at(deadline):
+                    await self.wait_for_speech_playback(
+                        start_timeout=fallback_secs, playback_timeout=fallback_secs
+                    )
+            except asyncio.TimeoutError:
+                logger.warning("Idle farewell playback deadline expired; ending call")
+
+            # Detach before termination so it cannot cancel its own extraction
+            # or terminal frame. Those have a separate lifetime and timeout.
+            self._pending_farewell_task = None
+            try:
+                await self.end_call_with_reason(reason)
+            except Exception as e:
+                # This task is unawaited. `end_call_with_reason` sets
+                # `_call_disposed` before extraction / `queue_frame`, so a
+                # later retry is a no-op and the user stays muted unless a
+                # terminal frame still goes out.
+                logger.error(
+                    f"Idle farewell termination failed: {e}",
+                    exc_info=True,
+                )
+                self._call_disposed = False
+                await self.end_call_with_reason(
+                    EndTaskReason.PIPELINE_ERROR.value,
+                    abort_immediately=True,
+                )
+        finally:
+            if self._pending_farewell_task is asyncio.current_task():
+                self._pending_farewell_task = None
 
     def arm_speech_playback(self) -> None:
         """Start tracking the next piece of speech queued to the transport.
@@ -1416,6 +1476,17 @@ class PipecatEngine:
         MCP sessions; closing them here raises "Attempted to exit cancel scope
         in a different task than it was entered in".
         """
+        farewell_task = self._pending_farewell_task
+        if farewell_task and farewell_task is not asyncio.current_task():
+            farewell_task.cancel()
+            try:
+                await farewell_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if self._pending_farewell_task is farewell_task:
+                    self._pending_farewell_task = None
+
         # Cancel any pending timeout tasks
         if (
             self._user_response_timeout_task

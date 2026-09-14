@@ -4,7 +4,7 @@ import { ExternalLink, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet } from '@/client/sdk.gen';
+import { getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet, getOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGet } from '@/client/sdk.gen';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,11 +17,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { VoiceSelector } from "@/components/VoiceSelector";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
+import { detailFromError } from "@/lib/apiError";
+import { useAuth } from "@/lib/auth";
 import type { ModelOverrides } from "@/types/workflow-configurations";
 
 export type ServiceSegment = "llm" | "tts" | "stt" | "embeddings" | "realtime";
 
 interface SchemaProperty {
+    title?: string;
     type?: string;
     default?: string | number | boolean;
     anyOf?: SchemaProperty[];
@@ -156,6 +159,71 @@ function getNumberSchema(schema: SchemaProperty | undefined): SchemaProperty | u
 function isVisibleForModel(schema: SchemaProperty | undefined, model?: string): boolean {
     if (schema?.visible_for_models && !schema.visible_for_models.includes(model || "")) return false;
     return !schema?.hidden_for_models?.includes(model || "");
+}
+
+function SubscriptionVoiceStatus() {
+    const { user, loading: authLoading } = useAuth();
+    const [refresh, setRefresh] = useState(0);
+    const [loading, setLoading] = useState(false);
+    const [status, setStatus] = useState<{ status: string; message: string } | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (authLoading || !user) return;
+        let cancelled = false;
+        setLoading(true);
+        setStatus(null);
+        setError(null);
+        const checkStatus = async () => {
+            try {
+                const response = await getOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGet();
+                if (cancelled) return;
+                if (response.error) {
+                    setError(detailFromError(response.error, "Unable to check subscription connection."));
+                } else if (response.data) {
+                    setStatus(response.data);
+                } else {
+                    setError("Unable to check subscription connection.");
+                }
+            } catch {
+                if (!cancelled) setError("Unable to reach Dograh. Try checking the connection again.");
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+        void checkStatus();
+        return () => { cancelled = true; };
+    }, [authLoading, user, refresh]);
+
+    const statusLabels: Record<string, string> = {
+        disabled: "Disabled",
+        login_required: "Login required",
+        ready: "Credentials ready",
+        refresh_required: "Refresh required",
+        reauthentication_required: "Reconnect required",
+        busy: "Account busy",
+        unavailable: "Unavailable",
+    };
+
+    return (
+        <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">Subscription voice connection</p>
+            <p className="text-xs text-muted-foreground">
+                Voice uses your connected ChatGPT subscription. Workflow reasoning, analysis,
+                extraction, and telephony are billed separately by their configured services.
+                Account access must be verified with a voice session.
+            </p>
+            <div role="status" aria-live="polite" className="text-sm">
+                {authLoading || loading ? "Checking connection..." : !user ? "Sign in to check the connection." : status && (
+                    <><span className="font-medium">{statusLabels[status.status] || "Unavailable"}: </span>{status.message}</>
+                )}
+            </div>
+            {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+            <Button type="button" size="sm" variant="outline" disabled={authLoading || !user || loading} onClick={() => setRefresh(value => value + 1)}>
+                Check connection
+            </Button>
+        </div>
+    );
 }
 
 export function ServiceConfigurationForm({
@@ -626,6 +694,8 @@ export function ServiceConfigurationForm({
                     )}
                 </div>
 
+                {service === "realtime" && currentProvider === "openai_live_subscription" && <SubscriptionVoiceStatus />}
+
                 {currentProvider && providerSchema && configFields.length > 1 && (
                     <div className="grid grid-cols-2 gap-4">
                         {configFields.slice(1).map((field) => {
@@ -636,7 +706,7 @@ export function ServiceConfigurationForm({
                             const fullWidth = actualFieldSchema?.multiline;
                             return (
                                 <div key={field} className={`space-y-2 ${fullWidth ? "col-span-2" : ""}`}>
-                                    <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
+                                    <Label className="capitalize">{actualFieldSchema?.title || field.replace(/_/g, ' ')}</Label>
                                     {renderField(service, field, providerSchema)}
                                 </div>
                             );
@@ -646,12 +716,13 @@ export function ServiceConfigurationForm({
 
                 {currentProvider && providerSchema && providerSchema.properties.api_key && (
                     <div className="space-y-2">
-                        <Label>{mode === 'override' ? 'API Key (leave empty to use global)' : 'API Key(s)'}</Label>
+                        <Label>{providerSchema.properties.api_key.title ? `${providerSchema.properties.api_key.title}${mode === 'override' ? ' (leave empty to use global)' : ''}` : mode === 'override' ? 'API Key (leave empty to use global)' : 'API Key(s)'}</Label>
                         {renderFieldDescription("api_key", providerSchema)}
                         {apiKeys[service].map((key, index) => (
                             <div key={index} className="flex gap-2">
                                 <Input
-                                    type="text"
+                                    type={currentProvider === "openai_live_subscription" ? "password" : "text"}
+                                    aria-label={providerSchema.properties.api_key.title || "API key"}
                                     placeholder="Enter API key"
                                     value={key}
                                     onChange={(e) => {

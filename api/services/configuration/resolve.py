@@ -7,6 +7,7 @@ import copy
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import (
     REGISTRY,
+    ServiceProviders,
     ServiceType,
 )
 
@@ -127,7 +128,10 @@ def resolve_effective_config(
             )
         else:
             # Same provider — merge fields onto existing config
-            merged = base.model_copy(update=override)
+            if base.provider == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value:
+                merged = type(base).model_validate({**base.model_dump(), **override})
+            else:
+                merged = base.model_copy(update=override)
             setattr(effective, section_key, merged)
 
     return effective

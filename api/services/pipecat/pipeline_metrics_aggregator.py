@@ -4,7 +4,10 @@ from typing import Dict, Optional
 
 from loguru import logger
 
-from api.services.pipecat.usage_metrics import LiveUsageMetricsData
+from api.services.pipecat.usage_metrics import (
+    LiveUsageMetricsData,
+    SubscriptionVoiceUsageMetricsData,
+)
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -34,6 +37,7 @@ class PipelineMetricsAggregator(FrameProcessor):
         self._tts_usage_metrics: Dict[str, int] = defaultdict(int)
         self._stt_usage_metrics: Dict[str, float] = defaultdict(float)
         self._live_usage_metrics: Dict[str, float] = defaultdict(float)
+        self._subscription_voice_metrics: dict[str, dict] = {}
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -50,6 +54,22 @@ class PipelineMetricsAggregator(FrameProcessor):
                     await self._handle_llm_usage_metrics(data)
                 elif isinstance(data, TTSUsageMetricsData):
                     await self._handle_tts_usage_metrics(data)
+                elif isinstance(data, SubscriptionVoiceUsageMetricsData):
+                    key = f"{data.processor}|||{data.model}"
+                    previous = self._subscription_voice_metrics.get(key, {})
+                    self._subscription_voice_metrics[key] = {
+                        "voice_auth": "subscription",
+                        "session_state": data.session_state,
+                        "cost_usd": None,
+                        **{
+                            field: previous.get(field, 0.0) + getattr(data, field)
+                            for field in (
+                                "session_seconds",
+                                "input_audio_seconds",
+                                "output_audio_seconds",
+                            )
+                        },
+                    }
                 elif isinstance(data, LiveUsageMetricsData):
                     key = f"{data.processor}|||{data.model}"
                     self._live_usage_metrics[key] += data.seconds
@@ -132,6 +152,8 @@ class PipelineMetricsAggregator(FrameProcessor):
         }
         if self._live_usage_metrics:
             usage["live_audio_seconds"] = dict(self._live_usage_metrics)
+        if self._subscription_voice_metrics:
+            usage["subscription_voice"] = dict(self._subscription_voice_metrics)
         return usage
 
     def reset_metrics(self):
@@ -140,5 +162,6 @@ class PipelineMetricsAggregator(FrameProcessor):
         self._tts_usage_metrics.clear()
         self._stt_usage_metrics.clear()
         self._live_usage_metrics.clear()
+        self._subscription_voice_metrics.clear()
         self._start_time = None
         self._stop_time = None

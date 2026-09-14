@@ -249,7 +249,9 @@ def _create_non_realtime_user_turn_stop_strategies(
 def _create_realtime_user_turn_config(provider: str, model: str | None = None):
     """Return user turn strategies and optional local VAD for realtime providers."""
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+    if provider == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value or (
+        provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1"
+    ):
         # Live keeps listening while speaking and handles barge-in itself.
         return (
             UserTurnStrategies(
@@ -743,7 +745,9 @@ async def _run_pipeline_impl(
 
     # Create services based on user configuration
     if is_realtime:
-        llm = create_realtime_llm_service(user_config, audio_config)
+        llm = create_realtime_llm_service(
+            user_config, audio_config, organization_id=workflow.organization_id
+        )
         stt = None
         tts = None
         # Realtime services don't implement run_inference, so create a
@@ -1030,8 +1034,12 @@ async def _run_pipeline_impl(
         # Record them immediately, including while the assistant is speaking.
         realtime_service_mode=is_realtime
         and not (
-            user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
-            and user_config.realtime.model == "gpt-live-1"
+            user_config.realtime.provider
+            == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+            or (
+                user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+                and user_config.realtime.model == "gpt-live-1"
+            )
         ),
     )
 

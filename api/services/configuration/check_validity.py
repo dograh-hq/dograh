@@ -12,6 +12,11 @@ from groq import Groq
 from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
+from api.services.configuration.openai_subscription_auth import (
+    SubscriptionAuthError,
+    SubscriptionAuthService,
+    SubscriptionAuthSettings,
+)
 from api.services.configuration.registry import ServiceConfig, ServiceProviders
 from api.services.mps_service_key_client import mps_service_key_client
 from api.utils.url_security import validate_user_configured_service_url
@@ -56,6 +61,7 @@ class UserConfigurationValidator:
             ServiceProviders.HUGGINGFACE.value: self._check_huggingface_api_key,
             ServiceProviders.GOOGLE_VERTEX.value: self._check_google_vertex_llm_api_key,
             ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
+            ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value: self._check_openai_api_key,
             ServiceProviders.GROK_REALTIME.value: self._check_grok_realtime_api_key,
             ServiceProviders.ULTRAVOX_REALTIME.value: self._check_ultravox_realtime_api_key,
             ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
@@ -86,6 +92,20 @@ class UserConfigurationValidator:
             "created_by": created_by,
         }
         status_list = []
+        if (
+            configuration.is_realtime
+            and configuration.realtime is not None
+            and configuration.realtime.provider
+            == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+        ):
+            try:
+                SubscriptionAuthService(
+                    SubscriptionAuthSettings.from_env(), None
+                ).assert_organization(organization_id)
+            except SubscriptionAuthError as exc:
+                raise ValueError(
+                    [{"model": "realtime", "message": exc.safe_message}]
+                ) from exc
 
         status_list.extend(self._validate_service(configuration.llm, "llm"))
         if configuration.is_realtime:
@@ -241,6 +261,7 @@ class UserConfigurationValidator:
             ServiceProviders.OPENAI.value,
             ServiceProviders.ATLASCLOUD.value,
             ServiceProviders.OPENAI_REALTIME.value,
+            ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value,
         ):
             return validator(provider, api_key, service_config)
         return validator(provider, api_key)

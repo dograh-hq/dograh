@@ -1221,11 +1221,13 @@ def create_llm_service_from_provider(
 
 
 @_report_service_factory_failures(ErrorSource.LLM, config_section="realtime")
-def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
+def create_realtime_llm_service(
+    user_config, audio_config: "AudioConfig", *, organization_id: int | None = None
+):
     """Create a realtime (speech-to-speech) LLM service that handles STT+LLM+TTS.
 
     These services bypass separate STT/TTS and handle audio directly via
-    a bidirectional WebSocket connection. Reads from user_config.realtime.
+    a provider-specific media connection. Reads from user_config.realtime.
     """
     realtime_config = user_config.realtime
     provider = realtime_config.provider
@@ -1246,7 +1248,36 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         + (f", location={vertex_location}" if vertex_location else "")
     )
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+    if provider == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value:
+        from redis.asyncio import Redis
+
+        from api.constants import REDIS_URL
+        from api.services.configuration.openai_subscription_auth import (
+            SubscriptionAuthService,
+            SubscriptionAuthSettings,
+        )
+        from api.services.pipecat.realtime.openai_live_subscription import (
+            DograhOpenAILiveSubscriptionLLMService,
+        )
+
+        settings = SubscriptionAuthSettings.from_env()
+        auth_service = SubscriptionAuthService(
+            settings,
+            Redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2),
+            owns_redis_client=True,
+        )
+        auth_service.assert_organization(organization_id)
+        return DograhOpenAILiveSubscriptionLLMService(
+            backend_api_key=api_key,
+            backend_model=realtime_config.backend_model,
+            auth_service=auth_service,
+            organization_id=organization_id,
+            settings=DograhOpenAILiveSubscriptionLLMService.Settings(
+                model=model,
+                voice=voice or "cove",
+            ),
+        )
+    elif provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
         from api.services.pipecat.realtime.openai_live import DograhOpenAILiveLLMService
 
         return DograhOpenAILiveLLMService(

@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
-from typing import List, Literal, Optional, TypedDict, Union
+from typing import Annotated, List, Literal, Optional, TypedDict, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ValidationError
+from redis.asyncio import Redis
 
+from api.constants import REDIS_URL
 from api.db import db_client
 from api.db.models import (
     UserModel,
@@ -33,6 +35,11 @@ from api.services.configuration.check_validity import (
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.masking import check_for_masked_keys, mask_user_config
 from api.services.configuration.merge import merge_user_configurations
+from api.services.configuration.openai_subscription_auth import (
+    SubscriptionAuthError,
+    SubscriptionAuthService,
+    SubscriptionAuthSettings,
+)
 from api.services.configuration.registry import REGISTRY, ServiceType
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.organization_preferences import (
@@ -102,6 +109,36 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
         "widget_text_defaults": WidgetTexts(),
     }
     return DefaultConfigurationsResponse(**configurations)
+
+
+class OpenAISubscriptionStatusResponse(BaseModel):
+    status: Literal[
+        "disabled",
+        "login_required",
+        "ready",
+        "refresh_required",
+        "reauthentication_required",
+        "busy",
+        "unavailable",
+    ]
+    message: str
+
+
+@router.get("/configurations/openai-subscription/status")
+async def get_openai_subscription_status(
+    user: Annotated[UserModel, Depends(get_user)],
+) -> OpenAISubscriptionStatusResponse:
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    async with Redis.from_url(
+        REDIS_URL, socket_connect_timeout=2, socket_timeout=2
+    ) as redis:
+        service = SubscriptionAuthService(SubscriptionAuthSettings.from_env(), redis)
+        try:
+            status = await service.status(user.selected_organization_id)
+        except SubscriptionAuthError as exc:
+            raise HTTPException(status_code=403, detail=exc.safe_message) from exc
+    return OpenAISubscriptionStatusResponse(**status)
 
 
 @router.get("/auth/user")

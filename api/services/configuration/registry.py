@@ -103,6 +103,7 @@ class ServiceProviders(str, Enum):
     MINIMAX = "minimax"
     GOOGLE_VERTEX = "google_vertex"
     OPENAI_REALTIME = "openai_realtime"
+    OPENAI_LIVE_SUBSCRIPTION = "openai_live_subscription"
     GROK_REALTIME = "grok_realtime"
     ULTRAVOX_REALTIME = "ultravox_realtime"
     GOOGLE_REALTIME = "google_realtime"
@@ -137,6 +138,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.MINIMAX,
         ServiceProviders.GOOGLE_VERTEX,
         ServiceProviders.OPENAI_REALTIME,
+        ServiceProviders.OPENAI_LIVE_SUBSCRIPTION,
         ServiceProviders.GROK_REALTIME,
         ServiceProviders.ULTRAVOX_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
@@ -819,6 +821,52 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 
 @register_service(ServiceType.REALTIME)
+class OpenAILiveSubscriptionLLMConfiguration(BaseLLMConfiguration):
+    model_config = provider_model_config(
+        "OpenAI GPT-Live (ChatGPT subscription)",
+        description=(
+            "Experimental, opt-in voice for self-hosted Dograh. Voice uses your "
+            "connected ChatGPT subscription. Workflow reasoning and other "
+            "configured services are billed separately."
+        ),
+    )
+    provider: Literal[ServiceProviders.OPENAI_LIVE_SUBSCRIPTION] = (
+        ServiceProviders.OPENAI_LIVE_SUBSCRIPTION
+    )
+    api_key: str | list[str] = Field(
+        title="Workflow backend API key",
+        description=(
+            "OpenAI API key for workflow reasoning only. Subscription voice "
+            "credentials are configured by the server operator, never in this form."
+        ),
+    )
+
+    @field_validator("api_key")
+    @classmethod
+    def require_backend_key(cls, value):
+        keys = value if isinstance(value, list) else [value]
+        if any(not key.strip() for key in keys):
+            raise ValueError("Workflow backend API key is required")
+        return value
+
+    model: Literal["gpt-live-1-codex"] = Field(
+        default="gpt-live-1-codex",
+        json_schema_extra={"examples": ["gpt-live-1-codex"]},
+    )
+    voice: Literal["cove"] = Field(
+        default="cove",
+        json_schema_extra={"examples": ["cove"]},
+    )
+    backend_model: str = Field(
+        default="gpt-5.4-mini",
+        min_length=1,
+        title="Workflow backend model",
+        description="OpenAI Responses model that follows the workflow and calls tools.",
+        json_schema_extra={"examples": ["gpt-5.4-mini"], "allow_custom_input": True},
+    )
+
+
+@register_service(ServiceType.REALTIME)
 class AWSNovaSonicRealtimeLLMConfiguration(BaseLLMConfiguration):
     model_config = AWS_NOVA_SONIC_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AWS_NOVA_SONIC] = ServiceProviders.AWS_NOVA_SONIC
@@ -1081,6 +1129,7 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
+    ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value,
     ServiceProviders.GROK_REALTIME.value,
     ServiceProviders.ULTRAVOX_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
@@ -1112,6 +1161,7 @@ LLMConfig = Annotated[
 RealtimeConfig = Annotated[
     Union[
         OpenAIRealtimeLLMConfiguration,
+        OpenAILiveSubscriptionLLMConfiguration,
         GrokRealtimeLLMConfiguration,
         UltravoxRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,

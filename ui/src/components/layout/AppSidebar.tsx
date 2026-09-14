@@ -215,9 +215,9 @@ export function AppSidebar() {
         asChild
         tooltip={tooltip}
         className={cn(
-          "rounded-xl transition-colors hover:bg-accent hover:text-accent-foreground",
+          "rounded-md transition-colors hover:bg-accent hover:text-accent-foreground",
           isItemActive &&
-            "bg-cta/15 font-semibold text-foreground hover:bg-cta/20 hover:text-foreground"
+            "bg-cta/15 font-medium text-cta hover:bg-cta/20 hover:text-cta"
         )}
       >
         <Link
@@ -235,7 +235,7 @@ export function AppSidebar() {
           <Icon
             className={cn(
               "h-4 w-4 shrink-0",
-              isItemActive && "text-cta drop-shadow-[0_0_6px_rgba(240,170,70,0.8)]"
+              isItemActive && "text-cta"
             )}
           />
           <span
@@ -318,7 +318,7 @@ export function AppSidebar() {
   );
 
   return (
-    <Sidebar collapsible="icon" variant="floating" className="app-sidebar-dock py-4">
+    <Sidebar collapsible="icon" variant="sidebar" className="app-sidebar-dock">
       <SidebarHeader className="px-2 py-3 notranslate" translate="no">
         <div className="flex items-center justify-between">
           <div className={cn("flex items-center gap-2", isCollapsed && "hidden")}>

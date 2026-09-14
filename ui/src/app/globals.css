@@ -38,92 +38,86 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
   --color-cta: var(--cta);
   --color-cta-foreground: var(--cta-foreground);
 }
 
 :root {
-  --radius: 0.625rem;
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --radius: 0.5rem;
+  --card: #ffffff;
+  --card-foreground: #171b20;
+  --popover: #ffffff;
+  --popover-foreground: #171b20;
+  --primary: #0f766e;
+  --primary-foreground: #f3f5f6;
+  --secondary: #e8ecee;
+  --secondary-foreground: #171b20;
+  --muted: #e8ecee;
+  --muted-foreground: #5c666e;
+  --accent: #e8ecee;
+  --accent-foreground: #171b20;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  /* Single restrained warm accent — used only on primary CTAs + focus rings. */
-  --cta: oklch(0.72 0.15 65);
-  --cta-foreground: oklch(0.16 0.02 60);
-  /* Giant faded "dograh" wordmark (authentic Proxima Nova letterforms traced
-     from the brand logo PNG — the font is commercial, so the lettering ships
-     as static artwork in /public; fill + 0.9% opacity are baked into the
-     files). Theme-switched here; consumed by .app-surface and .auth-imprint. */
+  --border: rgb(23 27 32 / 0.1);
+  --input: rgb(23 27 32 / 0.12);
+  --ring: #0f766e;
+  --chart-1: #0f766e;
+  --chart-2: #171b20;
+  --chart-3: #5c666e;
+  --chart-4: #14b8a6;
+  --chart-5: #94a3ab;
+  --sidebar: #171b20;
+  --sidebar-foreground: #e8eef0;
+  --sidebar-primary: #2ee6c5;
+  --sidebar-primary-foreground: #0d1416;
+  --sidebar-accent: #232a32;
+  --sidebar-accent-foreground: #e8eef0;
+  --sidebar-border: rgb(232 238 240 / 0.08);
+  --sidebar-ring: #2ee6c5;
+  --background: #f3f5f6;
+  --foreground: #171b20;
+  --cta: #0f766e;
+  --cta-foreground: #f3f5f6;
   --brand-imprint: url("/brand-imprint-light.svg");
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: #1a1f24;
+  --foreground: #e8eef0;
+  --card: #22282f;
+  --card-foreground: #e8eef0;
+  --popover: #22282f;
+  --popover-foreground: #e8eef0;
+  --primary: #2ee6c5;
+  --primary-foreground: #0d1416;
+  --secondary: #2a3138;
+  --secondary-foreground: #e8eef0;
+  --muted: #2a3138;
+  --muted-foreground: #8b959c;
+  --accent: #2a3138;
+  --accent-foreground: #e8eef0;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-  /* Warm accent, slightly brighter against the near-black surfaces. */
-  --cta: oklch(0.78 0.16 67);
-  --cta-foreground: oklch(0.16 0.02 60);
+  --border: rgb(232 238 240 / 0.08);
+  --input: rgb(232 238 240 / 0.1);
+  --ring: #2ee6c5;
+  --chart-1: #2ee6c5;
+  --chart-2: #e8eef0;
+  --chart-3: #5c666e;
+  --chart-4: #14b8a6;
+  --chart-5: #232a32;
+  --sidebar: #12161a;
+  --sidebar-foreground: #e8eef0;
+  --sidebar-primary: #2ee6c5;
+  --sidebar-primary-foreground: #0d1416;
+  --sidebar-accent: #1e242b;
+  --sidebar-accent-foreground: #e8eef0;
+  --sidebar-border: rgb(232 238 240 / 0.08);
+  --sidebar-ring: #2ee6c5;
+  --cta: #2ee6c5;
+  --cta-foreground: #0d1416;
   --brand-imprint: url("/brand-imprint-dark.svg");
 }
 
@@ -238,7 +232,7 @@
      paints inside .app-surface, which starts right of the ~270px sidebar —
      the +135px x-shift recentres the wordmark on the VISIBLE canvas. */
   .app-surface {
-    background-color: oklch(0.984 0.001 80);
+    background-color: #f3f5f6;
     background-image: var(--brand-imprint);
     background-size: min(68vw, 980px) auto;
     background-position: calc(50% + 135px) calc(100% - 24px);
@@ -252,7 +246,7 @@
     }
   }
   .dark .app-surface {
-    background-color: oklch(0.165 0.002 80);
+    background-color: #1a1f24;
   }
 
   /* Giant faded "dograh" imprint for the auth pages (applied to the AuthShell
@@ -307,18 +301,13 @@
 /* Floating-dock sidebar: detached rounded panel. Targets the shadcn sidebar's
    inner panel; applied via .app-sidebar-dock on <Sidebar variant="floating">. */
 .app-sidebar-dock [data-slot="sidebar-inner"] {
-  border-radius: 1.25rem;
+  border-radius: 0;
   overflow: hidden;
 }
-/* Flat carbon-charcoal panel with a soft light glow along the LEFT edge:
-   a 1px highlight line plus an inner bloom fading rightwards. */
 .dark .app-sidebar-dock [data-slot="sidebar-inner"] {
-  border-color: rgb(255 255 255 / 0.1);
-  background-color: oklch(0.18 0.002 80);
-  box-shadow:
-    inset 1px 0 0 rgb(255 255 255 / 0.1),
-    inset 3px 0 6px -4px rgb(255 255 255 / 0.08),
-    0 24px 50px -14px rgb(0 0 0 / 0.85);
+  border-color: rgb(232 238 240 / 0.08);
+  background-color: #12161a;
+  box-shadow: none;
 }
 
 /* Card surface ("Crosshatch + Top-Lit Edge", user-approved 2026-06-11 after a

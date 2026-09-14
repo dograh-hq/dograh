@@ -24,7 +24,7 @@ function AppHeader() {
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu" className="md:hidden">
           <Menu className="h-5 w-5" />
         </Button>
-        <Link href="/" className="text-lg font-bold md:hidden">Dograh</Link>
+        <Link href="/" className="text-lg font-bold md:hidden">BSI</Link>
       </div>
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
@@ -131,7 +131,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
 
               {/* Optional sticky tabs */}
               {stickyTabs && (
-                <div className="sticky top-[var(--event-banner-h,0px)] z-40 bg-[#2a2e39] border-b border-gray-700">
+                <div className="sticky top-[var(--event-banner-h,0px)] z-40 border-b border-border bg-card">
                   <div className="container mx-auto px-4">
                     <div className="flex items-center justify-center py-2">
                       {stickyTabs}

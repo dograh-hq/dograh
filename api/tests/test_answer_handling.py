@@ -17,7 +17,7 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 
 def make_call(verdicts, **settings):
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
-    engine.workflow = SimpleNamespace(start_node_id="start")
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
     engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
     engine.queue_node_opening = AsyncMock(return_value="greeting")
     engine.end_call_with_reason = AsyncMock()

@@ -218,7 +218,7 @@ class TestVariableExtractionDuringTransitions:
 @pytest.mark.asyncio
 async def test_transfer_flush_is_repeatable_without_consuming_final_extraction():
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
-    engine._current_node = SimpleNamespace(name="transfer-node")
+    engine.active_agent.current_node = SimpleNamespace(name="transfer-node")
     engine._await_pending_extractions = AsyncMock()
     engine._perform_variable_extraction_if_needed = AsyncMock(
         return_value={"state": "ME"}

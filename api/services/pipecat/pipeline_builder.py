@@ -2,7 +2,7 @@ import os
 
 from loguru import logger
 
-from api.services.pipecat.agent_bridge import AGENT_EDGE_EXCLUDED_FRAMES
+from api.services.pipecat.agent_bridge import AGENT_EDGE_EXCLUDED_FRAMES, AgentWorker
 from api.services.pipecat.audio_config import AudioConfig
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import (
@@ -56,7 +56,7 @@ def build_pipeline(
             pre-recorded audio playback and dynamic TTS.
         agent_generation_segment: Processors replacing the in-pipeline
             generation stage (LLM through TTS) when agent transfer is enabled.
-            Pass ``[tee, bridge]`` to hand generation to a per-agent child
+            Pass ``[AgentBridgeProcessor(...)]`` to hand generation to a per-agent child
             worker over the bus; ``llm``, ``tts``, ``recording_router`` and
             ``pipeline_engine_callback_processor`` then belong to that child
             and must not also appear here. See
@@ -139,6 +139,7 @@ def create_agent_worker(
     audio_config: AudioConfig | None = None,
     *,
     call_tracing_context=None,
+    call_worker_name: str,
 ) -> PipelineWorker:
     """Create the child worker that runs one agent visit's generation stage.
 
@@ -172,8 +173,9 @@ def create_agent_worker(
         params.audio_in_sample_rate = audio_config.transport_in_sample_rate
         params.audio_out_sample_rate = audio_config.transport_out_sample_rate
 
-    worker = PipelineWorker(
+    worker = AgentWorker(
         pipeline,
+        call_worker_name=call_worker_name,
         name=name,
         params=params,
         active=False,

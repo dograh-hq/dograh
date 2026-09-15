@@ -1,10 +1,8 @@
 """Building an :class:`AgentRuntime` for one visit to one workflow.
 
-The first agent is built during call setup; every later one is built mid-call,
-under the hold ringer, from a destination the previous agent chose. Both go
-through here, so a destination agent is assembled exactly the way the call's
-first agent was: same definition-pinning policy, same model resolution, same
-generation stage.
+Call setup creates the first runtime and attaches its child worker here.
+Transfers build later runtimes under the hold ringer, using the destination's
+pinned definition and model configuration. Both use the same generation stage.
 
 Everything call-scoped -- transport, recording, recognition, the shared
 context, the call timer -- stays on the call pipeline and is never rebuilt.
@@ -14,7 +12,6 @@ that runs them.
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -194,9 +191,11 @@ class AgentRuntimeFactory:
         recording_router = None
         if self._has_recordings and self._fetch_recording_audio is not None:
             recording_router = RecordingRouterProcessor(
-                audio_sample_rate=self._audio_config.pipeline_sample_rate
-                if self._audio_config
-                else 16000,
+                audio_sample_rate=(
+                    self._audio_config.pipeline_sample_rate
+                    if self._audio_config
+                    else 16000
+                ),
                 fetch_recording_audio=self._fetch_recording_audio,
             )
 
@@ -223,7 +222,11 @@ class AgentRuntimeFactory:
             is_child=True,
             entered_at=None,
         )
-        await self.attach(runtime)
+        try:
+            await self.attach(runtime)
+        except BaseException:
+            await runtime.abort("preparation cancelled")
+            raise
         logger.info(
             f"[transfer] built agent visit {visit_id} for workflow {workflow_id} "
             f"({workflow.name}) definition={definition.id} "
@@ -269,6 +272,7 @@ class AgentRuntimeFactory:
             name=runtime.visit_id,
             audio_config=self._audio_config,
             call_tracing_context=call_tracing_context,
+            call_worker_name=self._call_worker.name,
         )
 
         if self._on_agent_error is not None:
@@ -284,48 +288,3 @@ class AgentRuntimeFactory:
         # one right away and tears it down with the call, so an agent prepared
         # for a transfer that never commits cannot outlive the call.
         await self._call_worker.add_workers(runtime.worker)
-
-    def adopt_call_owned(
-        self,
-        *,
-        workflow_id: int,
-        definition_id: int | None,
-        workflow_name: str,
-        workflow_graph: WorkflowGraph,
-        llm: Any,
-        inference_llm: Any,
-        variable_extraction_llm: Any,
-        tts: Any,
-        recording_router: Any,
-        user_config: Any,
-        runtime_configuration: dict[str, Any],
-        is_realtime: bool,
-        is_child: bool,
-        worker: PipelineWorker | None = None,
-        visit_id: str | None = None,
-    ) -> AgentRuntime:
-        """Wrap services the call already built as this call's first visit.
-
-        Used for the agent the call starts on, whose services are created by
-        the run setup rather than here -- including realtime runs, which never
-        transfer but still want one uniform ``active_agent``. Leave ``worker``
-        unset for a child and call :meth:`attach` once the call is running.
-        """
-        return AgentRuntime(
-            visit_id=visit_id or new_visit_id(),
-            workflow_id=workflow_id,
-            definition_id=definition_id,
-            workflow_name=workflow_name,
-            workflow=workflow_graph,
-            llm=llm,
-            inference_llm=inference_llm,
-            variable_extraction_llm=variable_extraction_llm,
-            worker=worker,
-            tts=tts,
-            recording_router=recording_router,
-            user_config=user_config,
-            runtime_configuration=dict(runtime_configuration),
-            is_realtime=is_realtime,
-            is_child=is_child,
-            entered_at=time.time(),
-        )

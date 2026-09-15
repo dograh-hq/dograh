@@ -44,8 +44,8 @@ async def run_engine_test_pipeline(
             await on_ready()
             return
 
-        await engine.set_node(engine.workflow.start_node_id)
-        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+        await engine.set_node(engine.active_agent.workflow.start_node_id)
+        await engine.active_agent.llm.queue_frame(LLMContextFrame(engine.context))
 
     async def maybe_trigger_test() -> None:
         if (

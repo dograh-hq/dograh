@@ -304,9 +304,9 @@ class TestEndCallViaNodeTransition:
                     await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called
-        assert len(test_helper.end_call_reasons) >= 1, (
-            "end_call_with_reason should have been called"
-        )
+        assert (
+            len(test_helper.end_call_reasons) >= 1
+        ), "end_call_with_reason should have been called"
         assert EndTaskReason.END_CALL.value in test_helper.end_call_reasons
 
         gathered_context = await engine.get_gathered_context()
@@ -336,13 +336,13 @@ class TestEndCallViaNodeTransition:
         # Verify user muting behavior via CallbackUserMuteStrategy
         # After end_call_with_reason, should_mute_user should return True
         # which causes CallbackUserMuteStrategy to mute user audio
-        assert len(test_helper.should_mute_user_calls) > 0, (
-            "should_mute_user callback should have been called during pipeline execution"
-        )
+        assert (
+            len(test_helper.should_mute_user_calls) > 0
+        ), "should_mute_user callback should have been called during pipeline execution"
         # The last calls should return True (after _mute_pipeline is set)
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after end_call_with_reason sets _mute_pipeline"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after end_call_with_reason sets _mute_pipeline"
 
     @pytest.mark.asyncio
     async def test_multi_node_transition_to_end_extracts_from_correct_nodes(
@@ -409,14 +409,14 @@ class TestEndCallViaNodeTransition:
 
         # Verify extraction was called multiple times
         # Background extractions during transitions + synchronous in end_call
-        assert len(test_helper.extraction_calls) >= 2, (
-            f"Expected at least 2 extraction calls, got {len(test_helper.extraction_calls)}"
-        )
+        assert (
+            len(test_helper.extraction_calls) >= 2
+        ), f"Expected at least 2 extraction calls, got {len(test_helper.extraction_calls)}"
 
         # Verify user muting is active after call ends
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after end call"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after end call"
 
 
 class TestEndCallViaCustomTool:
@@ -493,9 +493,9 @@ class TestEndCallViaCustomTool:
                 await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called with END_CALL
-        assert len(test_helper.end_call_reasons) >= 1, (
-            "end_call_with_reason should have been called"
-        )
+        assert (
+            len(test_helper.end_call_reasons) >= 1
+        ), "end_call_with_reason should have been called"
         assert EndTaskReason.END_CALL.value in test_helper.end_call_reasons
 
         gathered_context = await engine.get_gathered_context()
@@ -509,9 +509,9 @@ class TestEndCallViaCustomTool:
         assert any(test_helper.call_disposed_state), "Call should be disposed"
 
         # Verify user muting is active via CallbackUserMuteStrategy
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after end_call_tool"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after end_call_tool"
 
     @pytest.mark.asyncio
     async def test_end_call_tool_with_custom_message_speaks_before_ending(
@@ -573,9 +573,9 @@ class TestEndCallViaCustomTool:
                 await run_engine_test_pipeline(task, engine, transport)
 
         # Verify end_call_with_reason was called
-        assert len(test_helper.end_call_reasons) >= 1, (
-            "end_call_with_reason should have been called"
-        )
+        assert (
+            len(test_helper.end_call_reasons) >= 1
+        ), "end_call_with_reason should have been called"
         assert EndTaskReason.END_CALL.value in test_helper.end_call_reasons
 
         # Verify pipeline was muted
@@ -585,9 +585,9 @@ class TestEndCallViaCustomTool:
         assert any(test_helper.call_disposed_state), "Call should be disposed"
 
         # Verify user muting is active via CallbackUserMuteStrategy
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after end_call_with_message"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after end_call_with_message"
 
 
 class TestEndCallViaClientDisconnect:
@@ -634,8 +634,10 @@ class TestEndCallViaClientDisconnect:
             ):
 
                 async def disconnect_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation to complete
                     await asyncio.sleep(0.1)
@@ -654,9 +656,9 @@ class TestEndCallViaClientDisconnect:
                 )
 
         # Verify end_call_with_reason was called with USER_HANGUP
-        assert EndTaskReason.USER_HANGUP.value in test_helper.end_call_reasons, (
-            f"Expected USER_HANGUP in reasons, got: {test_helper.end_call_reasons}"
-        )
+        assert (
+            EndTaskReason.USER_HANGUP.value in test_helper.end_call_reasons
+        ), f"Expected USER_HANGUP in reasons, got: {test_helper.end_call_reasons}"
 
         # Verify pipeline was muted
         assert any(test_helper.mute_pipeline_state), "Pipeline should be muted"
@@ -676,9 +678,9 @@ class TestEndCallViaClientDisconnect:
         )
 
         # Verify user muting is active via CallbackUserMuteStrategy
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after client disconnect"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after client disconnect"
 
 
 class TestEndCallRaceConditions:
@@ -719,8 +721,10 @@ class TestEndCallRaceConditions:
             ):
 
                 async def race_end_calls_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation
                     await asyncio.sleep(0.1)
@@ -750,9 +754,9 @@ class TestEndCallRaceConditions:
         # Due to the _call_disposed guard, only one end_call should fully execute
         # The tracked end_call_reasons will show all attempted calls
         # but only the first one should modify state
-        assert len(test_helper.end_call_reasons) == 3, (
-            f"Expected 3 end_call attempts, got {len(test_helper.end_call_reasons)}"
-        )
+        assert (
+            len(test_helper.end_call_reasons) == 3
+        ), f"Expected 3 end_call attempts, got {len(test_helper.end_call_reasons)}"
 
         # Only one should have actually set the mute_pipeline and call_disposed
         # (the others return early due to _call_disposed check)
@@ -762,9 +766,9 @@ class TestEndCallRaceConditions:
         assert any(test_helper.call_disposed_state), "Call should be disposed"
 
         # Verify user muting is active via CallbackUserMuteStrategy
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after race condition end call"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after race condition end call"
 
     @pytest.mark.asyncio
     async def test_end_call_tool_and_disconnect_race(
@@ -826,8 +830,10 @@ class TestEndCallRaceConditions:
 
                 async def race_disconnect_after_response():
                     nonlocal disconnect_called
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for the end_call tool to be called
                     await asyncio.sleep(0.15)
@@ -849,9 +855,9 @@ class TestEndCallRaceConditions:
         assert disconnect_called, "Disconnect should have been called"
 
         # Verify at least one end call reason was recorded
-        assert len(test_helper.end_call_reasons) >= 1, (
-            "At least one end_call should have been attempted"
-        )
+        assert (
+            len(test_helper.end_call_reasons) >= 1
+        ), "At least one end_call should have been attempted"
 
         # Verify call was properly disposed
         assert engine._call_disposed, "Call should be disposed"
@@ -860,9 +866,9 @@ class TestEndCallRaceConditions:
         assert engine._mute_pipeline, "Pipeline should be muted"
 
         # Verify user muting is active via CallbackUserMuteStrategy
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after end call"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after end call"
 
 
 class TestEndCallExtractionBehavior:
@@ -912,8 +918,10 @@ class TestEndCallExtractionBehavior:
             ):
 
                 async def end_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation
                     await asyncio.sleep(0.1)
@@ -924,9 +932,9 @@ class TestEndCallExtractionBehavior:
                     )
 
                     # Verify extraction was awaited (synchronous)
-                    assert extraction_completed.is_set(), (
-                        "Extraction should have completed before end_call returned"
-                    )
+                    assert (
+                        extraction_completed.is_set()
+                    ), "Extraction should have completed before end_call returned"
 
                 await run_engine_test_pipeline(
                     task,
@@ -941,14 +949,14 @@ class TestEndCallExtractionBehavior:
             for call in test_helper.extraction_calls
             if not call["run_in_background"]
         ]
-        assert len(sync_extractions) >= 1, (
-            f"Expected synchronous extraction, got: {test_helper.extraction_calls}"
-        )
+        assert (
+            len(sync_extractions) >= 1
+        ), f"Expected synchronous extraction, got: {test_helper.extraction_calls}"
 
         # Verify user muting is active via CallbackUserMuteStrategy
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after end call"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after end call"
 
     @pytest.mark.asyncio
     async def test_extraction_skipped_for_node_without_extraction(
@@ -1032,8 +1040,10 @@ class TestEndCallExtractionBehavior:
             ):
 
                 async def end_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation
                     await asyncio.sleep(0.1)
@@ -1061,9 +1071,9 @@ class TestEndCallExtractionBehavior:
         assert gathered_context["call_disposition"] == gathered_context["call_status"]
 
         # Even without extraction, user muting should still be active
-        assert any(test_helper.should_mute_user_calls), (
-            "should_mute_user should return True after end call (even without extraction)"
-        )
+        assert any(
+            test_helper.should_mute_user_calls
+        ), "should_mute_user should return True after end call (even without extraction)"
 
     @pytest.mark.asyncio
     async def test_disposition_is_recorded_before_extraction_finishes(
@@ -1097,9 +1107,9 @@ class TestEndCallExtractionBehavior:
             snapshot = await engine.get_gathered_context()
             snapshot["call_tags"] = list(snapshot.get("call_tags") or [])
             seen_during_extraction.append(snapshot)
-            assert not engine._final_extraction_done, (
-                "snapshot must be taken while the extraction is still running"
-            )
+            assert (
+                not engine._final_extraction_done
+            ), "snapshot must be taken while the extraction is still running"
             await asyncio.sleep(0.05)
             return {"user_intent": "extracted"}
 
@@ -1118,8 +1128,12 @@ class TestEndCallExtractionBehavior:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True
@@ -1155,9 +1169,9 @@ class TestEndCallExtractionBehavior:
             for call in update_run.await_args_list
             if "gathered_context" in call.kwargs
         ]
-        assert context_writes == [], (
-            f"teardown should not persist the context, got {len(context_writes)} writes"
-        )
+        assert (
+            context_writes == []
+        ), f"teardown should not persist the context, got {len(context_writes)} writes"
 
     @pytest.mark.asyncio
     async def test_extraction_cannot_desync_the_disposition_pair(
@@ -1207,8 +1221,12 @@ class TestEndCallExtractionBehavior:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True
@@ -1279,8 +1297,10 @@ class TestEndCallExtractionBehavior:
                     ):
 
                         async def end_after_response():
-                            await engine.set_node(engine.workflow.start_node_id)
-                            await engine.llm.queue_frame(
+                            await engine.set_node(
+                                engine.active_agent.workflow.start_node_id
+                            )
+                            await engine.active_agent.llm.queue_frame(
                                 LLMContextFrame(engine.context)
                             )
                             await asyncio.sleep(0.1)
@@ -1341,8 +1361,12 @@ class TestOrganizationDispositionMapping:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True
@@ -1396,8 +1420,12 @@ class TestOrganizationDispositionMapping:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True

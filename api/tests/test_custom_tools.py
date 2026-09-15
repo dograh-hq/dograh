@@ -1457,6 +1457,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._organization_id = None
@@ -1535,13 +1538,16 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine import PipecatEngine
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._organization_id = None
         mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
             mock_engine
         )
-        mock_engine.llm = mock_llm
+        mock_engine.active_agent.llm = mock_llm
 
         manager = CustomToolManager(mock_engine)
 
@@ -1618,7 +1624,7 @@ class TestCustomToolManagerUnit:
 
         mock_engine = Mock()
         mock_engine._get_organization_id = AsyncMock(return_value=1)
-        mock_engine.llm.register_function = Mock()
+        mock_engine.active_agent.llm.register_function = Mock()
         manager = CustomToolManager(mock_engine)
         tool = MockToolModel(
             tool_uuid=f"{category}-uuid",
@@ -1638,9 +1644,11 @@ class TestCustomToolManagerUnit:
         ):
             await manager.register_handlers([tool.tool_uuid])
 
-        mock_engine.llm.register_function.assert_called_once()
+        mock_engine.active_agent.llm.register_function.assert_called_once()
         assert (
-            mock_engine.llm.register_function.call_args.kwargs["is_node_transition"]
+            mock_engine.active_agent.llm.register_function.call_args.kwargs[
+                "is_node_transition"
+            ]
             is True
         )
 
@@ -1650,6 +1658,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {
             "transfer_destination": "+14155550123",
@@ -1744,6 +1755,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {"department": "sales"}
         mock_engine._gathered_context = {}
@@ -2051,6 +2065,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {}
@@ -2625,8 +2642,12 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 200
-            mock_client.return_value.__aenter__.return_value.request.return_value.json.return_value = {}
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
+                200
+            )
+            mock_client.return_value.__aenter__.return_value.request.return_value.json.return_value = (
+                {}
+            )
 
             await execute_http_tool(tool, {"userId": "123"})
 
@@ -2658,7 +2679,9 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
+                204
+            )
 
             await execute_http_tool(tool, {"reservationId": "AWAEYPKI-1"})
 
@@ -2690,7 +2713,9 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
+                204
+            )
 
             result = await execute_http_tool(
                 tool, {"reservationId": "123"}, include_request_headers=True
@@ -2720,7 +2745,9 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
+                204
+            )
 
             result = await execute_http_tool(
                 tool, {"reservationId": "123"}, include_request_headers=False
@@ -2756,7 +2783,9 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
+                204
+            )
 
             await execute_http_tool(tool, {"userId": "123"})
 

@@ -187,12 +187,12 @@ def register_event_handlers(
 
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
-            await engine.set_node(engine.workflow.start_node_id)
+            await engine.set_node(engine.active_agent.workflow.start_node_id)
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return
             await engine.queue_node_opening(
-                node_id=engine.workflow.start_node_id,
+                node_id=engine.active_agent.workflow.start_node_id,
                 previous_node_id=None,
                 generate_if_no_greeting=True,
             )

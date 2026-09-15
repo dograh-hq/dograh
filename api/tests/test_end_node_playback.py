@@ -35,7 +35,7 @@ def engine(three_node_workflow_no_variable_extraction):
         workflow=workflow,
         call_context_vars={},
     )
-    engine._current_node = workflow.nodes["agent"]
+    engine.active_agent.current_node = workflow.nodes["agent"]
     engine.set_node = AsyncMock()
     engine._perform_variable_extraction_if_needed = AsyncMock()
     engine.perform_final_variable_extraction = AsyncMock()

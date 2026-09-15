@@ -98,8 +98,9 @@ class CustomToolManager:
       4. Executing tools when invoked by the LLM
     """
 
-    def __init__(self, engine: "PipecatEngine") -> None:
+    def __init__(self, engine: "PipecatEngine", agent=None) -> None:
         self._engine = engine
+        self._agent = agent or engine.active_agent
 
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
@@ -119,9 +120,11 @@ class CustomToolManager:
                 if result:
                     await play_audio(
                         result.audio,
-                        sample_rate=self._engine._audio_config.pipeline_sample_rate
-                        if self._engine._audio_config
-                        else 16000,
+                        sample_rate=(
+                            self._engine._audio_config.pipeline_sample_rate
+                            if self._engine._audio_config
+                            else 16000
+                        ),
                         queue_frame=self._engine._transport_output.queue_frame,
                         transcript=result.transcript,
                         persist_to_logs=True,
@@ -185,7 +188,7 @@ class CustomToolManager:
                     continue
 
                 if tool.category == ToolCategory.MCP.value:
-                    session = self._engine._mcp_sessions.get(tool.tool_uuid)
+                    session = self._agent.mcp_sessions.get(tool.tool_uuid)
                     if session is None or not session.available:
                         logger.warning(
                             f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
@@ -257,7 +260,7 @@ class CustomToolManager:
                     continue
 
                 if tool.category == ToolCategory.MCP.value:
-                    session = self._engine._mcp_sessions.get(tool.tool_uuid)
+                    session = self._agent.mcp_sessions.get(tool.tool_uuid)
                     if session is None or not session.available:
                         logger.warning(
                             f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
@@ -271,9 +274,11 @@ class CustomToolManager:
                     )
                     mcp_schemas = session.function_schemas(allowed)
                     for fs in mcp_schemas:
-                        self._engine.llm.register_function(
+                        self._agent.llm.register_function(
                             fs.name,
-                            self._create_mcp_handler(session, fs.name),
+                            self._agent.bind_tool(
+                                self._engine, self._create_mcp_handler(session, fs.name)
+                            ),
                             timeout_secs=session.call_timeout_secs,
                         )
                     logger.debug(
@@ -296,9 +301,9 @@ class CustomToolManager:
                     ToolCategory.TRANSFER_CALL.value,
                     ToolCategory.TRANSFER_AGENT.value,
                 }
-                self._engine.llm.register_function(
+                self._agent.llm.register_function(
                     function_name,
-                    handler,
+                    self._agent.bind_tool(self._engine, handler),
                     timeout_secs=timeout_secs,
                     is_node_transition=is_node_transition,
                 )
@@ -390,7 +395,9 @@ class CustomToolManager:
             except Exception as e:
                 await function_call_params.result_callback({"error": str(e)})
 
-        self._engine.llm.register_function("safe_calculator", calculate_func)
+        self._agent.llm.register_function(
+            "safe_calculator", self._agent.bind_tool(self._engine, calculate_func)
+        )
 
     def _create_http_tool_handler(self, tool: Any, function_name: str):
         """Create a handler function for an HTTP API tool.
@@ -428,9 +435,11 @@ class CustomToolManager:
                         if result:
                             await play_audio(
                                 result.audio,
-                                sample_rate=self._engine._audio_config.pipeline_sample_rate
-                                if self._engine._audio_config
-                                else 16000,
+                                sample_rate=(
+                                    self._engine._audio_config.pipeline_sample_rate
+                                    if self._engine._audio_config
+                                    else 16000
+                                ),
                                 queue_frame=self._engine._transport_output.queue_frame,
                                 transcript=result.transcript,
                                 persist_to_logs=True,
@@ -606,7 +615,7 @@ class CustomToolManager:
                 # The tool's own name is what the caller-facing recovery
                 # message and the run record refer to.
                 destination_label=tool.name,
-                origin_visit_id=engine.active_agent.visit_id,
+                origin_visit_id=self._agent.visit_id,
                 announcement=announcement,
             )
 
@@ -617,10 +626,13 @@ class CustomToolManager:
                 )
                 return
 
+            context_ready = asyncio.Event()
+            engine.transfer_coordinator.start(request, context_ready=context_ready)
+
             async def on_context_updated() -> None:
                 # Runs once the tool result is committed to the conversation,
                 # so the handoff snapshot contains it rather than racing it.
-                engine.transfer_coordinator.start(request)
+                context_ready.set()
 
             await function_call_params.result_callback(
                 {"status": "transferring", "message": "Connecting the caller now."},

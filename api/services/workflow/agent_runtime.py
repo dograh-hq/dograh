@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass, field
+from functools import wraps
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -91,6 +92,41 @@ class AgentRuntime:
     # running agent failing ends the call.
     error: str | None = None
     retired: bool = False
+    greeting_override: dict | None = None
+    tools: Any = None
+    system_prompt: str = ""
+    mcp_sessions: dict[str, Any] = field(default_factory=dict)
+    tool_tasks: set[asyncio.Task] = field(default_factory=set, repr=False)
+
+    def bind_tool(self, engine, handler):
+        """Bind a tool's lifetime to this visit, including work across awaits."""
+
+        @wraps(handler)
+        async def bound(params):
+            if not engine.agent_can_act(self):
+                return
+            task = asyncio.current_task()
+            self.tool_tasks.add(task)
+            try:
+                await handler(params)
+            finally:
+                self.tool_tasks.discard(task)
+
+        return bound
+
+    async def cancel_tools(self):
+        tasks = [t for t in self.tool_tasks if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def close_mcp_sessions(self):
+        for session in reversed(list(self.mcp_sessions.values())):
+            await session.close_managed()
+        self.mcp_sessions.clear()
+
+    _close_task: asyncio.Task | None = field(default=None, init=False, repr=False)
 
     # -- execution -------------------------------------------------------
 
@@ -164,59 +200,45 @@ class AgentRuntime:
             return False
 
     async def retire(self, reason: str | None = None) -> None:
-        """Release this visit's worker and resources.
-
-        Local by design: retiring an agent is not a way to end the call, and a
-        call-owned runtime has nothing of its own to release.
-        """
-        if self.retired:
-            return
-        self.retired = True
-        self.exit_reason = self.exit_reason or reason
-
-        if not self.is_child or self.worker is None or self.worker.has_finished():
-            return
-
-        logger.debug(f"Retiring agent visit {self.visit_id} ({reason})")
-        try:
-            # Drains this worker's pipeline before shutting it down, so the
-            # last of its speech reaches the call's transport instead of being
-            # cut off mid-word.
-            await self.worker.stop_when_done()
-            await asyncio.wait_for(
-                self.worker.wait(), timeout=AGENT_RETIRE_TIMEOUT_SECONDS
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"Agent visit {self.visit_id} did not shut down within "
-                f"{AGENT_RETIRE_TIMEOUT_SECONDS}s; cancelling it"
-            )
-            try:
-                await self.worker.cancel(reason=reason or "agent retired")
-            except Exception as e:
-                logger.warning(f"Cancelling agent visit {self.visit_id} failed: {e}")
-        except Exception as e:
-            logger.warning(f"Retiring agent visit {self.visit_id} failed: {e}")
+        """Drain and release this visit without ending the call."""
+        await self._close(reason, drain=True)
 
     async def abort(self, reason: str | None = None) -> None:
-        """Tear this visit's worker down without waiting for it to finish.
+        """Cancel this visit locally; finish cleanup even if its caller exits."""
+        await self._close(reason, drain=False)
 
-        The abort counterpart of :meth:`retire`, for call teardown that is
-        already past the point of caring what the agent was saying.
-        """
-        if self.retired:
-            return
-        self.retired = True
-        self.exit_reason = self.exit_reason or reason
+    async def _close(self, reason: str | None, *, drain: bool) -> None:
+        if self._close_task is None:
+            self.retired = True
+            self.exit_reason = self.exit_reason or reason
+            self._close_task = asyncio.create_task(
+                self._release(reason, drain=drain), name=f"retire:{self.visit_id}"
+            )
+        elif not drain and self.is_child and self.worker is not None:
+            # A hangup can interrupt an earlier graceful retirement.
+            await self.worker.cancel(reason=reason)
+        await asyncio.shield(self._close_task)
 
-        if not self.is_child or self.worker is None or self.worker.has_finished():
-            return
-
-        logger.debug(f"Aborting agent visit {self.visit_id} ({reason})")
+    async def _release(self, reason: str | None, *, drain: bool) -> None:
         try:
-            await self.worker.cancel(reason=reason or "call aborted")
-        except Exception as e:
-            logger.warning(f"Aborting agent visit {self.visit_id} failed: {e}")
+            if (
+                self.is_child
+                and self.worker is not None
+                and not self.worker.has_finished()
+            ):
+                if drain:
+                    await self.worker.stop_when_done()
+                else:
+                    await self.worker.cancel(reason=reason)
+                try:
+                    await asyncio.wait_for(
+                        self.worker.wait(), AGENT_RETIRE_TIMEOUT_SECONDS
+                    )
+                except TimeoutError:
+                    logger.warning(f"Agent {self.visit_id} did not finish; cancelling")
+                    await self.worker.cancel(reason=reason)
+        finally:
+            await self.close_mcp_sessions()
 
     def describe(self) -> dict[str, Any]:
         """Summarize this visit for the call's visit history."""

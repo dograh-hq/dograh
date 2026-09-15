@@ -14,33 +14,25 @@ compaction still running. This is a plain awaitable that returns messages and
 never touches the context, and it runs on its own task so the two cannot
 cancel each other.
 
-Tool traffic is dropped rather than carried over. Assistant messages naming
-functions the destination does not publish, and orphaned tool results, are
-rejected outright by several providers, and they describe work the previous
-agent did rather than anything the caller said.
+The destination receives conversation text. Source tool calls and results are
+filtered out because they belong to the previous agent's execution context.
 """
 
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from loguru import logger
 from pipecat.frames.frames import LLMContextSummaryRequestFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.utils.context.llm_context_summarization import LLMContextSummaryConfig
-
-if TYPE_CHECKING:
-    from pipecat.processors.aggregators.llm_context import LLMContext
-
 
 # Messages kept verbatim behind the summary. Enough for the destination to
 # answer "as I was saying" without re-reading the whole call.
 DEFAULT_RETAINED_MESSAGES = 6
-
-# Used when summarization is unavailable, times out or comes back empty. The
-# handoff still has to produce something the destination can work from.
-DEFAULT_FALLBACK_MESSAGES = 10
 
 DEFAULT_HANDOFF_SUMMARY_TIMEOUT_SECONDS = 8.0
 
@@ -67,8 +59,7 @@ class HandoffSnapshot:
         boundary: Index into the source context's message list at the moment
             the snapshot was taken. Anything the caller said after this is
             appended at commit, so speech during the hold is not lost.
-        summarized: Whether a summary was produced, as opposed to the bounded
-            recent-history fallback.
+        summarized: Whether a summary was produced, as opposed to the full-history fallback.
     """
 
     messages: list[Any]
@@ -109,7 +100,6 @@ async def build_handoff_snapshot(
     *,
     request_id: str,
     retained_messages: int = DEFAULT_RETAINED_MESSAGES,
-    fallback_messages: int = DEFAULT_FALLBACK_MESSAGES,
     timeout: float = DEFAULT_HANDOFF_SUMMARY_TIMEOUT_SECONDS,
 ) -> HandoffSnapshot:
     """Compact ``context`` for a destination agent without mutating it.
@@ -120,14 +110,13 @@ async def build_handoff_snapshot(
             the summary describes what that agent heard.
         request_id: Identifies this compaction in traces and logs.
         retained_messages: Recent turns kept verbatim behind the summary.
-        fallback_messages: Recent turns used when no summary is available.
         timeout: Seconds to wait for the summary before falling back.
 
     Returns:
         The prepared :class:`HandoffSnapshot`. Never raises: a handoff that
-        cannot summarize proceeds with recent history rather than failing.
+        cannot summarize proceeds with conversation history rather than failing.
     """
-    source_messages = list(context.messages)
+    source_messages = deepcopy(context.messages)
     boundary = len(source_messages)
     conversation = conversation_messages(source_messages)
 
@@ -135,7 +124,7 @@ async def build_handoff_snapshot(
         return HandoffSnapshot(messages=[], boundary=boundary, summarized=False)
 
     fallback = HandoffSnapshot(
-        messages=conversation[-fallback_messages:],
+        messages=conversation,
         boundary=boundary,
         summarized=False,
     )
@@ -153,7 +142,7 @@ async def build_handoff_snapshot(
     )
     request = LLMContextSummaryRequestFrame(
         request_id=request_id,
-        context=context,
+        context=LLMContext(messages=source_messages),
         min_messages_to_keep=retained_messages,
         target_context_tokens=config.target_context_tokens,
         summarization_prompt=config.summary_prompt,
@@ -167,7 +156,7 @@ async def build_handoff_snapshot(
     except asyncio.TimeoutError:
         logger.warning(
             f"Handoff compaction {request_id} timed out after {timeout}s; "
-            "handing over bounded recent history instead"
+            "handing over conversation history instead"
         )
         return fallback
     except asyncio.CancelledError:
@@ -175,21 +164,17 @@ async def build_handoff_snapshot(
     except Exception as e:
         logger.warning(
             f"Handoff compaction {request_id} failed ({e}); handing over "
-            "bounded recent history instead"
+            "conversation history instead"
         )
         return fallback
 
     if not summary_text or last_index < 0:
         logger.warning(
             f"Handoff compaction {request_id} produced no summary; handing "
-            "over bounded recent history instead"
+            "over conversation history instead"
         )
         return fallback
 
-    # The summarizer reads the live context, which keeps growing while the
-    # caller waits on hold, so what it summarized can reach past the snapshot.
-    # Everything after the boundary is handed over verbatim at commit; clamping
-    # here is what keeps those turns from arriving twice.
     last_index = min(last_index, boundary - 1)
     retained = conversation_messages(source_messages[last_index + 1 :])
     messages = [
@@ -214,4 +199,4 @@ def messages_after_boundary(context: "LLMContext", boundary: int) -> list[Any]:
     filtered the same way, so the destination never sees the previous agent's
     tool traffic.
     """
-    return conversation_messages(list(context.messages)[boundary:])
+    return conversation_messages(deepcopy(context.messages)[boundary:])

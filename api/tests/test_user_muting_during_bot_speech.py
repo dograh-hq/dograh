@@ -256,10 +256,12 @@ class TestUserMutingDuringBotSpeech:
             ):
 
                 async def run_test():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Trigger first LLM completion
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for first bot started
                     await asyncio.wait_for(
@@ -285,15 +287,15 @@ class TestUserMutingDuringBotSpeech:
 
         # VERIFY: Muted at first BotStartedSpeaking
         assert len(observer.mute_status_on_bot_started) >= 1
-        assert observer.mute_status_on_bot_started[0] is True, (
-            "Pipeline should be muted at first BotStartedSpeaking"
-        )
+        assert (
+            observer.mute_status_on_bot_started[0] is True
+        ), "Pipeline should be muted at first BotStartedSpeaking"
 
         # VERIFY: Unmuted at first BotStoppedSpeaking
         assert len(observer.mute_status_on_bot_stopped) >= 1
-        assert observer.mute_status_on_bot_stopped[0] is False, (
-            "Pipeline should be unmuted at first BotStoppedSpeaking"
-        )
+        assert (
+            observer.mute_status_on_bot_stopped[0] is False
+        ), "Pipeline should be unmuted at first BotStoppedSpeaking"
 
     @pytest.mark.asyncio
     async def test_allow_interrupt_true_not_muted_after_second_bot_started(
@@ -337,10 +339,12 @@ class TestUserMutingDuringBotSpeech:
             ):
 
                 async def run_test():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Trigger first LLM completion
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for first bot stopped (first response complete)
                     await asyncio.wait_for(
@@ -371,14 +375,14 @@ class TestUserMutingDuringBotSpeech:
 
         # VERIFY: First bot started - should be muted (MuteUntilFirstBotComplete)
         assert len(observer.mute_status_on_bot_started) >= 2
-        assert observer.mute_status_on_bot_started[0] is True, (
-            "Pipeline should be muted at first BotStartedSpeaking"
-        )
+        assert (
+            observer.mute_status_on_bot_started[0] is True
+        ), "Pipeline should be muted at first BotStartedSpeaking"
 
         # VERIFY: Second bot started - should NOT be muted (allow_interrupt=True)
-        assert observer.mute_status_on_bot_started[1] is False, (
-            "Pipeline should NOT be muted at second BotStartedSpeaking when allow_interrupt=True"
-        )
+        assert (
+            observer.mute_status_on_bot_started[1] is False
+        ), "Pipeline should NOT be muted at second BotStartedSpeaking when allow_interrupt=True"
 
     @pytest.mark.asyncio
     async def test_allow_interrupt_false_muted_during_second_bot_speech(
@@ -423,10 +427,12 @@ class TestUserMutingDuringBotSpeech:
             ):
 
                 async def run_test():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Trigger first LLM completion
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for first bot stopped (first response complete)
                     await asyncio.wait_for(
@@ -457,17 +463,17 @@ class TestUserMutingDuringBotSpeech:
 
         # VERIFY: First bot started - should be muted (MuteUntilFirstBotComplete)
         assert len(observer.mute_status_on_bot_started) >= 2
-        assert observer.mute_status_on_bot_started[0] is True, (
-            "Pipeline should be muted at first BotStartedSpeaking"
-        )
+        assert (
+            observer.mute_status_on_bot_started[0] is True
+        ), "Pipeline should be muted at first BotStartedSpeaking"
 
         # VERIFY: Second bot started - SHOULD be muted (allow_interrupt=False)
-        assert observer.mute_status_on_bot_started[1] is True, (
-            "Pipeline should be muted at second BotStartedSpeaking when allow_interrupt=False"
-        )
+        assert (
+            observer.mute_status_on_bot_started[1] is True
+        ), "Pipeline should be muted at second BotStartedSpeaking when allow_interrupt=False"
 
         # VERIFY: Second bot stopped - should be unmuted
         assert len(observer.mute_status_on_bot_stopped) >= 2
-        assert observer.mute_status_on_bot_stopped[1] is False, (
-            "Pipeline should be unmuted at second BotStoppedSpeaking"
-        )
+        assert (
+            observer.mute_status_on_bot_stopped[1] is False
+        ), "Pipeline should be unmuted at second BotStoppedSpeaking"

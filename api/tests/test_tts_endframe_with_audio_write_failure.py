@@ -217,10 +217,12 @@ class TestTTSPauseWithAudioWriteFailure:
             ):
 
                 async def end_call_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Start LLM generation - this will trigger TTS
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Sleep so that processing is paused in TTS Service
                     await asyncio.sleep(0.1)
@@ -266,12 +268,12 @@ class TestTTSPauseWithAudioWriteFailure:
 
         # Verify audio write was attempted but failed
         output_transport = transport._output
-        assert output_transport._write_attempts > 0, (
-            "Audio write should have been attempted"
-        )
-        assert output_transport._frames_written == 0, (
-            "No frames should have been written successfully"
-        )
+        assert (
+            output_transport._write_attempts > 0
+        ), "Audio write should have been attempted"
+        assert (
+            output_transport._frames_written == 0
+        ), "No frames should have been written successfully"
 
         assert test_timed_out is False, (
             "Test timed out - pipeline hung due to TTS being paused. "
@@ -333,9 +335,11 @@ class TestTTSPauseWithAudioWriteFailure:
             ):
 
                 async def end_call_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Sleep so that processing is paused in TTS Service
                     await asyncio.sleep(0.1)
@@ -381,12 +385,12 @@ class TestTTSPauseWithAudioWriteFailure:
 
         # Verify some frames were written successfully before failure
         output_transport = transport._output
-        assert output_transport._frames_written == 3, (
-            f"Expected 3 successful writes, got {output_transport._frames_written}"
-        )
-        assert output_transport._write_attempts > 3, (
-            "Should have attempted more writes after initial successes"
-        )
+        assert (
+            output_transport._frames_written == 3
+        ), f"Expected 3 successful writes, got {output_transport._frames_written}"
+        assert (
+            output_transport._write_attempts > 3
+        ), "Should have attempted more writes after initial successes"
 
         assert test_timed_out is False, (
             "Test timed out - pipeline hung due to TTS being paused. "

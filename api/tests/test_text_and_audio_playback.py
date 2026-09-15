@@ -746,7 +746,7 @@ class TestPlayConfigMessage:
         engine._fetch_recording_audio = None
         engine._audio_config = None
         engine.call_worker = Mock()
-        engine.llm = Mock()
+        engine.active_agent.llm = Mock()
 
         # Capture frames queued via task.queue_frame
         engine._queued_frames = []

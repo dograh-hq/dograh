@@ -29,8 +29,7 @@ from api.services.observability.active_calls import (
     unregister_active_call as unregister_worker_active_call,
 )
 from api.services.pipecat.agent_bridge import (
-    BRIDGE_EXCLUDED_FRAMES,
-    AgentBusTeeProcessor,
+    AgentBridgeProcessor,
 )
 from api.services.pipecat.agent_runtime_factory import (
     AgentGenerationCallbacks,
@@ -100,7 +99,6 @@ from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.bus import BusBridgeProcessor
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -1061,16 +1059,12 @@ async def _run_pipeline_impl(
     agent_generation_segment = None
     if agent_transfer_enabled:
         agent_generation_segment = [
-            AgentBusTeeProcessor(
+            AgentBridgeProcessor(
                 bus=worker_runner.bus,
                 worker_name=call_worker_name,
-                name=f"{call_worker_name}::BusTee",
-            ),
-            BusBridgeProcessor(
-                bus=worker_runner.bus,
-                worker_name=call_worker_name,
-                exclude_frames=BRIDGE_EXCLUDED_FRAMES,
-                name=f"{call_worker_name}::BusBridge",
+                selected_visit=lambda: engine.selected_visit_id,
+                allow_inference=lambda: not engine.transfer_in_progress,
+                name=f"{call_worker_name}::AgentBridge",
             ),
         ]
         logger.info(
@@ -1084,12 +1078,14 @@ async def _run_pipeline_impl(
     pipeline_engine_callback_processor = PipelineEngineCallbacksProcessor(
         max_call_duration_seconds=max_call_duration_seconds,
         max_duration_end_task_callback=engine.create_max_duration_callback(),
-        generation_started_callback=None
-        if agent_transfer_enabled
-        else engine.create_generation_started_callback(),
-        llm_text_frame_callback=None
-        if agent_transfer_enabled
-        else engine.handle_llm_text_frame,
+        generation_started_callback=(
+            None
+            if agent_transfer_enabled
+            else engine.create_generation_started_callback()
+        ),
+        llm_text_frame_callback=(
+            None if agent_transfer_enabled else engine.handle_llm_text_frame
+        ),
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
@@ -1233,23 +1229,16 @@ async def _run_pipeline_impl(
         # the run's own pinned definition; a later visit resolves its own the
         # same way. The worker is attached once the call pipeline is running,
         # in `PipecatEngine.start_initial_agent`.
-        engine.set_initial_agent(
-            agent_factory.adopt_call_owned(
-                workflow_id=workflow_id,
-                definition_id=run_definition.id,
-                workflow_name=workflow.name,
-                workflow_graph=workflow_graph,
-                llm=llm,
-                inference_llm=inference_llm or llm,
-                variable_extraction_llm=variable_extraction_llm,
-                tts=tts,
-                recording_router=recording_router,
-                user_config=user_config,
-                runtime_configuration=runtime_configuration,
-                is_realtime=is_realtime,
-                is_child=True,
-            )
-        )
+        agent = engine.active_agent
+        agent.workflow_id = workflow_id
+        agent.definition_id = run_definition.id
+        agent.workflow_name = workflow.name
+        agent.tts = tts
+        agent.recording_router = recording_router
+        agent.user_config = user_config
+        agent.runtime_configuration = runtime_configuration
+        agent.is_child = True
+        agent.worker = None
 
     # Add the observer before initialization so early ErrorFrames are not missed.
     feedback_observer = RealtimeFeedbackObserver(

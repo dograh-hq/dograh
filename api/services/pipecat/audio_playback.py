@@ -251,7 +251,7 @@ async def play_hold_audio_loop(
     sample_rate: int,
     queue_frame: Callable[[Frame], Awaitable[None]],
     audio_file: Optional[str] = None,
-    chunk_ms: int = 200,
+    chunk_ms: int = 20,
 ) -> None:
     """Play hold audio that stops within roughly one chunk of being asked to.
 

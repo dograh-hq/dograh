@@ -91,7 +91,7 @@ async def _handle_answer(engine: "PipecatEngine", supervisor, update_idle_timeou
             try:
                 async with asyncio.timeout(45):
                     opening = await engine.queue_node_opening(
-                        node_id=engine.workflow.start_node_id,
+                        node_id=engine.active_agent.workflow.start_node_id,
                         previous_node_id=None,
                         generate_if_no_greeting=True,
                     )

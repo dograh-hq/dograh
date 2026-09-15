@@ -23,10 +23,21 @@ from api.enums import (
     WorkflowStatus,
 )
 from api.schemas.ai_model_configuration import OrganizationAIModelConfigurationV2
+from api.schemas.copilot import (
+    AgentCopilotResponse,
+    CopilotChatRequest,
+    InCanvasCopilotRequest,
+    InCanvasCopilotResponse,
+)
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
+from api.services.workflow.copilot_service import (
+    generate_workflow_from_template_llm,
+    process_copilot_turn,
+    process_in_canvas_copilot_turn,
+)
 from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
     check_for_masked_keys_in_ai_model_configuration_v2,
@@ -533,6 +544,34 @@ async def create_workflow(
     }
 
 
+@router.post("/copilot/chat")
+async def copilot_chat(
+    request: CopilotChatRequest,
+    user: UserModel = Depends(get_user),
+) -> AgentCopilotResponse:
+    """
+    Process an interactive conversational Copilot turn to construct or refine a voice agent workflow.
+    """
+    return await process_copilot_turn(request=request, user=user)
+
+
+@router.post("/{workflow_id}/copilot/chat")
+async def in_canvas_copilot_chat(
+    workflow_id: int,
+    request: InCanvasCopilotRequest,
+    user: UserModel = Depends(get_user),
+) -> InCanvasCopilotResponse:
+    """
+    Process an In-Canvas Copilot turn using MCP tools to directly inspect, modify, or test the workflow canvas.
+    """
+    return await process_in_canvas_copilot_turn(
+        workflow_id=workflow_id,
+        request=request,
+        user=user,
+    )
+
+
+
 @router.post("/create/template")
 async def create_workflow_from_template(
     request: CreateWorkflowTemplateRequest,
@@ -557,24 +596,13 @@ async def create_workflow_from_template(
         HTTPException: If MPS API call fails
     """
     try:
-        # Call MPS API to generate workflow using the client
-        if DEPLOYMENT_MODE == "oss":
-            workflow_data = await mps_service_key_client.call_workflow_api(
-                call_type=request.call_type.upper(),
-                use_case=request.use_case,
-                activity_description=request.activity_description,
-                created_by=str(user.provider_id),
-            )
-        else:
-            if not user.selected_organization_id:
-                raise HTTPException(status_code=400, detail="No organization selected")
-
-            workflow_data = await mps_service_key_client.call_workflow_api(
-                call_type=request.call_type.upper(),
-                use_case=request.use_case,
-                activity_description=request.activity_description,
-                organization_id=user.selected_organization_id,
-            )
+        # Generate workflow directly using local LLM instead of external services.dograh.com
+        workflow_data = await generate_workflow_from_template_llm(
+            call_type=request.call_type,
+            use_case=request.use_case,
+            activity_description=request.activity_description,
+            user=user,
+        )
 
         # Create the workflow in our database
         # Regenerate trigger UUIDs to avoid conflicts with existing triggers

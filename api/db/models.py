@@ -1592,3 +1592,41 @@ class PlatformMasterKeyModel(Base):
         Index("ix_platform_master_keys_default", "service_type", "is_default"),
     )
 
+
+class PaymentTransactionModel(Base):
+    __tablename__ = "payment_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    amount_usd = Column(Float, nullable=False)
+    amount_inr = Column(Float, nullable=False)
+    currency = Column(String(8), nullable=False, default="INR", server_default=text("'INR'"))
+    receipt = Column(String(64), nullable=False, unique=True, index=True)
+    razorpay_order_id = Column(String(64), nullable=False, index=True)
+    razorpay_payment_id = Column(String(64), nullable=True, index=True)
+    razorpay_signature = Column(String(256), nullable=True)
+    status = Column(String(32), nullable=False, default="created", server_default=text("'created'"))
+    notes = Column(JSON, nullable=True, default=dict, server_default=text("'{}'::json"))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        Index("ix_payment_transactions_org_status", "organization_id", "status"),
+    )
+
+

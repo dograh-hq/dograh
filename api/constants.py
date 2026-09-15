@@ -85,6 +85,22 @@ DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
 
+# Razorpay Configuration
+RAZORPAY_KEY_ID = (
+    os.getenv("RAZOR_PAY_API_KEY_ID")
+    or os.getenv("RAZORPAY_KEY_ID")
+    or "rzp_test_2oYqLjGL99Pujg"
+)
+RAZORPAY_KEY_SECRET = (
+    os.getenv("RAZOR_PAY_API_KEY_SECRET")
+    or os.getenv("RAZORPAY_KEY_SECRET")
+    or "gdD5vGQPYbNz8LjJ23ulC2kx"
+)
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET") or "aditya"
+USD_TO_INR_RATE = float(os.getenv("USD_TO_INR_RATE", "86.0"))
+GST_PERCENTAGE = float(os.getenv("GST_PERCENTAGE", "18.0"))
+
+
 # Storage Configuration
 ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
 

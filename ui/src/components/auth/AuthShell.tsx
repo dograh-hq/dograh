@@ -76,7 +76,7 @@ export function AuthShell({
             Need on-prem, data residency &amp; a data perimeter?
           </h2>
           <p className="text-sm text-zinc-400">
-            We deploy Dograh inside your environment for regulated and
+            We deploy Vani inside your environment for regulated and
             high-scale teams.
           </p>
           {enterpriseSlot}

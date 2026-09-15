@@ -116,6 +116,7 @@ async def test_real_worker_and_subscription_backend_ignore_ambient_api_key(monke
     assert service._backend_llm._client is None
     assert service._backend_llm._api_key is None
     assert service.inference_llm is service._backend_llm
+    assert service.backend_model == "gpt-5.6-luna"
     assert service._backend_llm._settings.model == "gpt-5.6-luna"
     await service._disconnect()
 

@@ -47,7 +47,7 @@ from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.services.openai.live import events
 from pipecat.services.openai.live.llm import ClientDelegation, OpenAILiveLLMService
 from pipecat.services.settings import LLMSettings
-from pipecat.utils.types import NOT_GIVEN, is_given
+from pipecat.utils.types import NOT_GIVEN, assert_given, is_given
 from pipecat.workers.llm.backend_llm_worker import (
     BackendLLMWorker,
     _delegate_to_backend,
@@ -216,7 +216,7 @@ class DograhOpenAILiveSubscriptionLLMService(
 
     @property
     def backend_model(self):
-        return self._backend_llm.model_name
+        return assert_given(self._backend_llm._settings.model)
 
     def register_function(self, function_name, handler, **kwargs):
         super().register_function(function_name, handler, **kwargs)

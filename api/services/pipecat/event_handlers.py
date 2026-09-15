@@ -173,6 +173,18 @@ def register_event_handlers(
                         f"{list(fetch_result.keys())}"
                     )
 
+            # Attach and activate the agent this call starts on. On a split
+            # pipeline nothing can generate until this lands: an agent worker
+            # is inactive until told otherwise, and an inactive worker is
+            # handed no frames from the bus.
+            if not await engine.start_initial_agent():
+                logger.error(
+                    f"Initial agent never became ready for run {workflow_run_id}; "
+                    "ending the call"
+                )
+                await engine.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
+                return
+
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)

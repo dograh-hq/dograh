@@ -2,6 +2,7 @@ import os
 
 from loguru import logger
 
+from api.services.pipecat.agent_bridge import AGENT_EDGE_EXCLUDED_FRAMES
 from api.services.pipecat.audio_config import AudioConfig
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import (
@@ -42,6 +43,7 @@ def build_pipeline(
     termination_funnel,
     recording_router=None,
     answer_supervisor=None,
+    agent_generation_segment=None,
 ):
     """Build the main pipeline with all components.
 
@@ -52,6 +54,13 @@ def build_pipeline(
         recording_router: Optional RecordingRouterProcessor. When provided,
             inserts between callback processor and TTS to route between
             pre-recorded audio playback and dynamic TTS.
+        agent_generation_segment: Processors replacing the in-pipeline
+            generation stage (LLM through TTS) when agent transfer is enabled.
+            Pass ``[tee, bridge]`` to hand generation to a per-agent child
+            worker over the bus; ``llm``, ``tts``, ``recording_router`` and
+            ``pipeline_engine_callback_processor`` then belong to that child
+            and must not also appear here. See
+            :func:`build_agent_generation_pipeline`.
     """
     # Build processors with optional answer handling.
     #
@@ -68,21 +77,30 @@ def build_pipeline(
     if answer_supervisor is not None:
         processors.append(answer_supervisor)
 
-    # Continue with the rest of the pipeline
-    post_llm = [pipeline_engine_callback_processor]
-    if recording_router:
-        post_llm.append(recording_router)
-
     processors.append(user_context_aggregator)
 
     if answer_supervisor is not None:
         processors.append(answer_supervisor.llm_gate())
 
+    if agent_generation_segment is not None:
+        # The generation stage lives in a per-agent worker. What is left here
+        # is exactly the call-scoped pipeline: recognition in front, transport
+        # and recording behind, with the same processors on either side of the
+        # handover point as the single-worker shape below.
+        generation_stage = list(agent_generation_segment)
+        if pipeline_engine_callback_processor is not None:
+            # Only the persistent half (the call timer) is passed in this
+            # shape; the generation half rides with the agent.
+            generation_stage.insert(0, pipeline_engine_callback_processor)
+    else:
+        generation_stage = [llm, pipeline_engine_callback_processor]
+        if recording_router:
+            generation_stage.append(recording_router)
+        generation_stage.append(tts)
+
     processors.extend(
         [
-            llm,  # LLM
-            *post_llm,
-            tts,  # TTS
+            *generation_stage,
             transport.output(),  # Transport bot output
             audio_buffer,  # AudioBufferProcessor - records both input and output audio
             assistant_context_aggregator,  # Assistant spoken responses
@@ -90,7 +108,107 @@ def build_pipeline(
         ]
     )
 
+    # A stage the run did not build (no recognition, no in-pipeline generation
+    # because it belongs to an agent worker) leaves a hole rather than a slot
+    # to fill with a passthrough.
+    return Pipeline([p for p in processors if p is not None])
+
+
+def build_agent_generation_pipeline(
+    llm,
+    tts,
+    generation_callback_processor,
+    recording_router=None,
+):
+    """Build the generation stage that runs in one agent visit's own worker.
+
+    Exactly the segment :func:`build_pipeline` places between the user
+    aggregator and the output transport in the single-worker shape, so the
+    frames arriving at the call pipeline's transport are the same either way.
+    """
+    processors = [llm, generation_callback_processor]
+    if recording_router:
+        processors.append(recording_router)
+    processors.append(tts)
     return Pipeline(processors)
+
+
+def create_agent_worker(
+    pipeline,
+    name: str,
+    audio_config: AudioConfig | None = None,
+    *,
+    call_tracing_context=None,
+) -> PipelineWorker:
+    """Create the child worker that runs one agent visit's generation stage.
+
+    Starts inactive: an inactive worker is handed no frames from the bus
+    (``BaseWorker.accepts_bus_message``), which is what lets a destination
+    agent be built and started under the hold ringer without answering the
+    caller. The engine activates it at the commit step.
+
+    Args:
+        pipeline: The generation pipeline from
+            :func:`build_agent_generation_pipeline`.
+        name: Unique worker name; the engine uses the visit id.
+        audio_config: Call audio configuration. A child gets no ``StartFrame``
+            from the call pipeline -- lifecycle frames never cross the bus --
+            so its sample rates have to be set here or its TTS will synthesize
+            at the wrong rate.
+        call_tracing_context: The call worker's ``TracingContext``. An agent's
+            LLM and TTS resolve their parent span through it, so without it
+            they produce no spans at all and the call's turns come out empty.
+            See the note below on why it is injected rather than built here.
+    """
+    params = PipelineParams(
+        enable_metrics=True,
+        enable_usage_metrics=True,
+        send_initial_empty_metrics=False,
+        # The call pipeline owns the call timer and the idle watchdog; a child
+        # that also ran them would end the call on its own schedule.
+        enable_heartbeats=False,
+    )
+    if audio_config:
+        params.audio_in_sample_rate = audio_config.transport_in_sample_rate
+        params.audio_out_sample_rate = audio_config.transport_out_sample_rate
+
+    worker = PipelineWorker(
+        pipeline,
+        name=name,
+        params=params,
+        active=False,
+        bridged=(),
+        exclude_frames=AGENT_EDGE_EXCLUDED_FRAMES,
+        # A retired agent is torn down by the engine, and a live one must not
+        # take the call down with it while the caller is still connected.
+        idle_timeout_secs=None,
+        processor_unusable_policy=ProcessorUnusablePolicy.CONTINUE,
+        # The call pipeline holds the one canonical turn tracker; a child
+        # tracking turns of its own would double-count every turn and open a
+        # second conversation span per visit.
+        enable_turn_tracking=False,
+        # Tracing has to be on for the services, not just for the worker: the
+        # `@traced_llm`/`@traced_tts` decorators read `_tracing_enabled`, which
+        # a service takes from this flag through `FrameProcessorSetup`, and
+        # return early before they ever look at a tracing context. Left off, a
+        # child's LLM and TTS emit no spans however well parented they would
+        # have been.
+        enable_tracing=call_tracing_context is not None,
+        enable_rtvi=False,
+    )
+
+    # Turning tracing on above does not give this worker a ``TracingContext``
+    # of its own: it only builds one when it is also tracking turns, which is
+    # exactly what a child must not do. So the call's context is shared in,
+    # which is the better arrangement anyway -- one turn tracker for the call,
+    # and every visit's generations recorded inside the turn they belong to.
+    # It holds plain attributes rather than context vars, so the call worker's
+    # turn observer writes and every child reads the same live object. The
+    # worker reads it when it starts, so assigning it here is in time.
+    if call_tracing_context is not None:
+        worker._tracing_context = call_tracing_context
+
+    return worker
 
 
 def build_realtime_pipeline(
@@ -133,6 +251,7 @@ def create_pipeline_task(
     workflow_run_id,
     audio_config: AudioConfig | None = None,
     *,
+    name: str | None = None,
     conversation_parent_context=None,
     conversation_type: str = "voice",
     additional_span_attributes: dict | None = None,
@@ -143,6 +262,8 @@ def create_pipeline_task(
         pipeline: The pipeline to run.
         workflow_run_id: Run id, used as the conversation id.
         audio_config: Optional audio configuration.
+        name: Worker name. Required when agent workers address this one over
+            the bus; otherwise a generated name is fine.
         conversation_parent_context: Optional OTEL context carrying a fixed
             trace id. When provided, the conversation span attaches to that
             trace instead of starting a new root trace (used by text chat to
@@ -172,6 +293,7 @@ def create_pipeline_task(
 
     task = PipelineWorker(
         pipeline,
+        name=name,
         params=pipeline_params,
         # Pipecat 1.8 replaces ErrorFrame.fatal with processor usability plus
         # a worker policy. A voice/text model that is permanently unusable

@@ -42,7 +42,7 @@ from api.services.workflow.dto import (
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.workflow_graph import WorkflowGraph
-from api.tests.pipecat_test_utils import run_engine_test_pipeline
+from api.tests.pipecat_test_utils import run_engine_test_pipeline, stub_agent_runtime
 from pipecat.tests import MockLLMService, MockTTSService
 
 # ─── Constants ──────────────────────────────────────────────────
@@ -759,6 +759,8 @@ class TestPlayConfigMessage:
         # Also capture frames queued via transport_output.queue_frame (audio playback)
         engine._transport_output = Mock()
         engine._transport_output.queue_frame = mock_queue_frame
+        # Configured speech is spoken by the running agent, in its own voice.
+        engine._active_agent = stub_agent_runtime(queue_frame=mock_queue_frame)
         return engine
 
     @pytest.mark.asyncio

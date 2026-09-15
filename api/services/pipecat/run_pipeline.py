@@ -28,6 +28,15 @@ from api.services.observability.active_calls import (
 from api.services.observability.active_calls import (
     unregister_active_call as unregister_worker_active_call,
 )
+from api.services.pipecat.agent_bridge import (
+    BRIDGE_EXCLUDED_FRAMES,
+    AgentBusTeeProcessor,
+    assert_caller_audio_stays_local,
+)
+from api.services.pipecat.agent_runtime_factory import (
+    AgentGenerationCallbacks,
+    AgentRuntimeFactory,
+)
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
@@ -74,9 +83,13 @@ from api.services.pipecat.tracing_config import (
 )
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.pipecat.transport_setup import create_webrtc_transport
-from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.pipecat.worker_runner import (
+    create_worker_runner,
+    run_worker_runner,
+)
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
+from api.services.workflow.agent_transfer import workflow_uses_agent_transfer
 from api.services.workflow.answer_classification_service import (
     AnswerClassificationService,
 )
@@ -88,6 +101,7 @@ from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.bus import BusBridgeProcessor
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -1035,12 +1049,52 @@ async def _run_pipeline_impl(
         ),
     )
 
-    # Create usage metrics aggregator with engine's callback
+    # A workflow that can hand the caller to another agent runs a split
+    # pipeline: everything call-scoped stays here and the generation stage
+    # (LLM through TTS) moves into a worker per agent visit, so replacing the
+    # agent never touches the transport, the recording or the conversation.
+    # Every other workflow runs the single-worker pipeline unchanged.
+    agent_transfer_enabled = not is_realtime and await workflow_uses_agent_transfer(
+        workflow_graph, workflow.organization_id
+    )
+    worker_runner = create_worker_runner()
+    call_worker_name = f"call-{workflow_run_id}"
+    agent_generation_segment = None
+    if agent_transfer_enabled:
+        # Caller audio must never be handed to the bus: the audio buffer sits
+        # downstream of the bridge, so publishing it would silently drop the
+        # caller's side of every recording on this call.
+        await assert_caller_audio_stays_local()
+        agent_generation_segment = [
+            AgentBusTeeProcessor(
+                bus=worker_runner.bus,
+                worker_name=call_worker_name,
+                name=f"{call_worker_name}::BusTee",
+            ),
+            BusBridgeProcessor(
+                bus=worker_runner.bus,
+                worker_name=call_worker_name,
+                exclude_frames=BRIDGE_EXCLUDED_FRAMES,
+                name=f"{call_worker_name}::BusBridge",
+            ),
+        ]
+        logger.info(
+            f"[transfer] run {workflow_run_id} uses agent transfer; "
+            "generation runs in per-visit workers"
+        )
+
+    # Create usage metrics aggregator with engine's callback. The call timer
+    # is call-scoped and stays here; the generation callbacks belong to an
+    # agent visit and ride with it when the pipeline is split.
     pipeline_engine_callback_processor = PipelineEngineCallbacksProcessor(
         max_call_duration_seconds=max_call_duration_seconds,
         max_duration_end_task_callback=engine.create_max_duration_callback(),
-        generation_started_callback=engine.create_generation_started_callback(),
-        llm_text_frame_callback=engine.handle_llm_text_frame,
+        generation_started_callback=None
+        if agent_transfer_enabled
+        else engine.create_generation_started_callback(),
+        llm_text_frame_callback=None
+        if agent_transfer_enabled
+        else engine.handle_llm_text_frame,
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
@@ -1127,10 +1181,16 @@ async def _run_pipeline_impl(
             termination_funnel,
             recording_router=recording_router,
             answer_supervisor=answer_supervisor,
+            agent_generation_segment=agent_generation_segment,
         )
 
     # Create pipeline task with audio configuration
-    task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+    task = create_pipeline_task(
+        pipeline,
+        workflow_run_id,
+        audio_config,
+        name=call_worker_name if agent_transfer_enabled else None,
+    )
     transcript_log_coordinator = TranscriptLogCoordinator(in_memory_logs_buffer)
     if task.turn_tracking_observer is None:
         raise RuntimeError("Transcript logging requires turn tracking to be enabled")
@@ -1147,8 +1207,54 @@ async def _run_pipeline_impl(
         )
 
     # Now set the task and transport output on the engine
-    engine.set_task(task)
+    engine.set_call_worker(task)
     engine.set_transport_output(transport.output())
+
+    if agent_transfer_enabled:
+
+        def _agent_generation_callbacks(visit_id: str) -> AgentGenerationCallbacks:
+            # Tagged with the visit so a retired agent finishing its last
+            # generation cannot corrupt the running agent's transcript
+            # correction, which is call-scoped.
+            return AgentGenerationCallbacks(
+                generation_started=engine.create_generation_started_callback(visit_id),
+                llm_text_frame=engine.create_llm_text_frame_callback(visit_id),
+            )
+
+        agent_factory = AgentRuntimeFactory(
+            organization_id=workflow.organization_id,
+            workflow_run_id=workflow_run_id,
+            call_worker=task,
+            audio_config=audio_config,
+            callbacks_factory=_agent_generation_callbacks,
+            fetch_recording_audio=fetch_audio,
+            has_recordings=has_recordings,
+            mps_correlation_id=mps_correlation_id,
+            on_agent_error=engine.handle_agent_error,
+            use_draft=bool(workflow_run.extra.get("use_draft")),
+        )
+        engine.set_agent_factory(agent_factory)
+        # The agent this call starts on. Its services were resolved above from
+        # the run's own pinned definition; a later visit resolves its own the
+        # same way. The worker is attached once the call pipeline is running,
+        # in `PipecatEngine.start_initial_agent`.
+        engine.set_initial_agent(
+            agent_factory.adopt_call_owned(
+                workflow_id=workflow_id,
+                definition_id=run_definition.id,
+                workflow_name=workflow.name,
+                workflow_graph=workflow_graph,
+                llm=llm,
+                inference_llm=inference_llm or llm,
+                variable_extraction_llm=variable_extraction_llm,
+                tts=tts,
+                recording_router=recording_router,
+                user_config=user_config,
+                runtime_configuration=runtime_configuration,
+                is_realtime=is_realtime,
+                is_child=True,
+            )
+        )
 
     # Add the observer before initialization so early ErrorFrames are not missed.
     feedback_observer = RealtimeFeedbackObserver(
@@ -1222,7 +1328,7 @@ async def _run_pipeline_impl(
 
     try:
         # Run the pipeline
-        await run_pipeline_worker(task)
+        await run_worker_runner(worker_runner, task)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")

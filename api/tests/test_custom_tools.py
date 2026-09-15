@@ -37,6 +37,7 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from api.tests.pipecat_test_utils import stub_agent_runtime
 from api.utils.template_renderer import render_url_template
 from pipecat.tests import MockLLMService, run_test
 
@@ -1832,6 +1833,7 @@ class TestCustomToolManagerUnit:
         mock_engine._transport_output = SimpleNamespace(queue_frame=AsyncMock())
         mock_engine._get_organization_id = AsyncMock(return_value=1)
         mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine._active_agent = stub_agent_runtime()
         mock_engine.set_mute_pipeline = Mock()
         mock_engine.end_call_with_reason = AsyncMock()
 
@@ -1951,8 +1953,10 @@ class TestCustomToolManagerUnit:
             False,
         ]
 
+        # Configured speech goes out through the running agent's own voice.
         spoken_texts = [
-            call.args[0].text for call in mock_engine.task.queue_frame.await_args_list
+            call.args[0].text
+            for call in mock_engine._active_agent.worker.queue_frame.await_args_list
         ]
         assert "One moment while I find the right team." in spoken_texts
         assert "I will connect you with our Texas partner now." in spoken_texts
@@ -1974,6 +1978,7 @@ class TestCustomToolManagerUnit:
         mock_engine._fetch_recording_audio = None
         mock_engine._get_organization_id = AsyncMock(return_value=1)
         mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine._active_agent = stub_agent_runtime()
         mock_engine.set_mute_pipeline = Mock()
         mock_engine.end_call_with_reason = AsyncMock()
 

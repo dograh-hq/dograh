@@ -81,6 +81,8 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
         set_node=AsyncMock(),
         queue_node_opening=AsyncMock(),
         handle_answer_supervision=AsyncMock(side_effect=permission.wait),
+        # Readiness now also waits for the agent this call starts on.
+        start_initial_agent=AsyncMock(return_value=True),
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()

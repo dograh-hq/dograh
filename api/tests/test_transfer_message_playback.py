@@ -24,6 +24,7 @@ from api.enums import ToolCategory, WorkflowRunMode
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.tools.transfer_resolver import ResolvedTransferConfig
+from api.tests.pipecat_test_utils import stub_agent_runtime
 
 
 def make_engine() -> PipecatEngine:
@@ -106,6 +107,8 @@ class RecordingEngine:
         self._fetch_recording_audio = None
         self._transport_output = SimpleNamespace(queue_frame=AsyncMock())
         self.task = SimpleNamespace(queue_frame=self._queue_frame)
+        # Configured speech is spoken by the running agent, in its own voice.
+        self._active_agent = stub_agent_runtime(queue_frame=self._queue_frame)
 
     async def _queue_frame(self, frame):
         if isinstance(frame, TTSSpeakFrame):

@@ -24,8 +24,7 @@ def test_realtime_workflows_do_not_get_a_supervisor():
 
 
 def test_enabling_is_the_only_switch_regardless_of_call_direction():
-    """An external-PBX fronter call arrives as a Stasis entry recorded as
-    inbound, so direction must not decide whether answer handling runs."""
+    """Enabled answer handling applies to both inbound and outbound calls."""
     assert resolve({"enabled": True}) is not None
 
 

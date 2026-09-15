@@ -1832,7 +1832,7 @@ class TestCustomToolManagerUnit:
         mock_engine._audio_config = SimpleNamespace(transport_out_sample_rate=8000)
         mock_engine._transport_output = SimpleNamespace(queue_frame=AsyncMock())
         mock_engine._get_organization_id = AsyncMock(return_value=1)
-        mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
         mock_engine._active_agent = stub_agent_runtime()
         mock_engine.set_mute_pipeline = Mock()
         mock_engine.end_call_with_reason = AsyncMock()
@@ -1977,7 +1977,7 @@ class TestCustomToolManagerUnit:
         mock_engine._gathered_context = {"state": "TX"}
         mock_engine._fetch_recording_audio = None
         mock_engine._get_organization_id = AsyncMock(return_value=1)
-        mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
         mock_engine._active_agent = stub_agent_runtime()
         mock_engine.set_mute_pipeline = Mock()
         mock_engine.end_call_with_reason = AsyncMock()

@@ -70,7 +70,7 @@ class AgentRuntime:
     inference_llm: Any
     variable_extraction_llm: Any
     # None only while the call worker is still being built; run setup binds it
-    # through `PipecatEngine.set_call_worker`.
+    # through `PipecatEngine.call_worker`.
     worker: PipelineWorker | None = None
     tts: Any = None
     recording_router: Any = None

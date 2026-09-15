@@ -111,7 +111,6 @@ async def build_handoff_snapshot(
     retained_messages: int = DEFAULT_RETAINED_MESSAGES,
     fallback_messages: int = DEFAULT_FALLBACK_MESSAGES,
     timeout: float = DEFAULT_HANDOFF_SUMMARY_TIMEOUT_SECONDS,
-    parent_context: Any = None,
 ) -> HandoffSnapshot:
     """Compact ``context`` for a destination agent without mutating it.
 
@@ -123,7 +122,6 @@ async def build_handoff_snapshot(
         retained_messages: Recent turns kept verbatim behind the summary.
         fallback_messages: Recent turns used when no summary is available.
         timeout: Seconds to wait for the summary before falling back.
-        parent_context: OTEL context to attach the summarization span to.
 
     Returns:
         The prepared :class:`HandoffSnapshot`. Never raises: a handoff that
@@ -188,6 +186,11 @@ async def build_handoff_snapshot(
         )
         return fallback
 
+    # The summarizer reads the live context, which keeps growing while the
+    # caller waits on hold, so what it summarized can reach past the snapshot.
+    # Everything after the boundary is handed over verbatim at commit; clamping
+    # here is what keeps those turns from arriving twice.
+    last_index = min(last_index, boundary - 1)
     retained = conversation_messages(source_messages[last_index + 1 :])
     messages = [
         {

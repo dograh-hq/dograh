@@ -155,7 +155,7 @@ async def create_test_pipeline_with_failing_transport(
     # Create pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, tts, transport, task
 

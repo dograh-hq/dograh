@@ -155,7 +155,7 @@ class TestVariableExtractionDuringTransitions:
             enable_rtvi=False,
         )
 
-        engine.set_task(task)
+        engine.call_worker = task
 
         # Patch DB calls and extraction manager
         with patch(

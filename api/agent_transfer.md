@@ -58,7 +58,7 @@ uses by intent; never repoint it wholesale at a child worker.
 | Drain/retire one agent | Selected runtime's child worker and resource lifetime |
 | Mutate shared context, gathered results, active node/agent | Engine, subject to origin and lifecycle checks |
 
-Rename as part of this: `PipecatEngine.set_task()`/`self.task` become `call_worker`.
+Rename as part of this: `PipecatEngine.task` becomes `call_worker`.
 `PipelineTask` is a deprecated alias of `PipelineWorker` upstream (`pipeline/worker.py:1715`);
 leaving both the call worker and the agent worker called "task" is how §2 and §6 bugs get
 written.
@@ -464,9 +464,9 @@ pipecat's worker runner and bus.
 | Plan | Where it landed |
 | --- | --- |
 | `AgentRuntime` (§1, §2) | [agent_runtime.py](services/workflow/agent_runtime.py). `engine.llm`, `inference_llm`, `variable_extraction_llm`, `workflow` and `_current_node` became properties reading through to `active_agent`, so every helper, tool and manager kept working unchanged. |
-| `call_worker` rename (§2) | `set_call_worker()`; `task` stays as a deprecated alias property. |
+| `call_worker` rename (§2) | One `call_worker` property, read and assigned. `task` is gone rather than kept as an alias: a second name for the call worker is the ambiguity this section set out to remove. |
 | Split topology (§3) | `build_pipeline(agent_generation_segment=…)` + `build_agent_generation_pipeline()` + `create_agent_worker()`. The child is exactly the segment the single-worker pipeline puts between the user aggregator and the output transport. |
-| Bridge routing (§3) | [agent_bridge.py](services/pipecat/agent_bridge.py). Three groups: frames kept local (caller audio, the worker's own heartbeat, worker-control frames), frames teed by `AgentBusTeeProcessor` so both sides see them exactly once (speaking and interruption), and everything else, which crosses. `assert_caller_audio_stays_local()` runs at call setup. |
+| Bridge routing (§3) | [agent_bridge.py](services/pipecat/agent_bridge.py). Three groups: frames kept local (caller audio, the worker's own heartbeat, worker-control frames), frames teed by `AgentBusTeeProcessor` so both sides see them exactly once (speaking and interruption), and everything else, which crosses. |
 | Visit tracing (§8) | Agent workers run with `enable_tracing=True` and share the call worker's `TracingContext` instead of building one. Both halves are needed: the flag reaches the services as `_tracing_enabled`, which `@traced_llm`/`@traced_tts` check before they look at any context, and the shared context is what parents a visit's spans into the call's turns. A worker only builds a context of its own when it also tracks turns, which a child must not do. Miss either half and every agent's LLM and TTS run untraced, which shows up as a trace whose turns are empty rather than as anything obviously missing. |
 | Lazy preparation, mandatory allowlist (§4) | [agent_runtime_factory.py](services/pipecat/agent_runtime_factory.py). One tool, one destination: the allowlist is the set of transfer tools on the node, resolved org-scoped through `db_client.get_workflow(..., organization_id=…)`. |
 | No `LLMWorker` tool publication (§4) | Agent workers are plain `PipelineWorker`s; tools stay engine-composed per node. |

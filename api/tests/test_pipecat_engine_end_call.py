@@ -237,7 +237,7 @@ async def create_engine_with_tracking(
     # Create pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, tts, mock_transport, task
 

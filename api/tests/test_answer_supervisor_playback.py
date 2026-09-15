@@ -123,7 +123,7 @@ async def test_hello_produces_exactly_one_opening(
         answer_supervisor=supervisor,
     )
     worker = PipelineWorker(pipeline, enable_rtvi=False)
-    engine.set_task(worker)
+    engine.call_worker = worker
     started = asyncio.Event()
 
     @worker.event_handler("on_pipeline_started")

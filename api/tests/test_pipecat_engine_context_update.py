@@ -119,7 +119,7 @@ async def run_pipeline_and_capture_context(
     # Create pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     # Patch DB calls
     with patch(

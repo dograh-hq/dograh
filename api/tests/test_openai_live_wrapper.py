@@ -508,7 +508,7 @@ async def test_end_node_keeps_live_open_until_last_audio_reaches_caller(
         ]
     )
     worker = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(worker)
+    engine.call_worker = worker
     callbacks = []
 
     @worker.event_handler("on_pipeline_started")

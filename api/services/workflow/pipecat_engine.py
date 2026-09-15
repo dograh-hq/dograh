@@ -315,24 +315,23 @@ class PipecatEngine:
 
         Transport, recording, recognition, the shared aggregators and the call
         timer run here. An agent's generation stage may run in a worker of its
-        own; this one outlives all of them.
+        own; this one outlives all of them. Not called "the task": with agent
+        workers in play that name says nothing about which worker is meant,
+        and ending the call, resolving the call trace and speaking a line each
+        belong to a different one.
         """
         return self.__dict__.get("_call_worker")
 
-    @property
-    def task(self) -> Optional[PipelineWorker]:
-        """Deprecated alias for :attr:`call_worker`.
+    @call_worker.setter
+    def call_worker(self, worker: Optional[PipelineWorker]) -> None:
+        """Bind the call-scoped worker, which is built after the engine.
 
-        ``PipelineTask`` is itself a deprecated alias of ``PipelineWorker``
-        upstream, and with agent workers in play "the task" is ambiguous:
-        ending the call, resolving the call trace and speaking a line each
-        belong to a different worker. New code should name the one it means.
+        The first agent runs in this same worker unless run setup has given it
+        one of its own, so binding the call worker also completes that agent.
         """
-        return self.call_worker
-
-    @task.setter
-    def task(self, worker: Optional[PipelineWorker]) -> None:
-        self.set_call_worker(worker)
+        self._call_worker = worker
+        if not self._active_agent.is_child and self._active_agent.worker is None:
+            self._active_agent.worker = worker
 
     @property
     def llm(self):
@@ -395,7 +394,7 @@ class PipecatEngine:
         conversation-level context, or None.
         """
         tracing_ctx: TracingContext | None = getattr(
-            self.task, "_tracing_context", None
+            self.call_worker, "_tracing_context", None
         )
         if not tracing_ctx:
             return None
@@ -1352,7 +1351,7 @@ class PipecatEngine:
             f"{self._gathered_context.get(CALL_DISPOSITION_CONTEXT_KEY, call_disposition)} "
             f"queueing frame {frame_to_push}"
         )
-        await self.task.queue_frame(frame_to_push)
+        await self.call_worker.queue_frame(frame_to_push)
 
     async def queue_text_message(
         self, text: str, *, append_to_context: bool = False, mute_user: bool = False
@@ -1533,20 +1532,6 @@ class PipecatEngine:
         which is useful when the context needs to be created after the engine.
         """
         self.context = context
-
-    def set_task(self, task: PipelineWorker) -> None:
-        """Deprecated alias for :meth:`set_call_worker`."""
-        self.set_call_worker(task)
-
-    def set_call_worker(self, worker: Optional[PipelineWorker]) -> None:
-        """Bind the call-scoped worker, which is built after the engine.
-
-        The first agent runs in this same worker unless run setup has given it
-        one of its own, so binding the call worker also completes that agent.
-        """
-        self._call_worker = worker
-        if not self._active_agent.is_child and self._active_agent.worker is None:
-            self._active_agent.worker = worker
 
     # ------------------------------------------------------------------
     # Agent lifecycle

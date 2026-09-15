@@ -222,7 +222,7 @@ async def run_pipeline_and_capture_frames(
         ]
     )
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(task)
+    engine.call_worker = task
 
     # Spy on task.queue_frame and transport_output.queue_frame to capture
     # all frames queued by the engine (audio transitions go via transport output)
@@ -550,7 +550,7 @@ class TestStartGreeting:
             call_context_vars={},
             workflow_run_id=1,
         )
-        engine.set_task(task)
+        engine.call_worker = task
 
         result = await engine.queue_node_opening(
             node_id=text_workflow.start_node_id,
@@ -618,7 +618,7 @@ class TestStartGreeting:
             call_context_vars={},
             workflow_run_id=1,
         )
-        engine.set_task(task)
+        engine.call_worker = task
 
         result = await engine.queue_node_opening(
             node_id=workflow.start_node_id,
@@ -745,7 +745,7 @@ class TestPlayConfigMessage:
         engine._call_context_vars = {}
         engine._fetch_recording_audio = None
         engine._audio_config = None
-        engine.task = Mock()
+        engine.call_worker = Mock()
         engine.llm = Mock()
 
         # Capture frames queued via task.queue_frame
@@ -754,7 +754,7 @@ class TestPlayConfigMessage:
         async def mock_queue_frame(frame):
             engine._queued_frames.append(frame)
 
-        engine.task.queue_frame = mock_queue_frame
+        engine.call_worker.queue_frame = mock_queue_frame
 
         # Also capture frames queued via transport_output.queue_frame (audio playback)
         engine._transport_output = Mock()

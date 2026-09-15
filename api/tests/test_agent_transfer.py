@@ -55,6 +55,10 @@ from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
 )
 from api.services.pipecat.worker_runner import create_worker_runner, run_worker_runner
+from api.services.tool_management import (
+    ToolManagementError,
+    validate_tool_references,
+)
 from api.services.workflow.agent_runtime import new_visit_id
 from api.services.workflow.dto import (
     EdgeDataDTO,
@@ -300,7 +304,7 @@ class TransferHarness:
             enable_tracing=True,
             conversation_id="test-call",
         )
-        self.engine.set_call_worker(self.call_worker)
+        self.engine.call_worker = self.call_worker
         self.engine.set_transport_output(self.transport.output())
         self.engine.set_audio_config(
             SimpleNamespace(
@@ -597,6 +601,128 @@ async def test_a_destination_that_cannot_be_built_resumes_the_source_agent():
         assert not engine.is_call_disposed()
         assert engine.active_agent.visit_id == source_visit
         assert engine.active_agent.worker.active
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.parametrize(
+    "destination, expected_error",
+    [
+        (SimpleNamespace(id=DESTINATION_WORKFLOW_ID), None),
+        (None, "destination_not_found"),
+    ],
+    ids=["own_agent_saves", "other_orgs_agent_refused"],
+)
+@pytest.mark.asyncio
+async def test_a_transfer_tool_can_only_name_an_agent_in_its_own_organization(
+    destination, expected_error
+):
+    """The destination is checked where it is configured, not mid-call.
+
+    A workflow id in a request body proves the row exists and nothing about
+    who owns it. Left to the call to discover, a destination belonging to
+    another organization is indistinguishable from a working one until a
+    caller is already on the line.
+    """
+    definition = TransferAgentTool().definition
+
+    with patch(
+        "api.services.tool_management.db_client.get_workflow",
+        new_callable=AsyncMock,
+        return_value=destination,
+    ) as get_workflow:
+        if expected_error is None:
+            await validate_tool_references(definition, organization_id=7)
+        else:
+            with pytest.raises(ToolManagementError) as raised:
+                await validate_tool_references(definition, organization_id=7)
+            assert raised.value.error_code == expected_error
+            assert raised.value.status_code == 404
+
+    assert get_workflow.await_args.kwargs["organization_id"] == 7
+
+
+@pytest.mark.asyncio
+async def test_a_handover_that_fails_to_activate_leaves_the_conversation_alone():
+    """The commit is a transaction: what it replaces, it puts back.
+
+    Installing the destination rewrites the call's shared conversation --
+    compacted history, its own tool schemas -- and only then activates it. A
+    source agent resumed on top of those would answer the caller from a
+    summary of its own call while holding another agent's tools.
+    """
+    source_llm = MockLLMService(
+        mock_steps=[
+            MockLLMService.create_function_call_chunks(
+                "transfer_to_billing", {}, tool_call_id="call_transfer_1"
+            ),
+            MockLLMService.create_text_chunks("Sorry about that, let me help."),
+        ],
+        chunk_delay=0.001,
+    )
+
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=source_llm,
+        destination_llm=MockLLMService(mock_steps=[], chunk_delay=0.001),
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(name="Billing", greeting="Billing."),
+    )
+    await harness.start()
+    engine = harness.engine
+    source_visit = engine.active_agent.visit_id
+
+    engine.context.set_messages(
+        [
+            {"role": "user", "content": "My invoice 4417 looks wrong."},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "call_lookup",
+                        "type": "function",
+                        "function": {"name": "lookup_account", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "content": "{}", "tool_call_id": "call_lookup"},
+        ]
+    )
+
+    # The destination builds and starts; only its activation never lands,
+    # which is the one failure that happens after the commit has begun.
+    activate = engine.activate_agent
+
+    async def refuse_the_destination(runtime, *, timeout):
+        if runtime.visit_id == source_visit:
+            return await activate(runtime, timeout=timeout)
+        return False
+
+    engine.activate_agent = refuse_the_destination
+
+    try:
+        await run_transfer(harness, tool=TransferAgentTool())
+
+        outcome = engine.transfer_coordinator.completed[-1]
+        assert outcome["outcome"] == "activation_failed"
+        assert engine.active_agent.visit_id == source_visit
+
+        # Tool traffic is what a handover strips, so finding it still here is
+        # the proof that the compacted history never replaced the real one.
+        messages = engine.context.messages
+        assert any(m.get("tool_calls") for m in messages if isinstance(m, dict))
+        assert any(m.get("role") == "tool" for m in messages if isinstance(m, dict))
+        assert any(
+            "4417" in str(m.get("content", "")) for m in messages if isinstance(m, dict)
+        )
+        # And the source agent still publishes its own tools: Billing's start
+        # node has no transfer of its own, so this one could only be the
+        # source's.
+        assert "transfer_to_billing" in [
+            f.name for f in engine.context.tools.standard_tools
+        ]
     finally:
         await harness.stop()
 

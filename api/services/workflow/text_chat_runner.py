@@ -688,7 +688,7 @@ async def execute_text_chat_pending_turn(
     )
     runner_task = asyncio.create_task(run_pipeline_worker(task))
 
-    engine.set_task(task)
+    engine.call_worker = task
     engine.set_audio_config(audio_config)
     engine.set_transport_output(_TaskQueueProxy(task.queue_frame))
     engine.set_fetch_recording_audio(

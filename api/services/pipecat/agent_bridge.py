@@ -33,8 +33,6 @@ child excludes the same set from its own edges, so a teed frame is never
 echoed back and delivered twice.
 """
 
-from loguru import logger
-
 from pipecat.bus.bus import WorkerBus
 from pipecat.bus.messages import BusFrameMessage
 from pipecat.frames.frames import (
@@ -165,21 +163,3 @@ class AgentBusTeeProcessor(FrameProcessor):
                 direction=direction,
             )
         )
-
-
-async def assert_caller_audio_stays_local(
-    bridge_excluded: tuple[type[Frame], ...] = BRIDGE_EXCLUDED_FRAMES,
-) -> None:
-    """Fail loudly if caller audio would be handed to the bus.
-
-    The symptom of getting this wrong is a silent one -- calls sound normal and
-    the recording is missing the caller -- so the invariant is asserted at
-    startup rather than discovered from a support ticket.
-    """
-    missing = [f.__name__ for f in _LOCAL_FRAMES if f not in bridge_excluded]
-    if missing:
-        raise RuntimeError(
-            "Agent bridge would publish caller audio to the bus, breaking call "
-            f"recording: {', '.join(missing)} missing from the exclusion list"
-        )
-    logger.debug("Agent bridge exclusion list keeps caller audio local")

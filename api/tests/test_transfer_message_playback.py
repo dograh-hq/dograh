@@ -106,7 +106,7 @@ class RecordingEngine:
         self._audio_config = None
         self._fetch_recording_audio = None
         self._transport_output = SimpleNamespace(queue_frame=AsyncMock())
-        self.task = SimpleNamespace(queue_frame=self._queue_frame)
+        self.call_worker = SimpleNamespace(queue_frame=self._queue_frame)
         # Configured speech is spoken by the running agent, in its own voice.
         self._active_agent = stub_agent_runtime(queue_frame=self._queue_frame)
 
@@ -315,7 +315,7 @@ class TestTransferDispositionRace:
     async def test_recorded_disposition_survives_a_later_hangup(self):
         """A disconnect after the stamp must not relabel the call."""
         engine = make_engine()
-        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
 
         engine.set_call_disposition(EndTaskReason.CALL_TRANSFERRED.value)
 
@@ -343,7 +343,7 @@ class TestTransferDispositionRace:
     async def test_an_untransferred_disconnect_is_still_a_user_hangup(self):
         """The fallback must stay intact for calls the caller really drops."""
         engine = make_engine()
-        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
 
         with (
             patch.object(

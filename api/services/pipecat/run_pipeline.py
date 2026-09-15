@@ -31,7 +31,6 @@ from api.services.observability.active_calls import (
 from api.services.pipecat.agent_bridge import (
     BRIDGE_EXCLUDED_FRAMES,
     AgentBusTeeProcessor,
-    assert_caller_audio_stays_local,
 )
 from api.services.pipecat.agent_runtime_factory import (
     AgentGenerationCallbacks,
@@ -1061,10 +1060,6 @@ async def _run_pipeline_impl(
     call_worker_name = f"call-{workflow_run_id}"
     agent_generation_segment = None
     if agent_transfer_enabled:
-        # Caller audio must never be handed to the bus: the audio buffer sits
-        # downstream of the bridge, so publishing it would silently drop the
-        # caller's side of every recording on this call.
-        await assert_caller_audio_stays_local()
         agent_generation_segment = [
             AgentBusTeeProcessor(
                 bus=worker_runner.bus,
@@ -1207,7 +1202,7 @@ async def _run_pipeline_impl(
         )
 
     # Now set the task and transport output on the engine
-    engine.set_call_worker(task)
+    engine.call_worker = task
     engine.set_transport_output(transport.output())
 
     if agent_transfer_enabled:

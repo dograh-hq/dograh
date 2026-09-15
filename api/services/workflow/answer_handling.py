@@ -57,7 +57,7 @@ async def _speak(engine: "PipecatEngine", message: AnswerMessage) -> bool:
                 persist_to_logs=True,
             )
         else:
-            await engine.task.queue_frame(
+            await engine.call_worker.queue_frame(
                 TTSSpeakFrame(engine._format_prompt(message.text))
             )
         return await engine.wait_for_speech_playback()

@@ -20,8 +20,9 @@ tools, and activates it. *Opening* stops the ringer and lets the destination
 introduce itself, exactly once.
 
 Until the commit succeeds, every failure path restores the source agent with
-its conversation intact: nothing is mutated before that point. After it, going
-back is a new transfer, not a rollback.
+its conversation intact: nothing before the commit mutates anything, and the
+commit puts back whatever it changed if it cannot finish. After it succeeds,
+going back is a new transfer, not a rollback.
 """
 
 from __future__ import annotations
@@ -359,7 +360,6 @@ class AgentTransferCoordinator:
             engine.context,
             source.inference_llm,
             request_id=request.request_id,
-            parent_context=engine._get_otel_context(),
         )
 
     async def _commit(
@@ -369,39 +369,56 @@ class AgentTransferCoordinator:
         destination: AgentRuntime,
         snapshot,
     ) -> None:
-        """Install the destination agent under a short lock."""
+        """Install the destination agent under a short lock.
+
+        A transaction over the call's shared conversation: the messages and
+        tool schemas belong to whichever agent is running, so an activation
+        that never lands puts the source agent's back. That is what lets
+        :meth:`_rollback` resume it as if the handoff had never started. The
+        system prompt needs no undo -- it is set on the destination's own LLM
+        client, and the source's still holds its own.
+        """
         engine = self._engine
         async with self._commit_lock:
             self._phase = TransferPhase.COMMITTING
             await self._check_still_wanted(request, destination)
 
-            # Anything the caller said while waiting sits after the snapshot
-            # boundary and has not been summarized; it goes across verbatim.
-            tail = messages_after_boundary(engine.context, snapshot.boundary)
-            engine.context.set_messages([*snapshot.messages, *tail])
-            logger.info(
-                f"[transfer] {request.request_id} handing over "
-                f"{len(snapshot.messages)} summarized + {len(tail)} live messages"
-            )
-
-            destination.entered_at = time.time()
-            engine.install_agent(destination, previous=source)
-
-            # The destination's prompt and tools, composed from its own start
-            # node, land on its own LLM and on the shared context.
-            await engine.set_node(
-                destination.workflow.start_node_id,
-                origin_visit_id=destination.visit_id,
-            )
-
-            activated = await engine.activate_agent(
-                destination, timeout=TRANSFER_ACTIVATION_TIMEOUT_SECONDS
-            )
-            if not activated:
-                raise AgentBuildError(
-                    "activation_failed",
-                    f"Agent visit {destination.visit_id} did not acknowledge activation",
+            previous_messages = list(engine.context.messages)
+            previous_tools = engine.context.tools
+            try:
+                # Anything the caller said while waiting sits after the
+                # snapshot boundary and has not been summarized; it goes
+                # across verbatim.
+                tail = messages_after_boundary(engine.context, snapshot.boundary)
+                engine.context.set_messages([*snapshot.messages, *tail])
+                logger.info(
+                    f"[transfer] {request.request_id} handing over "
+                    f"{len(snapshot.messages)} summarized + {len(tail)} live messages"
                 )
+
+                destination.entered_at = time.time()
+                engine.install_agent(destination, previous=source)
+
+                # The destination's prompt and tools, composed from its own
+                # start node, land on its own LLM and on the shared context.
+                await engine.set_node(
+                    destination.workflow.start_node_id,
+                    origin_visit_id=destination.visit_id,
+                )
+
+                activated = await engine.activate_agent(
+                    destination, timeout=TRANSFER_ACTIVATION_TIMEOUT_SECONDS
+                )
+                if not activated:
+                    raise AgentBuildError(
+                        "activation_failed",
+                        f"Agent visit {destination.visit_id} did not "
+                        "acknowledge activation",
+                    )
+            except BaseException:
+                engine.context.set_messages(previous_messages)
+                engine.context.set_tools(previous_tools)
+                raise
 
     async def _open(self, destination: AgentRuntime) -> None:
         """Run exactly one opening turn for the destination agent.
@@ -428,9 +445,9 @@ class AgentTransferCoordinator:
     ) -> None:
         """Put the source agent back, with its conversation as it was.
 
-        Only reachable before a successful commit, where nothing has been
-        mutated: the context still holds the full uncompacted history plus
-        whatever the caller said during the hold.
+        Only reachable before a successful commit, so the context holds the
+        full uncompacted history plus whatever the caller said during the
+        hold -- either untouched, or restored by the commit that failed.
         """
         await self._stop_hold_audio()
 

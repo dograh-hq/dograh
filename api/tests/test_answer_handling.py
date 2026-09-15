@@ -17,8 +17,8 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 
 def make_call(verdicts, **settings):
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
-    engine.workflow = SimpleNamespace(start_node_id="start")
-    engine.task = SimpleNamespace(queue_frame=AsyncMock())
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
     engine.queue_node_opening = AsyncMock(return_value="greeting")
     engine.end_call_with_reason = AsyncMock()
     engine.wait_for_speech_playback = AsyncMock(return_value=True)
@@ -51,7 +51,7 @@ async def test_voicemail_verdict_waits_for_playback_before_hangup(voicemail_acti
         while not engine.wait_for_speech_playback.called:
             await asyncio.sleep(0)
     engine.end_call_with_reason.assert_not_awaited()
-    frame = engine.task.queue_frame.call_args.args[0]
+    frame = engine.call_worker.queue_frame.call_args.args[0]
     assert isinstance(frame, TTSSpeakFrame)
     assert frame.text == "Please call us back."
     playback.set()
@@ -139,7 +139,7 @@ async def test_repeated_screeners_have_a_finite_budget():
     await asyncio.wait_for(
         handle_answer(engine, supervisor, update_idle_timeout=idle), 1
     )
-    assert engine.task.queue_frame.await_count == 2
+    assert engine.call_worker.queue_frame.await_count == 2
     assert engine.end_call_with_reason.call_args.args[0] == "screening_limit"
     history = engine._gathered_context["answer_supervisor"]
     assert [entry["screening_rearms"] for entry in history] == [0, 1, 2]
@@ -161,7 +161,7 @@ async def test_voicemail_drop_verdict_ignores_message_and_records_drop(message):
     await asyncio.wait_for(
         handle_answer(engine, supervisor, update_idle_timeout=idle), 1
     )
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
     engine.wait_for_speech_playback.assert_not_awaited()
     engine.queue_node_opening.assert_not_awaited()
     assert engine.end_call_with_reason.call_args.args[0] == "voicemail_detected"
@@ -187,7 +187,7 @@ async def test_machine_timeout_disconnects_without_final_extraction():
     )
     engine.perform_final_variable_extraction.assert_not_awaited()
     engine.queue_node_opening.assert_not_awaited()
-    frame = engine.task.queue_frame.call_args.args[0]
+    frame = engine.call_worker.queue_frame.call_args.args[0]
     assert isinstance(frame, CancelFrame)
     assert frame.reason == "machine_timeout"
     assert engine._gathered_context["call_disposition"] == "machine_timeout"
@@ -206,7 +206,7 @@ async def test_leave_message_policy_reports_missing_message_as_playback_failure(
     await asyncio.wait_for(
         handle_answer(engine, supervisor, update_idle_timeout=idle), 1
     )
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
     assert engine.end_call_with_reason.call_args.args[0] == "answer_message_failed"
 
 
@@ -239,7 +239,7 @@ async def test_cancelled_pipeline_never_queues_an_opening():
         handle_answer(engine, supervisor, update_idle_timeout=idle), 1
     )
     engine.queue_node_opening.assert_not_awaited()
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -265,7 +265,7 @@ async def test_recording_message_uses_scoped_fetcher_and_transport(recording):
     )
     engine._fetch_recording_audio.assert_awaited_once_with(**recording)
     assert engine._transport_output.queue_frame.await_count > 0
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
 
 
 @pytest.mark.asyncio

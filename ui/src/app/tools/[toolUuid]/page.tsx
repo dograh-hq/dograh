@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
     getToolApiV1ToolsToolUuidGet,
+    getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listRecordingsApiV1WorkflowRecordingsGet,
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
@@ -14,6 +15,7 @@ import type {
     HttpApiToolDefinition,
     RecordingResponseSchema,
     ToolResponse,
+    TransferAgentConfig,
     TransferCallConfig,
     UpdateToolRequest,
 } from "@/client/types.gen";
@@ -49,7 +51,9 @@ import {
     contextMappingToRuleRows,
     createContextDestinationRuleRow,
     createMcpDefinition,
+    createTransferAgentDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
+    DEFAULT_TRANSFER_AGENT_MESSAGE,
     type EndCallMessageType,
     getCategoryConfig,
     getToolTypeLabel,
@@ -65,6 +69,8 @@ import {
     EndCallToolConfig,
     HttpApiToolConfig,
     HttpToolTestDialog,
+    TransferAgentToolConfig,
+    type TransferAgentWorkflowOption,
     TransferCallToolConfig,
 } from "./components";
 
@@ -131,6 +137,14 @@ export default function ToolDetailPage() {
             setEndCallReasonDescription(DEFAULT_END_CALL_REASON_DESCRIPTION);
         }
     };
+
+    // Transfer To Agent form state
+    const [transferAgentWorkflowId, setTransferAgentWorkflowId] = useState("");
+    const [transferAgentMessage, setTransferAgentMessage] = useState(
+        DEFAULT_TRANSFER_AGENT_MESSAGE,
+    );
+    const [agentOptions, setAgentOptions] = useState<TransferAgentWorkflowOption[]>([]);
+    const [agentOptionsLoading, setAgentOptionsLoading] = useState(false);
 
     // Transfer Call form state
     const [transferDestinationSource, setTransferDestinationSource] =
@@ -282,6 +296,12 @@ export default function ToolDetailPage() {
                 setTransferContextDestinationRules([]);
                 setTransferFallbackDestination("");
             }
+        } else if (tool.category === "transfer_agent") {
+            const config = tool.definition?.config as TransferAgentConfig | undefined;
+            setTransferAgentWorkflowId(
+                config?.workflow_id ? String(config.workflow_id) : "",
+            );
+            setTransferAgentMessage(config?.message ?? DEFAULT_TRANSFER_AGENT_MESSAGE);
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
             const config = tool.definition?.config as
@@ -395,10 +415,42 @@ export default function ToolDetailPage() {
         }
     }, [loading, user]);
 
+    const fetchAgentOptions = useCallback(async () => {
+        if (loading || !user) return;
+        setAgentOptionsLoading(true);
+        try {
+            const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({});
+            // The generated client resolves rather than throws on a 4xx/5xx,
+            // so the catch below only covers network failures.
+            if (response.error || !response.data) {
+                setAgentOptions([]);
+                return;
+            }
+            setAgentOptions(
+                response.data.map((workflow) => ({
+                    id: workflow.id,
+                    name: workflow.name,
+                })),
+            );
+        } catch {
+            // Left non-fatal: the picker shows no agents and saving is blocked
+            // for want of a destination, which is the right outcome anyway.
+            setAgentOptions([]);
+        } finally {
+            setAgentOptionsLoading(false);
+        }
+    }, [loading, user]);
+
     useEffect(() => {
         fetchTool();
         fetchRecordings();
     }, [fetchTool, fetchRecordings]);
+
+    useEffect(() => {
+        if (tool?.category === "transfer_agent") {
+            fetchAgentOptions();
+        }
+    }, [tool?.category, fetchAgentOptions]);
 
     const handleSave = async () => {
         if (!tool) return;
@@ -408,6 +460,11 @@ export default function ToolDetailPage() {
         // Validation based on tool type
         if (tool.category === "calculator") {
             // No validation needed for built-in tools
+        } else if (tool.category === "transfer_agent") {
+            if (!transferAgentWorkflowId) {
+                setError("Choose the agent to transfer to");
+                return;
+            }
         } else if (tool.category === "transfer_call") {
             if (transferDestinationSource === "static" && !normalizedTransferDestination) {
                 setError("Please enter a transfer destination");
@@ -636,6 +693,15 @@ export default function ToolDetailPage() {
                     description: description || undefined,
                     definition: createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter),
                 };
+            } else if (tool.category === "transfer_agent") {
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: createTransferAgentDefinition({
+                        workflow_id: Number(transferAgentWorkflowId),
+                        message: transferAgentMessage.trim(),
+                    }),
+                };
             } else {
                 // Build HTTP API request body
                 const headersObject: Record<string, string> = {};
@@ -823,6 +889,7 @@ const data = await response.json();`;
 
     const isEndCallTool = tool.category === "end_call";
     const isTransferCallTool = tool.category === "transfer_call";
+    const isTransferAgentTool = tool.category === "transfer_agent";
     const isBuiltinTool = tool.category === "calculator";
     const isMcpTool = tool.category === "mcp";
     const isHttpApiTool = tool.category === "http_api";
@@ -969,6 +1036,19 @@ const data = await response.json();`;
                             onContextDestinationRulesChange={setTransferContextDestinationRules}
                             fallbackDestination={transferFallbackDestination}
                             onFallbackDestinationChange={setTransferFallbackDestination}
+                        />
+                    ) : isTransferAgentTool ? (
+                        <TransferAgentToolConfig
+                            name={name}
+                            onNameChange={setName}
+                            description={description}
+                            onDescriptionChange={setDescription}
+                            workflowId={transferAgentWorkflowId}
+                            onWorkflowIdChange={setTransferAgentWorkflowId}
+                            workflows={agentOptions}
+                            workflowsLoading={agentOptionsLoading}
+                            message={transferAgentMessage}
+                            onMessageChange={setTransferAgentMessage}
                         />
                     ) : isMcpTool ? (
                         <Card>

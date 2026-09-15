@@ -2,12 +2,15 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.worker import PipelineWorker
 
 from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.workflow.agent_runtime import AgentRuntime
 from api.services.workflow.pipecat_engine import PipecatEngine
 
 ReadyCallback = Callable[[], Awaitable[None]]
@@ -41,8 +44,8 @@ async def run_engine_test_pipeline(
             await on_ready()
             return
 
-        await engine.set_node(engine.workflow.start_node_id)
-        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+        await engine.set_node(engine.active_agent.workflow.start_node_id)
+        await engine.active_agent.llm.queue_frame(LLMContextFrame(engine.context))
 
     async def maybe_trigger_test() -> None:
         if (
@@ -68,3 +71,38 @@ async def run_engine_test_pipeline(
     else:
         async with asyncio.timeout(timeout):
             await run_pipeline_worker(task)
+
+
+def stub_agent_runtime(
+    *,
+    queue_frame: Callable[[Any], Awaitable[None]] | None = None,
+    llm: Any = None,
+    tts: Any = None,
+    visit_id: str = "visit-test",
+) -> AgentRuntime:
+    """An ``AgentRuntime`` for stubs that borrow real ``PipecatEngine`` methods.
+
+    Speech and generation go through the running agent, so a stub that only
+    sets ``task`` never sees the frames it is asserting on. Assign the result
+    to the stub's ``_active_agent``.
+
+    Args:
+        queue_frame: Where frames the agent speaks are delivered. Usually the
+            test's own recorder.
+        llm: Stands in for the agent's conversation LLM.
+        tts: Stands in for the agent's TTS service.
+        visit_id: Visit identifier, for tests that assert attribution.
+    """
+    worker = SimpleNamespace(queue_frame=queue_frame or AsyncMock())
+    return AgentRuntime(
+        visit_id=visit_id,
+        workflow_id=0,
+        definition_id=None,
+        workflow_name="test",
+        workflow=None,
+        llm=llm,
+        inference_llm=llm,
+        variable_extraction_llm=llm,
+        worker=worker,
+        tts=tts,
+    )

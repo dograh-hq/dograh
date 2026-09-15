@@ -226,6 +226,7 @@ class ToolCategory(Enum):
     HTTP_API = "http_api"  # Custom HTTP API calls (implemented)
     END_CALL = "end_call"  # End call tool
     TRANSFER_CALL = "transfer_call"  # Transfer call to phone number (Twilio only)
+    TRANSFER_AGENT = "transfer_agent"  # Hand the live call to another Dograh agent
     CALCULATOR = "calculator"  # Built-in calculator tool
     NATIVE = "native"  # Built-in integrations (future: dtmf_input)
     INTEGRATION = "integration"  # Third-party integrations (future: Google Calendar, Salesforce, etc.)

@@ -76,11 +76,13 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
     fetched, permission = asyncio.Event(), asyncio.Event()
     supervisor = SimpleNamespace(arm=Mock())
     engine = SimpleNamespace(
-        workflow=SimpleNamespace(start_node_id="start"),
+        active_agent=SimpleNamespace(workflow=SimpleNamespace(start_node_id="start")),
         _call_context_vars={},
         set_node=AsyncMock(),
         queue_node_opening=AsyncMock(),
         handle_answer_supervision=AsyncMock(side_effect=permission.wait),
+        # Readiness now also waits for the agent this call starts on.
+        start_initial_agent=AsyncMock(return_value=True),
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
@@ -119,11 +121,15 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
     try:
         async with asyncio.timeout(1):
             while not supervisor.arm.called:
+                if connected.done():
+                    await connected
                 await asyncio.sleep(0)
         engine.set_node.assert_not_awaited()
         fetched.set()
         async with asyncio.timeout(1):
             while not engine.handle_answer_supervision.called:
+                if connected.done():
+                    await connected
                 await asyncio.sleep(0)
         engine.set_node.assert_awaited_once_with("start")
         engine.queue_node_opening.assert_not_awaited()

@@ -211,15 +211,17 @@ async def test_edge_speech_policy_preserves_node_transition(
     await transition(SimpleNamespace(arguments={}, result_callback=result))
 
     if is_realtime:
-        engine.task.queue_frame.assert_not_awaited()
+        engine.call_worker.queue_frame.assert_not_awaited()
     else:
-        frame = engine.task.queue_frame.await_args.args[0]
+        frame = engine.call_worker.queue_frame.await_args.args[0]
         assert frame.text == "Let me ask a few questions."
         assert not frame.append_to_context
     assert await engine.should_mute_user(InputAudioRawFrame(bytes(640), 16000, 1)) == (
         not is_realtime
     )
-    engine.set_node.assert_awaited_once_with("agent")
+    engine.set_node.assert_awaited_once_with(
+        "agent", origin_visit_id=engine.active_agent.visit_id
+    )
     assert result.await_args.args == ({"status": "done"},)
 
 
@@ -240,9 +242,9 @@ async def test_tool_message_reports_playback_only_when_text_is_queued(
     )
     assert queued == (not is_realtime)
     if is_realtime:
-        engine.task.queue_frame.assert_not_awaited()
+        engine.call_worker.queue_frame.assert_not_awaited()
     else:
-        frame = engine.task.queue_frame.await_args.args[0]
+        frame = engine.call_worker.queue_frame.await_args.args[0]
         assert frame.text == "Goodbye!"
         assert frame.append_to_context
 

@@ -195,7 +195,9 @@ class AgentTransferCoordinator:
                 else (
                     "prepare_timeout"
                     if isinstance(error, TimeoutError)
-                    else "opening_failed" if committed else "internal_error"
+                    else "opening_failed"
+                    if committed
+                    else "internal_error"
                 )
             )
             logger.opt(exception=error).warning(

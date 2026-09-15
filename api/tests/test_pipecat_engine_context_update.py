@@ -178,25 +178,25 @@ class TestContextUpdateBeforeNextCompletion:
         )
 
         # Should have been called 3 times: start node, agent node, end node
-        assert (
-            llm.get_current_step() == 3
-        ), f"Expected 3 LLM generations (start, agent, end), got {llm.get_current_step()}"
+        assert llm.get_current_step() == 3, (
+            f"Expected 3 LLM generations (start, agent, end), got {llm.get_current_step()}"
+        )
 
         # Verify step 0 (start node) had start node's system prompt
         step_0_prompt = llm.get_system_prompt_at_step(0)
-        assert (
-            START_CALL_SYSTEM_PROMPT in step_0_prompt
-        ), f"Step 0 should have start node prompt, got: {step_0_prompt[:100]}"
+        assert START_CALL_SYSTEM_PROMPT in step_0_prompt, (
+            f"Step 0 should have start node prompt, got: {step_0_prompt[:100]}"
+        )
 
         # Verify step 1 (agent node) had:
         # 1. The agent node's system prompt (not start node's)
         step_1_prompt = llm.get_system_prompt_at_step(1)
-        assert (
-            AGENT_SYSTEM_PROMPT in step_1_prompt
-        ), f"Step 1 should have agent node prompt, got: {step_1_prompt[:100]}"
-        assert (
-            START_CALL_SYSTEM_PROMPT not in step_1_prompt
-        ), "Step 1 should NOT have start node prompt anymore"
+        assert AGENT_SYSTEM_PROMPT in step_1_prompt, (
+            f"Step 1 should have agent node prompt, got: {step_1_prompt[:100]}"
+        )
+        assert START_CALL_SYSTEM_PROMPT not in step_1_prompt, (
+            "Step 1 should NOT have start node prompt anymore"
+        )
 
         # 2. The tool call result from collect_info
         step_1_context = llm.get_context_at_step(1)
@@ -252,9 +252,9 @@ class TestContextUpdateBeforeNextCompletion:
         )
 
         # Verify all three nodes were executed
-        assert (
-            llm.get_current_step() == 3
-        ), f"Expected 3 steps, got {llm.get_current_step()}"
+        assert llm.get_current_step() == 3, (
+            f"Expected 3 steps, got {llm.get_current_step()}"
+        )
 
         # Step 0: Start node - should have start prompt
         assert START_CALL_SYSTEM_PROMPT in llm.get_system_prompt_at_step(0)
@@ -282,9 +282,9 @@ class TestContextUpdateBeforeNextCompletion:
             for msg in step_2_ctx["messages"]
             if msg.get("role") == "tool" or msg.get("tool_call_id")
         ]
-        assert (
-            len(step_2_tool_messages) >= 2
-        ), f"End node should see at least 2 tool results, got {len(step_2_tool_messages)}"
+        assert len(step_2_tool_messages) >= 2, (
+            f"End node should see at least 2 tool results, got {len(step_2_tool_messages)}"
+        )
 
     @pytest.mark.asyncio
     async def test_context_messages_preserve_conversation_history(
@@ -327,18 +327,18 @@ class TestContextUpdateBeforeNextCompletion:
         ctx_2 = llm.get_context_at_step(2)
 
         # Message count should increase as conversation progresses
-        assert len(ctx_1["messages"]) > len(
-            ctx_0["messages"]
-        ), "Context at step 1 should have more messages than step 0"
+        assert len(ctx_1["messages"]) > len(ctx_0["messages"]), (
+            "Context at step 1 should have more messages than step 0"
+        )
 
-        assert len(ctx_2["messages"]) > len(
-            ctx_1["messages"]
-        ), "Context at step 2 should have more messages than step 1"
+        assert len(ctx_2["messages"]) > len(ctx_1["messages"]), (
+            "Context at step 2 should have more messages than step 1"
+        )
 
         # Verify assistant messages are accumulated
         assistant_messages_at_step_2 = [
             msg for msg in ctx_2["messages"] if msg.get("role") == "assistant"
         ]
-        assert (
-            len(assistant_messages_at_step_2) >= 2
-        ), "Should have at least 2 assistant messages by step 2"
+        assert len(assistant_messages_at_step_2) >= 2, (
+            "Should have at least 2 assistant messages by step 2"
+        )

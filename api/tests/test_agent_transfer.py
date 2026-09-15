@@ -857,9 +857,9 @@ async def test_the_caller_hears_a_ringer_that_stops_before_the_destination_speak
         assert ringer_frames, "the caller heard no hold audio while waiting"
         # Chunked so that stopping leaves at most one chunk already queued;
         # a whole clip would keep ringing over the destination's greeting.
-        assert (
-            max(ringer_frames) <= 16000 * 2 * 0.25
-        ), "hold audio is queued in chunks, not whole clips"
+        assert max(ringer_frames) <= 16000 * 2 * 0.25, (
+            "hold audio is queued in chunks, not whole clips"
+        )
 
         # The ringer producer is stopped and awaited before the destination is
         # asked to open.
@@ -1000,9 +1000,9 @@ async def test_the_call_worker_keeps_its_own_liveness_and_control_frames():
         InterruptionWorkerFrame,
         InputAudioRawFrame,
     ):
-        assert (
-            frame_type in CALL_FRAMES
-        ), f"{frame_type.__name__} would be published to the bus and lost"
+        assert frame_type in CALL_FRAMES, (
+            f"{frame_type.__name__} would be published to the bus and lost"
+        )
 
 
 @pytest.mark.asyncio
@@ -1030,20 +1030,20 @@ async def test_agent_generations_are_traced_into_the_calls_turns():
     await harness.start()
     try:
         agent = harness.engine.active_agent
-        assert (
-            agent.worker.turn_tracking_observer is None
-        ), "an agent worker tracking its own turns would double-count them"
-        assert (
-            agent.worker._tracing_context is harness.call_worker._tracing_context
-        ), "the agent's services resolve their parent span through this"
+        assert agent.worker.turn_tracking_observer is None, (
+            "an agent worker tracking its own turns would double-count them"
+        )
+        assert agent.worker._tracing_context is harness.call_worker._tracing_context, (
+            "the agent's services resolve their parent span through this"
+        )
         # What the `@traced_llm`/`@traced_tts` decorators actually gate on.
         # They read this before they look at any context, so a child holding
         # the call's context while its services have tracing off still emits
         # nothing.
         for service in (agent.llm, agent.tts):
-            assert (
-                service._tracing_enabled
-            ), f"{type(service).__name__} would skip tracing entirely"
+            assert service._tracing_enabled, (
+                f"{type(service).__name__} would skip tracing entirely"
+            )
     finally:
         await harness.stop()
 

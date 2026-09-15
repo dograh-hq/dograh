@@ -2642,12 +2642,8 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
-                200
-            )
-            mock_client.return_value.__aenter__.return_value.request.return_value.json.return_value = (
-                {}
-            )
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 200
+            mock_client.return_value.__aenter__.return_value.request.return_value.json.return_value = {}
 
             await execute_http_tool(tool, {"userId": "123"})
 
@@ -2679,9 +2675,7 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
-                204
-            )
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
 
             await execute_http_tool(tool, {"reservationId": "AWAEYPKI-1"})
 
@@ -2713,9 +2707,7 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
-                204
-            )
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
 
             result = await execute_http_tool(
                 tool, {"reservationId": "123"}, include_request_headers=True
@@ -2745,9 +2737,7 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
-                204
-            )
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
 
             result = await execute_http_tool(
                 tool, {"reservationId": "123"}, include_request_headers=False
@@ -2783,9 +2773,7 @@ class TestUrlPathParameters:
         with patch(
             "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
         ) as mock_client:
-            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = (
-                204
-            )
+            mock_client.return_value.__aenter__.return_value.request.return_value.status_code = 204
 
             await execute_http_tool(tool, {"userId": "123"})
 

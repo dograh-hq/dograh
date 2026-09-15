@@ -69,7 +69,7 @@ class AgentBridgeProcessor(BusBridgeProcessor):
         *,
         selected_visit: Callable[[], str | None],
         allow_inference: Callable[[], bool],
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self._selected_visit = selected_visit

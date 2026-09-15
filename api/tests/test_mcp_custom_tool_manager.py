@@ -142,8 +142,8 @@ async def test_per_node_mcp_filter_intersection(monkeypatch):
         engine.active_agent = stub_agent_runtime(llm=MagicMock())
         engine.active_agent.mcp_sessions = {tool.tool_uuid: session}
         registered = {}
-        engine.active_agent.llm.register_function = (
-            lambda name, fn, **kw: registered.__setitem__(name, fn)
+        engine.active_agent.llm.register_function = lambda name, fn, **kw: (
+            registered.__setitem__(name, fn)
         )
 
         mgr = CustomToolManager(engine)

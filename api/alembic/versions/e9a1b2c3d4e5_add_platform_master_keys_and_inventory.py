@@ -1,7 +1,7 @@
 """add platform master keys and inventory
 
 Revision ID: e9a1b2c3d4e5
-Revises: c4e21b7f80a9
+Revises: 3a7b91c5d402
 Create Date: 2026-09-10 17:15:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "e9a1b2c3d4e5"
-down_revision: Union[str, None] = "c4e21b7f80a9"
+down_revision: Union[str, None] = "3a7b91c5d402"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

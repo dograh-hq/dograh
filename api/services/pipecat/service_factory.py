@@ -263,7 +263,7 @@ def create_stt_service(
     logger.info(
         f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
     )
-    if not getattr(user_config.stt, "api_key", None):
+    if getattr(user_config, "use_platform_credentials", False) or not getattr(user_config.stt, "api_key", None):
         from api.services.platform_keys import get_platform_master_key
         master_key = get_platform_master_key("stt", user_config.stt.provider)
         if master_key:
@@ -578,7 +578,7 @@ def create_tts_service(
     logger.info(
         f"Creating TTS service: provider={user_config.tts.provider}, model={user_config.tts.model}"
     )
-    if not getattr(user_config.tts, "api_key", None):
+    if getattr(user_config, "use_platform_credentials", False) or not getattr(user_config.tts, "api_key", None):
         from api.services.platform_keys import get_platform_master_key
         master_key = get_platform_master_key("tts", user_config.tts.provider)
         if master_key:
@@ -1409,6 +1409,8 @@ def create_llm_service(
     provider = user_config.llm.provider
     model = user_config.llm.model
     api_key = user_config.llm.api_key
+    if getattr(user_config, "use_platform_credentials", False):
+        api_key = None
 
     kwargs = {}
     if provider in (

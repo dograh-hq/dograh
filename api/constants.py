@@ -1,13 +1,19 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 from api.enums import Environment
 
-ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 # Absolute path to the project root directory (i.e. the directory containing
 # the top-level api/ package). Having a single canonical location helps
 # when constructing file-system paths elsewhere in the codebase.
 APP_ROOT_DIR: Path = Path(__file__).resolve().parent
+
+_env_file = APP_ROOT_DIR / ".env"
+if _env_file.exists():
+    load_dotenv(_env_file, override=(os.getenv("ENVIRONMENT", "local") == "local"))
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 
 FILLER_SOUND_PROBABILITY = 0.0
 

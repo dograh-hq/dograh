@@ -384,6 +384,7 @@ def convert_legacy_ai_model_configuration_to_v2(
             raise ValueError("Realtime legacy configuration is incomplete")
         return OrganizationAIModelConfigurationV2(
             mode="byok",
+            use_platform_credentials=getattr(configuration, "use_platform_credentials", False),
             byok=BYOKAIModelConfiguration(
                 mode="realtime",
                 realtime=BYOKRealtimeAIModelConfiguration(
@@ -402,6 +403,7 @@ def convert_legacy_ai_model_configuration_to_v2(
         raise ValueError("Pipeline legacy configuration is incomplete")
     return OrganizationAIModelConfigurationV2(
         mode="byok",
+        use_platform_credentials=getattr(configuration, "use_platform_credentials", False),
         byok=BYOKAIModelConfiguration(
             mode="pipeline",
             pipeline=BYOKPipelineAIModelConfiguration(

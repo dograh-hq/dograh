@@ -37,6 +37,7 @@ class EffectiveAIModelConfiguration(BaseModel):
     test_phone_number: str | None = None
     timezone: str | None = None
     last_validated_at: datetime | None = None
+    use_platform_credentials: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -102,6 +103,7 @@ class OrganizationAIModelConfigurationV2(BaseModel):
     mode: Literal["dograh", "byok"]
     dograh: DograhManagedAIModelConfiguration | None = None
     byok: BYOKAIModelConfiguration | None = None
+    use_platform_credentials: bool = False
 
     @model_validator(mode="after")
     def validate_selected_mode(self):
@@ -124,7 +126,9 @@ def compile_ai_model_configuration_v2(
     if configuration.mode == "dograh":
         if configuration.dograh is None:
             raise ValueError("dograh configuration is required")
-        return _compile_dograh_configuration(configuration.dograh)
+        effective = _compile_dograh_configuration(configuration.dograh)
+        effective.use_platform_credentials = True
+        return effective
 
     if configuration.byok is None:
         raise ValueError("byok configuration is required")
@@ -138,6 +142,7 @@ def compile_ai_model_configuration_v2(
             stt=pipeline.stt,
             embeddings=pipeline.embeddings,
             is_realtime=False,
+            use_platform_credentials=configuration.use_platform_credentials,
         )
 
     if configuration.byok.realtime is None:
@@ -148,6 +153,7 @@ def compile_ai_model_configuration_v2(
         realtime=realtime.realtime,
         embeddings=realtime.embeddings,
         is_realtime=True,
+        use_platform_credentials=configuration.use_platform_credentials,
     )
 
 

@@ -168,17 +168,21 @@ def _create_answer_supervisor(
     return AnswerSupervisor(config, context=context, classify=classifier.classify)
 
 
-def _create_user_mute_strategies(engine, answer_supervisor):
+def _create_user_mute_strategies(
+    engine, answer_supervisor, *, realtime_provider: str | None = None
+):
     first_speech = (
         FirstSpeechUserMuteStrategy()
         if answer_supervisor is not None
         else MuteUntilFirstBotCompleteUserMuteStrategy()
     )
-    return [
-        first_speech,
-        FunctionCallUserMuteStrategy(),
-        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-    ]
+    strategies = [first_speech]
+    if realtime_provider != ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value:
+        strategies.append(FunctionCallUserMuteStrategy())
+    strategies.append(
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user)
+    )
+    return strategies
 
 
 def _resolve_user_turn_stop_timeout(
@@ -992,7 +996,11 @@ async def _run_pipeline_impl(
         get_parent_context=engine._get_otel_context,
         workflow_inference_llm=inference_llm if is_subscription else None,
     )
-    user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
+    user_mute_strategies = _create_user_mute_strategies(
+        engine,
+        answer_supervisor,
+        realtime_provider=user_config.realtime.provider if is_realtime else None,
+    )
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration

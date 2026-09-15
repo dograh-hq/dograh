@@ -87,13 +87,14 @@ class StartCall(TypedNode):
 
     delayed_start: bool = False
     """
-    When true, the agent waits before speaking after pickup. Useful for
-    outbound calls where the called party needs a moment to settle.
+    Set the initial listening window for outbound voicemail and screening
+    handling. A brief human greeting can end the wait sooner.
     """
 
-    delayed_start_duration: float = 2.0
+    delayed_start_duration: float = 1.2
     """
-    Seconds to wait before the agent speaks. 0.1–10.
+    Seconds to listen for a silent answer before opening. 0.1–10. Replaces
+    the default 1.2-second listening window.
     """
 
     extraction_enabled: bool = False

@@ -7,9 +7,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { getAuthProvider } from '@/lib/auth/config';
-
-const OSS_TOKEN_COOKIE = 'dograh_auth_token';
-const OSS_USER_COOKIE = 'dograh_auth_user';
+import { OSS_TOKEN_COOKIE, OSS_USER_COOKIE } from '@/lib/auth/cookies';
 
 export async function GET() {
   const authProvider = await getAuthProvider();

@@ -33,6 +33,7 @@ from api.services.pipecat.realtime.aws_nova_sonic import (
     DograhAWSNovaSonicLLMService,
 )
 from api.services.pipecat.service_factory import create_realtime_llm_service
+from api.services.workflow.pipecat_engine import PipecatEngine
 
 
 def _make_service() -> DograhAWSNovaSonicLLMService:
@@ -258,6 +259,55 @@ async def test_reconnect_serializes_valid_history_and_tracks_existing_tool_resul
 
 
 @pytest.mark.asyncio
+async def test_error_reset_sets_up_new_session_before_processing_tool_history():
+    service = _make_service()
+    context = LLMContext(
+        [
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "End the call."},
+            {"role": "tool", "tool_call_id": "old-call", "content": "done"},
+        ]
+    )
+    service._context = context
+    service._handled_initial_context = True
+    service._connected_time = 1.0
+    service._completed_tool_calls = {"old-call"}
+    service._settings.system_instruction = "Say goodbye."
+    old_stream = SimpleNamespace(close=AsyncMock())
+    new_stream = SimpleNamespace(input_stream=SimpleNamespace(send=AsyncMock()))
+    service._stream = old_stream
+    service.create_client = MagicMock(
+        return_value=SimpleNamespace(
+            invoke_model_with_bidirectional_stream=AsyncMock(return_value=new_stream)
+        )
+    )
+    service.create_task = lambda coro: coro.close()
+    service._sc.start_monitor = MagicMock()
+    service.push_error = AsyncMock()
+
+    await service.reset_conversation()
+
+    events = [
+        json.loads(call.args[0].value.bytes_)["event"]
+        for call in new_stream.input_stream.send.await_args_list
+    ]
+    assert [next(iter(event)) for event in events[:2]] == [
+        "sessionStart",
+        "promptStart",
+    ]
+    assert not any("toolResult" in event for event in events)
+    assert not any(
+        event.get("contentStart", {}).get("type") == "TOOL" for event in events
+    )
+    assert service._audio_input_started
+    assert service._connected_time
+    assert service._context is context
+    assert service._completed_tool_calls == {"old-call"}
+    old_stream.close.assert_awaited_once()
+    service.push_error.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_initial_context_triggers_native_nova_response_when_prepopulated():
     service = _make_service()
     context = LLMContext()
@@ -383,6 +433,62 @@ async def test_muted_audio_buffers_only_silence_during_session_handoff():
 
     service._sc.on_audio_input.assert_called_once_with(bytes(640))
     service._send_user_audio_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("muted", [False, True])
+async def test_audio_waits_for_complete_interactive_text_block(muted):
+    service = _make_service()
+    service._stream = object()
+    service._prompt_name = "prompt"
+    service._input_audio_content_name = "audio"
+    service._audio_input_started = True
+    service._user_is_muted = muted
+    text_started = asyncio.Event()
+    finish_text = asyncio.Event()
+    audio_attempted = asyncio.Event()
+    events = []
+
+    async def capture_event(event_json, stream):
+        event = json.loads(event_json)["event"]
+        events.append(event)
+        if event.get("contentStart", {}).get("type") == "TEXT":
+            text_started.set()
+            await finish_text.wait()
+
+    service.send_event = AsyncMock(side_effect=capture_event)
+
+    async def send_audio():
+        audio_attempted.set()
+        await service._handle_input_audio_frame(
+            InputAudioRawFrame(b"\x01\x02" * 320, 16000, 1)
+        )
+
+    text_task = asyncio.create_task(
+        service._send_text_event("Continue now.", Role.USER, interactive=True)
+    )
+    tasks = [text_task]
+    try:
+        await asyncio.wait_for(text_started.wait(), timeout=1)
+        tasks.append(asyncio.create_task(send_audio()))
+        await asyncio.wait_for(audio_attempted.wait(), timeout=1)
+        finish_text.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=1)
+    finally:
+        finish_text.set()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert [next(iter(event)) for event in events] == [
+        "contentStart",
+        "textInput",
+        "contentEnd",
+        "audioInput",
+    ]
+    assert base64.b64decode(events[-1]["audioInput"]["content"]) == (
+        bytes(640) if muted else b"\x01\x02" * 320
+    )
 
 
 @pytest.mark.asyncio
@@ -597,6 +703,73 @@ async def test_node_prompt_update_reconnects_after_updated_context_arrives():
     assert service._awaiting_node_transition_context is False
     assert service._sc._conversation_history == []
     assert service._pending_initial_prompt is None
+
+
+@pytest.mark.asyncio
+async def test_end_node_reconnect_removes_previous_transition_tools(
+    three_node_workflow_no_variable_extraction,
+):
+    service = _make_service()
+    context = LLMContext([{"role": "user", "content": "End the call."}])
+    engine = PipecatEngine(
+        llm=service,
+        context=context,
+        workflow=three_node_workflow_no_variable_extraction,
+        call_context_vars={},
+        is_realtime=True,
+    )
+    service.send_event = AsyncMock()
+    service._send_text_event = AsyncMock()
+    service._send_audio_input_start_event = AsyncMock()
+    service._sc.start_monitor = MagicMock()
+
+    # Retain native reconnect/session setup and serialization; replace the
+    # transport boundary and background network receive task only.
+    service.create_task = lambda coro: coro.close()
+
+    async def connect():
+        service._connected_time = None
+        service._ready_to_send_context = True
+        service._prompt_name = "test-prompt"
+        service._stream = object()
+        await service._finish_connecting_if_context_available()
+
+    service._start_connecting = AsyncMock(side_effect=connect)
+    service._disconnect = AsyncMock()
+    await engine.set_node("agent")
+    await service._handle_context(context)
+    await connect()
+    initial_prompt = json.loads(service.send_event.await_args.args[0])["event"][
+        "promptStart"
+    ]
+    assert [
+        tool["toolSpec"]["name"]
+        for tool in initial_prompt["toolConfiguration"]["tools"]
+    ] == [engine.workflow.nodes["agent"].out_edges[0].get_function_name()]
+    service.send_event.reset_mock()
+    service._send_text_event.reset_mock()
+
+    await engine.set_node("end")
+    await service._handle_context(context)
+
+    service._disconnect.assert_awaited_once()
+    service._start_connecting.assert_awaited_once()
+    closing_prompt = json.loads(service.send_event.await_args.args[0])["event"][
+        "promptStart"
+    ]
+    assert "toolConfiguration" not in closing_prompt
+    assert service.get_setup_params()[1] == []
+    sent_text = service._send_text_event.await_args_list
+    assert sent_text[0].kwargs == {
+        "text": service._settings.system_instruction,
+        "role": Role.SYSTEM,
+    }
+    assert engine.workflow.nodes["end"].prompt in sent_text[0].kwargs["text"]
+    assert sent_text[-1].kwargs == {
+        "text": "End the call.",
+        "role": Role.USER,
+        "interactive": True,
+    }
 
 
 @pytest.mark.asyncio

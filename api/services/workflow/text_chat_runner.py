@@ -8,6 +8,7 @@ from typing import Any
 from fastapi.encoders import jsonable_encoder
 from pipecat.bus.serializers.json import JSONMessageSerializer
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
@@ -18,6 +19,7 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     TTSSpeakFrame,
+    TTSStartedFrame,
     TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -214,6 +216,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
         self,
         response_window: _ResponseWindowState,
         context: LLMContext,
+        engine: PipecatEngine,
     ) -> None:
         super().__init__()
         self.last_activity_at = time.monotonic()
@@ -221,6 +224,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
         self.events: list[dict[str, Any]] = []
         self._response_window = response_window
         self._context = context
+        self._engine = engine
 
     def _touch(self) -> None:
         self.last_activity_at = time.monotonic()
@@ -245,17 +249,23 @@ class _TextChatCaptureProcessor(FrameProcessor):
             )
             text = frame.text.strip()
             if text:
+                await self._engine.should_mute_user(BotStartedSpeakingFrame())
                 self._response_window.outputs.append(text)
                 if append_to_context:
                     self._context.add_message({"role": "assistant", "content": text})
+                await self._engine.should_mute_user(BotStoppedSpeakingFrame())
             return
 
         if isinstance(frame, LLMContextFrame) and direction == FrameDirection.UPSTREAM:
             self._response_window.note_upstream_context_request()
 
+        if isinstance(frame, TTSStartedFrame):
+            await self._engine.should_mute_user(BotStartedSpeakingFrame())
+
         if isinstance(frame, TTSStoppedFrame):
             await self.push_frame(frame, direction)
             await self.push_frame(LLMAssistantPushAggregationFrame(), direction)
+            await self._engine.should_mute_user(BotStoppedSpeakingFrame())
             return
 
         if (
@@ -263,6 +273,9 @@ class _TextChatCaptureProcessor(FrameProcessor):
             and direction == FrameDirection.DOWNSTREAM
         ):
             self._response_window.note_llm_start()
+            # Text delivery is this pipeline's playback boundary. Feed the
+            # shared engine tracker even though there is no audio transport.
+            await self._engine.should_mute_user(BotStartedSpeakingFrame())
 
         if (
             isinstance(frame, LLMFullResponseEndFrame)
@@ -274,6 +287,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
             # would otherwise leave function calls waiting forever on a
             # BotStoppedSpeakingFrame that never arrives.
             await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+            await self._engine.should_mute_user(BotStoppedSpeakingFrame())
             return
 
         if isinstance(frame, FunctionCallInProgressFrame):
@@ -510,6 +524,7 @@ async def execute_text_chat_pending_turn(
     }
     initial_context = {
         **base_initial_context,
+        "workflow_run_id": workflow_run_id,
         "runtime_configuration": runtime_configuration,
     }
     if mps_correlation_id:
@@ -554,9 +569,6 @@ async def execute_text_chat_pending_turn(
         _deserialize_text_chat_checkpoint_messages(base_checkpoint["messages"])
     )
     response_window = _ResponseWindowState()
-    capture_processor = _TextChatCaptureProcessor(response_window, context)
-
-    node_transition_events = capture_processor.events
 
     async def send_node_transition(
         node_id: str,
@@ -627,6 +639,8 @@ async def execute_text_chat_pending_turn(
         run_transition_variable_extraction_in_background=False,
     )
     engine._gathered_context = dict(base_checkpoint["gathered_context"])
+    capture_processor = _TextChatCaptureProcessor(response_window, context, engine)
+    node_transition_events = capture_processor.events
 
     assistant_params = LLMAssistantAggregatorParams()
     context_aggregator = LLMContextAggregatorPair(

@@ -1,3 +1,18 @@
+# Vertex serves generative models from three shapes of endpoint, and the location
+# is what picks between them: a single region (europe-west4), one of the two
+# multi-regions (eu, us), or global. Only the regional and multi-region
+# endpoints carry a data residency commitment - global explicitly does not, and
+# routes requests anywhere in the world. The eu multi-region covers EU member
+# states only; the UK and Switzerland are outside it.
+# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/data-residency
+GOOGLE_VERTEX_DEFAULT_LOCATION = "global"
+
+# Deliberately only the three locations that decide the residency question.
+# Individual regions vary in which models they serve and would go stale here, so
+# operators who need one type it in rather than picking it from a list that
+# claims more than we can keep true.
+GOOGLE_VERTEX_LOCATIONS = (GOOGLE_VERTEX_DEFAULT_LOCATION, "eu", "us")
+
 GOOGLE_MODELS = (
     "gemini-3.5-flash",
     "gemini-3.5-flash-lite",

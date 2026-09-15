@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from api.schemas.answer_supervisor import DEFAULT_LISTENING_WINDOW_SECONDS
 from api.services.integrations import (
     all_packages,
 )
@@ -285,14 +286,17 @@ class _ToolDocumentRefsMixin(BaseModel):
         "delayed_start": {
             "display_name": "Delayed Start",
             "description": (
-                "When true, the agent waits before speaking after pickup. Useful "
-                "for outbound calls where the called party needs a moment to settle."
+                "Set the initial listening window for outbound voicemail and screening "
+                "handling. A brief human greeting can end the wait sooner."
             ),
         },
         "delayed_start_duration": {
             "display_name": "Delay Duration (seconds)",
-            "description": "Seconds to wait before the agent speaks. 0.1–10.",
-            "spec_default": 2.0,
+            "description": (
+                "Seconds to listen for a silent answer before opening. 0.1–10. "
+                "Replaces the default 1.2-second listening window."
+            ),
+            "spec_default": DEFAULT_LISTENING_WINDOW_SECONDS,
             "min_value": 0.1,
             "max_value": 10.0,
             "display_options": DisplayOptions(show={"delayed_start": [True]}),

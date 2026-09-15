@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import {
     getCampaignApiV1CampaignCampaignIdGet,
     getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet,
+    listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
     updateCampaignApiV1CampaignCampaignIdPatch
 } from '@/client/sdk.gen';
 import type { CampaignResponse } from '@/client/types.gen';
@@ -17,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../../CampaignAdvancedSettings';
@@ -34,8 +36,11 @@ export default function EditCampaignPage() {
     // Form state
     const [campaignName, setCampaignName] = useState('');
     const [maxConcurrency, setMaxConcurrency] = useState<string>('');
+    const [rateLimitPerSecond, setRateLimitPerSecond] = useState('1');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+
+    const [outboundBlockedReason, setOutboundBlockedReason] = useState<string | null>(null);
 
     // Limits state
     const [orgConcurrentLimit, setOrgConcurrentLimit] = useState<number>(2);
@@ -71,12 +76,28 @@ export default function EditCampaignPage() {
     // Fetch campaign and populate form
     const fetchCampaign = useCallback(async () => {
         if (!user) return;
+        setIsLoading(true);
         try {
             const accessToken = await getAccessToken();
-            const response = await getCampaignApiV1CampaignCampaignIdGet({
-                path: { campaign_id: campaignId },
-                headers: { 'Authorization': `Bearer ${accessToken}` },
-            });
+            const headers = { 'Authorization': `Bearer ${accessToken}` };
+            const [response, defaultsResponse, configsResponse] = await Promise.all([
+                getCampaignApiV1CampaignCampaignIdGet({
+                    path: { campaign_id: campaignId },
+                    headers,
+                }),
+                getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({ headers }),
+                listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({ headers }),
+            ]);
+
+            if (response.error || !response.data) {
+                throw new Error(detailFromError(response.error, 'Failed to load campaign'));
+            }
+            if (defaultsResponse.error || !defaultsResponse.data) {
+                throw new Error(detailFromError(defaultsResponse.error, 'Failed to load campaign limits'));
+            }
+            if (configsResponse.error || !configsResponse.data) {
+                throw new Error(detailFromError(configsResponse.error, 'Failed to load telephony configurations'));
+            }
 
             if (response.data) {
                 const c = response.data;
@@ -87,10 +108,24 @@ export default function EditCampaignPage() {
                     return;
                 }
 
+                // Pinned campaigns use their own caller IDs. Only legacy campaigns
+                // without a selected configuration use the organization default.
+                const selectedConfig = configsResponse.data.configurations.find(
+                    (config) => config.id === c.telephony_configuration_id,
+                );
+                if (c.telephony_configuration_id != null && !selectedConfig) {
+                    throw new Error('The campaign\'s telephony configuration could not be found');
+                }
+                setOrgConcurrentLimit(defaultsResponse.data.concurrent_call_limit);
+                setOutboundBlockedReason(selectedConfig?.outbound_blocked_reason ?? null);
+                setFromNumbersCount(selectedConfig
+                    ? selectedConfig.phone_number_count ?? 0
+                    : defaultsResponse.data.from_numbers_count);
                 setCampaign(c);
 
                 // Populate form state
                 setCampaignName(c.name);
+                setRateLimitPerSecond(String(c.rate_limit_per_second));
                 setMaxConcurrency(c.max_concurrency ? String(c.max_concurrency) : '');
 
                 // Retry config
@@ -121,43 +156,21 @@ export default function EditCampaignPage() {
             }
         } catch (error) {
             console.error('Failed to fetch campaign:', error);
-            toast.error('Failed to load campaign');
+            toast.error(error instanceof Error ? error.message : 'Failed to load campaign');
             router.replace(`/campaigns/${campaignId}`);
         } finally {
             setIsLoading(false);
         }
     }, [user, getAccessToken, campaignId, router]);
 
-    // Fetch campaign limits
-    const fetchCampaignDefaults = useCallback(async () => {
-        if (!user) return;
-        try {
-            const accessToken = await getAccessToken();
-            const response = await getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({
-                headers: { 'Authorization': `Bearer ${accessToken}` },
-            });
-
-            if (response.data) {
-                setOrgConcurrentLimit(response.data.concurrent_call_limit);
-                setFromNumbersCount(response.data.from_numbers_count);
-            }
-        } catch (error) {
-            console.error('Failed to fetch campaign limits:', error);
-        }
-    }, [user, getAccessToken]);
-
     // Initial load
     useEffect(() => {
-        if (user) {
+        if (!loading && user) {
             fetchCampaign();
-            fetchCampaignDefaults();
         }
-    }, [fetchCampaign, fetchCampaignDefaults, user]);
+    }, [fetchCampaign, loading, user]);
 
-    // Effective concurrency limit
-    const effectiveLimit = fromNumbersCount > 0
-        ? Math.min(orgConcurrentLimit, fromNumbersCount)
-        : orgConcurrentLimit;
+    const effectiveLimit = orgConcurrentLimit;
 
     // Handle form submission
     const handleSubmit = async (e: React.FormEvent) => {
@@ -169,21 +182,17 @@ export default function EditCampaignPage() {
             return;
         }
 
-        // Validate max_concurrency if provided
-        const maxConcurrencyValue = maxConcurrency ? parseInt(maxConcurrency) : null;
-        if (maxConcurrencyValue !== null) {
-            if (isNaN(maxConcurrencyValue) || maxConcurrencyValue < 1 || maxConcurrencyValue > 100) {
-                toast.error('Max concurrent calls must be between 1 and 100');
-                return;
-            }
-            if (maxConcurrencyValue > effectiveLimit) {
-                if (fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. You have ${fromNumbersCount} phone number(s) configured - add more CLIs to increase concurrency.`);
-                } else {
-                    toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
-                }
-                return;
-            }
+        const maxConcurrencyValue = maxConcurrency ? Number(maxConcurrency) : null;
+        if (maxConcurrencyValue !== null && (
+            !Number.isInteger(maxConcurrencyValue) || maxConcurrencyValue < 1 || maxConcurrencyValue > effectiveLimit
+        )) {
+            toast.error(`Max concurrent calls must be between 1 and your organization limit (${effectiveLimit})`);
+            return;
+        }
+        const dialRate = Number(rateLimitPerSecond);
+        if (!Number.isInteger(dialRate) || dialRate < 1 || dialRate > orgConcurrentLimit) {
+            toast.error(`Calls started per second must be between 1 and ${orgConcurrentLimit}`);
+            return;
         }
 
         // Validate schedule slots if enabled
@@ -241,6 +250,7 @@ export default function EditCampaignPage() {
                     name: campaignName,
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
+                    rate_limit_per_second: dialRate,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
                 },
@@ -337,6 +347,9 @@ export default function EditCampaignPage() {
                             effectiveLimit={effectiveLimit}
                             orgConcurrentLimit={orgConcurrentLimit}
                             fromNumbersCount={fromNumbersCount}
+                            rateLimitPerSecond={rateLimitPerSecond}
+                            onRateLimitPerSecondChange={setRateLimitPerSecond}
+                            outboundBlockedReason={outboundBlockedReason}
                             retryEnabled={retryEnabled}
                             onRetryEnabledChange={setRetryEnabled}
                             maxRetries={maxRetries}

@@ -96,6 +96,7 @@ class RecordingEngine:
     """Engine stub that records the order of playback and transfer steps."""
 
     queue_text_message = PipecatEngine.queue_text_message
+    active_agent = PipecatEngine.active_agent
     _is_realtime = False
 
     def __init__(self):

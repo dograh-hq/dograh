@@ -762,7 +762,7 @@ async def execute_text_chat_pending_turn(
     )
     assistant_created_at = datetime.now(UTC).isoformat()
     usage = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
-    current_node = getattr(engine, "_current_node", None)
+    current_node = engine.active_agent.current_node
     context_messages = context.get_messages()
     encoded_messages = _serialize_text_chat_checkpoint_messages(context_messages)
     encoded_gathered_context = jsonable_encoder(gathered_context)

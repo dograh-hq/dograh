@@ -219,7 +219,9 @@ async def test_edge_speech_policy_preserves_node_transition(
     assert await engine.should_mute_user(InputAudioRawFrame(bytes(640), 16000, 1)) == (
         not is_realtime
     )
-    engine.set_node.assert_awaited_once_with("agent")
+    engine.set_node.assert_awaited_once_with(
+        "agent", origin_visit_id=engine.active_agent.visit_id
+    )
     assert result.await_args.args == ({"status": "done"},)
 
 

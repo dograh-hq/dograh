@@ -13,12 +13,15 @@ Modules under test:
 These are DB integration tests using the transactional test session.
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from api.db.models import (
     OrganizationModel,
     UserModel,
 )
+from api.services.workflow.duplicate import duplicate_workflow
 
 # Sample workflow definitions (graph JSON)
 GRAPH_V1 = {
@@ -737,3 +740,107 @@ class TestRunDefinitionBinding:
                 organization_id=org.id,
                 definition_id=workflow_b_definition.id,
             )
+
+
+# ---------------------------------------------------------------------------
+# Duplicate → the copy's published V1 carries the source configuration
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicate:
+    async def _published_source(self, db_session, org, user, configurations):
+        source = await db_session.create_workflow(
+            name="Source",
+            workflow_definition=GRAPH_V1,
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        await db_session.save_workflow_draft(
+            source.id,
+            workflow_configurations=configurations,
+            template_context_variables={"greeting": "hi"},
+        )
+        await db_session.publish_workflow_draft(source.id)
+        return source
+
+    async def test_duplicate_publishes_source_configuration(
+        self, db_session, org_and_user
+    ):
+        """Production runs pin the published definition, so the copy must be
+        born with the configuration published — not parked in a draft."""
+        org, user = org_and_user
+        configurations = {"max_call_duration": 600, "dictionary": "Dograh"}
+        source = await self._published_source(db_session, org, user, configurations)
+
+        copied = await duplicate_workflow(source.id, org.id, user.id)
+
+        versions = await db_session.get_workflow_versions(copied.id)
+        assert [v.status for v in versions] == ["published"]
+        assert copied.released_definition.workflow_configurations == configurations
+        assert copied.released_definition.template_context_variables == {
+            "greeting": "hi"
+        }
+        assert copied.workflow_configurations == configurations
+
+    async def test_duplicate_publishes_rewritten_ambient_noise_key(
+        self, db_session, org_and_user
+    ):
+        org, user = org_and_user
+        configurations = {
+            "ambient_noise_configuration": {
+                "enabled": True,
+                "storage_key": "ambient-noise/1/1/office.wav",
+            }
+        }
+        source = await self._published_source(db_session, org, user, configurations)
+
+        copy_object = AsyncMock(return_value=True)
+        with patch("api.services.workflow.duplicate._copy_storage_object", copy_object):
+            copied = await duplicate_workflow(source.id, org.id, user.id)
+
+        new_key = f"ambient-noise/{org.id}/{copied.id}/office.wav"
+        copy_object.assert_awaited_once_with(
+            "ambient-noise/1/1/office.wav", new_key, ""
+        )
+        versions = await db_session.get_workflow_versions(copied.id)
+        assert sorted(v.status for v in versions) == ["archived", "published"]
+        published = next(v for v in versions if v.status == "published")
+        assert published.version_number == 2
+        assert (
+            published.workflow_configurations["ambient_noise_configuration"][
+                "storage_key"
+            ]
+            == new_key
+        )
+        refreshed = await db_session.get_workflow_by_id(copied.id)
+        assert refreshed.released_definition_id == published.id
+
+    async def test_duplicate_survives_failed_ambient_noise_republish(
+        self, db_session, org_and_user
+    ):
+        """The workflow and the copied object are durable before the rewritten
+        key is published; a failure there degrades to the source reference
+        instead of surfacing as a failed duplicate."""
+        org, user = org_and_user
+        configurations = {
+            "ambient_noise_configuration": {
+                "enabled": True,
+                "storage_key": "ambient-noise/1/1/office.wav",
+            }
+        }
+        source = await self._published_source(db_session, org, user, configurations)
+
+        with (
+            patch(
+                "api.services.workflow.duplicate._copy_storage_object",
+                AsyncMock(return_value=True),
+            ),
+            patch(
+                "api.services.workflow.duplicate.db_client.publish_workflow_draft",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+        ):
+            copied = await duplicate_workflow(source.id, org.id, user.id)
+
+        assert copied.released_definition.version_number == 1
+        assert copied.released_definition.workflow_configurations == configurations

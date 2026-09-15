@@ -661,6 +661,9 @@ async def _run_pipeline_impl(
             merged_call_context_vars, call_context_vars
         )
 
+    # Use the actual run ID even if persisted context contains a stale value.
+    merged_call_context_vars["workflow_run_id"] = workflow_run_id
+
     # Only telephony passes an authenticated provider call identifier. Make it
     # available to workflow prompts and tools, overriding any stale or
     # externally supplied value persisted on the workflow run.

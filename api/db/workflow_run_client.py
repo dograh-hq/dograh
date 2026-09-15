@@ -364,7 +364,8 @@ class WorkflowRunClient(BaseDBClient):
         state: str | None = None,
         annotations: dict | None = None,
         extra: dict | None = None,
-    ) -> WorkflowRunModel:
+        only_if_incomplete: bool = False,
+    ) -> Optional[WorkflowRunModel]:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
             result = await session.execute(
@@ -375,6 +376,8 @@ class WorkflowRunClient(BaseDBClient):
             run = result.scalars().first()
             if not run:
                 raise ValueError(f"Workflow run with ID {run_id} not found")
+            if only_if_incomplete and run.is_completed:
+                return None
             if recording_url:
                 run.recording_url = recording_url
             if transcript_url:

@@ -68,7 +68,12 @@ from api.services.configuration.ai_model_configuration import (
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
-from api.services.configuration.masking import is_mask_of, mask_key, mask_user_config
+from api.services.configuration.masking import (
+    is_mask_of,
+    mask_key,
+    mask_user_config,
+    restore_masked_fields,
+)
 from api.services.configuration.registry import (
     DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
     DOGRAH_STT_LANGUAGES,
@@ -97,6 +102,9 @@ from api.services.telephony.factory import (
     get_setup_checklist,
     get_sip_connectivity_details,
     get_telephony_provider_by_id,
+)
+from api.services.telephony.phone_number_sync import (
+    sync_available_phone_numbers_for_config,
 )
 from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
@@ -146,6 +154,17 @@ def _credentials_for_display(provider_name: str, value: dict) -> dict:
     if spec:
         for field_name in spec.server_managed_credential_fields:
             out.pop(field_name, None)
+        if spec.config_response_cls:
+            try:
+                payload = dict(out)
+                if "provider" not in payload:
+                    payload["provider"] = provider_name
+                return spec.config_response_cls(**payload).model_dump()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to build response via {spec.config_response_cls.__name__} "
+                    f"for provider {provider_name}: {e}"
+                )
     return out
 
 
@@ -637,21 +656,13 @@ async def get_model_configuration_preferences_legacy(
     return await get_preferences(user=user)
 
 
-def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):
-    """If the client re-submitted a masked sensitive field, restore the original."""
-    for field_name in _sensitive_fields(provider):
-        v = _get_nested_field(request_dict, field_name)
-        existing_value = _get_nested_field(existing, field_name)
-        if v and is_mask_of(v, existing_value or ""):
-            _set_nested_field(request_dict, field_name, existing_value)
-
-
-def _get_nested_field(value: dict, dotted_path: str):
+def _get_nested_field(value: dict, dotted_path: str) -> Any:
+    """Resolve a dotted path in a nested dict, or None when it is not there."""
     current = value
     for part in dotted_path.split("."):
-        if not isinstance(current, dict):
+        if not isinstance(current, dict) or part not in current:
             return None
-        current = current.get(part)
+        current = current[part]
     return current
 
 
@@ -665,6 +676,44 @@ def _set_nested_field(value: dict, dotted_path: str, field_value) -> None:
             current[part] = child
         current = child
     current[parts[-1]] = field_value
+
+
+def _get_model_fields_set_paths(model: BaseModel, prefix: str = "") -> set[str]:
+    """Recursively collect dotted field paths that were explicitly set on a Pydantic model.
+
+    A nested path is only recorded under a parent that was itself set, so the
+    result is ancestor-closed: ``"a.b" in paths`` implies ``"a" in paths``.
+    ``preserve_masked_fields`` leans on that — it can settle "did the caller
+    say anything about this path?" with one membership test.
+    """
+    paths = set()
+    for field in model.model_fields_set:
+        full_path = f"{prefix}.{field}" if prefix else field
+        paths.add(full_path)
+        val = getattr(model, field, None)
+        if isinstance(val, BaseModel):
+            paths.update(_get_model_fields_set_paths(val, prefix=full_path))
+    return paths
+
+
+def preserve_masked_fields(
+    provider: str,
+    request_dict: dict,
+    existing: dict,
+    fields_set: set[str],
+) -> None:
+    """Restore stored secrets the caller re-submitted masked or left out.
+
+    Provider-aware wrapper: the registry says which paths are sensitive, and
+    ``restore_masked_fields`` does the merge. ``fields_set`` comes from
+    ``_get_model_fields_set_paths``, whose ancestor-closure it relies on.
+    """
+    restore_masked_fields(
+        request_dict,
+        existing,
+        fields_set,
+        sensitive_paths=_sensitive_fields(provider),
+    )
 
 
 def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
@@ -914,6 +963,15 @@ async def create_telephony_configuration(
         },
     )
 
+    sync_result = await sync_available_phone_numbers_for_config(
+        row.id, user.selected_organization_id
+    )
+    if not sync_result.ok:
+        logger.warning(
+            f"Phone-number sync failed for telephony config {row.id}: "
+            f"{sync_result.message}"
+        )
+
     return await _detail_response(row)
 
 
@@ -959,8 +1017,12 @@ async def update_telephony_configuration(
                 detail="Provider cannot be changed; create a new configuration instead.",
             )
         credentials = _credentials_from_payload(request.config)
+        fields_set = _get_model_fields_set_paths(request.config)
         preserve_masked_fields(
-            existing.provider, credentials, existing.credentials or {}
+            existing.provider,
+            credentials,
+            existing.credentials or {},
+            fields_set=fields_set,
         )
         credentials = await _run_preprocess_hook(
             existing.provider,
@@ -993,7 +1055,38 @@ async def update_telephony_configuration(
         credentials=credentials,
     )
 
+    sync_result = await sync_available_phone_numbers_for_config(
+        row.id, user.selected_organization_id
+    )
+    if not sync_result.ok:
+        logger.warning(
+            f"Phone-number sync failed for telephony config {row.id}: "
+            f"{sync_result.message}"
+        )
+
     return await _detail_response(row)
+
+
+@router.post(
+    "/telephony-configs/{config_id}/sync-phone-numbers",
+    response_model=ProviderSyncStatus,
+)
+async def sync_telephony_configuration_phone_numbers(
+    config_id: int, user: UserModel = Depends(get_user)
+):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+    result = await sync_available_phone_numbers_for_config(
+        config_id, user.selected_organization_id
+    )
+    if not result.ok:
+        raise HTTPException(
+            status_code=502,
+            detail=result.message or "Phone-number sync failed",
+        )
+    return result
 
 
 @router.post(

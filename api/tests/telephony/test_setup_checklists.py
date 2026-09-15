@@ -79,3 +79,39 @@ def test_provider_that_can_dial_without_a_number_has_no_checklist():
         )
         is None
     )
+
+
+def test_sensitive_fields_match_config_request_schema():
+    """Ensure every sensitive field defined in ui_metadata resolves to a valid field on config_request_cls."""
+    import typing
+
+    def _unwrap_model(annotation):
+        if hasattr(annotation, "model_fields"):
+            return annotation
+        args = typing.get_args(annotation)
+        for arg in args:
+            m = _unwrap_model(arg)
+            if m is not None:
+                return m
+        return None
+
+    for spec in registry.all_specs():
+        if not spec.ui_metadata or not spec.config_request_cls:
+            continue
+        req_cls = spec.config_request_cls
+        for field in spec.ui_metadata.fields:
+            if not field.sensitive:
+                continue
+            current_cls = req_cls
+            parts = field.name.split(".")
+            for idx, part in enumerate(parts):
+                assert current_cls is not None and hasattr(current_cls, "model_fields"), (
+                    f"Provider '{spec.name}' sensitive field '{field.name}' references non-model at '{part}'"
+                )
+                assert part in current_cls.model_fields, (
+                    f"Provider '{spec.name}' sensitive field '{field.name}' segment '{part}' not found in {current_cls}"
+                )
+                if idx < len(parts) - 1:
+                    field_info = current_cls.model_fields[part]
+                    current_cls = _unwrap_model(field_info.annotation)
+

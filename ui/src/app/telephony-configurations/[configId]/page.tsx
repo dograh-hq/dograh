@@ -81,8 +81,12 @@ export default function TelephonyConfigurationDetailPage() {
   const { config: appConfig } = useAppConfig();
   const { externalPbxIntegrationsEnabled } = useOrgConfig();
   const organizationTimezone = useOrganizationTimezone();
-  const inboundWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}${INBOUND_WEBHOOK_PATH}`;
   const [config, setConfig] = useState<TelephonyConfigurationDetail | null>(null);
+  const isWhatsApp = config?.provider === "whatsapp";
+  const webhookPath = isWhatsApp
+    ? "/api/v1/telephony/whatsapp/webhook"
+    : INBOUND_WEBHOOK_PATH;
+  const inboundWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}${webhookPath}`;
   // ARI only: Dograh generates the Stasis application name, so the dialplan
   // line cannot be written until the configuration has been saved.
   const stasisAppName =
@@ -160,6 +164,32 @@ export default function TelephonyConfigurationDetailPage() {
       fetchAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to set default");
+    }
+  };
+
+  const onSyncMetaPhoneNumbers = async () => {
+    if (!config || config.provider !== "whatsapp") return;
+    try {
+      const token = await getAccessToken();
+      const response = await fetch(
+        `/api/v1/organizations/telephony-configs/${config.id}/sync-phone-numbers`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          payload?.detail ?? payload?.message ?? "Failed to sync phone numbers",
+        );
+      }
+      toast.success(payload?.message ?? "Imported phone numbers from Meta");
+      fetchAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to sync phone numbers");
     }
   };
 
@@ -364,23 +394,58 @@ export default function TelephonyConfigurationDetailPage() {
             </div>
           )}
           <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Inbound webhook URL</p>
+            <p className="text-xs text-muted-foreground">
+              {isWhatsApp ? "Meta callback URL" : "Inbound webhook URL"}
+            </p>
             <button
               type="button"
               onClick={() => {
                 const url = inboundWebhookUrl;
                 copyTextToClipboard(url)
-                  .then(() => toast.success("Inbound webhook URL copied"))
+                  .then(() =>
+                    toast.success(
+                      isWhatsApp ? "Meta callback URL copied" : "Inbound webhook URL copied",
+                    ),
+                  )
                   .catch(() => toast.error("Failed to copy URL"));
               }}
-              title="Click to copy inbound webhook URL"
-              aria-label="Copy inbound webhook URL"
-              className="inline-flex items-center gap-1 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground"
+              title={isWhatsApp ? "Click to copy Meta callback URL" : "Click to copy inbound webhook URL"}
+              aria-label={isWhatsApp ? "Copy Meta callback URL" : "Copy inbound webhook URL"}
+              className="inline-flex items-center gap-1.5 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground max-w-full min-w-0"
             >
-              <span className="truncate">{inboundWebhookUrl}</span>
-              <Copy className="h-3 w-3 shrink-0" />
+              <span className="truncate min-w-0">{inboundWebhookUrl}</span>
+              <Copy className="h-3.5 w-3.5 shrink-0" />
             </button>
           </div>
+          {isWhatsApp && (
+            <div className="space-y-1 min-w-0 max-w-full">
+              <p className="text-xs text-muted-foreground">Webhook verify token</p>
+              <button
+                type="button"
+                onClick={() => {
+                  const token = String(
+                    (config?.credentials as Record<string, any>)?.webhook_verify_token || "",
+                  );
+                  copyTextToClipboard(token)
+                    .then(() => toast.success("Webhook verify token copied"))
+                    .catch(() => toast.error("Failed to copy token"));
+                }}
+                title="Click to copy webhook verify token"
+                aria-label="Copy webhook verify token"
+                className="inline-flex items-center gap-1.5 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground max-w-full min-w-0"
+              >
+                <span className="truncate min-w-0">
+                  {String(
+                    (config?.credentials as Record<string, any>)?.webhook_verify_token || "-",
+                  )}
+                </span>
+                <Copy className="h-3.5 w-3.5 shrink-0" />
+              </button>
+              <p className="text-xs text-muted-foreground mt-1">
+                In Meta App Dashboard (<strong>WhatsApp &gt; Configuration &gt; Edit</strong>): paste the Callback URL and Verify Token, then click <strong>Verify and Save</strong> and subscribe to the <code>calls</code> field.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -413,30 +478,57 @@ export default function TelephonyConfigurationDetailPage() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div className="space-y-1">
-            <CardTitle>Phone numbers</CardTitle>
+            <CardTitle>
+              {config.provider === "whatsapp" ? "WhatsApp numbers" : "Phone numbers"}
+            </CardTitle>
             <CardDescription>
-              Numbers used as caller ID for outbound and accepted for inbound matching.
-              SIP URIs and extensions are supported alongside PSTN numbers.{" "}
-              <a
-                href="https://docs.dograh.com/integrations/telephony/inbound"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 underline"
-              >
-                Inbound docs <ExternalLink className="h-3 w-3" />
-              </a>
+              {config.provider === "whatsapp" ? (
+                <>
+                  Dograh pulls the Meta phone numbers attached to this WhatsApp Business
+                  Account automatically. If nothing shows up yet, use{" "}
+                  <span className="font-medium text-foreground">Refresh from Meta</span>{" "}
+                  after confirming the WhatsApp connection is active.
+                </>
+              ) : (
+                <>
+                  Numbers used as caller ID for outbound and accepted for inbound matching.
+                  SIP URIs and extensions are supported alongside PSTN numbers.{" "}
+                  <a
+                    href="https://docs.dograh.com/integrations/telephony/inbound"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 underline"
+                  >
+                    Inbound docs <ExternalLink className="h-3 w-3" />
+                  </a>
+                </>
+              )}
             </CardDescription>
           </div>
-          <Button size="sm" onClick={() => openPhoneDialog(null)}>
-            <Plus className="h-4 w-4 mr-2" /> Add phone number
-          </Button>
+          {config.provider === "whatsapp" ? (
+            <Button size="sm" onClick={onSyncMetaPhoneNumbers}>
+              <RotateCcw className="h-4 w-4 mr-2" /> Refresh from Meta
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => openPhoneDialog(null)}>
+              <Plus className="h-4 w-4 mr-2" /> Add phone number
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {phoneNumbers.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No phone numbers yet. Add one to start placing or receiving calls on this
-              configuration.
-            </p>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {config.provider === "whatsapp"
+                  ? "No Meta numbers are synced yet. Refresh from Meta once the WhatsApp Business connection is ready."
+                  : "No phone numbers yet. Add one to start placing or receiving calls on this configuration."}
+              </p>
+              {config.provider === "whatsapp" && (
+                <Button variant="outline" size="sm" onClick={onSyncMetaPhoneNumbers}>
+                  <RotateCcw className="h-4 w-4 mr-2" /> Refresh from Meta
+                </Button>
+              )}
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -458,20 +550,32 @@ export default function TelephonyConfigurationDetailPage() {
                   <TableRow key={n.id}>
                     <TableCell className="font-mono">{n.address}</TableCell>
                     <TableCell>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          copyTextToClipboard(String(n.id))
-                            .then(() => toast.success("Phone number ID copied"))
-                            .catch(() => toast.error("Failed to copy ID"));
-                        }}
-                        title="Click to copy phone number ID"
-                        aria-label={`Copy phone number ID ${n.id}`}
-                        className="group inline-flex items-center gap-1 rounded font-mono text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        <span>{n.id}</span>
-                        <Copy className="h-3 w-3 shrink-0" />
-                      </button>
+                      {(() => {
+                        const displayId = isWhatsApp
+                          ? String(
+                              n.extra_metadata?.phone_number_id ||
+                                n.extra_metadata?.meta_phone_number_id ||
+                                (config?.credentials as Record<string, any>)?.phone_number_id ||
+                                n.id,
+                            )
+                          : String(n.id);
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              copyTextToClipboard(displayId)
+                                .then(() => toast.success("Phone number ID copied"))
+                                .catch(() => toast.error("Failed to copy ID"));
+                            }}
+                            title="Click to copy phone number ID"
+                            aria-label={`Copy phone number ID ${displayId}`}
+                            className="group inline-flex items-center gap-1 rounded font-mono text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <span>{displayId}</span>
+                            <Copy className="h-3 w-3 shrink-0" />
+                          </button>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{n.address_type}</Badge>
@@ -584,6 +688,7 @@ export default function TelephonyConfigurationDetailPage() {
         open={phoneDialogOpen}
         onOpenChange={setPhoneDialogOpen}
         configId={configId}
+        provider={config?.provider}
         trunks={config?.trunks}
         defaultTrunkId={phoneDefaultTrunkId}
         existing={phoneEditTarget}

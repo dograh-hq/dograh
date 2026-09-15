@@ -276,8 +276,7 @@ class TestPipelinePosition:
             FrameProcessor(),
             FrameProcessor(),
             FrameProcessor(),
-            FrameProcessor(),
-            FrameProcessor(),
+            [FrameProcessor()],
             FrameProcessor(),
             funnel,
         )
@@ -291,6 +290,7 @@ class TestPipelinePosition:
 
         pipeline = build_realtime_pipeline(
             transport,
+            FrameProcessor(),
             FrameProcessor(),
             FrameProcessor(),
             FrameProcessor(),

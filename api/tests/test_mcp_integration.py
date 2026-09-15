@@ -5,6 +5,7 @@ import pytest
 
 from api.enums import ToolCategory
 from api.services.workflow.pipecat_engine import PipecatEngine
+from api.tests.pipecat_test_utils import stub_agent_runtime
 from api.tests.support.mcp_mock_server import running_mcp_server
 
 
@@ -27,12 +28,14 @@ async def test_engine_opens_and_closes_mcp_sessions(monkeypatch):
         tool = _mcp_tool(base_url)
 
         engine = PipecatEngine.__new__(PipecatEngine)
+        engine._active_agent = stub_agent_runtime()
+        engine._retired_agents = []
         node = MagicMock()
         node.tool_uuids = [tool.tool_uuid]
         workflow = MagicMock()
         workflow.nodes = {"n1": node}
-        engine.workflow = workflow
-        engine._mcp_sessions = {}
+        engine.active_agent.workflow = workflow
+        engine.active_agent.mcp_sessions = {}
 
         from api.db import db_client
 
@@ -46,24 +49,26 @@ async def test_engine_opens_and_closes_mcp_sessions(monkeypatch):
 
         await engine._open_mcp_sessions()
         try:
-            assert tool.tool_uuid in engine._mcp_sessions
-            sess = engine._mcp_sessions[tool.tool_uuid]
+            assert tool.tool_uuid in engine.active_agent.mcp_sessions
+            sess = engine.active_agent.mcp_sessions[tool.tool_uuid]
             assert sess.available is True
             assert len(sess.function_schemas()) == 2
         finally:
             await engine.close_mcp_sessions()
-        assert engine._mcp_sessions == {}
+        assert engine.active_agent.mcp_sessions == {}
 
 
 @pytest.mark.asyncio
 async def test_open_mcp_sessions_swallows_db_error(monkeypatch):
     engine = PipecatEngine.__new__(PipecatEngine)
+    engine._active_agent = stub_agent_runtime()
+    engine._retired_agents = []
     node = MagicMock()
     node.tool_uuids = ["uuid-deadbeef"]
     workflow = MagicMock()
     workflow.nodes = {"n1": node}
-    engine.workflow = workflow
-    engine._mcp_sessions = {}
+    engine.active_agent.workflow = workflow
+    engine.active_agent.mcp_sessions = {}
 
     from api.db import db_client
 
@@ -76,7 +81,7 @@ async def test_open_mcp_sessions_swallows_db_error(monkeypatch):
 
     # Must NOT raise
     await engine._open_mcp_sessions()
-    assert engine._mcp_sessions == {}
+    assert engine.active_agent.mcp_sessions == {}
 
 
 @pytest.mark.asyncio
@@ -85,12 +90,14 @@ async def test_open_mcp_sessions_skips_tool_when_credential_fetch_fails(monkeypa
     tool.definition["config"]["credential_uuid"] = "cred-1234"
 
     engine = PipecatEngine.__new__(PipecatEngine)
+    engine._active_agent = stub_agent_runtime()
+    engine._retired_agents = []
     node = MagicMock()
     node.tool_uuids = [tool.tool_uuid]
     workflow = MagicMock()
     workflow.nodes = {"n1": node}
-    engine.workflow = workflow
-    engine._mcp_sessions = {}
+    engine.active_agent.workflow = workflow
+    engine.active_agent.mcp_sessions = {}
 
     from api.db import db_client
 
@@ -104,4 +111,4 @@ async def test_open_mcp_sessions_skips_tool_when_credential_fetch_fails(monkeypa
 
     # Must NOT raise, and must skip the tool (no futile unauthenticated start)
     await engine._open_mcp_sessions()
-    assert engine._mcp_sessions == {}
+    assert engine.active_agent.mcp_sessions == {}

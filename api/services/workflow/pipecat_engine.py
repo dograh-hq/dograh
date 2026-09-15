@@ -2,7 +2,6 @@ from typing import (
     TYPE_CHECKING,
     Awaitable,
     Callable,
-    Dict,
     Iterable,
     Literal,
     Mapping,
@@ -18,8 +17,6 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
-    LLMContextFrame,
-    TTSSpeakFrame,
     UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
@@ -37,6 +34,7 @@ from api.errors.failure import (
 )
 from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.pipecat.audio_playback import play_audio
+from api.services.workflow.agent_runtime import AgentRuntime, new_visit_id
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
 if TYPE_CHECKING:
@@ -49,6 +47,7 @@ if TYPE_CHECKING:
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
 import asyncio
+import time
 
 from loguru import logger
 
@@ -136,20 +135,44 @@ class PipecatEngine:
         run_transition_variable_extraction_in_background: bool = True,
         call_dispositions: Sequence[CallDispositionOption] | None = None,
     ):
-        self.task = task
-        self.llm = llm
+        self._call_worker = task
         self._is_realtime = is_realtime
         # LLM used for out-of-band inference (variable extraction, context
         # summarization). Falls back to the pipeline LLM when not provided.
         # In realtime mode the pipeline LLM is a speech-to-speech service
         # that does not implement run_inference, so a separate text LLM
         # must be passed in.
-        self.inference_llm = inference_llm or llm
-        # Variable and disposition extraction can share a separately tagged
-        # managed-model client without rerouting normal conversation calls.
-        self.variable_extraction_llm = variable_extraction_llm or self.inference_llm
+        resolved_inference_llm = inference_llm or llm
+        # Execution state belongs to a visit; call resources stay on the engine.
+        self._active_agent: AgentRuntime = AgentRuntime(
+            visit_id=new_visit_id(),
+            workflow_id=0,
+            definition_id=None,
+            workflow_name="",
+            workflow=workflow,
+            llm=llm,
+            inference_llm=resolved_inference_llm,
+            # Variable and disposition extraction can share a separately
+            # tagged managed-model client without rerouting normal
+            # conversation calls.
+            variable_extraction_llm=variable_extraction_llm or resolved_inference_llm,
+            worker=task,
+            is_realtime=is_realtime,
+            entered_at=time.time(),
+        )
+        self._active_agent.greeting_override = (call_context_vars or {}).get(
+            GREETING_OVERRIDE_CONTEXT_KEY
+        )
+        self._agent_on_hold = False
+        self._pending_agent: AgentRuntime | None = None
+        self._retired_agents: list[AgentRuntime] = []
+        self._agent_visits: list[dict] = []
+        self._transfer_outcomes: list[dict] = []
+        # Set by run setup on every cascade call; a realtime call gets none
+        # and so can never transfer.
+        self._agent_factory = None
+        self._transfer_coordinator = None
         self.context = context
-        self.workflow = workflow
         self._call_context_vars = call_context_vars
         self._workflow_run_id = workflow_run_id
         self._node_transition_callback = node_transition_callback
@@ -159,7 +182,7 @@ class PipecatEngine:
         self._call_dispositions = tuple(call_dispositions or ())
         self._initialized = False
         self._call_disposed = False
-        self._current_node: Optional[Node] = None
+        self._shutdown_task: asyncio.Task | None = None
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
@@ -211,9 +234,6 @@ class PipecatEngine:
         # "no mapping", which is the identity translation.
         self._disposition_mapping: dict[str, str] = {}
 
-        # Open MCP tool sessions for this call, keyed by tool_uuid
-        self._mcp_sessions: Dict[str, McpToolSession] = {}
-
         # Embeddings configuration (passed from run_pipeline.py)
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
@@ -242,6 +262,41 @@ class PipecatEngine:
             None
         )
 
+    @property
+    def active_agent(self) -> AgentRuntime:
+        """The agent currently entitled to speak to the caller."""
+        return self._active_agent
+
+    @property
+    def pending_agent(self) -> Optional[AgentRuntime]:
+        """An agent prepared for a handoff that has not committed yet."""
+        return self.__dict__.get("_pending_agent")
+
+    @property
+    def call_worker(self) -> Optional[PipelineWorker]:
+        """The worker that lives for the whole call.
+
+        Transport, recording, recognition, the shared aggregators and the call
+        timer run here. An agent's generation stage may run in a worker of its
+        own; this one outlives all of them. Not called "the task": with agent
+        workers in play that name says nothing about which worker is meant,
+        and ending the call, resolving the call trace and speaking a line each
+        belong to a different one.
+        """
+        return self.__dict__.get("_call_worker")
+
+    @call_worker.setter
+    def call_worker(self, worker: Optional[PipelineWorker]) -> None:
+        """Bind the call-scoped worker, which is built after the engine.
+
+        A realtime call's only agent runs in this same worker, so binding the
+        call worker also completes that agent. A cascade agent has a worker of
+        its own and is left alone here.
+        """
+        self._call_worker = worker
+        if not self._active_agent.is_child and self._active_agent.worker is None:
+            self._active_agent.worker = worker
+
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
         if self._organization_id is None:
@@ -259,7 +314,7 @@ class PipecatEngine:
         conversation-level context, or None.
         """
         tracing_ctx: TracingContext | None = getattr(
-            self.task, "_tracing_context", None
+            self.call_worker, "_tracing_context", None
         )
         if not tracing_ctx:
             return None
@@ -278,7 +333,7 @@ class PipecatEngine:
 
             if self._call_dispositions:
                 self._disposition_extraction_service = DispositionExtractionService(
-                    llm=self.variable_extraction_llm,
+                    llm=self.active_agent.variable_extraction_llm,
                     context=self.context,
                     options=self._call_dispositions,
                     template_context=self._call_context_vars,
@@ -319,10 +374,16 @@ class PipecatEngine:
 
         # For Gemini Live, set context on the LLM before _update_settings so that
         # _connect (triggered by reconnect) can read tools from it.
-        if hasattr(self.llm, "_context") and not self.llm._context and self.context:
-            self.llm._context = self.context
+        if (
+            hasattr(self.active_agent.llm, "_context")
+            and not self.active_agent.llm._context
+            and self.context
+        ):
+            self.active_agent.llm._context = self.context
 
-        await self.llm._update_settings(LLMSettings(system_instruction=system_prompt))
+        await self.active_agent.llm._update_settings(
+            LLMSettings(system_instruction=system_prompt)
+        )
 
     def _format_prompt(self, prompt: str) -> str:
         """Delegate prompt formatting to the shared workflow.utils implementation."""
@@ -336,7 +397,11 @@ class PipecatEngine:
         transition_speech: Optional[str] = None,
         transition_speech_type: Optional[str] = None,
         transition_speech_recording_id: Optional[str] = None,
+        *,
+        agent: AgentRuntime | None = None,
     ):
+        agent = agent or self.active_agent
+
         async def transition_func(function_call_params: FunctionCallParams) -> None:
             """Inner function that handles the node change tool calls"""
             logger.info(f"LLM Function Call EXECUTED: {name}")
@@ -348,7 +413,7 @@ class PipecatEngine:
             try:
                 # Perform variable extraction before transitioning to new node
                 await self._perform_variable_extraction_if_needed(
-                    self._current_node,
+                    self.active_agent.current_node,
                     run_in_background=self._run_transition_variable_extraction_in_background,
                 )
 
@@ -369,9 +434,11 @@ class PipecatEngine:
                     if result:
                         await play_audio(
                             result.audio,
-                            sample_rate=self._audio_config.pipeline_sample_rate
-                            if self._audio_config
-                            else 16000,
+                            sample_rate=(
+                                self._audio_config.pipeline_sample_rate
+                                if self._audio_config
+                                else 16000
+                            ),
                             queue_frame=self._transport_output.queue_frame,
                             transcript=result.transcript,
                             persist_to_logs=True,
@@ -386,9 +453,9 @@ class PipecatEngine:
                 # Set context for the new node, so that when the function call result
                 # frame is received by LLMContextAggregator and an LLM generation
                 # is done, we have updated context and functions
-                await self.set_node(transition_to_node)
+                await self.set_node(transition_to_node, origin_visit_id=agent.visit_id)
 
-                is_end_node = self.workflow.nodes[transition_to_node].is_end
+                is_end_node = agent.workflow.nodes[transition_to_node].is_end
                 if is_end_node:
                     # The tool result triggers the end node's closing response.
                     # Arm before returning it: realtime can begin speaking before
@@ -404,7 +471,10 @@ class PipecatEngine:
                         # EndFrame closes realtime sessions; transport draining
                         # alone cannot recover audio the model hasn't sent yet.
                         await self.wait_for_speech_playback()
-                        await self.end_call_with_reason(EndTaskReason.END_CALL.value)
+                        if self.agent_can_act(agent):
+                            await self.end_call_with_reason(
+                                EndTaskReason.END_CALL.value
+                            )
 
                 result = {"status": "done"}
 
@@ -424,7 +494,7 @@ class PipecatEngine:
                 error_result = {"status": "error", "error": str(e)}
                 await function_call_params.result_callback(error_result)
 
-        return transition_func
+        return agent.bind_tool(self, transition_func)
 
     async def _register_transition_function_with_llm(
         self,
@@ -433,7 +503,10 @@ class PipecatEngine:
         transition_speech: Optional[str] = None,
         transition_speech_type: Optional[str] = None,
         transition_speech_recording_id: Optional[str] = None,
+        *,
+        agent: AgentRuntime | None = None,
     ):
+        agent = agent or self.active_agent
         logger.debug(
             f"Registering function {name} to transition to node {transition_to_node} with LLM"
         )
@@ -445,17 +518,18 @@ class PipecatEngine:
             transition_speech,
             transition_speech_type,
             transition_speech_recording_id,
+            agent=agent,
         )
 
         # Register function with LLM
-        self.llm.register_function(
+        agent.llm.register_function(
             name,
             transition_func,
             is_node_transition=True,
         )
 
     async def _register_knowledge_base_function(
-        self, document_uuids: list[str]
+        self, document_uuids: list[str], *, agent: AgentRuntime | None = None
     ) -> None:
         """Register knowledge base retrieval function with the LLM.
 
@@ -465,6 +539,8 @@ class PipecatEngine:
         logger.debug(
             f"Registering knowledge base retrieval function with {len(document_uuids)} document(s)"
         )
+
+        agent = agent or self.active_agent
 
         async def retrieve_kb_func(function_call_params: FunctionCallParams) -> None:
             logger.info("LLM Function Call EXECUTED: retrieve_from_knowledge_base")
@@ -505,7 +581,9 @@ class PipecatEngine:
                 )
 
         # Register the function with the LLM
-        self.llm.register_function("retrieve_from_knowledge_base", retrieve_kb_func)
+        agent.llm.register_function(
+            "retrieve_from_knowledge_base", agent.bind_tool(self, retrieve_kb_func)
+        )
 
     async def _perform_variable_extraction_if_needed(
         self,
@@ -539,9 +617,11 @@ class PipecatEngine:
             )
             return None
         extraction_variables = [
-            v.model_copy(update={"prompt": self._format_prompt(v.prompt)})
-            if v.prompt
-            else v
+            (
+                v.model_copy(update={"prompt": self._format_prompt(v.prompt)})
+                if v.prompt
+                else v
+            )
             for v in node_variables
         ]
 
@@ -594,7 +674,9 @@ class PipecatEngine:
                 )
                 return extracted_data
             except Exception as e:
-                metadata = failure_metadata_for_processor(self.variable_extraction_llm)
+                metadata = failure_metadata_for_processor(
+                    self.active_agent.variable_extraction_llm
+                )
                 log_failure(
                     classify_exception(
                         e,
@@ -669,7 +751,7 @@ class PipecatEngine:
         """
         await self._await_pending_extractions()
         return await self._perform_variable_extraction_if_needed(
-            self._current_node,
+            self.active_agent.current_node,
             run_in_background=False,
         )
 
@@ -686,65 +768,103 @@ class PipecatEngine:
         await self.flush_variable_extraction()
         self._final_extraction_done = True
 
-    async def _setup_llm_context(self, node: Node) -> None:
-        """Common method to set up LLM context"""
-        # Set OTel span name for tracing
-        try:
-            self.context.set_otel_span_name(f"llm-{node.name}")
-        except AttributeError:
-            logger.warning("context has no set_otel_span_name method")
-
-        # Register transition functions if not an end node
+    async def _prepare_node(
+        self, agent: AgentRuntime, node: Node, *, apply_settings=True
+    ) -> None:
+        """Prepare one runtime's prompt and tools without changing the call."""
+        manager = (
+            self._custom_tool_manager
+            if agent is self.active_agent
+            else CustomToolManager(self, agent)
+        )
         if not node.is_end:
-            for outgoing_edge in node.out_edges:
+            for edge in node.out_edges:
                 await self._register_transition_function_with_llm(
-                    outgoing_edge.get_function_name(),
-                    outgoing_edge.target,
-                    outgoing_edge.transition_speech,
-                    outgoing_edge.data.transition_speech_type,
-                    outgoing_edge.data.transition_speech_recording_id,
+                    edge.get_function_name(),
+                    edge.target,
+                    edge.transition_speech,
+                    edge.data.transition_speech_type,
+                    edge.data.transition_speech_recording_id,
+                    agent=agent,
                 )
-
-        # Register custom tool handlers for this node
-        if node.tool_uuids and self._custom_tool_manager:
-            await self._custom_tool_manager.register_handlers(
+        if node.tool_uuids and manager:
+            await manager.register_handlers(
                 node.tool_uuids,
                 mcp_tool_filters=getattr(node, "mcp_tool_filters", None),
             )
-
-        # Register knowledge base retrieval handler if node has documents
         if node.document_uuids:
-            await self._register_knowledge_base_function(node.document_uuids)
-
-        # Compose prompt and functions via the context composer module
-        system_prompt = compose_system_prompt_for_node(
+            await self._register_knowledge_base_function(
+                node.document_uuids, agent=agent
+            )
+        prompt = compose_system_prompt_for_node(
             node=node,
-            workflow=self.workflow,
+            workflow=agent.workflow,
             format_prompt=self._format_prompt,
             has_recordings=self._has_recordings,
         )
         functions = await compose_functions_for_node(
-            node=node,
-            custom_tool_manager=self._custom_tool_manager,
+            node=node, custom_tool_manager=manager
         )
-        await self._update_llm_context(system_prompt, functions)
+        agent.tools = ToolsSchema(standard_tools=functions)
+        agent.system_prompt = prompt
+        if apply_settings:
+            await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
 
-    async def set_node(self, node_id: str, emit_transition_event: bool = True):
+    async def _setup_llm_context(self, node: Node) -> None:
+        agent = self.active_agent
+        await self._prepare_node(agent, node, apply_settings=False)
+        if agent is self.active_agent:
+            self.context.set_otel_span_name(f"llm-{node.name}")
+            await self._update_llm_context(
+                agent.system_prompt, agent.tools.standard_tools
+            )
+
+    async def set_node(
+        self,
+        node_id: str,
+        emit_transition_event: bool = True,
+        *,
+        origin_visit_id: Optional[str] = None,
+    ):
         """
         Simplified set_node implementation according to v2 PRD.
+
+        Args:
+            node_id: Node to enter, in the running agent's graph.
+            emit_transition_event: Whether to report the transition to the UI.
+            origin_visit_id: The agent visit requesting the change. A request
+                from a visit that no longer owns the call is rejected: a tool
+                call that landed just as a handoff committed must not move the
+                new agent to a node id from the old agent's graph.
         """
-        node = self.workflow.nodes[node_id]
+        agent = self._active_agent
+        if origin_visit_id is not None and origin_visit_id != agent.visit_id:
+            logger.debug(
+                f"Rejecting node change from retired visit {origin_visit_id}; "
+                f"{agent.visit_id} owns the call"
+            )
+            return
+
+        node = self.active_agent.workflow.nodes[node_id]
 
         logger.debug(
             f"Executing node: name: {node.name} allow_interrupt: {node.allow_interrupt} is_end: {node.is_end}"
         )
 
         # Track previous node for transition event
-        previous_node_name = self._current_node.name if self._current_node else None
-        previous_node_id = self._current_node.id if self._current_node else None
+        previous_node_name = (
+            self.active_agent.current_node.name
+            if self.active_agent.current_node
+            else None
+        )
+        previous_node_id = (
+            self.active_agent.current_node.id
+            if self.active_agent.current_node
+            else None
+        )
 
         # Set current node for all nodes (including static ones) so STT mute filter works
-        self._current_node = node
+        self.active_agent.current_node = node
 
         # Track visited nodes in gathered context for call tags
         nodes_visited = self._gathered_context.setdefault("nodes_visited", [])
@@ -811,14 +931,14 @@ class PipecatEngine:
             - ("audio_recording_id", recording ID) for call-level audio overrides
             Or None if no greeting is configured.
         """
-        node = self.workflow.nodes.get(node_id)
+        node = self.active_agent.workflow.nodes.get(node_id)
         if not node:
             return None
 
         # A programmatic override applies only to the workflow entry greeting;
         # greetings on later nodes continue to use their saved configuration.
         if node.is_start:
-            override = self._call_context_vars.get(GREETING_OVERRIDE_CONTEXT_KEY)
+            override = self.active_agent.greeting_override
             if isinstance(override, dict):
                 override_type = override.get("type")
                 if override_type == "text":
@@ -845,7 +965,7 @@ class PipecatEngine:
 
     def get_start_greeting(self) -> Optional[tuple[str, Optional[str]]]:
         """Return the greeting info for the start node, or None if not configured."""
-        return self.get_node_greeting(self.workflow.start_node_id)
+        return self.get_node_greeting(self.active_agent.workflow.start_node_id)
 
     async def queue_node_opening(
         self,
@@ -853,17 +973,38 @@ class PipecatEngine:
         node_id: str,
         previous_node_id: Optional[str] = None,
         generate_if_no_greeting: bool = False,
+        origin_visit_id: Optional[str] = None,
     ) -> Literal["none", "greeting", "llm"]:
         """Queue the opening behavior for a node.
 
         This is the shared source of truth for how a node begins once the
         engine is ready and the node has already been set on the context.
 
+        Args:
+            node_id: The node being opened.
+            previous_node_id: The node just left. Passing the same id as
+                ``node_id`` suppresses the configured greeting, which is how a
+                destination agent continues an already-running conversation
+                instead of introducing itself.
+            generate_if_no_greeting: Ask the LLM for an opening turn when the
+                node has no configured greeting.
+            origin_visit_id: The agent visit this opening belongs to. An
+                opening queued for a visit that is no longer running is
+                dropped, so exactly one opening runs per activation.
+
         Returns:
             "greeting" when a text/audio greeting was queued,
             "llm" when an initial LLM generation was queued,
             "none" when nothing was queued.
         """
+        agent = self._active_agent
+        if origin_visit_id is not None and origin_visit_id != agent.visit_id:
+            logger.debug(
+                f"Dropping node opening from retired visit {origin_visit_id}; "
+                f"{agent.visit_id} owns the call"
+            )
+            return "none"
+
         if previous_node_id != node_id:
             greeting_info = self.get_node_greeting(node_id)
             if greeting_info:
@@ -884,9 +1025,11 @@ class PipecatEngine:
                     if result:
                         await play_audio(
                             result.audio,
-                            sample_rate=self._audio_config.pipeline_sample_rate
-                            if self._audio_config
-                            else 16000,
+                            sample_rate=(
+                                self._audio_config.pipeline_sample_rate
+                                if self._audio_config
+                                else 16000
+                            ),
                             queue_frame=self._transport_output.queue_frame,
                             transcript=result.transcript,
                             append_to_context=True,
@@ -899,25 +1042,25 @@ class PipecatEngine:
                         f"Failed to fetch audio greeting {greeting_value}, "
                         "falling back to LLM generation"
                     )
-                elif greeting_value and self.task is not None:
+                elif greeting_value and agent.worker is not None:
                     logger.debug("Playing text greeting via TTS")
                     # append_to_context=True so the assistant aggregator commits
                     # the greeting to the LLM context once TTS finishes; without
                     # it the LLM would re-greet on its first generation.
-                    await self.task.queue_frame(
-                        TTSSpeakFrame(greeting_value, append_to_context=True)
+                    await agent.speak(
+                        greeting_value, append_to_context=True, persist_to_logs=False
                     )
                     return "greeting"
 
         if (
             generate_if_no_greeting
-            and self.llm is not None
+            and agent.llm is not None
             and self.context is not None
         ):
             logger.debug("Queueing initial LLM generation for node opening")
             # Queue after the voicemail detector in the live pipeline so the
             # detector can gate initial generations when needed.
-            await self.llm.queue_frame(LLMContextFrame(self.context))
+            await agent.run_llm(self.context)
             return "llm"
 
         return "none"
@@ -944,7 +1087,7 @@ class PipecatEngine:
         on every generation.
         """
         handle_prerecorded_greeting = getattr(
-            self.llm, "handle_prerecorded_greeting", None
+            self.active_agent.llm, "handle_prerecorded_greeting", None
         )
         if handle_prerecorded_greeting is None:
             return
@@ -1047,6 +1190,16 @@ class PipecatEngine:
                 call_tags.append(tag)
 
     async def end_call_with_reason(
+        self, call_status: str, abort_immediately: bool = False
+    ):
+        """Own teardown outside any child tool that retirement may cancel."""
+        if self._shutdown_task is None:
+            self._shutdown_task = asyncio.create_task(
+                self._end_call(call_status, abort_immediately), name="call-shutdown"
+            )
+        await asyncio.shield(self._shutdown_task)
+
+    async def _end_call(
         self,
         call_status: str,
         abort_immediately: bool = False,
@@ -1065,6 +1218,12 @@ class PipecatEngine:
 
         # Mute the pipeline
         self._mute_pipeline = True
+
+        # A handoff in flight is invalidated before anything else, so no later
+        # phase can activate an agent into a call that is ending.
+        coordinator = self.__dict__.get("_transfer_coordinator")
+        if coordinator is not None:
+            await coordinator.invalidate(call_status)
 
         # The call status is the observed termination mechanism. It is never
         # generated by an LLM.
@@ -1132,6 +1291,20 @@ class PipecatEngine:
                     extracted_disposition,
                 )
 
+        # Agent workers are shut down before the call pipeline, and waited for.
+        # A terminal frame queued below travels this worker's pipeline and
+        # nothing else, so a child left running would be cancelled later by the
+        # runner -- losing its last audio and its usage metrics -- instead of
+        # draining into a transport that is still up.
+        await self.retire_agents(call_status, drain=not abort_immediately)
+
+        # One run row anchors the call, so which agents it visited, on which
+        # definitions and models, is recorded on its gathered context. Written
+        # after retirement so every visit carries its exit. Without this a
+        # transferred call reports only the agent it started on.
+        if self.__dict__.get("_agent_visits") or self.active_agent.is_child:
+            self._gathered_context["agent_visits"] = self.agent_visits
+
         frame_to_push = (
             CancelFrame(reason=call_status)
             if abort_immediately
@@ -1153,7 +1326,7 @@ class PipecatEngine:
             f"{self._gathered_context.get(CALL_DISPOSITION_CONTEXT_KEY, call_disposition)} "
             f"queueing frame {frame_to_push}"
         )
-        await self.task.queue_frame(frame_to_push)
+        await self.call_worker.queue_frame(frame_to_push)
 
     async def queue_text_message(
         self, text: str, *, append_to_context: bool = False, mute_user: bool = False
@@ -1169,12 +1342,25 @@ class PipecatEngine:
             return False
         if mute_user:
             self._queued_speech_mute_state = "waiting"
-        await self.task.queue_frame(
-            TTSSpeakFrame(
-                text, append_to_context=append_to_context, persist_to_logs=True
-            )
+        # Spoken by whichever agent is running, in its own voice: a transfer
+        # announcement has to come from the agent saying goodbye, not from
+        # whoever happens to own the transport.
+        await self._active_agent.speak(
+            text, append_to_context=append_to_context, persist_to_logs=True
         )
         return True
+
+    def clear_queued_speech_mute(self) -> None:
+        """Release a mute taken for speech that never reached the caller.
+
+        ``queue_text_message(mute_user=True)`` mutes until the speech starts
+        and stops playing. Speech that is never spoken -- a TTS that failed,
+        a handoff that gave up on waiting -- produces neither event, so
+        without this the caller stays muted for the rest of the call.
+        """
+        if self._queued_speech_mute_state != "idle":
+            logger.debug("Releasing queued-speech mute for speech that never played")
+            self._queued_speech_mute_state = "idle"
 
     def arm_speech_playback(self) -> None:
         """Start tracking the next piece of speech queued to the transport.
@@ -1263,9 +1449,9 @@ class PipecatEngine:
             return True
 
         # Mute if bot is speaking and current node doesn't allow interruption
-        if self._bot_is_speaking and self._current_node:
+        if self._bot_is_speaking and self.active_agent.current_node:
             # If we should not allow interruption, mute the pipeline
-            if not self._current_node.allow_interrupt:
+            if not self.active_agent.current_node.allow_interrupt:
                 return True
 
         return False
@@ -1284,12 +1470,31 @@ class PipecatEngine:
         """
         return engine_callbacks.create_max_duration_callback(self)
 
-    def create_generation_started_callback(self):
+    def create_generation_started_callback(self, visit_id: Optional[str] = None):
         """
         This callback is called when a new generation starts.
         This is used to reset the flags that control the flow of the engine.
+
+        Args:
+            visit_id: The agent visit whose generation stage this belongs to.
+                A retired agent finishing its last generation must not reset
+                the reference text the running agent is building.
         """
-        return engine_callbacks.create_generation_started_callback(self)
+        return engine_callbacks.create_generation_started_callback(
+            self, visit_id=visit_id
+        )
+
+    def create_llm_text_frame_callback(self, visit_id: Optional[str] = None):
+        """Return the text accumulator for one agent visit's generation stage."""
+
+        async def accumulate(text: str) -> None:
+            await self.handle_llm_text_frame(text, visit_id=visit_id)
+
+        return accumulate
+
+    def owns_generation(self, visit_id: Optional[str]) -> bool:
+        """Whether ``visit_id`` is the agent currently owning the call."""
+        return visit_id is None or visit_id == self._active_agent.visit_id
 
     def create_aggregation_correction_callback(self) -> Callable[[str], str]:
         """Create a callback that corrects corrupted aggregation using reference text."""
@@ -1303,13 +1508,287 @@ class PipecatEngine:
         """
         self.context = context
 
-    def set_task(self, task: PipelineWorker) -> None:
-        """Set the pipeline task.
+    # ------------------------------------------------------------------
+    # Agent lifecycle
+    #
+    # The engine alone authorizes agent activation, context replacement and
+    # call completion. `AgentTransferCoordinator` sequences a handoff; every
+    # step that changes who owns the call comes back through here.
+    # ------------------------------------------------------------------
 
-        This allows setting the task after the engine has been created,
-        which is useful when the task needs to be created after the engine.
+    def set_agent_factory(self, factory) -> None:
+        """Enable in-call agent transfer by supplying a runtime factory."""
+        self._agent_factory = factory
+
+    @property
+    def agent_transfer_enabled(self) -> bool:
+        """Whether this call can hand the caller to another agent.
+
+        True for every cascade call. False only in realtime, where the tool
+        still registers but refuses, so the agent tells the caller rather than
+        failing silently.
         """
-        self.task = task
+        return self.__dict__.get("_agent_factory") is not None
+
+    @property
+    def transfer_coordinator(self):
+        """The call's handoff coordinator, created on first use."""
+        if self._transfer_coordinator is None:
+            from api.services.workflow.agent_transfer import AgentTransferCoordinator
+
+            self._transfer_coordinator = AgentTransferCoordinator(self)
+        return self._transfer_coordinator
+
+    @property
+    def transfer_in_progress(self) -> bool:
+        """Whether a handoff is running, so ordinary prompting must hold off."""
+        coordinator = self.__dict__.get("_transfer_coordinator")
+        return coordinator is not None and coordinator.in_progress
+
+    @property
+    def agent_visits(self) -> list[dict]:
+        """One record per agent visit, oldest first, including the live one."""
+        return [*self.__dict__.get("_agent_visits", []), self.active_agent.describe()]
+
+    @property
+    def hold_audio_sample_rate(self) -> int:
+        """Sample rate for ringer audio queued straight to the transport."""
+        if self._audio_config:
+            return self._audio_config.transport_out_sample_rate
+        return 8000
+
+    @property
+    def transport_output_queue_frame(self):
+        """Frame sink that reaches the caller without passing through STT."""
+        return self._transport_output.queue_frame
+
+    async def start_initial_agent(self, timeout: float = 10.0) -> bool:
+        """Attach and activate the agent the call starts on.
+
+        Runs once the call pipeline is up, so the agent's worker joins the
+        call's conversation trace and the runner is there to start it. A
+        no-op when the first agent runs in the call worker itself.
+        """
+        agent = self._active_agent
+        if not agent.is_child:
+            return True
+        if self._agent_factory is None or self._call_worker is None:
+            logger.error("Cannot start the initial agent without a factory")
+            return False
+
+        await self._agent_factory.attach(agent)
+        if not await agent.wait_until_started(timeout=timeout):
+            return False
+        return await self.activate_agent(agent, timeout=timeout)
+
+    async def build_agent(self, *, workflow_id: int, visit_id: str) -> AgentRuntime:
+        """Build a destination agent and attach it to the call, inactive."""
+        if self._agent_factory is None:
+            from api.services.pipecat.agent_runtime_factory import AgentBuildError
+
+            raise AgentBuildError(
+                "transfer_unavailable",
+                "This call was not set up to transfer between agents",
+            )
+        runtime = await self._agent_factory.build(
+            workflow_id=workflow_id, visit_id=visit_id
+        )
+        self._pending_agent = runtime
+        return runtime
+
+    async def prepare_agent(self, runtime: AgentRuntime) -> None:
+        await self._open_mcp_sessions(runtime)
+        node = runtime.workflow.nodes[runtime.workflow.start_node_id]
+        await self._prepare_node(runtime, node)
+        runtime.current_node = node
+
+    def commit_agent(self, runtime: AgentRuntime, snapshot) -> None:
+        """The only handoff commit point. No awaits and no provider work."""
+        from api.services.workflow.agent_handoff_context import messages_after_boundary
+
+        tail = messages_after_boundary(self.context, snapshot.boundary)
+        self.context.set_messages([*snapshot.messages, *tail])
+        self.context.set_tools(runtime.tools)
+        self.context.set_otel_span_name(f"llm-{runtime.current_node.name}")
+        runtime.entered_at = time.time()
+        self.install_agent(runtime, previous=self.active_agent)
+        self._custom_tool_manager = CustomToolManager(self, runtime)
+        self._agent_on_hold = False
+        nodes = self._gathered_context.setdefault("nodes_visited", [])
+        if runtime.current_node.name not in nodes:
+            nodes.append(runtime.current_node.name)
+        logger.info(
+            f"[transfer] installed {runtime.visit_id}: "
+            f"{len(snapshot.messages)} handoff messages (summarized={snapshot.summarized}) "
+            f"+ {len(tail)} live messages"
+        )
+
+    async def notify_agent_entered(self, runtime: AgentRuntime) -> None:
+        node = runtime.current_node
+        if self._node_transition_callback:
+            try:
+                await self._node_transition_callback(
+                    node.id, node.name, None, None, node.allow_interrupt
+                )
+            except Exception as error:
+                logger.debug(f"Failed to send agent transition event: {error}")
+
+    @property
+    def selected_visit_id(self) -> str | None:
+        return None if self._agent_on_hold else self.active_agent.visit_id
+
+    def agent_can_act(self, runtime: AgentRuntime) -> bool:
+        return not self._call_disposed and self.selected_visit_id == runtime.visit_id
+
+    def install_agent(
+        self,
+        runtime: AgentRuntime,
+        *,
+        previous: Optional[AgentRuntime] = None,
+        previous_exit_reason: str = "transferred",
+    ) -> None:
+        """Make ``runtime`` the agent that owns the call.
+
+        Closes the previous visit into the call's history rather than
+        discarding it: usage, nodes visited and outcome are per visit and are
+        all reported at the end of the call. The exit is stamped here, before
+        the history entry is taken, so the record is not a snapshot of a visit
+        that had not ended yet.
+        """
+        if previous is not None and previous is not runtime:
+            previous.exited_at = previous.exited_at or time.time()
+            previous.exit_reason = previous.exit_reason or previous_exit_reason
+            self._agent_visits.append(previous.describe())
+            self._retired_agents.append(previous)
+        self._active_agent = runtime
+        self._pending_agent = None
+
+    def discard_pending_agent(self, runtime: AgentRuntime) -> None:
+        """Forget a destination that was prepared but never took the call.
+
+        Its worker is released by the caller; this drops the engine's handle
+        so `pending_agent` does not keep reporting a retired agent, and
+        teardown does not try to shut it down a second time.
+        """
+        if self._pending_agent is runtime:
+            self._pending_agent = None
+
+    async def activate_agent(self, runtime: AgentRuntime, *, timeout: float) -> bool:
+        """Let ``runtime`` back into the conversation and confirm it took.
+
+        An inactive worker is handed no frames from the bus, so activation is
+        what actually connects an agent to the caller. It only takes effect
+        once the worker has started, which is why this confirms rather than
+        assuming the message was enough.
+        """
+        if not runtime.is_child or self._call_worker is None:
+            return True
+
+        await self._call_worker.activate_worker(runtime.worker.name)
+
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if runtime.worker.active:
+                logger.debug(f"Agent visit {runtime.visit_id} activated")
+                return True
+            await asyncio.sleep(0.01)
+        logger.warning(
+            f"Agent visit {runtime.visit_id} did not activate within {timeout}s"
+        )
+        return False
+
+    async def deactivate_agent(self, runtime: AgentRuntime) -> None:
+        """Take ``runtime`` out of the conversation without ending it.
+
+        Gates inference structurally: the agent stops receiving context frames
+        while recognition, recording and the call timer carry on. Reversible --
+        a rolled-back handoff activates the same worker again.
+        """
+        if not runtime.is_child or self._call_worker is None:
+            return
+        self._agent_on_hold = True
+        await self._call_worker.deactivate_worker(runtime.worker.name)
+
+    async def drain_call_pipeline(self, timeout: float = 5.0) -> bool:
+        """Wait for everything in flight to reach the caller.
+
+        The flush probe travels through the selected agent's worker and back, so
+        this drains the agent's generation stage as well as the call pipeline.
+        During hold it stays on the call pipeline and drains queued ring audio.
+        """
+        if self._call_worker is None:
+            return False
+        return await self._call_worker.flush_pipeline(timeout=timeout)
+
+    async def pause_background_context_writers(self) -> None:
+        """Stop anything that would mutate the conversation behind a handoff."""
+        if self._context_summarization_manager:
+            await self._context_summarization_manager.cleanup()
+        await self._await_pending_extractions()
+
+    def record_transfer_outcome(self, record: dict) -> None:
+        """Record how one handoff attempt ended, for the call's run record."""
+        self._transfer_outcomes.append(record)
+        self._gathered_context["agent_transfers"] = list(self._transfer_outcomes)
+
+    async def handle_agent_error(self, runtime: AgentRuntime, frame) -> None:
+        """Decide what one agent's pipeline error means for the call.
+
+        The call pipeline's termination funnel treats a terminal error as the
+        end of the call, which is right only for the agent the caller is
+        actually talking to. An agent still being prepared, or one already
+        handed over, fails its own transfer and leaves the call alone.
+        """
+        from api.services.pipecat.termination_funnel_processor import (
+            is_terminal_error,
+        )
+
+        if not is_terminal_error(frame):
+            return
+
+        runtime.error = getattr(frame, "error", None) or "pipeline error"
+        if runtime is not self._active_agent:
+            logger.warning(
+                f"Agent visit {runtime.visit_id} is unusable ({runtime.error}); "
+                "the call continues with the agent that owns it"
+            )
+            return
+
+        logger.error(
+            f"Agent visit {runtime.visit_id} is unusable ({runtime.error}); "
+            "ending the call"
+        )
+        await self.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
+
+    async def retire_agents(self, reason: str, *, drain: bool = True) -> None:
+        """Shut down every agent worker this call created.
+
+        Terminal frames queued on the call worker drain the call pipeline
+        only: child propagation runs off a bus message that a frame on the
+        push queue never produces. Without this the runner eventually cancels
+        the orphans at shutdown, which cuts their final audio and metrics
+        instead of draining them.
+
+        Args:
+            reason: Recorded as each visit's exit reason.
+            drain: Let each agent finish what it is saying. False on the abort
+                path, where the caller is already gone or the call is over its
+                hard limit and waiting would only delay teardown.
+        """
+        agents = [
+            self.active_agent,
+            self.pending_agent,
+            *self.__dict__.get("_retired_agents", []),
+        ]
+        for agent in agents:
+            if agent is None or not agent.is_child:
+                continue
+            agent.exited_at = agent.exited_at or time.time()
+            agent.exit_reason = agent.exit_reason or reason
+            if drain:
+                await agent.retire(reason)
+            else:
+                await agent.abort(reason)
 
     def set_audio_config(self, audio_config) -> None:
         """Set the audio configuration for the pipeline."""
@@ -1339,8 +1818,15 @@ class PipecatEngine:
         logger.debug(f"Setting pipeline mute state to: {mute}")
         self._mute_pipeline = mute
 
-    async def handle_llm_text_frame(self, text: str):
-        """Accumulate LLM text frames to build reference text."""
+    async def handle_llm_text_frame(self, text: str, visit_id: Optional[str] = None):
+        """Accumulate LLM text frames to build reference text.
+
+        The reference text corrects the assistant aggregator's transcript, and
+        that aggregator is call-scoped, so text from an agent that no longer
+        owns the call is dropped rather than mixed into the running agent's.
+        """
+        if not self.owns_generation(visit_id):
+            return
         self._current_llm_generation_reference_text += text
 
     def is_call_disposed(self):
@@ -1357,7 +1843,7 @@ class PipecatEngine:
         """
         return self._gathered_context.copy()
 
-    async def _open_mcp_sessions(self) -> None:
+    async def _open_mcp_sessions(self, agent: AgentRuntime | None = None) -> None:
         """Connect every MCP-category tool referenced by any workflow node.
         Failures degrade (session marked unavailable); never raises."""
         from api.services.workflow.tools.mcp_tool import (
@@ -1365,9 +1851,10 @@ class PipecatEngine:
             validate_mcp_definition,
         )
 
+        agent = agent or self.active_agent
         try:
             tool_uuids: set[str] = set()
-            for node in self.workflow.nodes.values():
+            for node in agent.workflow.nodes.values():
                 for tu in getattr(node, "tool_uuids", None) or []:
                     tool_uuids.add(tu)
             if not tool_uuids:
@@ -1414,8 +1901,8 @@ class PipecatEngine:
                     timeout_secs=cfg["timeout_secs"],
                     sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
                 )
-                await session.start()
-                self._mcp_sessions[tool.tool_uuid] = session
+                agent.mcp_sessions[tool.tool_uuid] = session
+                await session.start_managed()
         except Exception as e:
             logger.warning(
                 f"Failed to open MCP sessions; call proceeds without MCP tools: {e}",
@@ -1423,29 +1910,16 @@ class PipecatEngine:
             )
 
     async def close_mcp_sessions(self) -> None:
-        """Close all open MCP tool sessions.
-
-        Must run in the same task that ran initialize() (which opened the
-        sessions via _open_mcp_sessions). The MCP client's underlying anyio
-        cancel scopes are task-affine — they must be exited from the task that
-        entered them — so this is invoked from _run_pipeline's finally, not
-        from cleanup() (which runs in a pipecat event-handler task).
-        """
-        for tool_uuid, session in list(self._mcp_sessions.items()):
-            try:
-                await session.close()
-            except Exception as e:
-                logger.warning(f"Error closing MCP session {tool_uuid}: {e}")
-        self._mcp_sessions = {}
+        """Release connection owners, including on early call startup failure."""
+        for agent in [self.active_agent, self.pending_agent, *self._retired_agents]:
+            if agent is not None:
+                await agent.close_mcp_sessions()
 
     async def cleanup(self):
         """Clean up engine resources on disconnect.
 
-        MCP tool sessions are intentionally NOT closed here — see
-        close_mcp_sessions(). This method runs in a pipecat event-handler task
-        (on_pipeline_finished), a different task than the one that opened the
-        MCP sessions; closing them here raises "Attempted to exit cancel scope
-        in a different task than it was entered in".
+        Connection owners are finalized by close_mcp_sessions() in the run
+        finally block, including failures before the pipeline starts.
         """
         # Cancel any pending timeout tasks
         if (

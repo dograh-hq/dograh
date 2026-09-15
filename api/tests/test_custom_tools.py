@@ -37,6 +37,7 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from api.tests.pipecat_test_utils import stub_agent_runtime
 from api.utils.template_renderer import render_url_template
 from pipecat.tests import MockLLMService, run_test
 
@@ -1464,6 +1465,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._organization_id = None
@@ -1542,13 +1546,16 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine import PipecatEngine
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._organization_id = None
         mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
             mock_engine
         )
-        mock_engine.llm = mock_llm
+        mock_engine.active_agent.llm = mock_llm
 
         manager = CustomToolManager(mock_engine)
 
@@ -1625,7 +1632,7 @@ class TestCustomToolManagerUnit:
 
         mock_engine = Mock()
         mock_engine._get_organization_id = AsyncMock(return_value=1)
-        mock_engine.llm.register_function = Mock()
+        mock_engine.active_agent.llm.register_function = Mock()
         manager = CustomToolManager(mock_engine)
         tool = MockToolModel(
             tool_uuid=f"{category}-uuid",
@@ -1645,9 +1652,11 @@ class TestCustomToolManagerUnit:
         ):
             await manager.register_handlers([tool.tool_uuid])
 
-        mock_engine.llm.register_function.assert_called_once()
+        mock_engine.active_agent.llm.register_function.assert_called_once()
         assert (
-            mock_engine.llm.register_function.call_args.kwargs["is_node_transition"]
+            mock_engine.active_agent.llm.register_function.call_args.kwargs[
+                "is_node_transition"
+            ]
             is True
         )
 
@@ -1657,6 +1666,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {
             "transfer_destination": "+14155550123",
@@ -1751,6 +1763,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {"department": "sales"}
         mock_engine._gathered_context = {}
@@ -1839,7 +1854,8 @@ class TestCustomToolManagerUnit:
         mock_engine._audio_config = SimpleNamespace(transport_out_sample_rate=8000)
         mock_engine._transport_output = SimpleNamespace(queue_frame=AsyncMock())
         mock_engine._get_organization_id = AsyncMock(return_value=1)
-        mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine._active_agent = stub_agent_runtime()
         mock_engine.set_mute_pipeline = Mock()
         mock_engine.end_call_with_reason = AsyncMock()
 
@@ -1959,8 +1975,10 @@ class TestCustomToolManagerUnit:
             False,
         ]
 
+        # Configured speech goes out through the running agent's own voice.
         spoken_texts = [
-            call.args[0].text for call in mock_engine.task.queue_frame.await_args_list
+            call.args[0].text
+            for call in mock_engine._active_agent.worker.queue_frame.await_args_list
         ]
         assert "One moment while I find the right team." in spoken_texts
         assert "I will connect you with our Texas partner now." in spoken_texts
@@ -1981,7 +1999,8 @@ class TestCustomToolManagerUnit:
         mock_engine._gathered_context = {"state": "TX"}
         mock_engine._fetch_recording_audio = None
         mock_engine._get_organization_id = AsyncMock(return_value=1)
-        mock_engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
+        mock_engine._active_agent = stub_agent_runtime()
         mock_engine.set_mute_pipeline = Mock()
         mock_engine.end_call_with_reason = AsyncMock()
 
@@ -2054,6 +2073,9 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         mock_engine = Mock()
+        from api.tests.pipecat_test_utils import stub_agent_runtime
+
+        mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {}

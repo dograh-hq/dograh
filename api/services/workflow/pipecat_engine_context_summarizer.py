@@ -47,7 +47,7 @@ class ContextSummarizationManager:
             with suppress(asyncio.CancelledError):
                 await self._summarization_task
 
-        current_node = self._engine._current_node
+        current_node = self._engine.active_agent.current_node
         if current_node is None:
             logger.warning("Skipping context summarization without a current node")
             return
@@ -72,8 +72,8 @@ class ContextSummarizationManager:
         orphaned tool calls from previous nodes) with a concise summary.
         """
         context = self._engine.context
-        llm = self._engine.inference_llm
-        current_node = self._engine._current_node
+        llm = self._engine.active_agent.inference_llm
+        current_node = self._engine.active_agent.current_node
 
         try:
             if context is None or llm is None or current_node is None:

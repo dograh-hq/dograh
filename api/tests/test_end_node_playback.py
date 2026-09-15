@@ -35,7 +35,7 @@ def engine(three_node_workflow_no_variable_extraction):
         workflow=workflow,
         call_context_vars={},
     )
-    engine._current_node = workflow.nodes["agent"]
+    engine.active_agent.current_node = workflow.nodes["agent"]
     engine.set_node = AsyncMock()
     engine._perform_variable_extraction_if_needed = AsyncMock()
     engine.perform_final_variable_extraction = AsyncMock()
@@ -71,19 +71,19 @@ async def test_end_node_waits_for_goodbye_playback(engine, is_realtime, playback
     try:
         if playback != "already_finished":
             await asyncio.sleep(0)
-            engine.task.queue_frame.assert_not_awaited()
+            engine.call_worker.queue_frame.assert_not_awaited()
             if playback == "delayed":
                 await engine.should_mute_user(BotStartedSpeakingFrame())
             # Finishing inference does not mean the audio has reached the caller.
             await engine.should_mute_user(LLMFullResponseEndFrame())
             await asyncio.sleep(0)
-            engine.task.queue_frame.assert_not_awaited()
+            engine.call_worker.queue_frame.assert_not_awaited()
             engine.perform_final_variable_extraction.assert_not_awaited()
             await engine.should_mute_user(BotStoppedSpeakingFrame())
 
         await asyncio.wait_for(finishing, timeout=1)
         engine.perform_final_variable_extraction.assert_awaited_once()
-        terminal = engine.task.queue_frame.await_args.args[0]
+        terminal = engine.call_worker.queue_frame.await_args.args[0]
         assert isinstance(terminal, EndFrame)
         assert terminal.reason == EndTaskReason.END_CALL.value
         assert not engine._bot_is_speaking
@@ -102,7 +102,7 @@ async def test_caller_hangup_can_cancel_while_goodbye_is_pending(engine):
         await engine.end_call_with_reason(
             EndTaskReason.USER_HANGUP.value, abort_immediately=True
         )
-        terminal = engine.task.queue_frame.await_args.args[0]
+        terminal = engine.call_worker.queue_frame.await_args.args[0]
         assert isinstance(terminal, CancelFrame)
         assert terminal.reason == EndTaskReason.USER_HANGUP.value
     finally:
@@ -123,7 +123,7 @@ async def test_end_node_wait_is_bounded_when_audio_stalls(engine, starts):
     if starts:
         await engine.should_mute_user(BotStartedSpeakingFrame())
     await asyncio.wait_for(finish(), timeout=1)
-    assert isinstance(engine.task.queue_frame.await_args.args[0], EndFrame)
+    assert isinstance(engine.call_worker.queue_frame.await_args.args[0], EndFrame)
 
 
 @pytest.mark.asyncio

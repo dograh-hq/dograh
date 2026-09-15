@@ -1694,7 +1694,7 @@ export type CreateToolRequest = {
      *
      * Tool category. Must match definition.type.
      */
-    category?: 'http_api' | 'end_call' | 'transfer_call' | 'calculator' | 'native' | 'integration' | 'mcp';
+    category?: 'http_api' | 'end_call' | 'transfer_call' | 'transfer_agent' | 'calculator' | 'native' | 'integration' | 'mcp';
     /**
      * Icon
      *
@@ -1719,6 +1719,8 @@ export type CreateToolRequest = {
     } & EndCallToolDefinition) | ({
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
+        type: 'transfer_agent';
+    } & TransferAgentToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
         type: 'mcp';
@@ -6684,6 +6686,61 @@ export type ToolTestResponse = {
 };
 
 /**
+ * TransferAgentConfig
+ *
+ * Configuration for Transfer Agent tools.
+ *
+ * One tool, one destination. An agent that can hand the caller to several
+ * places gets several of these tools, and the model chooses between them the
+ * way it chooses between any other tools -- by their names and descriptions.
+ * That keeps the routing decision in the one place the model already reasons
+ * about, and leaves nothing to configure here but where the call goes.
+ *
+ * Everything about how a handoff sounds is fixed: the caller hears a ringer
+ * while the next agent is prepared, and that agent opens with its own
+ * configured greeting. Only the handover line is configurable, because it is
+ * caller-facing and Dograh runs in more than one language.
+ */
+export type TransferAgentConfig = {
+    /**
+     * Workflow Id
+     *
+     * Id of the Dograh agent to transfer to. Must be in the same organization, and must not be a speech-to-speech agent.
+     */
+    workflow_id: number;
+    /**
+     * Message
+     *
+     * Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
+     */
+    message?: string;
+};
+
+/**
+ * TransferAgentToolDefinition
+ *
+ * Tool definition for Transfer Agent tools.
+ */
+export type TransferAgentToolDefinition = {
+    /**
+     * Schema Version
+     *
+     * Schema version.
+     */
+    schema_version?: number;
+    /**
+     * Type
+     *
+     * Tool type.
+     */
+    type: 'transfer_agent';
+    /**
+     * Transfer Agent configuration.
+     */
+    config: TransferAgentConfig;
+};
+
+/**
  * TransferCallConfig
  *
  * Configuration for Transfer Call tools.
@@ -7071,6 +7128,8 @@ export type UpdateToolRequest = {
     } & EndCallToolDefinition) | ({
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
+        type: 'transfer_agent';
+    } & TransferAgentToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
         type: 'mcp';

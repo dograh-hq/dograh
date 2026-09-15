@@ -44,6 +44,12 @@ class UserIdleHandler:
         supervisor = getattr(self._engine, "answer_supervisor", None)
         if supervisor is not None and supervisor.blocks_workflow:
             return
+        if getattr(self._engine, "transfer_in_progress", False):
+            # The caller is listening to a hold ringer while the next agent is
+            # prepared. Prompting them to speak, and eventually hanging up on
+            # them for not speaking, is exactly wrong here.
+            logger.debug("Suppressing user-idle prompt during an agent handoff")
+            return
         self._retry_count += 1
         logger.debug(f"Handling user_idle, attempt: {self._retry_count}")
 
@@ -93,10 +99,23 @@ def create_max_duration_callback(engine: "PipecatEngine"):
 # ---------------------------------------------------------------------------
 
 
-def create_generation_started_callback(engine: "PipecatEngine"):
-    """Return a callback that resets flags at the start of each LLM generation."""
+def create_generation_started_callback(
+    engine: "PipecatEngine", *, visit_id: str | None = None
+):
+    """Return a callback that resets flags at the start of each LLM generation.
+
+    Args:
+        engine: The call's engine.
+        visit_id: The agent visit whose generation stage fires this. A
+            generation starting in an agent that has already handed the call
+            over is ignored, so it cannot clear the reference text the new
+            agent is mid-way through building.
+    """
 
     async def handle_generation_started():
+        if not engine.owns_generation(visit_id):
+            logger.debug(f"Ignoring generation start from retired visit {visit_id}")
+            return
         logger.debug("LLM generation started in callback processor")
         # Clear reference text from previous generation
         engine._current_llm_generation_reference_text = ""

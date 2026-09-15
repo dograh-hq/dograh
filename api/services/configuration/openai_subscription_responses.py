@@ -452,11 +452,11 @@ class SubscriptionResponsesClient:
                     raise SubscriptionResponsesError("redirect_rejected")
                 if response.status_code != 200:
                     raise SubscriptionResponsesError("provider_error")
+                # Codex can omit this header; the bounded SSE decoder still validates every event.
+                content_type = response.headers.get("content-type")
                 if (
-                    response.headers.get("content-type", "")
-                    .split(";", 1)[0]
-                    .strip()
-                    .lower()
+                    content_type is not None
+                    and content_type.split(";", 1)[0].strip().lower()
                     != "text/event-stream"
                 ):
                     raise SubscriptionResponsesError("invalid_response")

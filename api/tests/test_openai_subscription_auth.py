@@ -583,6 +583,241 @@ class SubscriptionAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.requests), 1)
         self.assertFalse(self.redis.values)
 
+    def external_login_service(self, **settings):
+        return SubscriptionAuthService(
+            replace(self.settings, use_codex_login=True, **settings),
+            self.redis,
+            self.http,
+            clock=lambda: self.redis.now,
+        )
+
+    def test_codex_login_mode_env_precedence_and_default_off(self):
+        prefix = "DOGRAH_OPENAI_SUBSCRIPTION_"
+        with patch.object(Path, "home", return_value=self.home / "synthetic-profile"):
+            default = SubscriptionAuthSettings.from_env(
+                {prefix + "USE_CODEX_LOGIN": "true"}
+            )
+            self.assertTrue(default.use_codex_login)
+            self.assertEqual(
+                default.codex_home, self.home / "synthetic-profile" / ".codex"
+            )
+            ambient = SubscriptionAuthSettings.from_env(
+                {
+                    prefix + "USE_CODEX_LOGIN": "true",
+                    "CODEX_HOME": str(self.home / "ambient"),
+                }
+            )
+            self.assertEqual(ambient.codex_home, self.home / "ambient")
+            explicit = SubscriptionAuthSettings.from_env(
+                {
+                    prefix + "USE_CODEX_LOGIN": "true",
+                    "CODEX_HOME": str(self.home / "ambient"),
+                    prefix + "CODEX_HOME": str(self.home / "explicit"),
+                }
+            )
+            self.assertEqual(explicit.codex_home, self.home / "explicit")
+            disabled = SubscriptionAuthSettings.from_env(
+                {"CODEX_HOME": str(self.home / "ambient")}
+            )
+            self.assertFalse(disabled.use_codex_login)
+            self.assertIsNone(disabled.codex_home)
+            dedicated = SubscriptionAuthSettings.from_env(
+                {
+                    prefix + "USE_CODEX_LOGIN": "false",
+                    prefix + "CODEX_HOME": str(self.home / "explicit"),
+                }
+            )
+            self.assertFalse(dedicated.use_codex_login)
+            self.assertEqual(dedicated.codex_home, self.home / "explicit")
+
+    async def test_existing_desktop_codex_login_is_read_only_for_voice_and_reasoning(
+        self,
+    ):
+        profile = self.home / "synthetic-profile"
+        directory = profile / ".codex"
+        directory.mkdir(parents=True)
+        path = directory / "auth.json"
+        path.write_text(json.dumps(_login()))
+        before = path.read_bytes()
+        with patch.object(Path, "home", return_value=profile):
+            settings = SubscriptionAuthSettings.from_env(
+                {
+                    "DOGRAH_OPENAI_SUBSCRIPTION_ENABLED": "true",
+                    "DOGRAH_OPENAI_SUBSCRIPTION_USE_CODEX_LOGIN": "true",
+                    "DOGRAH_OPENAI_SUBSCRIPTION_ORGANIZATION_ID": "42",
+                }
+            )
+            service = SubscriptionAuthService(
+                settings, self.redis, self.http, clock=lambda: self.redis.now
+            )
+            with (
+                patch(
+                    "api.services.configuration.openai_subscription_auth.tempfile.mkstemp"
+                ) as create_file,
+                patch(
+                    "api.services.configuration.openai_subscription_auth.os.replace"
+                ) as replace_file,
+            ):
+                self.assertEqual((await service.status(42))["status"], "ready")
+                session = await service.acquire_session(42)
+                credential = await service.get_credentials(
+                    42, expected_account_id=_ACCOUNT
+                )
+                self.assertEqual(credential, session.credentials)
+                await session.release()
+                create_file.assert_not_called()
+                replace_file.assert_not_called()
+        self.assertEqual(before, path.read_bytes())
+        self.assertEqual(list(directory.iterdir()), [path])
+        self.assertFalse(self.requests)
+
+    async def test_expiring_existing_login_rereads_and_requests_codex_refresh_only(
+        self,
+    ):
+        self.write(_login(_NOW + 30))
+        before = self.path.read_bytes()
+        service = self.external_login_service()
+        with (
+            patch.object(
+                service, "_read_credentials", wraps=service._read_credentials
+            ) as read,
+            patch.object(service, "_refresh_request") as refresh,
+            patch.object(service, "_persist_refresh") as persist,
+        ):
+            state = await service.status(42)
+            self.assertEqual(state["status"], "refresh_required")
+            self.assertEqual(
+                state["message"],
+                "Codex needs to refresh its login; retry after Codex refreshes.",
+            )
+            self.assertEqual(read.call_count, 2)
+            await self.assert_error(
+                "codex_refresh_required", service.get_credentials(42)
+            )
+            await self.assert_error(
+                "codex_refresh_required", service.acquire_session(42)
+            )
+            refresh.assert_not_called()
+            persist.assert_not_called()
+        self.assertEqual(before, self.path.read_bytes())
+        self.assertEqual(list(self.home.iterdir()), [self.path])
+        self.assertFalse(self.requests)
+        self.assertFalse(self.redis.values)
+
+    async def test_existing_login_uses_codex_rotation_seen_on_reread(self):
+        service = self.external_login_service()
+        self.write(_login(_NOW - 1))
+        stale = service._read_credentials()
+        refreshed = _login(_NOW + 7200)
+        refreshed["tokens"]["refresh_token"] = "codex-owned-rotation"
+        self.write(refreshed)
+        fresh = service._read_credentials()
+        before = self.path.read_bytes()
+        with patch.object(
+            service, "_read_credentials", side_effect=[stale, stale, fresh]
+        ) as read:
+            credential = await service.get_credentials(42)
+            self.assertEqual(credential.access_token, fresh[2].access_token)
+            self.assertEqual(read.call_count, 3)
+        self.assertEqual(before, self.path.read_bytes())
+        self.assertFalse(self.requests)
+        self.assertFalse(self.redis.values)
+
+    async def test_existing_login_is_read_again_for_each_request_and_account_changes_fail(
+        self,
+    ):
+        service = self.external_login_service()
+        self.write()
+        first = await service.get_credentials(42, expected_account_id=_ACCOUNT)
+        self.write(_login(_NOW + 7200))
+        second = await service.get_credentials(42, expected_account_id=_ACCOUNT)
+        self.assertNotEqual(first.access_token, second.access_token)
+        self.write(_login(account="new-account"))
+        changed = self.path.read_bytes()
+        await self.assert_error(
+            "account_mismatch",
+            service.get_credentials(42, expected_account_id=_ACCOUNT),
+        )
+        pinned = self.external_login_service(expected_account_id=_ACCOUNT)
+        self.assertEqual(
+            (await pinned.status(42))["status"], "reauthentication_required"
+        )
+        await self.assert_error("account_mismatch", pinned.acquire_session(42))
+        self.assertEqual(changed, self.path.read_bytes())
+        self.assertFalse(self.requests)
+        self.assertFalse(self.redis.values)
+
+    async def test_existing_login_organization_guard_precedes_read(self):
+        service = self.external_login_service()
+        with patch.object(service, "_read_credentials") as read:
+            await self.assert_error("organization_mismatch", service.status(43))
+            await self.assert_error(
+                "organization_mismatch", service.get_credentials(43)
+            )
+            await self.assert_error(
+                "organization_mismatch", service.acquire_session(43)
+            )
+            read.assert_not_called()
+
+    async def test_existing_login_missing_invalid_or_api_mode_never_falls_back(self):
+        service = self.external_login_service()
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "paid-key-must-not-be-used"}):
+            state = await service.status(42)
+            self.assertEqual(state["status"], "login_required")
+            self.assertNotIn("dedicated", state["message"])
+            await self.assert_error("codex_login_required", service.get_credentials(42))
+            for content in [
+                "invalid-json",
+                '{"auth_mode":"apikey","OPENAI_API_KEY":"paid-key"}',
+            ]:
+                self.path.write_text(content)
+                state = await service.status(42)
+                self.assertEqual(state["status"], "reauthentication_required")
+                self.assertNotIn("dedicated", state["message"])
+                await self.assert_error(
+                    "codex_reauthentication_required", service.get_credentials(42)
+                )
+        self.assertFalse(self.requests)
+        self.assertFalse(self.redis.values)
+
+    async def test_existing_login_retains_symlink_and_junction_checks(self):
+        service = self.external_login_service()
+        for predicate in ["is_symlink", "is_junction"]:
+            with (
+                patch.object(Path, predicate, return_value=True),
+                patch.object(Path, "read_text") as read,
+            ):
+                await self.assert_error(
+                    "configuration_required", service.get_credentials(42)
+                )
+                read.assert_not_called()
+
+    async def test_existing_login_refresh_and_persist_helpers_are_guarded(self):
+        self.write()
+        service = self.external_login_service()
+        _, _, credential = service._read_credentials()
+        before = self.path.read_bytes()
+        with (
+            patch.object(service, "_read_credentials") as read,
+            patch(
+                "api.services.configuration.openai_subscription_auth.tempfile.mkstemp"
+            ) as create_file,
+            patch(
+                "api.services.configuration.openai_subscription_auth.os.replace"
+            ) as replace_file,
+        ):
+            await self.assert_error(
+                "codex_refresh_required", service._refresh_request("synthetic-refresh")
+            )
+            with self.assertRaises(SubscriptionAuthError) as error:
+                service._persist_refresh(self.path, credential, {})
+            self.assertEqual(error.exception.code, "codex_refresh_required")
+            read.assert_not_called()
+            create_file.assert_not_called()
+            replace_file.assert_not_called()
+        self.assertEqual(before, self.path.read_bytes())
+        self.assertFalse(self.requests)
+
     async def test_cleanup_remains_idempotent_after_close_error(self):
         owned = SubscriptionAuthService(
             self.settings, self.redis, owns_redis_client=True

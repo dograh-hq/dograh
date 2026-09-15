@@ -45,7 +45,7 @@ return 0
 _MESSAGES = {
     "disabled": "Subscription voice is disabled on this server.",
     "self_hosted_only": "Subscription voice is available only on self-hosted Dograh deployments.",
-    "configuration_required": "Configure the dedicated subscription login directory and organization binding on the server.",
+    "configuration_required": "Configure the subscription login source and organization binding on the server.",
     "organization_mismatch": "Subscription voice is not connected to this organization.",
     "login_required": "Sign in with Codex CLI using the dedicated Dograh credential directory.",
     "reauthentication_required": "The subscription login is invalid or expired. Sign in again in the dedicated Dograh credential directory.",
@@ -58,6 +58,9 @@ _MESSAGES = {
     "rate_limited": "Subscription sign-in is rate limited. Try again later.",
     "persistence_failed": "The refreshed login could not be saved. Check write access to the dedicated credential directory and sign in again.",
     "credentials_changed": "The connected login changed during session setup. Start a new conversation.",
+    "codex_refresh_required": "Codex needs to refresh its login; retry after Codex refreshes.",
+    "codex_login_required": "The existing Codex login is unavailable. Check Codex login status and retry.",
+    "codex_reauthentication_required": "The existing Codex login is invalid. Check the login in Codex and retry.",
 }
 
 
@@ -76,14 +79,23 @@ class SubscriptionAuthSettings:
     organization_id: str | None = None
     expected_account_id: str | None = field(default=None, repr=False)
     lease_ttl_seconds: int = 90
+    use_codex_login: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> SubscriptionAuthSettings:
         values = os.environ if env is None else env
         prefix = "DOGRAH_OPENAI_SUBSCRIPTION_"
+        use_codex_login = (
+            values.get(prefix + "USE_CODEX_LOGIN", "false").strip().lower() == "true"
+        )
         directory = values.get(prefix + "CODEX_HOME", "").strip()
+        if use_codex_login and not directory:
+            directory = values.get("CODEX_HOME", "").strip() or str(
+                Path.home() / ".codex"
+            )
         return cls(
             enabled=values.get(prefix + "ENABLED", "false").strip().lower() == "true",
+            use_codex_login=use_codex_login,
             deployment_mode=values.get("DEPLOYMENT_MODE", "oss"),
             codex_home=Path(directory) if directory else None,
             organization_id=values.get(prefix + "ORGANIZATION_ID", "").strip() or None,
@@ -238,7 +250,7 @@ class SubscriptionAuthService:
     def _auth_path(self) -> Path:
         directory = self.settings.codex_home
         assert directory is not None
-        # No fallback to the server operator's desktop login or caller-supplied path.
+        # Desktop login reuse is explicit and read-only; paths remain server-owned.
         desktop_home = Path.home() / ".codex"
         ambient_home = os.environ.get("CODEX_HOME")
         forbidden = [desktop_home]
@@ -248,8 +260,12 @@ class SubscriptionAuthService:
         if (
             directory.is_symlink()
             or directory.is_junction()
-            or any(
-                resolved_directory.is_relative_to(path.resolve()) for path in forbidden
+            or (
+                not self.settings.use_codex_login
+                and any(
+                    resolved_directory.is_relative_to(path.resolve())
+                    for path in forbidden
+                )
             )
         ):
             raise SubscriptionAuthError("configuration_required")
@@ -263,12 +279,32 @@ class SubscriptionAuthService:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            raise SubscriptionAuthError("login_required") from None
+            raise self._login_error("login_required") from None
         except (OSError, ValueError, UnicodeError):
-            raise SubscriptionAuthError("reauthentication_required") from None
+            raise self._login_error("reauthentication_required") from None
         if not isinstance(data, dict):
-            raise SubscriptionAuthError("reauthentication_required")
-        return path, data, _parse_credentials(data, self.settings.expected_account_id)
+            raise self._login_error("reauthentication_required")
+        try:
+            credential = _parse_credentials(data, self.settings.expected_account_id)
+        except SubscriptionAuthError as exc:
+            raise self._login_error(exc.code) from None
+        return path, data, credential
+
+    def _login_error(self, code: str) -> SubscriptionAuthError:
+        if self.settings.use_codex_login and code in {
+            "login_required",
+            "reauthentication_required",
+        }:
+            return SubscriptionAuthError("codex_" + code)
+        return SubscriptionAuthError(code)
+
+    def _reread_codex_credentials(self, account_id: str) -> SubscriptionCredentials:
+        _, _, credential = self._read_credentials()
+        if credential.account_id != account_id:
+            raise SubscriptionAuthError("account_mismatch")
+        if credential.expires_at <= self._clock() + _REFRESH_MARGIN_SECONDS:
+            raise SubscriptionAuthError("codex_refresh_required")
+        return credential
 
     @staticmethod
     def _account_key(account_id: str, purpose: str) -> str:
@@ -296,6 +332,11 @@ class SubscriptionAuthService:
         try:
             self.assert_organization(organization_id)
             _, _, credential = self._read_credentials()
+            if (
+                self.settings.use_codex_login
+                and credential.expires_at <= self._clock() + _REFRESH_MARGIN_SECONDS
+            ):
+                credential = self._reread_codex_credentials(credential.account_id)
             if await self._redis(
                 "exists", self._account_key(credential.account_id, "session")
             ):
@@ -316,6 +357,9 @@ class SubscriptionAuthService:
                 "configuration_required": "login_required",
                 "self_hosted_only": "disabled",
                 "account_mismatch": "reauthentication_required",
+                "codex_refresh_required": "refresh_required",
+                "codex_login_required": "login_required",
+                "codex_reauthentication_required": "reauthentication_required",
             }.get(exc.code, exc.code)
             return {"status": state, "message": exc.safe_message}
 
@@ -360,6 +404,8 @@ class SubscriptionAuthService:
             raise SubscriptionAuthError("account_mismatch")
         if credential.expires_at > self._clock() + _REFRESH_MARGIN_SECONDS:
             return credential
+        if self.settings.use_codex_login:
+            return self._reread_codex_credentials(account_id)
         key = self._account_key(account_id, "refresh")
         owner = uuid.uuid4().hex
         for _ in range(50):
@@ -397,6 +443,8 @@ class SubscriptionAuthService:
                 await self._redis("eval", _COMPARE_DELETE, 1, key, owner)
 
     async def _refresh_request(self, refresh_token: str) -> dict:
+        if self.settings.use_codex_login:
+            raise SubscriptionAuthError("codex_refresh_required")
         fields = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
@@ -438,6 +486,8 @@ class SubscriptionAuthService:
     def _persist_refresh(
         self, path: Path, original: SubscriptionCredentials, payload: dict
     ) -> SubscriptionCredentials:
+        if self.settings.use_codex_login:
+            raise SubscriptionAuthError("codex_refresh_required")
         expires_in = payload.get("expires_in")
         if (
             isinstance(expires_in, bool)

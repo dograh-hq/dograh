@@ -513,14 +513,41 @@ class SubscriptionResponsesTests(unittest.IsolatedAsyncioTestCase):
             all(request.url.host == "chatgpt.com" for request in self.requests)
         )
 
-    async def test_json_response_is_rejected_without_reading_body(self):
-        self.byte_stream = _ByteStream([b'{"secret":"raw-private"}'])
-        self.response = httpx.Response(
-            200, headers={"content-type": "application/json"}, stream=self.byte_stream
-        )
-        await self.assert_error("invalid_response", self.client.complete(_PARAMS))
-        self.assertFalse(self.byte_stream.entered.is_set())
+    async def test_missing_content_type_accepts_validated_sse_completion(self):
+        content = _sse(_done_item(), _completed())
+        self.byte_stream = _ByteStream([content[:17], content[17:]])
+        self.response = httpx.Response(200, stream=self.byte_stream)
+        result = await self.client.complete(_PARAMS)
+        self.assertEqual(result.output_text, "Synthetic order is ready.")
+        self.assertEqual(len(self.requests), 1)
         self.assertTrue(self.byte_stream.closed)
+
+    async def test_missing_content_type_still_requires_valid_complete_sse(self):
+        for content, code in [
+            (b'{"message":"raw-private"}', "incomplete_response"),
+            (b"<html>raw-private</html>", "incomplete_response"),
+            (b"data: not-json raw-private\n\n", "invalid_response"),
+            (_sse({"type": "unknown"}), "invalid_response"),
+            (_sse(_done_item()), "incomplete_response"),
+        ]:
+            with self.subTest(code=code):
+                self.byte_stream = _ByteStream([content])
+                self.response = httpx.Response(200, stream=self.byte_stream)
+                await self.assert_error(code, self.client.complete(_PARAMS))
+                self.assertTrue(self.byte_stream.closed)
+
+    async def test_declared_non_sse_response_is_rejected_without_reading_body(self):
+        for content_type in ("application/json", "text/html", ""):
+            with self.subTest(content_type=content_type):
+                self.byte_stream = _ByteStream([b'{"secret":"raw-private"}'])
+                self.response = httpx.Response(
+                    200, headers={"content-type": content_type}, stream=self.byte_stream
+                )
+                await self.assert_error(
+                    "invalid_response", self.client.complete(_PARAMS)
+                )
+                self.assertFalse(self.byte_stream.entered.is_set())
+                self.assertTrue(self.byte_stream.closed)
 
     async def test_request_event_and_total_response_limits(self):
         small_request = SubscriptionResponsesClient(

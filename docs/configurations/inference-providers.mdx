@@ -45,13 +45,31 @@ API-backed Speech to Speech providers require a separate LLM for analysis outsid
 
 ### Experimental ChatGPT subscription voice (self-hosted)
 
-**OpenAI GPT-Live (ChatGPT subscription)** uses one dedicated Codex login for voice (`gpt-live-1-codex`, voice `cove`) and workflow reasoning (`gpt-5.6-luna` by default). No developer API key or separate LLM configuration is required. Dograh retains its existing workflow tool handlers and node transitions. Variable extraction, dispositions, and QA that reuse the workflow LLM use subscription reasoning too. Explicitly selected embeddings, a separately configured QA provider, and telephony can still have their own credentials and charges.
+**OpenAI GPT-Live (ChatGPT subscription)** uses one connected Codex login for voice (`gpt-live-1-codex`, voice `cove`) and workflow reasoning (`gpt-5.6-luna` by default). No developer API key or separate LLM configuration is required. Dograh retains its existing workflow tool handlers and node transitions. Variable extraction, dispositions, and QA that reuse the workflow LLM use subscription reasoning too. Explicitly selected embeddings, a separately configured QA provider, and telephony can still have their own credentials and charges.
 
 This is an opt-in ChatGPT backend compatibility integration, disabled by default. It does not establish an official OpenAI production API contract, universal account access, unlimited use, or upstream acceptance. A local credentials check is not proof of voice entitlement. Use a disposable self-hosted environment and a synthetic browser workflow before considering other workloads.
 
-#### Connect a dedicated login
+#### Use your existing Codex login
 
 Prerequisites: an API and UI built from the experimental source, the pinned Pipecat dependencies, working Redis, the numeric ID of your test Dograh organization, Codex CLI, and an account able to access the subscription voice backend. Do not reuse a production database, object-storage bucket, Redis instance, or the ports/containers of another installation. Follow [contributor setup](/contribution/setup) for the application dependencies.
+
+If Codex is already signed in with ChatGPT on the same host, no second login is needed. Enable reuse in the API environment and bind it to your test organization:
+
+```dotenv
+DOGRAH_OPENAI_SUBSCRIPTION_ENABLED=true
+DOGRAH_OPENAI_SUBSCRIPTION_USE_CODEX_LOGIN=true
+DOGRAH_OPENAI_SUBSCRIPTION_ORGANIZATION_ID=123
+# Optional when the API service uses a different OS home:
+# DOGRAH_OPENAI_SUBSCRIPTION_CODEX_HOME=/absolute/path/to/your/.codex
+```
+
+Dograh resolves the explicit subscription `CODEX_HOME` setting, then the API process's `CODEX_HOME`, then its OS user's `.codex` directory. It reads the existing ChatGPT `auth.json` before requests; it does not copy credentials, rotate tokens, or write to that login. Codex remains responsible for refreshing its own login. If the access token expires, the adapter reports **Refresh required** and accepts the new token on a later request after Codex refreshes it. There is no API-key fallback. A keyring-only login must be made available through Codex's supported file storage before this adapter can read it.
+
+Skip the optional enrollment below and continue at **Select subscription models**. The API process must have read access to the existing file. Organization/account binding and the single voice-session lease still apply.
+
+#### Optional: a separate Dograh login
+
+Use a separate login when you want Dograh to own token refresh, such as a server running under a different service account. Set `DOGRAH_OPENAI_SUBSCRIPTION_USE_CODEX_LOGIN=false` (the default) for this mode.
 
 1. Create a new credential directory outside the repository, accessible only to its owner and the Dograh service account. Do not copy your desktop `auth.json`, mount your entire `.codex` directory, or reuse the login directory of another app.
 2. In an operator terminal, log in with Codex using that directory and file storage. For example, on macOS/Linux, replace the absolute path below with the new directory:
@@ -79,16 +97,18 @@ DOGRAH_OPENAI_SUBSCRIPTION_ORGANIZATION_ID=123
 # DOGRAH_OPENAI_SUBSCRIPTION_ACCOUNT_ID=
 ```
 
-Set only the `DOGRAH_...CODEX_HOME` variable in Dograh's runtime. The `CODEX_HOME` override above belongs to the separate login process. The adapter rejects the server user's default or ambient desktop Codex directory. An organization mismatch fails before reading credentials. The directory must remain writable so refreshed tokens can be atomically replaced; mounting only `auth.json` prevents that replacement. Restrict its parent-directory permissions or Windows ACLs too.
+Set only the `DOGRAH_...CODEX_HOME` variable in Dograh's runtime. The `CODEX_HOME` override above belongs to the separate login process. In this dedicated-login mode, the adapter rejects the server user's default or ambient desktop Codex directory. An organization mismatch fails before reading credentials. The directory must remain writable so refreshed tokens can be atomically replaced; mounting only `auth.json` prevents that replacement. Restrict its parent-directory permissions or Windows ACLs too.
 
-4. Restart only your dedicated test API processes to apply the settings. In **Models â†’ Speech to Speech â†’ Realtime Model**, select **OpenAI GPT-Live (ChatGPT subscription)**, retain `gpt-live-1-codex` / `cove`, and retain the default workflow reasoning model `gpt-5.6-luna` unless your account supports a different Codex model. Save without an API key or LLM configuration.
-5. Select **Check connection**. This authenticated check returns no tokens, account ID, or filesystem path and performs no provider login/refresh request. **Credentials ready** means the stored credentials appear locally usable; a real session must still prove access.
+#### Select subscription models
+
+1. Restart only your dedicated test API processes to apply the settings. In **Models â†’ Speech to Speech â†’ Realtime Model**, select **OpenAI GPT-Live (ChatGPT subscription)**, retain `gpt-live-1-codex` / `cove`, and retain the default workflow reasoning model `gpt-5.6-luna` unless your account supports a different Codex model. Save without an API key or LLM configuration.
+2. Select **Check connection**. This authenticated check returns no tokens, account ID, or filesystem path and performs no provider login/refresh request. **Credentials ready** means the stored credentials appear locally usable; a real session must still prove access.
 
 | Connection state | Next action |
 | --- | --- |
 | Disabled | Enable the feature in this test server's environment. |
-| Login required / Reconnect required | Complete Codex login again in the dedicated directory. |
-| Refresh required | Session setup will attempt refresh and persist rotated tokens. Fix directory write access if refresh cannot be saved. |
+| Login required / Reconnect required | Check the selected Codex login and file-storage configuration. Use the existing-login mode for an already signed-in Codex session. |
+| Refresh required | Existing-login mode waits for Codex to refresh its file. Dedicated-login mode refreshes during session setup and requires directory write access. |
 | Credentials ready | Proceed to the operator-driven browser test. |
 | Account busy | End the existing session and allow cleanup before starting another. |
 | Unavailable | Check the test API's redacted error and Redis availability. |
@@ -115,6 +135,8 @@ services:
         bind:
           create_host_path: false
 ```
+
+For existing-login reuse in a container, also set `DOGRAH_OPENAI_SUBSCRIPTION_USE_CODEX_LOGIN: "true"` and mount only the selected `auth.json` read-only at `/var/lib/dograh-subscription-login/auth.json`. Let the host Codex process own refresh. A single-file bind can keep the old file after Codex atomically replaces it; recreate the test API container to bind the refreshed file when this happens. Running the API on the same host avoids that bind-mount limitation. The directory mount above is for the optional dedicated-login mode.
 
 `DOGRAH_SUBSCRIPTION_LOGIN_DIR` is a Compose interpolation variable for the host directory, not an API setting. Grant the image's `dograh` user permission to replace files there. Do not change production defaults. This override only covers subscription settings: a disposable stack also needs its own Compose project, volumes, free ports, and any fixed container names adjusted. A new project name alone does not isolate the fixed ports or container names in the supplied Compose file. Prebuilt `latest` images do not acquire this source change merely by setting environment variables.
 

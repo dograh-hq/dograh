@@ -27,6 +27,7 @@ SERVICE_SECRET_FIELDS = (
     "aws_session_token",
 )
 MODEL_OVERRIDE_FIELDS = ("llm", "tts", "stt", "realtime")
+VOICEMAIL_DETECTION_KEY = "voicemail_detection"
 
 
 def contains_masked_key(value: str | list[str] | None) -> bool:
@@ -170,6 +171,12 @@ def mask_workflow_configurations(config: Optional[Dict]) -> Optional[Dict]:
     v2_override = masked.get("model_configuration_v2_override")
     if isinstance(v2_override, dict):
         _mask_nested_service_secrets(v2_override)
+
+    # Voicemail detection can carry its own provider key when it does not
+    # reuse the workflow LLM (use_workflow_llm=False).
+    voicemail = masked.get(VOICEMAIL_DETECTION_KEY)
+    if isinstance(voicemail, dict) and isinstance(voicemail.get("api_key"), str):
+        voicemail["api_key"] = mask_key(voicemail["api_key"])
 
     return masked
 

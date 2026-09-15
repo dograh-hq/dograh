@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AIModelConfigurationV2Editor, type ModelConfigurationDefaultsV2 } from "./AIModelConfigurationV2Editor";
 import { type ServiceConfigurationDefaults, ServiceConfigurationForm } from "./ServiceConfigurationForm";
 
-const { subscriptionStatus, authState, userConfigState } = vi.hoisted(() => ({
+const { subscriptionStatus, getVoices, authState, userConfigState } = vi.hoisted(() => ({
     subscriptionStatus: vi.fn(),
+    getVoices: vi.fn(),
     userConfigState: { userConfig: null as Record<string, unknown> | null },
     authState: { loading: false, user: { id: "test-user" } as { id: string } | null },
 }));
@@ -18,9 +19,12 @@ vi.stubGlobal("ResizeObserver", class {
 vi.mock("@/client/sdk.gen", () => ({
     getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet: vi.fn(),
     getOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGet: subscriptionStatus,
+    getVoicesApiV1UserConfigurationsVoicesProviderGet: getVoices,
 }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => authState }));
 beforeEach(() => {
+    getVoices.mockReset();
+    getVoices.mockResolvedValue({ data: { voices: [] } });
     subscriptionStatus.mockReset();
     subscriptionStatus.mockResolvedValue({ data: { status: "ready", message: "Credentials appear usable. A voice session must verify access." } });
     userConfigState.userConfig = null;
@@ -29,7 +33,6 @@ beforeEach(() => {
 });
 vi.mock("@/context/UserConfigContext", () => ({ useUserConfig: () => userConfigState }));
 vi.mock("@/components/VoiceSelector", () => ({ VoiceSelector: () => null }));
-vi.mock("@/components/VoiceSelectorModal", () => ({ VoiceSelectorModal: () => null }));
 vi.mock("@/components/ui/select", () => ({
     Select: ({ value, onValueChange, children }: { value: string; onValueChange: (value: string) => void; children: ReactNode }) => (
         <select value={value} onChange={event => onValueChange(event.target.value)}>{children}</select>
@@ -313,6 +316,36 @@ const v2Defaults: ModelConfigurationDefaultsV2 = {
         realtime: { realtime: defaults.realtime!, llm: defaults.llm, embeddings: defaults.embeddings, default_providers: defaults.default_providers },
     },
 };
+
+describe("V2 managed voice requests", () => {
+    it.each([
+        ["saved subscription", { configuration: { mode: "byok", byok: { mode: "realtime", realtime: { realtime: keylessSubscription } } } }, "Speech to Speech"],
+        ["effective subscription", { effectiveConfiguration: subscriptionConfig }, "Speech to Speech"],
+        ["API realtime", { effectiveConfiguration: initialConfig }, "Speech to Speech"],
+        ["BYOK pipeline", { effectiveConfiguration: { is_realtime: false } }, "BYOK"],
+    ] as const)("does not request managed voices when opening %s settings", async (_label, configProps, tab) => {
+        render(<AIModelConfigurationV2Editor defaults={v2Defaults} {...configProps} onSave={vi.fn()} />);
+        await screen.findByRole("tab", { name: tab, selected: true });
+        expect(getVoices).not.toHaveBeenCalled();
+    });
+
+    it("resolves only the saved voice when opening active Dograh settings", async () => {
+        render(<AIModelConfigurationV2Editor defaults={v2Defaults} configuration={{ mode: "dograh", dograh: { api_key: "managed-key", voice: "saved-managed-voice", speed: 1, language: "en" } }} onSave={vi.fn()} />);
+        await screen.findByRole("tab", { name: "Dograh", selected: true });
+        await waitFor(() => expect(getVoices).toHaveBeenCalledOnce());
+        expect(getVoices).toHaveBeenCalledWith({ path: { provider: "dograh" }, query: { q: "saved-managed-voice" } });
+    });
+
+    it("loads the managed voice and catalog after selecting the Dograh tab", async () => {
+        render(<AIModelConfigurationV2Editor defaults={v2Defaults} effectiveConfiguration={subscriptionConfig} onSave={vi.fn()} />);
+        await screen.findByRole("tab", { name: "Speech to Speech", selected: true });
+        expect(getVoices).not.toHaveBeenCalled();
+        fireEvent.mouseDown(screen.getByRole("tab", { name: "Dograh" }), { button: 0, ctrlKey: false });
+        await waitFor(() => expect(getVoices).toHaveBeenCalledWith({ path: { provider: "dograh" }, query: { q: "cove" } }));
+        fireEvent.click(screen.getByRole("button", { name: "cove" }));
+        await waitFor(() => expect(getVoices).toHaveBeenCalledWith({ path: { provider: "dograh" }, query: { gender: "female", accent: "us", language: "en" } }));
+    });
+});
 
 describe("V2 subscription configuration", () => {
     it("saves keyless subscription realtime without requiring or submitting an LLM", async () => {

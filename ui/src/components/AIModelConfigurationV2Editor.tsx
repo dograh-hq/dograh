@@ -358,15 +358,14 @@ export function AIModelConfigurationV2Editor({
     submitLabel = "Save Configuration",
 }: AIModelConfigurationV2EditorProps) {
     const defaultsForByok = useMemo(() => byokDefaults(defaults), [defaults]);
-    const [mode, setMode] = useState<ModelMode>("dograh");
-    const [dograh, setDograh] = useState<DograhFormState>(() => ({
-        api_key: "",
-        voice: defaults.dograh.defaults.voice,
-        speed: defaults.dograh.defaults.speed,
-        language: defaults.dograh.defaults.language,
-    }));
-    const [realtimeInitialConfig, setRealtimeInitialConfig] = useState<Record<string, unknown> | null>(null);
-    const [pipelineInitialConfig, setPipelineInitialConfig] = useState<Record<string, unknown> | null>(null);
+    const [mode, setMode] = useState<ModelMode>(() =>
+        preferredMode(asRecord(configuration), asRecord(effectiveConfiguration)));
+    const [dograh, setDograh] = useState<DograhFormState>(() =>
+        buildDograhState(defaults, asRecord(configuration), asRecord(effectiveConfiguration)));
+    const [realtimeInitialConfig, setRealtimeInitialConfig] = useState<Record<string, unknown> | null>(() =>
+        getByokInitialConfig(asRecord(configuration), asRecord(effectiveConfiguration), true));
+    const [pipelineInitialConfig, setPipelineInitialConfig] = useState<Record<string, unknown> | null>(() =>
+        getByokInitialConfig(asRecord(configuration), asRecord(effectiveConfiguration), false));
     const [isSavingDograh, setIsSavingDograh] = useState(false);
     const [error, setError] = useState<string | null>(null);
 

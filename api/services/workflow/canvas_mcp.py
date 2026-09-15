@@ -57,8 +57,50 @@ CANVAS_MCP_TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "attach_tool_to_node",
+            "description": "Attach a reusable tool from /tools (e.g. Transfer Call, Transfer To Agent, HTTP API, Calculator, MCP) to an agent node on the visual workflow canvas so the voice agent can call it during a phone call.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {
+                        "type": "string",
+                        "description": "The exact ID of the node to attach the tool to (e.g. '2' or 'node-3a450d').",
+                    },
+                    "tool_identifier": {
+                        "type": "string",
+                        "description": "The name or tool_uuid of the tool from available tools (e.g. 'Transfer to Support', 'Transfer Call', '0ea5e9b1...').",
+                    },
+                },
+                "required": ["node_id", "tool_identifier"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "detach_tool_from_node",
+            "description": "Remove an attached tool from a canvas node.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {
+                        "type": "string",
+                        "description": "The exact ID of the node (e.g. '2').",
+                    },
+                    "tool_identifier": {
+                        "type": "string",
+                        "description": "The name or tool_uuid of the tool to detach.",
+                    },
+                },
+                "required": ["node_id", "tool_identifier"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "update_node_field",
-            "description": "Update a specific field on an existing canvas node. Supported fields: 'prompt', 'greeting', 'name', 'allow_interrupt', 'extraction_enabled', 'extraction_prompt', 'extraction_variables'.",
+            "description": "Update a specific field on an existing canvas node. Supported fields: 'prompt', 'greeting', 'name', 'allow_interrupt', 'extraction_enabled', 'extraction_prompt', 'extraction_variables', 'tool_uuids'.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -68,11 +110,11 @@ CANVAS_MCP_TOOLS_SCHEMA = [
                     },
                     "field_name": {
                         "type": "string",
-                        "enum": ["prompt", "greeting", "name", "allow_interrupt", "extraction_enabled", "extraction_prompt", "extraction_variables", "endpoint_url", "qa_system_prompt", "enabled"],
+                        "enum": ["prompt", "greeting", "name", "allow_interrupt", "extraction_enabled", "extraction_prompt", "extraction_variables", "endpoint_url", "qa_system_prompt", "enabled", "tool_uuids"],
                         "description": "The name of the field to update.",
                     },
                     "new_value": {
-                        "description": "The new value (string, boolean, or array for extraction_variables).",
+                        "description": "The new value (string, boolean, array of variables, or array of tool UUIDs).",
                     },
                 },
                 "required": ["node_id", "field_name", "new_value"],
@@ -99,6 +141,11 @@ CANVAS_MCP_TOOLS_SCHEMA = [
                     "prompt": {
                         "type": "string",
                         "description": "Detailed system prompt and instructions for this node.",
+                    },
+                    "tool_uuids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of tool names or tool_uuids to attach to this node upon creation.",
                     },
                     "extraction_enabled": {
                         "type": "boolean",
@@ -311,6 +358,7 @@ def execute_canvas_mcp_tool(
     tool_name: str,
     tool_args: Dict[str, Any],
     workflow_definition: Dict[str, Any],
+    available_tools: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Dict[str, Any], str, List[str], bool]:
     """
     Execute an atomic canvas MCP tool against workflow_definition.
@@ -324,10 +372,15 @@ def execute_canvas_mcp_tool(
     result_summary = ""
 
     if tool_name == "get_canvas_state":
-        node_summaries = [
-            f"- Node {n.get('id')} ({n.get('type')}): '{n.get('data', {}).get('name')}'"
-            for n in nodes
-        ]
+        tool_names_by_uuid = {t.get("tool_uuid"): t.get("name") for t in (available_tools or []) if t.get("tool_uuid")}
+        node_summaries = []
+        for n in nodes:
+            n_tools = n.get("data", {}).get("tool_uuids") or []
+            tool_strs = [f"'{tool_names_by_uuid.get(u, u)}'" for u in n_tools]
+            tools_info = f", Attached Tools: [{', '.join(tool_strs)}]" if tool_strs else ""
+            node_summaries.append(
+                f"- Node {n.get('id')} ({n.get('type')}): '{n.get('data', {}).get('name')}'{tools_info}"
+            )
         edge_summaries = [
             f"- Edge {e.get('source')} ──[{e.get('data', {}).get('label')}]──► {e.get('target')}"
             for e in edges
@@ -338,6 +391,58 @@ def execute_canvas_mcp_tool(
             + "\nConnections:\n"
             + "\n".join(edge_summaries)
         )
+
+    elif tool_name == "attach_tool_to_node":
+        node_id = str(tool_args.get("node_id", "")).strip()
+        tool_ident = str(tool_args.get("tool_identifier", "")).strip()
+        target_node = next((n for n in nodes if str(n.get("id")) == node_id), None)
+        if not target_node:
+            result_summary = f"Node with ID '{node_id}' not found."
+        else:
+            matched_uuid = tool_ident
+            matched_name = tool_ident
+            if available_tools:
+                ident_lower = tool_ident.lower()
+                for t in available_tools:
+                    if t.get("tool_uuid") == tool_ident or t.get("name", "").strip().lower() == ident_lower:
+                        matched_uuid = t.get("tool_uuid")
+                        matched_name = t.get("name")
+                        break
+            data = target_node.setdefault("data", {})
+            current_tools = list(data.get("tool_uuids") or [])
+            if matched_uuid not in current_tools:
+                current_tools.append(matched_uuid)
+                data["tool_uuids"] = current_tools
+                modified_node_ids.append(node_id)
+                result_summary = f"Attached tool '{matched_name}' to node '{data.get('name', node_id)}'."
+            else:
+                result_summary = f"Tool '{matched_name}' is already attached to node '{data.get('name', node_id)}'."
+
+    elif tool_name == "detach_tool_from_node":
+        node_id = str(tool_args.get("node_id", "")).strip()
+        tool_ident = str(tool_args.get("tool_identifier", "")).strip()
+        target_node = next((n for n in nodes if str(n.get("id")) == node_id), None)
+        if not target_node:
+            result_summary = f"Node with ID '{node_id}' not found."
+        else:
+            matched_uuid = tool_ident
+            matched_name = tool_ident
+            if available_tools:
+                ident_lower = tool_ident.lower()
+                for t in available_tools:
+                    if t.get("tool_uuid") == tool_ident or t.get("name", "").strip().lower() == ident_lower:
+                        matched_uuid = t.get("tool_uuid")
+                        matched_name = t.get("name")
+                        break
+            data = target_node.setdefault("data", {})
+            current_tools = list(data.get("tool_uuids") or [])
+            if matched_uuid in current_tools:
+                current_tools.remove(matched_uuid)
+                data["tool_uuids"] = current_tools
+                modified_node_ids.append(node_id)
+                result_summary = f"Detached tool '{matched_name}' from node '{data.get('name', node_id)}'."
+            else:
+                result_summary = f"Tool '{matched_name}' was not attached to node '{data.get('name', node_id)}'."
 
     elif tool_name == "update_node_field":
         node_id = tool_args.get("node_id")
@@ -353,6 +458,8 @@ def execute_canvas_mcp_tool(
                 data[field] = str(val).lower() in ("true", "1", "yes") if not isinstance(val, bool) else val
             elif field == "extraction_variables":
                 data[field] = val if isinstance(val, list) else []
+            elif field == "tool_uuids":
+                data[field] = val if isinstance(val, list) else [val]
             else:
                 data[field] = str(val)
             modified_node_ids.append(node_id)
@@ -431,11 +538,24 @@ def execute_canvas_mcp_tool(
             pos_x = 1100
             pos_y = 1350
         else:
+            raw_tools = tool_args.get("tool_uuids", [])
+            resolved_tools = []
+            if isinstance(raw_tools, list) and raw_tools:
+                for ti in raw_tools:
+                    m_uuid = str(ti)
+                    if available_tools:
+                        ti_lower = str(ti).strip().lower()
+                        for t in available_tools:
+                            if t.get("tool_uuid") == ti or t.get("name", "").strip().lower() == ti_lower:
+                                m_uuid = t.get("tool_uuid")
+                                break
+                    resolved_tools.append(m_uuid)
+
             data_payload = {
                 "name": name,
                 "prompt": prompt,
                 "allow_interrupt": True,
-                "tool_uuids": [],
+                "tool_uuids": resolved_tools,
                 "add_global_prompt": True,
             }
 

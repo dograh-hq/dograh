@@ -784,18 +784,51 @@ async def process_in_canvas_copilot_turn(
         else:
             current_wf_def = {"nodes": [], "edges": []}
 
-    # 2. Prepare Context for the LLM
+    # 2. Fetch available tools for the user's organization
+    available_tools: List[Dict[str, Any]] = []
+    if user and getattr(user, "selected_organization_id", None):
+        try:
+            raw_tools = await db_client.get_tools_for_organization(
+                user.selected_organization_id,
+                status="active",
+            )
+            available_tools = [
+                {
+                    "tool_uuid": t.tool_uuid,
+                    "name": t.name,
+                    "category": t.category.value if hasattr(t.category, "value") else str(t.category),
+                    "description": t.description or "",
+                }
+                for t in raw_tools
+            ]
+        except Exception as e:
+            logger.warning("Could not fetch organization tools for copilot: {}", e)
+
+    # 3. Prepare Context for the LLM
     nodes = current_wf_def.get("nodes", [])
     edges = current_wf_def.get("edges", [])
+    tool_names_by_uuid = {t["tool_uuid"]: t["name"] for t in available_tools}
+
     graph_context = (
         f"CURRENT WORKFLOW GRAPH (ID: {workflow_id}):\n"
         f"Nodes ({len(nodes)} total):\n"
     )
     for n in nodes:
-        graph_context += f"  - [{n.get('id')}] ({n.get('type')}) '{n.get('data', {}).get('name')}': prompt snippet: {repr(n.get('data', {}).get('prompt', '')[:120])}\n"
+        n_data = n.get("data", {})
+        n_tools = n_data.get("tool_uuids") or []
+        tool_names = [f"'{tool_names_by_uuid.get(u, u)}'" for u in n_tools]
+        t_info = f", Attached Tools: [{', '.join(tool_names)}]" if tool_names else ""
+        graph_context += f"  - [{n.get('id')}] ({n.get('type')}) '{n_data.get('name')}': prompt snippet: {repr(n_data.get('prompt', '')[:120])}{t_info}\n"
     graph_context += f"Edges ({len(edges)} total):\n"
     for e in edges:
         graph_context += f"  - [{e.get('id')}] {e.get('source')} ──[{e.get('data', {}).get('label')}]──► {e.get('target')} (Condition: {e.get('data', {}).get('condition')})\n"
+
+    tools_context = "AVAILABLE REUSABLE TOOLS IN THIS ORGANIZATION (/tools):\n"
+    if available_tools:
+        for t in available_tools:
+            tools_context += f"  - Tool: \"{t['name']}\" (UUID: {t['tool_uuid']}, Type: {t['category']})\n    Description: {t['description'] or 'No description'}\n"
+    else:
+        tools_context += "  (No reusable tools configured in /tools yet)\n"
 
     in_canvas_system = (
         "You are the In-Canvas Voice AI Copilot for the Dograh Calling Studio.\n"
@@ -806,9 +839,11 @@ async def process_in_canvas_copilot_turn(
         "- Never just execute tools silently; always provide a clear, helpful explanation of what was changed and why.\n\n"
         "AVAILABLE ACTIONS VIA TOOLS:\n"
         "- `regenerate_full_workflow`: Call this when the user asks to regenerate/rebuild the complete workflow, create an agent from scratch, or gives a comprehensive prompt/use-case specification. NEVER delete nodes one-by-one!\n"
-        "- `add_canvas_node`: Create a new node. SUPPORTS auto-connecting (`connect_from_node_id`, `connect_to_node_id`) AND variable extraction configuration (`extraction_enabled`, `extraction_prompt`, `extraction_variables`).\n"
+        "- `add_canvas_node`: Create a new node. SUPPORTS auto-connecting (`connect_from_node_id`, `connect_to_node_id`), tool attachment (`tool_uuids`), AND variable extraction configuration (`extraction_enabled`, `extraction_prompt`, `extraction_variables`).\n"
+        "- `attach_tool_to_node`: Attach a reusable tool from the available tools list to an existing agent node using `node_id` and `tool_identifier` (matches by exact name or UUID). When attaching a tool, also ensure the node prompt clearly instructs the agent when to trigger this tool!\n"
+        "- `detach_tool_from_node`: Remove an attached tool from a canvas node.\n"
         "- `configure_variable_extraction`: Configure or enable structured variable extraction on any node (e.g. capturing name, email, phone, demo time).\n"
-        "- `update_node_field`: modify prompt, greeting, name, or settings on an existing node.\n"
+        "- `update_node_field`: modify prompt, greeting, name, tool_uuids, or settings on an existing node.\n"
         "- `connect_nodes`: link two nodes with custom edge label and condition (automatically updates existing connection if one already exists between these nodes).\n"
         "- `update_edge`: update an existing edge's label or condition between two nodes.\n"
         "- `remove_canvas_node`: remove a node and attached edges (NEVER remove startCall or endCall).\n"
@@ -822,11 +857,16 @@ async def process_in_canvas_copilot_turn(
         "3. When adding a details collection node (e.g. name, email, phone, demo date):\n"
         "   - Enable variable extraction (`extraction_enabled: true`) with clear variable definitions.\n"
         "   - Connect it from the qualification node (e.g. '2') and connect it to the endCall node ('4') so the workflow is fully continuous.\n"
-        "4. OFFICIAL 'API Trigger' (trigger) NODE:\n"
+        "4. REUSABLE TOOLS INTEGRATION:\n"
+        "   - When the user asks to connect, use, or add a tool to an agent (e.g. 'transfer call', 'transfer to billing', 'check order status api', 'calculator'), check the AVAILABLE REUSABLE TOOLS below.\n"
+        "   - Use `attach_tool_to_node` to attach the tool to the relevant node (e.g. node '2').\n"
+        "   - Update the node's prompt using `update_node_field` so the LLM knows the trigger conditions for calling that tool.\n"
+        "5. OFFICIAL 'API Trigger' (trigger) NODE:\n"
         "   - Dograh has an official canvas node for API Trigger with type 'trigger'.\n"
         "   - It exposes public HTTP POST endpoints (`/api/v1/public/agent/<trigger_path>`) allowing external CRMs/systems to trigger phone calls.\n"
         "   - When the user asks to add an 'API Trigger' node, call `add_canvas_node` with `node_type: 'trigger'`, `name: 'API Trigger'`. DO NOT connect edges to the trigger node (it has min_incoming=0, max_incoming=0 and is a standalone configuration node on the canvas).\n"
         "   - When the public API trigger URL is hit, the phone call automatically dials and enters at Node '1' (startCall).\n\n"
+        f"{tools_context}\n"
         f"{graph_context}"
     )
 
@@ -902,6 +942,7 @@ async def process_in_canvas_copilot_turn(
                         tool_name=fn_name,
                         tool_args=fn_args,
                         workflow_definition=current_wf_def,
+                        available_tools=available_tools,
                     )
                     current_wf_def = updated_def
                     if summary:

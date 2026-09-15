@@ -109,15 +109,17 @@ async def test_hello_produces_exactly_one_opening(
     )
     supervisor.bind(aggregators.user())
     engine.set_answer_supervisor(supervisor, aggregators.user(), 10)
+    # This test is about the engine's opening paths, not worker topology, so
+    # it fills the generation slot inline instead of standing up an agent
+    # worker. `test_agent_transfer.py` covers the split shape end to end.
     pipeline = build_pipeline(
         transport=transport,
         stt=Passthrough(),
         audio_buffer=Passthrough(),
-        llm=llm,
-        tts=tts,
         user_context_aggregator=aggregators.user(),
         assistant_context_aggregator=aggregators.assistant(),
-        pipeline_engine_callback_processor=Passthrough(),
+        call_duration_processor=Passthrough(),
+        generation_stage=[llm, tts],
         pipeline_metrics_aggregator=Passthrough(),
         termination_funnel=Passthrough(),
         answer_supervisor=supervisor,

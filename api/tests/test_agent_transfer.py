@@ -279,14 +279,12 @@ class TransferHarness:
             self.transport,
             None,
             audio_buffer,
-            None,
-            None,
             aggregators.user(),
             aggregators.assistant(),
             None,
+            generation_segment,
             metrics_aggregator,
             TerminationFunnelProcessor(),
-            agent_generation_segment=generation_segment,
         )
         self.call_worker = PipelineWorker(
             pipeline,

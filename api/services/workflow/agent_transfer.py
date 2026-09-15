@@ -9,7 +9,6 @@ from builtins import BaseExceptionGroup
 from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 from loguru import logger
 from pipecat.frames.frames import LLMMessagesAppendFrame
@@ -292,31 +291,3 @@ class AgentTransferCoordinator:
             }
         )
         logger.info(f"[transfer] {request.request_id} {outcome}")
-
-
-async def workflow_uses_agent_transfer(
-    workflow_graph: Any, organization_id: int
-) -> bool:
-    """Whether any node in ``workflow_graph`` can hand the call to another agent.
-
-    Decides which pipeline shape the call gets. A workflow that never
-    transfers runs the single-worker pipeline it always has; only one that
-    can transfer pays for the split, and only that one can reach the split's
-    failure modes.
-    """
-    from api.db import db_client
-    from api.enums import ToolCategory
-
-    tool_uuids: set[str] = set()
-    for node in workflow_graph.nodes.values():
-        for tool_uuid in getattr(node, "tool_uuids", None) or []:
-            tool_uuids.add(tool_uuid)
-    if not tool_uuids:
-        return False
-
-    try:
-        tools = await db_client.get_tools_by_uuids(list(tool_uuids), organization_id)
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"Could not check for agent-transfer tools: {e}")
-        return False
-    return any(t.category == ToolCategory.TRANSFER_AGENT.value for t in tools)

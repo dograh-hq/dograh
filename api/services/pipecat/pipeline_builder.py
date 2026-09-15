@@ -34,33 +34,30 @@ def build_pipeline(
     transport,
     stt,
     audio_buffer,
-    llm,
-    tts,
     user_context_aggregator,
     assistant_context_aggregator,
-    pipeline_engine_callback_processor,
+    call_duration_processor,
+    generation_stage,
     pipeline_metrics_aggregator,
     termination_funnel,
-    recording_router=None,
     answer_supervisor=None,
-    agent_generation_segment=None,
 ):
-    """Build the main pipeline with all components.
+    """Build the call pipeline: everything that lives for the whole call.
+
+    The generation stage is a slot rather than a fixed set of processors. A
+    cascade call fills it with ``[AgentBridgeProcessor(...)]`` and runs the
+    real generation stage in a worker per agent visit, so the LLM, TTS and
+    recording router never appear here. See
+    :func:`build_agent_generation_pipeline` for what goes in that worker.
 
     Args:
         audio_buffer: AudioBufferProcessor that handles both input and output audio recording.
+        call_duration_processor: The call's own clock. Call-scoped, so it stays
+            here whatever occupies the generation slot.
+        generation_stage: Processors occupying the slot between the user
+            aggregator and the output transport.
         answer_supervisor: Optional answer sensor before the user aggregator,
             with its context gate immediately after the aggregator.
-        recording_router: Optional RecordingRouterProcessor. When provided,
-            inserts between callback processor and TTS to route between
-            pre-recorded audio playback and dynamic TTS.
-        agent_generation_segment: Processors replacing the in-pipeline
-            generation stage (LLM through TTS) when agent transfer is enabled.
-            Pass ``[AgentBridgeProcessor(...)]`` to hand generation to a per-agent child
-            worker over the bus; ``llm``, ``tts``, ``recording_router`` and
-            ``pipeline_engine_callback_processor`` then belong to that child
-            and must not also appear here. See
-            :func:`build_agent_generation_pipeline`.
     """
     # Build processors with optional answer handling.
     #
@@ -82,24 +79,9 @@ def build_pipeline(
     if answer_supervisor is not None:
         processors.append(answer_supervisor.llm_gate())
 
-    if agent_generation_segment is not None:
-        # The generation stage lives in a per-agent worker. What is left here
-        # is exactly the call-scoped pipeline: recognition in front, transport
-        # and recording behind, with the same processors on either side of the
-        # handover point as the single-worker shape below.
-        generation_stage = list(agent_generation_segment)
-        if pipeline_engine_callback_processor is not None:
-            # Only the persistent half (the call timer) is passed in this
-            # shape; the generation half rides with the agent.
-            generation_stage.insert(0, pipeline_engine_callback_processor)
-    else:
-        generation_stage = [llm, pipeline_engine_callback_processor]
-        if recording_router:
-            generation_stage.append(recording_router)
-        generation_stage.append(tts)
-
     processors.extend(
         [
+            call_duration_processor,
             *generation_stage,
             transport.output(),  # Transport bot output
             audio_buffer,  # AudioBufferProcessor - records both input and output audio
@@ -108,9 +90,8 @@ def build_pipeline(
         ]
     )
 
-    # A stage the run did not build (no recognition, no in-pipeline generation
-    # because it belongs to an agent worker) leaves a hole rather than a slot
-    # to fill with a passthrough.
+    # A stage the run did not build (no recognition, for instance) leaves a
+    # hole rather than a slot to fill with a passthrough.
     return Pipeline([p for p in processors if p is not None])
 
 
@@ -122,9 +103,9 @@ def build_agent_generation_pipeline(
 ):
     """Build the generation stage that runs in one agent visit's own worker.
 
-    Exactly the segment :func:`build_pipeline` places between the user
-    aggregator and the output transport in the single-worker shape, so the
-    frames arriving at the call pipeline's transport are the same either way.
+    Slots into the gap :func:`build_pipeline` leaves between the user
+    aggregator and the output transport, so the frames arriving at the call
+    pipeline's transport are the same as if this ran inline.
     """
     processors = [llm, generation_callback_processor]
     if recording_router:
@@ -219,14 +200,18 @@ def build_realtime_pipeline(
     audio_buffer,
     user_context_aggregator,
     assistant_context_aggregator,
-    pipeline_engine_callback_processor,
+    call_duration_processor,
+    agent_generation_processor,
     pipeline_metrics_aggregator,
     termination_funnel,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
     Realtime services (e.g. OpenAI Realtime, Gemini Live) handle STT+LLM+TTS
-    internally, so no separate STT or TTS processors are needed.
+    internally, so no separate STT or TTS processors are needed. There is no
+    generation stage to lift out either: the one service consumes the caller's
+    audio directly, so a realtime call has no agent worker and its generation
+    processor runs here alongside the call's clock.
     """
     processors = [
         transport.input(),
@@ -237,7 +222,8 @@ def build_realtime_pipeline(
 
     processors.extend(
         [
-            pipeline_engine_callback_processor,
+            agent_generation_processor,
+            call_duration_processor,
             transport.output(),
             audio_buffer,
             assistant_context_aggregator,

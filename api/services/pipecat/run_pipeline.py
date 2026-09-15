@@ -28,14 +28,14 @@ from api.services.observability.active_calls import (
 from api.services.observability.active_calls import (
     unregister_active_call as unregister_worker_active_call,
 )
-from api.services.pipecat.agent_bridge import (
-    AgentBridgeProcessor,
-)
+from api.services.pipecat.agent_bridge import AgentBridgeProcessor
+from api.services.pipecat.agent_generation_processor import AgentGenerationProcessor
 from api.services.pipecat.agent_runtime_factory import (
     AgentGenerationCallbacks,
     AgentRuntimeFactory,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
+from api.services.pipecat.call_duration_processor import CallDurationProcessor
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -46,9 +46,6 @@ from api.services.pipecat.pipeline_builder import (
     build_realtime_pipeline,
     create_pipeline_components,
     create_pipeline_task,
-)
-from api.services.pipecat.pipeline_engine_callbacks_processor import (
-    PipelineEngineCallbacksProcessor,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
@@ -87,7 +84,6 @@ from api.services.pipecat.worker_runner import (
 )
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
-from api.services.workflow.agent_transfer import workflow_uses_agent_transfer
 from api.services.workflow.answer_classification_service import (
     AnswerClassificationService,
 )
@@ -1046,46 +1042,19 @@ async def _run_pipeline_impl(
         ),
     )
 
-    # A workflow that can hand the caller to another agent runs a split
-    # pipeline: everything call-scoped stays here and the generation stage
-    # (LLM through TTS) moves into a worker per agent visit, so replacing the
-    # agent never touches the transport, the recording or the conversation.
-    # Every other workflow runs the single-worker pipeline unchanged.
-    agent_transfer_enabled = not is_realtime and await workflow_uses_agent_transfer(
-        workflow_graph, workflow.organization_id
-    )
+    # Every cascade call runs the split pipeline: everything call-scoped stays
+    # here and the generation stage (LLM through TTS) runs in a worker per
+    # agent visit, so replacing the agent never touches the transport, the
+    # recording or the conversation. A realtime call has no such stage to lift
+    # out -- the one speech-to-speech service consumes the caller's audio
+    # directly -- so it keeps its own single-worker shape and cannot transfer.
     worker_runner = create_worker_runner()
     call_worker_name = f"call-{workflow_run_id}"
-    agent_generation_segment = None
-    if agent_transfer_enabled:
-        agent_generation_segment = [
-            AgentBridgeProcessor(
-                bus=worker_runner.bus,
-                worker_name=call_worker_name,
-                selected_visit=lambda: engine.selected_visit_id,
-                allow_inference=lambda: not engine.transfer_in_progress,
-                name=f"{call_worker_name}::AgentBridge",
-            ),
-        ]
-        logger.info(
-            f"[transfer] run {workflow_run_id} uses agent transfer; "
-            "generation runs in per-visit workers"
-        )
 
-    # Create usage metrics aggregator with engine's callback. The call timer
-    # is call-scoped and stays here; the generation callbacks belong to an
-    # agent visit and ride with it when the pipeline is split.
-    pipeline_engine_callback_processor = PipelineEngineCallbacksProcessor(
+    # The call's clock is call-scoped in both shapes.
+    call_duration_processor = CallDurationProcessor(
         max_call_duration_seconds=max_call_duration_seconds,
         max_duration_end_task_callback=engine.create_max_duration_callback(),
-        generation_started_callback=(
-            None
-            if agent_transfer_enabled
-            else engine.create_generation_started_callback()
-        ),
-        llm_text_frame_callback=(
-            None if agent_transfer_enabled else engine.handle_llm_text_frame
-        ),
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
@@ -1154,7 +1123,13 @@ async def _run_pipeline_impl(
             audio_buffer,
             user_context_aggregator,
             assistant_context_aggregator,
-            pipeline_engine_callback_processor,
+            call_duration_processor,
+            # No agent worker to carry it, so the realtime service's own
+            # generation stage reports from the call pipeline.
+            AgentGenerationProcessor(
+                generation_started_callback=engine.create_generation_started_callback(),
+                llm_text_frame_callback=engine.handle_llm_text_frame,
+            ),
             pipeline_metrics_aggregator,
             termination_funnel,
         )
@@ -1163,16 +1138,21 @@ async def _run_pipeline_impl(
             transport,
             stt,
             audio_buffer,
-            llm,
-            tts,
             user_context_aggregator,
             assistant_context_aggregator,
-            pipeline_engine_callback_processor,
+            call_duration_processor,
+            [
+                AgentBridgeProcessor(
+                    bus=worker_runner.bus,
+                    worker_name=call_worker_name,
+                    selected_visit=lambda: engine.selected_visit_id,
+                    allow_inference=lambda: not engine.transfer_in_progress,
+                    name=f"{call_worker_name}::AgentBridge",
+                )
+            ],
             pipeline_metrics_aggregator,
             termination_funnel,
-            recording_router=recording_router,
             answer_supervisor=answer_supervisor,
-            agent_generation_segment=agent_generation_segment,
         )
 
     # Create pipeline task with audio configuration
@@ -1180,7 +1160,7 @@ async def _run_pipeline_impl(
         pipeline,
         workflow_run_id,
         audio_config,
-        name=call_worker_name if agent_transfer_enabled else None,
+        name=call_worker_name,
     )
     transcript_log_coordinator = TranscriptLogCoordinator(in_memory_logs_buffer)
     if task.turn_tracking_observer is None:
@@ -1201,7 +1181,7 @@ async def _run_pipeline_impl(
     engine.call_worker = task
     engine.set_transport_output(transport.output())
 
-    if agent_transfer_enabled:
+    if not is_realtime:
 
         def _agent_generation_callbacks(visit_id: str) -> AgentGenerationCallbacks:
             # Tagged with the visit so a retired agent finishing its last

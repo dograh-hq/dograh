@@ -19,13 +19,13 @@ from loguru import logger
 
 from api.db import db_client
 from api.services.configuration.registry import ServiceProviders
+from api.services.pipecat.agent_generation_processor import (
+    AgentGenerationProcessor,
+)
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.pipeline_builder import (
     build_agent_generation_pipeline,
     create_agent_worker,
-)
-from api.services.pipecat.pipeline_engine_callbacks_processor import (
-    PipelineEngineCallbacksProcessor,
 )
 from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
 from api.services.pipecat.service_factory import (
@@ -248,7 +248,7 @@ class AgentRuntimeFactory:
             return
 
         callbacks = self._callbacks_factory(runtime.visit_id)
-        generation_callbacks = PipelineEngineCallbacksProcessor(
+        generation_callbacks = AgentGenerationProcessor(
             generation_started_callback=callbacks.generation_started,
             llm_text_frame_callback=callbacks.llm_text_frame,
         )

@@ -9,11 +9,13 @@ the call.
 
 Two shapes use the same object:
 
-* **Call-owned.** ``worker`` is the call's own :class:`PipelineWorker` and
-  ``is_child`` is False. This is every workflow that never transfers, and it
-  behaves exactly as the single-worker pipeline always has.
 * **Child.** ``worker`` is a worker of its own, bridged onto the call's bus.
+  Every cascade call runs this shape, whether or not it ever transfers.
   Retiring it tears down that worker without touching the call.
+* **Call-owned.** ``worker`` is the call's own :class:`PipelineWorker` and
+  ``is_child`` is False. This is the realtime shape: one speech-to-speech
+  service consumes the caller's audio directly, so there is no generation
+  stage to lift into a worker, and such a call cannot transfer.
 
 Every asynchronous operation started on behalf of a visit carries its
 ``visit_id``, so a result arriving after the agent has changed can be

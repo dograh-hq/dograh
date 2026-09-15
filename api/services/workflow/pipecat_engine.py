@@ -168,7 +168,8 @@ class PipecatEngine:
         self._retired_agents: list[AgentRuntime] = []
         self._agent_visits: list[dict] = []
         self._transfer_outcomes: list[dict] = []
-        # Set by run setup when the workflow can transfer to another agent.
+        # Set by run setup on every cascade call; a realtime call gets none
+        # and so can never transfer.
         self._agent_factory = None
         self._transfer_coordinator = None
         self.context = context
@@ -288,8 +289,9 @@ class PipecatEngine:
     def call_worker(self, worker: Optional[PipelineWorker]) -> None:
         """Bind the call-scoped worker, which is built after the engine.
 
-        The first agent runs in this same worker unless run setup has given it
-        one of its own, so binding the call worker also completes that agent.
+        A realtime call's only agent runs in this same worker, so binding the
+        call worker also completes that agent. A cascade agent has a worker of
+        its own and is left alone here.
         """
         self._call_worker = worker
         if not self._active_agent.is_child and self._active_agent.worker is None:
@@ -1520,7 +1522,12 @@ class PipecatEngine:
 
     @property
     def agent_transfer_enabled(self) -> bool:
-        """Whether this call can hand the caller to another agent."""
+        """Whether this call can hand the caller to another agent.
+
+        True for every cascade call. False only in realtime, where the tool
+        still registers but refuses, so the agent tells the caller rather than
+        failing silently.
+        """
         return self.__dict__.get("_agent_factory") is not None
 
     @property

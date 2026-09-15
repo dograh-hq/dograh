@@ -3,17 +3,46 @@
 from typing import Any
 
 from api.db.models import WorkflowRunModel
+from api.errors.failure import ErrorOwner, ErrorSource, annotate_failure_metadata
 from api.services.configuration.ai_model_configuration import (
     get_effective_ai_model_configuration_for_workflow,
 )
+from api.services.configuration.registry import is_openai_subscription_config
 from api.services.managed_model_services import get_mps_correlation_id
 from api.services.pipecat.service_factory import (
     create_llm_service_from_provider,
     create_llm_service_with_model_override,
+    create_subscription_inference_service,
 )
 from api.services.workflow.dto import QANodeData
 
 QA_USAGE_CONTEXT = "qa_analysis"
+
+
+class _SubscriptionQAInference:
+    """Own one subscription client per QA inference, including failure cleanup."""
+
+    def __init__(self, configuration, organization_id: int, model_override):
+        self.configuration = configuration
+        self.organization_id = organization_id
+        self.model_override = model_override
+        annotate_failure_metadata(
+            self,
+            source=ErrorSource.LLM,
+            provider="openai_live_subscription",
+            error_owner=ErrorOwner.OPERATOR,
+        )
+
+    async def run_inference(self, context, **kwargs):
+        service = create_subscription_inference_service(
+            self.configuration,
+            organization_id=self.organization_id,
+            model_override=self.model_override,
+        )
+        try:
+            return await service.run_inference(context, **kwargs)
+        finally:
+            await service.aclose()
 
 
 async def create_qa_llm_service(
@@ -63,12 +92,21 @@ async def create_qa_llm_service(
         organization_id=workflow_run.workflow.organization_id,
         workflow_configurations=workflow_configurations,
     )
-    if user_configuration.llm is None:
-        return None
-
     model_override = (
         qa_data.qa_model if qa_data.qa_model and qa_data.qa_model != "default" else None
     )
+    if is_openai_subscription_config(user_configuration):
+        model = model_override or user_configuration.realtime.backend_model
+        return (
+            _SubscriptionQAInference(
+                user_configuration,
+                workflow_run.workflow.organization_id,
+                model_override,
+            ),
+            model,
+        )
+    if user_configuration.llm is None:
+        return None
     model = model_override or user_configuration.llm.model
     llm = create_llm_service_with_model_override(
         user_configuration,

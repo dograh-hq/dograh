@@ -20,6 +20,9 @@ from api.services.pipecat.realtime.openai_live_subscription_transport import (
     context_append_events,
     delegation_context_events,
 )
+from api.services.pipecat.realtime.openai_subscription_llm import (
+    SubscriptionResponsesLLMService,
+)
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -43,7 +46,6 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.services.openai.live import events
 from pipecat.services.openai.live.llm import ClientDelegation, OpenAILiveLLMService
-from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService
 from pipecat.services.settings import LLMSettings
 from pipecat.utils.types import NOT_GIVEN, is_given
 from pipecat.workers.llm.backend_llm_worker import (
@@ -63,7 +65,7 @@ class _Delegation:
     provider_id: str | None = None
 
 
-class _WorkflowBackend(OpenAIResponsesLLMService):
+class _WorkflowBackend(SubscriptionResponsesLLMService):
     def __init__(self, *, owner, **kwargs):
         self.owner = owner
         super().__init__(**kwargs)
@@ -142,7 +144,6 @@ class DograhOpenAILiveSubscriptionLLMService(
     def __init__(
         self,
         *,
-        backend_api_key: str,
         backend_model: str,
         auth_service,
         organization_id: int,
@@ -151,8 +152,8 @@ class DograhOpenAILiveSubscriptionLLMService(
         delegation_timeout_secs: float = 60.0,
         **kwargs,
     ):
-        if not backend_api_key or not backend_model:
-            raise ValueError("A workflow backend API key and model are required")
+        if not backend_model:
+            raise ValueError("A subscription workflow backend model is required")
         auth_service.assert_organization(organization_id)
         self._auth_service = auth_service
         self._organization_id = organization_id
@@ -187,8 +188,9 @@ class DograhOpenAILiveSubscriptionLLMService(
         self._backend_context = LLMContext()
         self._backend_llm = _WorkflowBackend(
             owner=self,
-            api_key=backend_api_key,
-            settings=OpenAIResponsesLLMService.Settings(model=backend_model),
+            auth_service=auth_service,
+            organization_id=organization_id,
+            settings=SubscriptionResponsesLLMService.Settings(model=backend_model),
         )
         self._backend_worker = BackendLLMWorker(
             llm=self._backend_llm,
@@ -207,6 +209,14 @@ class DograhOpenAILiveSubscriptionLLMService(
             on_event=self._on_subscription_event,
             on_audio=self._on_subscription_audio,
         )
+
+    @property
+    def inference_llm(self):
+        return self._backend_llm
+
+    @property
+    def backend_model(self):
+        return self._backend_llm.model_name
 
     def register_function(self, function_name, handler, **kwargs):
         super().register_function(function_name, handler, **kwargs)
@@ -252,6 +262,7 @@ class DograhOpenAILiveSubscriptionLLMService(
                 self._lease = await self._auth_service.acquire_session(
                     self._organization_id
                 )
+                self._backend_llm.bind_account(self._lease.credentials.account_id)
                 self._lease_task = self.create_task(
                     self._renew_lease(), "subscription-lease"
                 )
@@ -712,7 +723,7 @@ class DograhOpenAILiveSubscriptionLLMService(
         ):
             await self._backend_worker.queue_frame(CancelFrame())
         lease, self._lease = self._lease, None
-        cleanup = [self._transport.close]
+        cleanup = [self._backend_llm.aclose, self._transport.close]
         if lease is not None:
             cleanup.append(lease.release)
         cleanup.extend(

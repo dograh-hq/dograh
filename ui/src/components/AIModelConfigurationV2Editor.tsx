@@ -421,7 +421,9 @@ export function AIModelConfigurationV2Editor({
     const saveByokConfiguration = async (config: Record<string, unknown>) => {
         setError(null);
         const isRealtime = Boolean(config.is_realtime);
-        const llm = requireByokService(config, "llm", defaultsForByok);
+        const realtime = isRealtime ? requireByokService(config, "realtime", defaultsForByok) : undefined;
+        const isSubscriptionRealtime = realtime?.provider === "openai_live_subscription";
+        const llm = isSubscriptionRealtime ? undefined : requireByokService(config, "llm", defaultsForByok);
         const embeddings = optionalByokService(config, "embeddings");
         const body: OrganizationAiModelConfigurationV2 = {
             version: 2,
@@ -430,8 +432,8 @@ export function AIModelConfigurationV2Editor({
                 ? {
                     mode: "realtime",
                     realtime: {
-                        realtime: requireByokService(config, "realtime", defaultsForByok) as never,
-                        llm: llm as never,
+                        realtime: realtime as never,
+                        ...(!isSubscriptionRealtime ? { llm: llm as never } : {}),
                         ...(embeddings ? { embeddings: embeddings as never } : {}),
                     },
                 }
@@ -466,7 +468,7 @@ export function AIModelConfigurationV2Editor({
 
                 <TabsContent value="realtime" className="mt-0">
                     <p className="mb-4 text-sm text-muted-foreground">
-                        A single speech-to-speech model handles the conversation in realtime (no separate transcriber or voice). An LLM is still required for variable extraction and QA.
+                        A single speech-to-speech model handles the conversation in realtime (no separate transcriber or voice). Reasoning and analysis configuration depends on the selected provider.
                     </p>
                     <PricingSummary pricing={pricing} includeDograhModel={false} thirdPartyModels />
                     <ServiceConfigurationForm

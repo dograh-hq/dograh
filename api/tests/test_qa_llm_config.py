@@ -274,3 +274,62 @@ def test_model_override_wrapper_preserves_provider_specific_fields():
     assert delegated_config.llm.base_url == "https://router.huggingface.co/v1"
     assert delegated_config.llm.bill_to == "billing-org"
     assert config.llm.model == "configured-model"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancelled"])
+@pytest.mark.parametrize("override", ["default", "gpt-5.6-sol"])
+async def test_subscription_workflow_qa_uses_owned_client(outcome, override):
+    import asyncio
+
+    from api.errors.failure import ErrorSource, failure_metadata_for_processor
+    from api.services.configuration.registry import (
+        OpenAILiveSubscriptionLLMConfiguration,
+    )
+
+    config = EffectiveAIModelConfiguration(
+        is_realtime=True, realtime=OpenAILiveSubscriptionLLMConfiguration()
+    )
+    service = SimpleNamespace(
+        run_inference=AsyncMock(return_value="subscription answer"),
+        aclose=AsyncMock(),
+    )
+    if outcome == "failure":
+        service.run_inference.side_effect = RuntimeError("subscription unavailable")
+    elif outcome == "cancelled":
+        service.run_inference.side_effect = asyncio.CancelledError()
+    with (
+        patch(_CONFIG_FN, AsyncMock(return_value=config)),
+        patch(_OWN_LLM_FACTORY) as api_factory,
+        patch(_WORKFLOW_LLM_FACTORY) as workflow_api_factory,
+        patch(
+            "api.services.workflow.qa.llm_config.create_subscription_inference_service",
+            return_value=service,
+        ) as subscription_factory,
+    ):
+        llm, model = await create_qa_llm_service(
+            _qa(qa_use_workflow_llm=True, qa_model=override, qa_api_key=None),
+            _workflow_run(),
+        )
+        subscription_factory.assert_not_called()
+        assert model == ("gpt-5.6-luna" if override == "default" else override)
+        assert failure_metadata_for_processor(llm).source == ErrorSource.LLM
+        context = object()
+        if outcome == "success":
+            assert (
+                await llm.run_inference(context, system_instruction="QA")
+                == "subscription answer"
+            )
+        else:
+            expected = RuntimeError if outcome == "failure" else asyncio.CancelledError
+            with pytest.raises(expected):
+                await llm.run_inference(context, system_instruction="QA")
+        subscription_factory.assert_called_once_with(
+            config,
+            organization_id=1,
+            model_override=None if override == "default" else override,
+        )
+        service.run_inference.assert_awaited_once_with(context, system_instruction="QA")
+        service.aclose.assert_awaited_once()
+        api_factory.assert_not_called()
+        workflow_api_factory.assert_not_called()

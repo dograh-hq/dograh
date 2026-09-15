@@ -136,6 +136,7 @@ def _create_answer_supervisor(
     user_config,
     correlation_id,
     get_parent_context=None,
+    workflow_inference_llm=None,
 ):
     config = resolve_answer_supervisor_config(
         voicemail_config,
@@ -145,13 +146,15 @@ def _create_answer_supervisor(
     )
     if config is None:
         return None
-    # Private inference uses its own service and fixed subtype instructions.
+    # Classification uses a private context with fixed subtype instructions.
     if voicemail_config.get("use_workflow_llm", True):
-        classifier_llm = create_llm_service(
-            user_config,
-            correlation_id=correlation_id,
-            usage_context="voicemail_detection",
-        )
+        classifier_llm = workflow_inference_llm
+        if classifier_llm is None:
+            classifier_llm = create_llm_service(
+                user_config,
+                correlation_id=correlation_id,
+                usage_context="voicemail_detection",
+            )
     else:
         classifier_llm = create_llm_service_from_provider(
             provider=voicemail_config.get("provider", "openai"),
@@ -742,6 +745,11 @@ async def _run_pipeline_impl(
 
     # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
     is_realtime = user_config.is_realtime and user_config.realtime is not None
+    is_subscription = (
+        is_realtime
+        and user_config.realtime.provider
+        == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+    )
 
     # Create services based on user configuration
     if is_realtime:
@@ -750,12 +758,15 @@ async def _run_pipeline_impl(
         )
         stt = None
         tts = None
-        # Realtime services don't implement run_inference, so create a
-        # separate text LLM for variable extraction and other out-of-band
-        # inference calls.
-        inference_llm = create_llm_service(
-            user_config,
-            correlation_id=mps_correlation_id,
+        # Subscription voice shares its subscription reasoning service with
+        # extraction and other out-of-band inference calls.
+        inference_llm = (
+            llm.inference_llm
+            if is_subscription
+            else create_llm_service(
+                user_config,
+                correlation_id=mps_correlation_id,
+            )
         )
     else:
         stt = create_stt_service(
@@ -782,6 +793,7 @@ async def _run_pipeline_impl(
             usage_context="variable_extraction",
         )
         if needs_extraction_llm
+        and not is_subscription
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else inference_llm or llm
     )
@@ -796,8 +808,14 @@ async def _run_pipeline_impl(
         runtime_configuration = {
             "realtime_provider": user_config.realtime.provider,
             "realtime_model": user_config.realtime.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
+            "llm_provider": (
+                ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+                if is_subscription
+                else user_config.llm.provider
+            ),
+            "llm_model": (
+                llm.backend_model if is_subscription else user_config.llm.model
+            ),
         }
     else:
         runtime_configuration = {
@@ -972,6 +990,7 @@ async def _run_pipeline_impl(
         user_config=user_config,
         correlation_id=mps_correlation_id,
         get_parent_context=engine._get_otel_context,
+        workflow_inference_llm=inference_llm if is_subscription else None,
     )
     user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))

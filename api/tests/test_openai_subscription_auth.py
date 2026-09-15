@@ -549,6 +549,40 @@ class SubscriptionAuthTests(unittest.IsolatedAsyncioTestCase):
             await task
         self.assertFalse(self.redis.values)
 
+    async def test_reasoning_credentials_share_voice_login_without_second_lease(self):
+        self.write()
+        session = await self.service.acquire_session(42)
+        before_keys = dict(self.redis.values)
+        credential = await self.service.get_credentials(
+            42, expected_account_id=_ACCOUNT
+        )
+        self.assertEqual(credential, session.credentials)
+        self.assertEqual(before_keys, self.redis.values)
+        await session.release()
+
+    async def test_reasoning_organization_and_account_are_checked_before_refresh(self):
+        with patch.object(self.service, "_read_credentials") as read:
+            await self.assert_error(
+                "organization_mismatch", self.service.get_credentials(43)
+            )
+            read.assert_not_called()
+        self.write(_login(_NOW - 1))
+        await self.assert_error(
+            "account_mismatch",
+            self.service.get_credentials(42, expected_account_id="other"),
+        )
+        self.assertFalse(self.requests)
+        self.assertFalse(self.redis.values)
+
+    async def test_reasoning_uses_coordinated_refresh_without_session_lease(self):
+        self.write(_login(_NOW - 1))
+        credential = await self.service.get_credentials(
+            42, expected_account_id=_ACCOUNT
+        )
+        self.assertEqual(credential.refresh_token, "synthetic-rotated-secret")
+        self.assertEqual(len(self.requests), 1)
+        self.assertFalse(self.redis.values)
+
     async def test_cleanup_remains_idempotent_after_close_error(self):
         owned = SubscriptionAuthService(
             self.settings, self.redis, owns_redis_client=True

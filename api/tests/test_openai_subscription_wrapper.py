@@ -68,8 +68,7 @@ def make_service(*, ready=True, mocked_frames=True):
         aclose=AsyncMock(),
     )
     service = DograhOpenAILiveSubscriptionLLMService(
-        backend_api_key="synthetic-backend-key",
-        backend_model="gpt-5.4-mini",
+        backend_model="gpt-5.6-luna",
         auth_service=auth,
         organization_id=1,
         transport_factory=FakeTransport,
@@ -106,14 +105,18 @@ def request(service, id="delegation_1"):
 
 
 @pytest.mark.asyncio
-async def test_real_worker_and_separate_backend_key_and_settings():
+async def test_real_worker_and_subscription_backend_ignore_ambient_api_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-be-used")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://untrusted.invalid")
     service = make_service()
     assert isinstance(service._backend_worker, BackendLLMWorker)
     assert isinstance(service._delegation, ClientDelegation)
     assert service._delegation.backend is service._backend_worker
     assert service.api_key == ""
-    assert service._backend_llm._client.api_key == "synthetic-backend-key"
-    assert service._backend_llm._settings.model == "gpt-5.4-mini"
+    assert service._backend_llm._client is None
+    assert service._backend_llm._api_key is None
+    assert service.inference_llm is service._backend_llm
+    assert service._backend_llm._settings.model == "gpt-5.6-luna"
     await service._disconnect()
 
 

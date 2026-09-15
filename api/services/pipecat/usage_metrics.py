@@ -1,6 +1,6 @@
 """Usage units exposed by voice providers outside Pipecat's token metrics."""
 
-from pipecat.metrics.metrics import MetricsData
+from pipecat.metrics.metrics import LLMTokenUsage, MetricsData
 
 
 class LiveUsageMetricsData(MetricsData):
@@ -16,3 +16,9 @@ class SubscriptionVoiceUsageMetricsData(MetricsData):
     input_audio_seconds: float
     output_audio_seconds: float
     session_state: str
+
+
+class SubscriptionReasoningUsageMetricsData(MetricsData):
+    """Observed subscription token use without a public API price."""
+
+    value: LLMTokenUsage

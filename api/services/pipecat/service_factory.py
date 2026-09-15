@@ -1220,6 +1220,46 @@ def create_llm_service_from_provider(
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
 
 
+def create_subscription_inference_service(
+    user_config, *, organization_id: int, model_override: str | None = None
+):
+    """Create an owned subscription inference client for a background task."""
+    from redis.asyncio import Redis
+
+    from api.constants import REDIS_URL
+    from api.services.configuration.openai_subscription_auth import (
+        SubscriptionAuthService,
+        SubscriptionAuthSettings,
+    )
+    from api.services.pipecat.realtime.openai_subscription_llm import (
+        SubscriptionResponsesLLMService,
+    )
+
+    if (
+        not user_config.is_realtime
+        or user_config.realtime is None
+        or user_config.realtime.provider
+        != ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+    ):
+        raise ValueError(
+            "Subscription inference requires the subscription workflow provider"
+        )
+    auth_service = SubscriptionAuthService(
+        SubscriptionAuthSettings.from_env(),
+        Redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2),
+        owns_redis_client=True,
+    )
+    auth_service.assert_organization(organization_id)
+    return SubscriptionResponsesLLMService(
+        auth_service=auth_service,
+        organization_id=organization_id,
+        owns_auth_service=True,
+        settings=SubscriptionResponsesLLMService.Settings(
+            model=model_override or user_config.realtime.backend_model,
+        ),
+    )
+
+
 @_report_service_factory_failures(ErrorSource.LLM, config_section="realtime")
 def create_realtime_llm_service(
     user_config, audio_config: "AudioConfig", *, organization_id: int | None = None
@@ -1232,7 +1272,11 @@ def create_realtime_llm_service(
     realtime_config = user_config.realtime
     provider = realtime_config.provider
     model = realtime_config.model
-    api_key = realtime_config.api_key
+    api_key = (
+        realtime_config.api_key
+        if provider != ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+        else None
+    )
     voice = getattr(realtime_config, "voice", None)
     language = getattr(realtime_config, "language", None)
 
@@ -1268,7 +1312,6 @@ def create_realtime_llm_service(
         )
         auth_service.assert_organization(organization_id)
         return DograhOpenAILiveSubscriptionLLMService(
-            backend_api_key=api_key,
             backend_model=realtime_config.backend_model,
             auth_service=auth_service,
             organization_id=organization_id,

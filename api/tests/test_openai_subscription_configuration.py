@@ -6,9 +6,19 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
+from api.routes import organization as organization_routes
 from api.routes import user as user_routes
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import (
+    BYOKRealtimeAIModelConfiguration,
+    EffectiveAIModelConfiguration,
+    OrganizationAIModelConfigurationV2,
+    compile_ai_model_configuration_v2,
+)
 from api.services.configuration import check_validity
+from api.services.configuration.ai_model_configuration import (
+    convert_legacy_ai_model_configuration_to_v2,
+    merge_ai_model_configuration_v2_secrets,
+)
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import mask_user_config
 from api.services.configuration.merge import merge_user_configurations
@@ -18,7 +28,7 @@ from api.services.configuration.openai_subscription_auth import (
 )
 from api.services.configuration.registry import (
     OpenAILiveSubscriptionLLMConfiguration,
-    ServiceProviders,
+    is_openai_subscription_config,
 )
 from api.services.configuration.resolve import (
     enrich_overrides_with_api_keys,
@@ -30,26 +40,51 @@ def subscription_config():
     return EffectiveAIModelConfiguration.model_validate(
         {
             "is_realtime": True,
-            "llm": {"provider": "openai", "api_key": "analysis-key"},
-            "realtime": {
-                "provider": "openai_live_subscription",
-                "api_key": "workflow-key",
-            },
+            "realtime": {"provider": "openai_live_subscription"},
         }
     )
 
 
-def test_subscription_configuration_roundtrip_and_masked_update():
+def test_subscription_configuration_roundtrip_without_api_keys():
     config = subscription_config()
     assert config.realtime.model == "gpt-live-1-codex"
     assert config.realtime.voice == "cove"
-    assert config.realtime.backend_model == "gpt-5.4-mini"
+    assert config.realtime.backend_model == "gpt-5.6-luna"
+    assert config.llm is None
+    assert not hasattr(config.realtime, "api_key")
+    assert "api_key" not in config.realtime.model_json_schema()["properties"]
     assert EffectiveAIModelConfiguration.model_validate(config.model_dump()) == config
     masked = mask_user_config(config)
-    assert "workflow-key" not in str(masked)
     updated = merge_user_configurations(config, {"realtime": masked["realtime"]})
-    assert updated.realtime.api_key == "workflow-key"
-    assert updated.llm.api_key == "analysis-key"
+    assert updated == config
+    assert is_openai_subscription_config(updated)
+    assert not is_openai_subscription_config(EffectiveAIModelConfiguration())
+
+
+def test_old_subscription_api_settings_are_removed_without_mutating_input():
+    old = {
+        "is_realtime": True,
+        "llm": {"provider": "openai", "api_key": "old-analysis-key"},
+        "stt": {"provider": "dograh", "api_key": "old-managed-key"},
+        "tts": {"provider": "dograh", "api_key": "old-managed-key"},
+        "managed_service_version": 2,
+        "realtime": {
+            "provider": "openai_live_subscription",
+            "api_key": "old-backend-key",
+            "backend_model": "gpt-5.4-mini",
+        },
+    }
+    migrated = EffectiveAIModelConfiguration.model_validate(old)
+    assert migrated.llm is migrated.stt is migrated.tts is None
+    assert migrated.managed_service_version is None
+    assert migrated.realtime.backend_model == "gpt-5.6-luna"
+    assert "api_key" not in migrated.realtime.model_dump()
+    assert old["realtime"]["api_key"] == "old-backend-key"
+    assert old["llm"]["api_key"] == "old-analysis-key"
+    v2 = convert_legacy_ai_model_configuration_to_v2(migrated)
+    assert v2.mode == "byok"
+    assert v2.byok.realtime.llm is None
+    assert "old-" not in str(v2.model_dump())
 
 
 @pytest.mark.parametrize(
@@ -58,32 +93,135 @@ def test_subscription_configuration_roundtrip_and_masked_update():
         {"model": "gpt-live-1"},
         {"voice": "alloy"},
         {"backend_model": ""},
-        {"api_key": " "},
-        {"api_key": ["valid-key", ""]},
+        {"backend_model": " "},
+        {"codex_home": "/not/from/ui"},
     ],
 )
-def test_subscription_rejects_invalid_model_voice_or_backend_configuration(updates):
+def test_subscription_rejects_invalid_model_voice_or_server_owned_fields(updates):
     with pytest.raises(ValidationError):
-        OpenAILiveSubscriptionLLMConfiguration(**{"api_key": "workflow-key", **updates})
+        OpenAILiveSubscriptionLLMConfiguration(**updates)
 
 
-def test_subscription_override_preserves_backend_key_and_revalidates_model():
+def test_subscription_preserves_explicit_custom_reasoning_model():
+    config = OpenAILiveSubscriptionLLMConfiguration(
+        backend_model="account-specific-model"
+    )
+    assert config.backend_model == "account-specific-model"
+
+
+def test_keyless_subscription_config_is_retained_when_realtime_is_disabled():
+    config = EffectiveAIModelConfiguration.model_validate(
+        {
+            "is_realtime": False,
+            "realtime": {"provider": "openai_live_subscription"},
+        }
+    )
+    assert config.realtime.model == "gpt-live-1-codex"
+    assert not is_openai_subscription_config(config)
+
+
+@pytest.mark.parametrize("with_provider", [False, True])
+def test_subscription_override_removes_api_key_and_llm_and_revalidates_model(
+    with_provider,
+):
     config = subscription_config()
+    realtime = {"backend_model": "custom-backend", "api_key": "stale-key"}
+    if with_provider:
+        realtime["provider"] = "openai_live_subscription"
     overrides = enrich_overrides_with_api_keys(
         {
-            "realtime": {
-                "provider": "openai_live_subscription",
-                "backend_model": "custom-backend",
-            }
+            "realtime": realtime,
+            "llm": {"provider": "openai", "api_key": "stale-analysis"},
         },
         config,
     )
+    assert "llm" not in overrides
+    assert "api_key" not in overrides["realtime"]
     effective = resolve_effective_config(config, overrides)
-    assert effective.realtime.api_key == "workflow-key"
+    assert effective.llm is None
+    assert not hasattr(effective.realtime, "api_key")
     assert effective.realtime.backend_model == "custom-backend"
-    assert config.realtime.backend_model == "gpt-5.4-mini"
+    assert config.realtime.backend_model == "gpt-5.6-luna"
     with pytest.raises(ValidationError):
         resolve_effective_config(config, {"realtime": {"model": "gpt-live-1"}})
+
+
+@pytest.mark.parametrize("provider_override", [False, True])
+def test_saved_subscription_override_ignores_incomplete_unused_api_services(
+    provider_override,
+):
+    config = subscription_config()
+    overrides = {
+        "llm": {"provider": "openai"},
+        "stt": {"provider": "deepgram"},
+        "tts": {"provider": "elevenlabs"},
+    }
+    if provider_override:
+        overrides["realtime"] = {"provider": "openai_live_subscription"}
+    effective = resolve_effective_config(config, overrides)
+    assert effective.llm is effective.stt is effective.tts is None
+    assert effective.realtime == config.realtime
+    assert "llm" in overrides
+
+
+def test_switching_api_workflow_override_to_subscription_discards_unused_api_services():
+    config = EffectiveAIModelConfiguration.model_validate(
+        {
+            "is_realtime": True,
+            "llm": {"provider": "openai", "api_key": "analysis-key"},
+            "realtime": {"provider": "openai_realtime", "api_key": "voice-key"},
+        }
+    )
+    effective = resolve_effective_config(
+        config, {"realtime": {"provider": "openai_live_subscription"}}
+    )
+    assert effective.llm is None
+    assert not hasattr(effective.realtime, "api_key")
+    assert config.llm.api_key == "analysis-key"
+    assert config.realtime.api_key == "voice-key"
+
+
+@pytest.mark.parametrize(
+    "legacy_llm", [None, {"provider": "openai", "api_key": "old-key"}]
+)
+def test_keyless_v2_save_reload_and_merge_does_not_restore_old_llm(legacy_llm):
+    payload = {
+        "version": 2,
+        "mode": "byok",
+        "byok": {
+            "mode": "realtime",
+            "realtime": {
+                "realtime": {
+                    "provider": "openai_live_subscription",
+                    "api_key": "stale-backend",
+                },
+                "llm": legacy_llm,
+            },
+        },
+    }
+    existing = OrganizationAIModelConfigurationV2.model_validate(payload)
+    incoming = convert_legacy_ai_model_configuration_to_v2(subscription_config())
+    merged = merge_ai_model_configuration_v2_secrets(incoming, existing)
+    assert compile_ai_model_configuration_v2(merged) == subscription_config()
+    assert "api_key" not in str(merged.model_dump())
+
+
+def test_other_realtime_providers_still_require_separate_llm_and_api_key():
+    with pytest.raises(ValidationError, match="llm configuration is required"):
+        BYOKRealtimeAIModelConfiguration(
+            realtime={"provider": "openai_realtime", "api_key": "voice-key"}
+        )
+    with pytest.raises(ValidationError):
+        BYOKRealtimeAIModelConfiguration(
+            realtime={"provider": "openai_realtime"},
+            llm={"provider": "openai", "api_key": "analysis-key"},
+        )
+    valid = BYOKRealtimeAIModelConfiguration(
+        realtime={"provider": "openai_realtime", "api_key": "voice-key"},
+        llm={"provider": "openai", "api_key": "analysis-key"},
+    )
+    assert valid.realtime.api_key == "voice-key"
+    assert valid.llm.api_key == "analysis-key"
 
 
 @pytest.mark.asyncio
@@ -109,7 +247,7 @@ async def test_subscription_validation_rejects_ineligible_org_before_api_calls(
 
 
 @pytest.mark.asyncio
-async def test_subscription_validates_only_explicit_backend_api_key(
+async def test_keyless_subscription_validation_never_calls_api_provider(
     monkeypatch, tmp_path
 ):
     settings = SubscriptionAuthSettings(
@@ -118,15 +256,69 @@ async def test_subscription_validates_only_explicit_backend_api_key(
     monkeypatch.setattr(SubscriptionAuthSettings, "from_env", lambda: settings)
     api_client = Mock()
     monkeypatch.setattr(check_validity.openai, "OpenAI", api_client)
-    await UserConfigurationValidator().validate(
+    result = await UserConfigurationValidator().validate(
         subscription_config(), organization_id=42
     )
-    assert [call.kwargs["api_key"] for call in api_client.call_args_list] == [
-        "analysis-key",
-        "workflow-key",
-    ]
+    assert result == {"status": [{"model": "all", "message": "ok"}]}
+    api_client.assert_not_called()
     assert not (tmp_path / "auth.json").exists()
-    assert ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value == "openai_live_subscription"
+
+
+@pytest.mark.asyncio
+async def test_subscription_validates_only_explicit_optional_embeddings(
+    monkeypatch, tmp_path
+):
+    settings = SubscriptionAuthSettings(
+        enabled=True, codex_home=tmp_path, organization_id="42"
+    )
+    monkeypatch.setattr(SubscriptionAuthSettings, "from_env", lambda: settings)
+    api_client = Mock()
+    monkeypatch.setattr(check_validity.openai, "OpenAI", api_client)
+    config = subscription_config().model_copy(update={"embeddings": None})
+    config = EffectiveAIModelConfiguration.model_validate(
+        {
+            **config.model_dump(),
+            "embeddings": {"provider": "openai", "api_key": "explicit-embedding-key"},
+        }
+    )
+    await UserConfigurationValidator().validate(config, organization_id=42)
+    assert [call.kwargs["api_key"] for call in api_client.call_args_list] == [
+        "explicit-embedding-key"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_v2_save_accepts_keyless_subscription_and_persists_no_api_key(
+    monkeypatch, tmp_path
+):
+    settings = SubscriptionAuthSettings(
+        enabled=True, codex_home=tmp_path, organization_id="42"
+    )
+    monkeypatch.setattr(SubscriptionAuthSettings, "from_env", lambda: settings)
+    monkeypatch.setattr(
+        organization_routes,
+        "get_organization_ai_model_configuration_v2",
+        AsyncMock(return_value=None),
+    )
+    upsert = AsyncMock()
+    response = AsyncMock(return_value={"saved": True})
+    monkeypatch.setattr(
+        organization_routes, "upsert_organization_ai_model_configuration_v2", upsert
+    )
+    monkeypatch.setattr(
+        organization_routes, "_model_configuration_v2_response", response
+    )
+    api_client = Mock()
+    monkeypatch.setattr(check_validity.openai, "OpenAI", api_client)
+    config = convert_legacy_ai_model_configuration_to_v2(subscription_config())
+    result = await organization_routes.save_model_configuration_v2(
+        config, SimpleNamespace(selected_organization_id=42, provider_id="demo-user")
+    )
+    assert result == {"saved": True}
+    persisted = upsert.await_args.args[1]
+    assert persisted.byok.realtime.llm is None
+    assert "api_key" not in str(persisted.model_dump())
+    api_client.assert_not_called()
 
 
 @pytest.fixture

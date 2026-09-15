@@ -139,7 +139,9 @@ def evidence_template() -> dict:
         "endpoint_contract_observed": None,
         "planned_voice_auth": "subscription",
         "observed_voice_auth": None,
-        "planned_reasoning_auth": "separate_api_key",
+        "planned_reasoning_auth": "subscription",
+        "reasoning_model": "gpt-5.6-luna",
+        "developer_api_key_required": False,
         "observed_reasoning_auth": None,
         "redacted_configuration_receipt": None,
         "workflow_id": None,
@@ -165,7 +167,7 @@ def evidence_template() -> dict:
         "known_limits": [
             "Experimental ChatGPT backend compatibility path; no official API support claimed.",
             "Account entitlement, audible behavior, and telephony compatibility require live evidence.",
-            "Workflow reasoning, extraction, analysis, and telephony charges remain separate.",
+            "Explicit embeddings, separate QA providers, and telephony may have their own charges.",
         ],
     }
 

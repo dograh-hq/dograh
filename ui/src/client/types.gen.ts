@@ -739,7 +739,7 @@ export type ByokRealtimeAiModelConfiguration = {
     /**
      * Llm
      */
-    llm: ({
+    llm?: ({
         provider: 'openai';
     } & OpenAillmService) | ({
         provider: 'atlascloud';
@@ -765,7 +765,7 @@ export type ByokRealtimeAiModelConfiguration = {
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
-    } & SarvamLlmConfiguration);
+    } & SarvamLlmConfiguration) | null;
     /**
      * Embeddings
      */
@@ -4338,19 +4338,13 @@ export type OpenAillmService = {
 /**
  * OpenAI GPT-Live (ChatGPT subscription)
  *
- * Experimental, opt-in voice for self-hosted Dograh. Voice uses your connected ChatGPT subscription. Workflow reasoning and other configured services are billed separately.
+ * Experimental, opt-in voice for self-hosted Dograh. Voice and workflow reasoning use your connected ChatGPT subscription. There is no automatic fallback to a paid API.
  */
 export type OpenAiLiveSubscriptionLlmConfiguration = {
     /**
      * Provider
      */
     provider?: 'openai_live_subscription';
-    /**
-     * Workflow backend API key
-     *
-     * OpenAI API key for workflow reasoning only. Subscription voice credentials are configured by the server operator, never in this form.
-     */
-    api_key: string | Array<string>;
     /**
      * Model
      */
@@ -4360,9 +4354,9 @@ export type OpenAiLiveSubscriptionLlmConfiguration = {
      */
     voice?: 'cove';
     /**
-     * Workflow backend model
+     * Workflow reasoning model
      *
-     * OpenAI Responses model that follows the workflow and calls tools.
+     * Codex model that follows the workflow and calls tools through the same connected ChatGPT subscription. Model availability depends on the connected account.
      */
     backend_model?: string;
 };

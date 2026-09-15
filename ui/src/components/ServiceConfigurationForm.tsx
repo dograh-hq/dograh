@@ -66,6 +66,8 @@ export interface ServiceConfigurationDefaults {
     default_providers: Partial<Record<ServiceSegment, string>>;
 }
 
+const SUBSCRIPTION_PROVIDER = "openai_live_subscription";
+
 const STANDARD_TABS: { key: ServiceSegment; label: string }[] = [
     { key: "llm", label: "LLM" },
     { key: "tts", label: "Voice" },
@@ -209,9 +211,9 @@ function SubscriptionVoiceStatus() {
         <div className="space-y-2 rounded-md border p-3">
             <p className="text-sm font-medium">Subscription voice connection</p>
             <p className="text-xs text-muted-foreground">
-                Voice uses your connected ChatGPT subscription. Workflow reasoning, analysis,
-                extraction, and telephony are billed separately by their configured services.
-                Account access must be verified with a voice session.
+                Voice and workflow reasoning use your connected ChatGPT subscription.
+                There is no silent paid API fallback. Telephony and other explicitly configured
+                services may charge separately. Account access must be verified with a voice session.
             </p>
             <div role="status" aria-live="polite" className="text-sm">
                 {authLoading || loading ? "Checking connection..." : !user ? "Sign in to check the connection." : status && (
@@ -269,6 +271,12 @@ export function ServiceConfigurationForm({
         stt: false,
         realtime: false,
     });
+
+    const globalRealtime = (initialConfig ?? userConfig)?.realtime as Record<string, unknown> | undefined;
+    const effectiveRealtimeProvider = mode === "override" && !enabledOverrides.realtime
+        ? globalRealtime?.provider
+        : serviceProviders.realtime;
+    const isSubscriptionRealtime = isRealtime && effectiveRealtimeProvider === SUBSCRIPTION_PROVIDER;
 
     const {
         register,
@@ -369,8 +377,10 @@ export function ServiceConfigurationForm({
                     : defaultsData[service as "llm" | "tts" | "stt" | "embeddings"] as Record<string, ProviderSchema> | undefined;
 
                 if (src?.provider) {
+                    const isSubscription = service === "realtime" && src.provider === SUBSCRIPTION_PROVIDER;
                     Object.entries(src).forEach(([field, value]) => {
                         if (field === "api_key") {
+                            if (isSubscription) return;
                             if (mode === 'override') {
                                 // In override mode, only load API keys from the override itself
                                 const overrideVal = currentOverrides?.[service as keyof ModelOverrides];
@@ -392,7 +402,9 @@ export function ServiceConfigurationForm({
                                 }
                             }
                         } else if (field !== "provider") {
-                            defaultValues[`${service}_${field}`] = value as string | number | boolean;
+                            defaultValues[`${service}_${field}`] = isSubscription && field === "backend_model" && value === "gpt-5.4-mini"
+                                ? "gpt-5.6-luna"
+                                : value as string | number | boolean;
                         }
                     });
                     selectedProviders[service] = src.provider as string;
@@ -442,7 +454,9 @@ export function ServiceConfigurationForm({
 
                     if (!actualSchema?.allow_custom_input) return;
 
-                    const savedValue = src?.[field] as string | undefined;
+                    const savedValue = (service === "realtime" && provider === SUBSCRIPTION_PROVIDER
+                        ? defaultValues[`${service}_${field}`]
+                        : src?.[field]) as string | undefined;
                     const modelValue = src?.model as string | undefined;
                     const dropdownOptions = getSchemaDropdownOptions(actualSchema, modelValue);
                     if (savedValue && dropdownOptions && !dropdownOptions.includes(savedValue)) {
@@ -565,7 +579,7 @@ export function ServiceConfigurationForm({
             provider: serviceProviders[service],
         };
         const keys = apiKeys[service].map(k => k.trim()).filter(k => k.length > 0);
-        if (keys.length > 0) {
+        if (keys.length > 0 && !(service === "realtime" && serviceProviders.realtime === SUBSCRIPTION_PROVIDER)) {
             config.api_key = mode === 'override' ? keys[0] : keys;
         }
         Object.entries(data).forEach(([property, value]) => {
@@ -587,7 +601,7 @@ export function ServiceConfigurationForm({
             if (mode === 'override') {
                 // Build model_overrides for enabled services only
                 const modelOverrides: Record<string, unknown> = {};
-                const services = isRealtime ? ["realtime", "llm"] : ["llm", "tts", "stt"];
+                const services = isSubscriptionRealtime ? ["realtime"] : isRealtime ? ["realtime", "llm"] : ["llm", "tts", "stt"];
                 for (const svc of services) {
                     if (enabledOverrides[svc]) {
                         modelOverrides[svc] = buildServiceConfig(svc as ServiceSegment, data);
@@ -602,18 +616,24 @@ export function ServiceConfigurationForm({
                     model_overrides: Object.keys(modelOverrides).length > 0 ? modelOverrides : undefined,
                 });
             } else {
-                // Global mode: save all services
                 const saveConfig: Record<string, unknown> = {
-                    llm: buildServiceConfig("llm", data),
-                    tts: buildServiceConfig("tts", data),
-                    stt: buildServiceConfig("stt", data),
+                    ...(!isSubscriptionRealtime ? {
+                        llm: buildServiceConfig("llm", data),
+                        tts: buildServiceConfig("tts", data),
+                        stt: buildServiceConfig("stt", data),
+                    } : {}),
                     is_realtime: isRealtime,
                 };
                 if (serviceProviders.realtime) {
                     saveConfig.realtime = buildServiceConfig("realtime", data);
                 }
                 const embeddingsKeys = apiKeys.embeddings.map(k => k.trim()).filter(k => k.length > 0);
-                if (embeddingsKeys.length > 0) {
+                const configuredEmbeddings = (configSource as Record<string, unknown> | null)?.embeddings as Record<string, unknown> | undefined;
+                const embeddingsSchema = schemas.embeddings[serviceProviders.embeddings];
+                const preserveKeylessEmbeddings = isSubscriptionRealtime
+                    && configuredEmbeddings?.provider === serviceProviders.embeddings
+                    && embeddingsSchema && !embeddingsSchema.required?.includes("api_key");
+                if (embeddingsKeys.length > 0 || preserveKeylessEmbeddings) {
                     saveConfig.embeddings = buildServiceConfig("embeddings", data);
                 }
                 await onSave(saveConfig);
@@ -694,7 +714,7 @@ export function ServiceConfigurationForm({
                     )}
                 </div>
 
-                {service === "realtime" && currentProvider === "openai_live_subscription" && <SubscriptionVoiceStatus />}
+                {service === "realtime" && currentProvider === SUBSCRIPTION_PROVIDER && <SubscriptionVoiceStatus />}
 
                 {currentProvider && providerSchema && configFields.length > 1 && (
                     <div className="grid grid-cols-2 gap-4">
@@ -714,14 +734,14 @@ export function ServiceConfigurationForm({
                     </div>
                 )}
 
-                {currentProvider && providerSchema && providerSchema.properties.api_key && (
+                {currentProvider && currentProvider !== SUBSCRIPTION_PROVIDER && providerSchema && providerSchema.properties.api_key && (
                     <div className="space-y-2">
                         <Label>{providerSchema.properties.api_key.title ? `${providerSchema.properties.api_key.title}${mode === 'override' ? ' (leave empty to use global)' : ''}` : mode === 'override' ? 'API Key (leave empty to use global)' : 'API Key(s)'}</Label>
                         {renderFieldDescription("api_key", providerSchema)}
                         {apiKeys[service].map((key, index) => (
                             <div key={index} className="flex gap-2">
                                 <Input
-                                    type={currentProvider === "openai_live_subscription" ? "password" : "text"}
+                                    type="text"
                                     aria-label={providerSchema.properties.api_key.title || "API key"}
                                     placeholder="Enter API key"
                                     value={key}
@@ -1003,7 +1023,7 @@ export function ServiceConfigurationForm({
         return isRealtime ? REALTIME_TABS : STANDARD_TABS;
     };
 
-    const visibleTabs = getVisibleTabs();
+    const visibleTabs = getVisibleTabs().filter(tab => !isSubscriptionRealtime || tab.key !== "llm");
     const defaultTab = isRealtime ? "realtime" : "llm";
 
     return (
@@ -1016,7 +1036,7 @@ export function ServiceConfigurationForm({
                             Realtime Mode
                         </Label>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                            Uses a single speech-to-speech model (no separate STT/TTS). An LLM is still required for variable extraction and QA.
+                            Uses a single speech-to-speech model (no separate STT/TTS). Reasoning and analysis configuration depends on the selected provider.
                         </p>
                     </div>
                     <Switch

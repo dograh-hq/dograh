@@ -319,6 +319,22 @@ class SubscriptionAuthService:
             }.get(exc.code, exc.code)
             return {"status": state, "message": exc.safe_message}
 
+    async def get_credentials(
+        self,
+        organization_id: int | str,
+        *,
+        expected_account_id: str | None = None,
+    ) -> SubscriptionCredentials:
+        """Resolve the same bound login for reasoning without a second voice lease."""
+        self.assert_organization(organization_id)
+        _, _, credential = self._read_credentials()
+        if (
+            expected_account_id is not None
+            and credential.account_id != expected_account_id
+        ):
+            raise SubscriptionAuthError("account_mismatch")
+        return await self._resolve_credentials(credential.account_id)
+
     async def acquire_session(self, organization_id: int | str) -> SubscriptionSession:
         self.assert_organization(organization_id)
         _, _, credential = self._read_credentials()

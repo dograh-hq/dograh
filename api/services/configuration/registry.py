@@ -199,7 +199,7 @@ class BaseEmbeddingsConfiguration(BaseServiceConfiguration):
 
 
 # Unified registry for all service types
-REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
+REGISTRY: Dict[ServiceType, Dict[str, Type[BaseModel]]] = {
     ServiceType.LLM: {},
     ServiceType.TTS: {},
     ServiceType.STT: {},
@@ -207,7 +207,7 @@ REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
     ServiceType.REALTIME: {},
 }
 
-T = TypeVar("T", bound=BaseServiceConfiguration)
+T = TypeVar("T", bound=BaseModel)
 
 
 def registered_provider_names(
@@ -820,35 +820,37 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         return data
 
 
-@register_service(ServiceType.REALTIME)
-class OpenAILiveSubscriptionLLMConfiguration(BaseLLMConfiguration):
-    model_config = provider_model_config(
-        "OpenAI GPT-Live (ChatGPT subscription)",
-        description=(
-            "Experimental, opt-in voice for self-hosted Dograh. Voice uses your "
-            "connected ChatGPT subscription. Workflow reasoning and other "
-            "configured services are billed separately."
-        ),
+def is_openai_subscription_config(configuration) -> bool:
+    if isinstance(configuration, dict):
+        is_realtime = configuration.get("is_realtime", False)
+        realtime = configuration.get("realtime")
+    else:
+        is_realtime = getattr(configuration, "is_realtime", False)
+        realtime = getattr(configuration, "realtime", None)
+    provider = (
+        realtime.get("provider")
+        if isinstance(realtime, dict)
+        else getattr(realtime, "provider", None)
     )
+    return bool(is_realtime and provider == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION)
+
+
+@register_service(ServiceType.REALTIME)
+class OpenAILiveSubscriptionLLMConfiguration(BaseModel):
+    model_config = {
+        **provider_model_config(
+            "OpenAI GPT-Live (ChatGPT subscription)",
+            description=(
+                "Experimental, opt-in voice for self-hosted Dograh. Voice and "
+                "workflow reasoning use your connected ChatGPT subscription. "
+                "There is no automatic fallback to a paid API."
+            ),
+        ),
+        "extra": "forbid",
+    }
     provider: Literal[ServiceProviders.OPENAI_LIVE_SUBSCRIPTION] = (
         ServiceProviders.OPENAI_LIVE_SUBSCRIPTION
     )
-    api_key: str | list[str] = Field(
-        title="Workflow backend API key",
-        description=(
-            "OpenAI API key for workflow reasoning only. Subscription voice "
-            "credentials are configured by the server operator, never in this form."
-        ),
-    )
-
-    @field_validator("api_key")
-    @classmethod
-    def require_backend_key(cls, value):
-        keys = value if isinstance(value, list) else [value]
-        if any(not key.strip() for key in keys):
-            raise ValueError("Workflow backend API key is required")
-        return value
-
     model: Literal["gpt-live-1-codex"] = Field(
         default="gpt-live-1-codex",
         json_schema_extra={"examples": ["gpt-live-1-codex"]},
@@ -858,12 +860,29 @@ class OpenAILiveSubscriptionLLMConfiguration(BaseLLMConfiguration):
         json_schema_extra={"examples": ["cove"]},
     )
     backend_model: str = Field(
-        default="gpt-5.4-mini",
+        default="gpt-5.6-luna",
         min_length=1,
-        title="Workflow backend model",
-        description="OpenAI Responses model that follows the workflow and calls tools.",
-        json_schema_extra={"examples": ["gpt-5.4-mini"], "allow_custom_input": True},
+        pattern=r"^\S+$",
+        title="Workflow reasoning model",
+        description=(
+            "Codex model that follows the workflow and calls tools through the "
+            "same connected ChatGPT subscription. Model availability depends "
+            "on the connected account."
+        ),
+        json_schema_extra={"examples": ["gpt-5.6-luna"], "allow_custom_input": True},
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def remove_legacy_api_backend(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        # Saved experimental API-backend configurations migrate without retaining keys.
+        data.pop("api_key", None)
+        if data.get("backend_model") == "gpt-5.4-mini":
+            data["backend_model"] = "gpt-5.6-luna"
+        return data
 
 
 @register_service(ServiceType.REALTIME)

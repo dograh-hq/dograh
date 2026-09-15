@@ -85,6 +85,12 @@ class SubscriptionDemoTests(unittest.TestCase):
         evidence = evidence_template()
         self.assertEqual(evidence["result"], "NOT_RUN")
         self.assertEqual(evidence["run_ids"], [])
+        self.assertEqual(evidence["planned_voice_auth"], "subscription")
+        self.assertEqual(evidence["planned_reasoning_auth"], "subscription")
+        self.assertEqual(evidence["reasoning_model"], "gpt-5.6-luna")
+        self.assertFalse(evidence["developer_api_key_required"])
+        self.assertIsNone(evidence["observed_voice_auth"])
+        self.assertIsNone(evidence["observed_reasoning_auth"])
         self.assertTrue(
             all(check["result"] == "NOT_RUN" for check in evidence["checks"].values())
         )

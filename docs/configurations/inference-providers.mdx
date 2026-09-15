@@ -17,7 +17,7 @@ The Models page has three top-level sections:
 
 | Section | When to use it |
 |---------|----------------|
-| **Speech to Speech** | Use a realtime speech-to-speech model for the live conversation. You still configure an LLM alongside it for variable extraction and QA. |
+| **Speech to Speech** | Use a realtime speech-to-speech model for the live conversation. API providers need an LLM alongside it for variable extraction and QA; the experimental subscription provider uses its subscription reasoning model. |
 | **Dograh** | Use Dograh-managed LLM, voice, and transcriber models behind one Dograh Service Key. |
 | **BYOK** | Bring your own provider keys and configure LLM, Voice, Transcriber, and Embedding models separately. |
 
@@ -35,17 +35,17 @@ The Speech to Speech section has nested tabs:
 
 | Tab | What to configure |
 |-----|-------------------|
-| **Realtime Model** | The speech-to-speech provider, model, voice, and API key. |
-| **LLM** | A standard LLM used for non-realtime tasks such as variable extraction and QA analysis. |
+| **Realtime Model** | The speech-to-speech provider, model, voice, and authentication settings. |
+| **LLM** | A standard LLM for non-realtime tasks with API providers. Hidden for the subscription provider. |
 | **Embedding** | An embedding model used by features that need embeddings, such as retrieval from knowledge base content. |
 
 <Warning>
-An LLM is still required when you use Speech to Speech. The realtime model handles the live voice conversation, but Dograh uses the LLM for analysis tasks that happen outside the live audio stream.
+API-backed Speech to Speech providers require a separate LLM for analysis outside the live audio stream. OpenAI GPT-Live (ChatGPT subscription) uses its subscription reasoning model for these tasks and does not require the LLM tab or a developer API key.
 </Warning>
 
 ### Experimental ChatGPT subscription voice (self-hosted)
 
-**OpenAI GPT-Live (ChatGPT subscription)** uses a dedicated Codex login for voice (`gpt-live-1-codex`, voice `cove`). Dograh still runs workflow reasoning and tools through the separately configured **Workflow backend model** and **Workflow backend API key**. Configure the **LLM** tab for extraction and analysis as usual. Those API costs, embeddings, and any telephony charges remain separate.
+**OpenAI GPT-Live (ChatGPT subscription)** uses one dedicated Codex login for voice (`gpt-live-1-codex`, voice `cove`) and workflow reasoning (`gpt-5.6-luna` by default). No developer API key or separate LLM configuration is required. Dograh retains its existing workflow tool handlers and node transitions. Variable extraction, dispositions, and QA that reuse the workflow LLM use subscription reasoning too. Explicitly selected embeddings, a separately configured QA provider, and telephony can still have their own credentials and charges.
 
 This is an opt-in ChatGPT backend compatibility integration, disabled by default. It does not establish an official OpenAI production API contract, universal account access, unlimited use, or upstream acceptance. A local credentials check is not proof of voice entitlement. Use a disposable self-hosted environment and a synthetic browser workflow before considering other workloads.
 
@@ -81,7 +81,7 @@ DOGRAH_OPENAI_SUBSCRIPTION_ORGANIZATION_ID=123
 
 Set only the `DOGRAH_...CODEX_HOME` variable in Dograh's runtime. The `CODEX_HOME` override above belongs to the separate login process. The adapter rejects the server user's default or ambient desktop Codex directory. An organization mismatch fails before reading credentials. The directory must remain writable so refreshed tokens can be atomically replaced; mounting only `auth.json` prevents that replacement. Restrict its parent-directory permissions or Windows ACLs too.
 
-4. Restart only your dedicated test API processes to apply the settings. In **Models → Speech to Speech → Realtime Model**, select **OpenAI GPT-Live (ChatGPT subscription)**, retain `gpt-live-1-codex` / `cove`, and enter the separate workflow backend model and API key. Save the configuration. Do not enter OAuth credentials in **Workflow backend API key**.
+4. Restart only your dedicated test API processes to apply the settings. In **Models â†’ Speech to Speech â†’ Realtime Model**, select **OpenAI GPT-Live (ChatGPT subscription)**, retain `gpt-live-1-codex` / `cove`, and retain the default workflow reasoning model `gpt-5.6-luna` unless your account supports a different Codex model. Save without an API key or LLM configuration.
 5. Select **Check connection**. This authenticated check returns no tokens, account ID, or filesystem path and performs no provider login/refresh request. **Credentials ready** means the stored credentials appear locally usable; a real session must still prove access.
 
 | Connection state | Next action |
@@ -93,7 +93,7 @@ Set only the `DOGRAH_...CODEX_HOME` variable in Dograh's runtime. The `CODEX_HOM
 | Account busy | End the existing session and allow cleanup before starting another. |
 | Unavailable | Check the test API's redacted error and Redis availability. |
 
-The initial integration allows one active session per connected account across workers, coordinated through Redis. This is a Dograh concurrency limit, not a statement of provider entitlement. It does not switch accounts or silently fall back to API-billed voice.
+The initial integration allows one active session per connected account across workers, coordinated through Redis. This is a Dograh concurrency limit, not a statement of provider entitlement. It does not switch accounts or fall back to API-billed voice or reasoning. Reasoning uses the same bound ChatGPT account through the subscription Responses endpoint. Subscription token observations are recorded separately with monetary cost unknown; account access and limits still apply.
 
 #### Docker environment and mount
 
@@ -138,7 +138,7 @@ python scripts/openai_subscription_demo.py prepare --tool-uuid 00000000-0000-400
 
 The UUID shown is a placeholder, not an installed tool. Substitute the actual test tool UUID before importing. The command produces `workflow.json`, `tool.json`, and `evidence.json` with every live check marked `NOT_RUN`.
 
-3. Start the synthetic server explicitly in a separate terminal. It binds only `127.0.0.1:18765`, waits two seconds for valid lookups, returns `amber → Bay 4` / `cyan → Bay 9`, and makes no outbound calls:
+3. Start the synthetic server explicitly in a separate terminal. It binds only `127.0.0.1:18765`, waits two seconds for valid lookups, returns `amber â†’ Bay 4` / `cyan â†’ Bay 9`, and makes no outbound calls:
 
 ```bash
 python scripts/openai_subscription_demo.py serve
@@ -146,7 +146,7 @@ python scripts/openai_subscription_demo.py serve
 
 4. Use **Upload Agent Definition** on the Agents page to import `workflow.json`. Inspect all three nodes and both edges, the attached synthetic tool, and the saved model settings. Use no customer tools, webhooks, phone numbers, campaigns, or documents.
 5. Have the operator start screen/audio recording, open **Test Agent**, and select **Run Test** in the audio tab. **Run Test starts the microphone automatically** through Dograh's existing browser voice tester; stop here until the operator is ready.
-6. Confirm one audible greeting. Say "amber," then "actually, cyan" while the lookup is pending. Verify the latest result is `cyan / Bay 9`, with a rerun if the amber request was already submitted. Confirm the **Synthetic lookup → Review result** transition. Interrupt the spoken answer, ask it to resume, then say "finish" and confirm the final **End demo** transition and completed run. A prompt is not proof: mark any stale answer, duplicate speech, missing tool receipt, or missed interruption as a failure.
+6. Confirm one audible greeting. Say "amber," then "actually, cyan" while the lookup is pending. Verify the latest result is `cyan / Bay 9`, with a rerun if the amber request was already submitted. Confirm the **Synthetic lookup â†’ Review result** transition. Interrupt the spoken answer, ask it to resume, then say "finish" and confirm the final **End demo** transition and completed run. A prompt is not proof: mark any stale answer, duplicate speech, missing tool receipt, or missed interruption as a failure.
 7. Start a fresh short test to prove cleanup. While one test is active, try another test from the same connected account and confirm a clear busy error. End the first test; do not delete Redis keys to bypass the lease.
 8. Stop the synthetic server with Ctrl+C. Keep the recording and synthetic receipts with the local evidence template. These steps have no telephony component and do not establish telephone-call compatibility.
 
@@ -158,7 +158,7 @@ Fill `evidence.json` with the test date, Dograh/Pipecat revisions, redacted sett
 
 Before sharing, remove bearer/refresh tokens, API keys, cookies, SDP/ICE details, authorization headers, account identifiers, absolute credential paths, and private session URLs. Do not attach raw HAR files, full provider payloads, or `auth.json`. Keep upstream exception/acceptance, offline tests, provider negotiation, audible browser proof, and production readiness as separate evidence states.
 
-To disable the experiment, end active test runs, set `DOGRAH_OPENAI_SUBSCRIPTION_ENABLED=false`, and restart only the dedicated test API. Restore a previously working model configuration explicitly if needed; there is no silent voice fallback. Retain or remove the dedicated login directory as an operator decision after all users of it have stopped. Never delete the desktop Codex login or production Redis data.
+To disable the experiment, end active test runs, set `DOGRAH_OPENAI_SUBSCRIPTION_ENABLED=false`, and restart only the dedicated test API. Restore a previously working model configuration explicitly if needed; there is no silent voice or reasoning fallback. Retain or remove the dedicated login directory as an operator decision after all users of it have stopped. Never delete the desktop Codex login or production Redis data.
 
 ## Dograh
 

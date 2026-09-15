@@ -539,6 +539,12 @@ class TestExecuteHttpTool:
                     "timeout_ms": 5000,
                     "preset_parameters": [
                         {
+                            "name": "workflow_run_id",
+                            "type": "number",
+                            "value_template": "{{initial_context.workflow_run_id}}",
+                            "required": True,
+                        },
+                        {
                             "name": "phone_number",
                             "type": "string",
                             "value_template": "{{initial_context.phone_number}}",
@@ -577,15 +583,17 @@ class TestExecuteHttpTool:
                 tool,
                 arguments,
                 call_context_vars={
+                    "workflow_run_id": 12345,
                     "phone_number": "+14155550123",
                     "is_vip": "true",
                 },
-                gathered_context_vars={"customer_id": "42"},
+                gathered_context_vars={"customer_id": "42", "workflow_run_id": 999},
             )
 
             call_kwargs = mock_client.request.call_args.kwargs
             assert call_kwargs["json"] == {
                 "name": "John",
+                "workflow_run_id": 12345,
                 "phone_number": "+14155550123",
                 "customer_id": 42,
                 "is_vip": True,

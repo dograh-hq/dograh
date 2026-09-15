@@ -9,6 +9,7 @@ from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 # prompt variables, but it must never supply or replace run-owned metadata.
 RESERVED_INITIAL_CONTEXT_KEYS = frozenset(
     {
+        "workflow_run_id",
         "call_id",
         "provider",
         "runtime_configuration",

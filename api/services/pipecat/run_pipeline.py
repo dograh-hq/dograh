@@ -135,6 +135,7 @@ def _create_answer_supervisor(
     user_config,
     correlation_id,
     get_parent_context=None,
+    workflow_inference_llm=None,
 ):
     config = resolve_answer_supervisor_config(
         voicemail_config,
@@ -143,13 +144,15 @@ def _create_answer_supervisor(
     )
     if config is None:
         return None
-    # Private inference uses its own service and fixed subtype instructions.
+    # Classification uses a private context with fixed subtype instructions.
     if voicemail_config.get("use_workflow_llm", True):
-        classifier_llm = create_llm_service(
-            user_config,
-            correlation_id=correlation_id,
-            usage_context="voicemail_detection",
-        )
+        classifier_llm = workflow_inference_llm
+        if classifier_llm is None:
+            classifier_llm = create_llm_service(
+                user_config,
+                correlation_id=correlation_id,
+                usage_context="voicemail_detection",
+            )
     else:
         classifier_llm = create_llm_service_from_provider(
             provider=voicemail_config.get("provider", "openai"),
@@ -163,17 +166,21 @@ def _create_answer_supervisor(
     return AnswerSupervisor(config, context=context, classify=classifier.classify)
 
 
-def _create_user_mute_strategies(engine, answer_supervisor):
+def _create_user_mute_strategies(
+    engine, answer_supervisor, *, realtime_provider: str | None = None
+):
     first_speech = (
         FirstSpeechUserMuteStrategy()
         if answer_supervisor is not None
         else MuteUntilFirstBotCompleteUserMuteStrategy()
     )
-    return [
-        first_speech,
-        FunctionCallUserMuteStrategy(),
-        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-    ]
+    strategies = [first_speech]
+    if realtime_provider != ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value:
+        strategies.append(FunctionCallUserMuteStrategy())
+    strategies.append(
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user)
+    )
+    return strategies
 
 
 def _resolve_user_turn_stop_timeout(
@@ -247,7 +254,9 @@ def _create_non_realtime_user_turn_stop_strategies(
 def _create_realtime_user_turn_config(provider: str, model: str | None = None):
     """Return user turn strategies and optional local VAD for realtime providers."""
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+    if provider == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value or (
+        provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1"
+    ):
         # Live keeps listening while speaking and handles barge-in itself.
         return (
             UserTurnStrategies(
@@ -741,18 +750,28 @@ async def _run_pipeline_impl(
 
     # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
     is_realtime = user_config.is_realtime and user_config.realtime is not None
+    is_subscription = (
+        is_realtime
+        and user_config.realtime.provider
+        == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+    )
 
     # Create services based on user configuration
     if is_realtime:
-        llm = create_realtime_llm_service(user_config, audio_config)
+        llm = create_realtime_llm_service(
+            user_config, audio_config, organization_id=workflow.organization_id
+        )
         stt = None
         tts = None
-        # Realtime services don't implement run_inference, so create a
-        # separate text LLM for variable extraction and other out-of-band
-        # inference calls.
-        inference_llm = create_llm_service(
-            user_config,
-            correlation_id=mps_correlation_id,
+        # Subscription voice shares its subscription reasoning service with
+        # extraction and other out-of-band inference calls.
+        inference_llm = (
+            llm.inference_llm
+            if is_subscription
+            else create_llm_service(
+                user_config,
+                correlation_id=mps_correlation_id,
+            )
         )
     else:
         stt = create_stt_service(
@@ -779,6 +798,7 @@ async def _run_pipeline_impl(
             usage_context="variable_extraction",
         )
         if needs_extraction_llm
+        and not is_subscription
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else inference_llm or llm
     )
@@ -793,8 +813,14 @@ async def _run_pipeline_impl(
         runtime_configuration = {
             "realtime_provider": user_config.realtime.provider,
             "realtime_model": user_config.realtime.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
+            "llm_provider": (
+                ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+                if is_subscription
+                else user_config.llm.provider
+            ),
+            "llm_model": (
+                llm.backend_model if is_subscription else user_config.llm.model
+            ),
         }
     else:
         runtime_configuration = {
@@ -968,8 +994,13 @@ async def _run_pipeline_impl(
         user_config=user_config,
         correlation_id=mps_correlation_id,
         get_parent_context=engine._get_otel_context,
+        workflow_inference_llm=inference_llm if is_subscription else None,
     )
-    user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
+    user_mute_strategies = _create_user_mute_strategies(
+        engine,
+        answer_supervisor,
+        realtime_provider=user_config.realtime.provider if is_realtime else None,
+    )
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
@@ -1030,8 +1061,12 @@ async def _run_pipeline_impl(
         # Record them immediately, including while the assistant is speaking.
         realtime_service_mode=is_realtime
         and not (
-            user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
-            and user_config.realtime.model == "gpt-live-1"
+            user_config.realtime.provider
+            == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value
+            or (
+                user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+                and user_config.realtime.model == "gpt-live-1"
+            )
         ),
     )
 

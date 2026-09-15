@@ -12,7 +12,16 @@ from groq import Groq
 from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
-from api.services.configuration.registry import ServiceConfig, ServiceProviders
+from api.services.configuration.openai_subscription_auth import (
+    SubscriptionAuthError,
+    SubscriptionAuthService,
+    SubscriptionAuthSettings,
+)
+from api.services.configuration.registry import (
+    ServiceConfig,
+    ServiceProviders,
+    is_openai_subscription_config,
+)
 from api.services.mps_service_key_client import mps_service_key_client
 from api.utils.url_security import validate_user_configured_service_url
 
@@ -86,15 +95,26 @@ class UserConfigurationValidator:
             "created_by": created_by,
         }
         status_list = []
+        is_subscription = is_openai_subscription_config(configuration)
+        if is_subscription:
+            try:
+                SubscriptionAuthService(
+                    SubscriptionAuthSettings.from_env(), None
+                ).assert_organization(organization_id)
+            except SubscriptionAuthError as exc:
+                raise ValueError(
+                    [{"model": "realtime", "message": exc.safe_message}]
+                ) from exc
 
-        status_list.extend(self._validate_service(configuration.llm, "llm"))
-        if configuration.is_realtime:
+        if not is_subscription:
+            status_list.extend(self._validate_service(configuration.llm, "llm"))
+        if configuration.is_realtime and not is_subscription:
             status_list.extend(
                 self._validate_service(
                     configuration.realtime, "realtime", required=True
                 )
             )
-        else:
+        elif not configuration.is_realtime:
             status_list.extend(self._validate_service(configuration.stt, "stt"))
             status_list.extend(self._validate_service(configuration.tts, "tts"))
         # Embeddings is optional - only validate if configured

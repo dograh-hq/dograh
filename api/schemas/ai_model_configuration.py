@@ -16,6 +16,7 @@ from api.services.configuration.registry import (
     ServiceProviders,
     STTConfig,
     TTSConfig,
+    is_openai_subscription_config,
 )
 
 DOGRAH_SPEED_MIN = 0.5
@@ -41,11 +42,21 @@ class EffectiveAIModelConfiguration(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def strip_incomplete_realtime_when_disabled(cls, data):
-        """Skip realtime validation when is_realtime is False and api_key is missing."""
-        if isinstance(data, dict) and not data.get("is_realtime", False):
-            realtime = data.get("realtime")
-            if isinstance(realtime, dict) and not realtime.get("api_key"):
-                data.pop("realtime", None)
+        """Normalize unused services and preserve keyless subscription settings."""
+        if isinstance(data, dict):
+            data = dict(data)
+            if is_openai_subscription_config(data):
+                for field in ("llm", "stt", "tts", "managed_service_version"):
+                    data.pop(field, None)
+            elif not data.get("is_realtime", False):
+                realtime = data.get("realtime")
+                if (
+                    isinstance(realtime, dict)
+                    and realtime.get("provider")
+                    != ServiceProviders.OPENAI_LIVE_SUBSCRIPTION
+                    and not realtime.get("api_key")
+                ):
+                    data.pop("realtime", None)
         return data
 
 
@@ -73,11 +84,24 @@ class BYOKPipelineAIModelConfiguration(BaseModel):
 
 class BYOKRealtimeAIModelConfiguration(BaseModel):
     realtime: RealtimeConfig
-    llm: LLMConfig
+    llm: LLMConfig | None = None
     embeddings: EmbeddingsConfig | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def remove_unused_subscription_llm(cls, data):
+        if isinstance(data, dict) and is_openai_subscription_config(
+            {**data, "is_realtime": True}
+        ):
+            return {key: value for key, value in data.items() if key != "llm"}
+        return data
 
     @model_validator(mode="after")
     def reject_dograh_providers(self):
+        if self.llm is None and not is_openai_subscription_config(
+            {"is_realtime": True, "realtime": self.realtime}
+        ):
+            raise ValueError("llm configuration is required for this realtime provider")
         _reject_dograh_provider("llm", self.llm)
         _reject_dograh_provider("embeddings", self.embeddings)
         return self

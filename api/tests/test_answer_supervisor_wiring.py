@@ -3,7 +3,22 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    FunctionCallFromLLM,
+    FunctionCallResultFrame,
+    FunctionCallsStartedFrame,
+    TranscriptionFrame,
+    UserMuteStartedFrame,
+)
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
 from pipecat.turns.user_mute import (
+    CallbackUserMuteStrategy,
     FirstSpeechUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
@@ -23,10 +38,97 @@ from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
         (True, FirstSpeechUserMuteStrategy),
     ],
 )
-def test_answer_handling_listens_before_the_first_bot_speech(enabled, expected):
+@pytest.mark.parametrize("provider", [None, "openai_live_subscription"])
+def test_answer_handling_listens_before_the_first_bot_speech(
+    enabled, expected, provider
+):
     engine = SimpleNamespace(should_mute_user=AsyncMock())
     supervisor = SimpleNamespace() if enabled else None
-    assert isinstance(_create_user_mute_strategies(engine, supervisor)[0], expected)
+    strategies = _create_user_mute_strategies(
+        engine, supervisor, realtime_provider=provider
+    )
+    assert isinstance(strategies[0], expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider, mute_during_tool",
+    [
+        (None, True),
+        ("openai_realtime", True),
+        ("google_realtime", True),
+        ("openai_live_subscription", False),
+    ],
+)
+async def test_only_subscription_preserves_caller_correction_during_tool(
+    provider, mute_during_tool
+):
+    engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
+    context = LLMContext()
+    user = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            user_mute_strategies=_create_user_mute_strategies(
+                engine, None, realtime_provider=provider
+            )
+        ),
+    ).user()
+    user.broadcast_frame = AsyncMock()
+    await user._maybe_mute_frame(BotStartedSpeakingFrame())
+    assert await user._maybe_mute_frame(
+        TranscriptionFrame("before greeting", "caller", "")
+    )
+    await user._maybe_mute_frame(BotStoppedSpeakingFrame())
+    assert not user._user_is_muted
+    user.broadcast_frame.reset_mock()
+    await user._maybe_mute_frame(
+        FunctionCallsStartedFrame(
+            function_calls=[
+                FunctionCallFromLLM(
+                    function_name="lookup",
+                    tool_call_id="amber-tool",
+                    arguments={"color": "amber"},
+                    context=context,
+                )
+            ]
+        )
+    )
+    assert user._user_is_muted is mute_during_tool
+    correction = TranscriptionFrame("Change amber to cyan", "caller", "")
+    assert await user._maybe_mute_frame(correction) is mute_during_tool
+    if mute_during_tool:
+        user.broadcast_frame.assert_awaited_once_with(UserMuteStartedFrame)
+    else:
+        user.broadcast_frame.assert_not_awaited()
+    await user._maybe_mute_frame(
+        FunctionCallResultFrame(
+            function_name="lookup", tool_call_id="amber-tool", arguments={}, result={}
+        )
+    )
+    assert not user._user_is_muted
+    assert not await user._maybe_mute_frame(correction)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason", ["shutdown", "queued_speech", "noninterruptible_node"]
+)
+async def test_subscription_preserves_explicit_engine_callback_muting(reason):
+    engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
+    callback = _create_user_mute_strategies(
+        engine, None, realtime_provider="openai_live_subscription"
+    )[-1]
+    assert isinstance(callback, CallbackUserMuteStrategy)
+    frame = TranscriptionFrame("caller input", "caller", "")
+    assert not await callback.process_frame(frame)
+    if reason == "shutdown":
+        engine._mute_pipeline = True
+    elif reason == "queued_speech":
+        engine._queued_speech_mute_state = "waiting"
+    else:
+        engine._current_node = SimpleNamespace(allow_interrupt=False)
+        frame = BotStartedSpeakingFrame()
+    assert await callback.process_frame(frame)
 
 
 @pytest.mark.asyncio

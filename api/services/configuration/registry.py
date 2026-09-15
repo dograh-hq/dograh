@@ -103,6 +103,7 @@ class ServiceProviders(str, Enum):
     MINIMAX = "minimax"
     GOOGLE_VERTEX = "google_vertex"
     OPENAI_REALTIME = "openai_realtime"
+    OPENAI_LIVE_SUBSCRIPTION = "openai_live_subscription"
     GROK_REALTIME = "grok_realtime"
     ULTRAVOX_REALTIME = "ultravox_realtime"
     GOOGLE_REALTIME = "google_realtime"
@@ -137,6 +138,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.MINIMAX,
         ServiceProviders.GOOGLE_VERTEX,
         ServiceProviders.OPENAI_REALTIME,
+        ServiceProviders.OPENAI_LIVE_SUBSCRIPTION,
         ServiceProviders.GROK_REALTIME,
         ServiceProviders.ULTRAVOX_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
@@ -197,7 +199,7 @@ class BaseEmbeddingsConfiguration(BaseServiceConfiguration):
 
 
 # Unified registry for all service types
-REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
+REGISTRY: Dict[ServiceType, Dict[str, Type[BaseModel]]] = {
     ServiceType.LLM: {},
     ServiceType.TTS: {},
     ServiceType.STT: {},
@@ -205,7 +207,7 @@ REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
     ServiceType.REALTIME: {},
 }
 
-T = TypeVar("T", bound=BaseServiceConfiguration)
+T = TypeVar("T", bound=BaseModel)
 
 
 def registered_provider_names(
@@ -818,6 +820,71 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         return data
 
 
+def is_openai_subscription_config(configuration) -> bool:
+    if isinstance(configuration, dict):
+        is_realtime = configuration.get("is_realtime", False)
+        realtime = configuration.get("realtime")
+    else:
+        is_realtime = getattr(configuration, "is_realtime", False)
+        realtime = getattr(configuration, "realtime", None)
+    provider = (
+        realtime.get("provider")
+        if isinstance(realtime, dict)
+        else getattr(realtime, "provider", None)
+    )
+    return bool(is_realtime and provider == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION)
+
+
+@register_service(ServiceType.REALTIME)
+class OpenAILiveSubscriptionLLMConfiguration(BaseModel):
+    model_config = {
+        **provider_model_config(
+            "OpenAI GPT-Live (ChatGPT subscription)",
+            description=(
+                "Experimental, opt-in voice for self-hosted Dograh. Voice and "
+                "workflow reasoning use your connected ChatGPT subscription. "
+                "There is no automatic fallback to a paid API."
+            ),
+        ),
+        "extra": "forbid",
+    }
+    provider: Literal[ServiceProviders.OPENAI_LIVE_SUBSCRIPTION] = (
+        ServiceProviders.OPENAI_LIVE_SUBSCRIPTION
+    )
+    model: Literal["gpt-live-1-codex"] = Field(
+        default="gpt-live-1-codex",
+        json_schema_extra={"examples": ["gpt-live-1-codex"]},
+    )
+    voice: Literal["cove"] = Field(
+        default="cove",
+        json_schema_extra={"examples": ["cove"]},
+    )
+    backend_model: str = Field(
+        default="gpt-5.6-luna",
+        min_length=1,
+        pattern=r"^\S+$",
+        title="Workflow reasoning model",
+        description=(
+            "Codex model that follows the workflow and calls tools through the "
+            "same connected ChatGPT subscription. Model availability depends "
+            "on the connected account."
+        ),
+        json_schema_extra={"examples": ["gpt-5.6-luna"], "allow_custom_input": True},
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def remove_legacy_api_backend(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        # Saved experimental API-backend configurations migrate without retaining keys.
+        data.pop("api_key", None)
+        if data.get("backend_model") == "gpt-5.4-mini":
+            data["backend_model"] = "gpt-5.6-luna"
+        return data
+
+
 @register_service(ServiceType.REALTIME)
 class AWSNovaSonicRealtimeLLMConfiguration(BaseLLMConfiguration):
     model_config = AWS_NOVA_SONIC_PROVIDER_MODEL_CONFIG
@@ -1081,6 +1148,7 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
+    ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value,
     ServiceProviders.GROK_REALTIME.value,
     ServiceProviders.ULTRAVOX_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
@@ -1112,6 +1180,7 @@ LLMConfig = Annotated[
 RealtimeConfig = Annotated[
     Union[
         OpenAIRealtimeLLMConfiguration,
+        OpenAILiveSubscriptionLLMConfiguration,
         GrokRealtimeLLMConfiguration,
         UltravoxRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,

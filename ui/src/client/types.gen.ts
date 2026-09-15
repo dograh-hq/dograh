@@ -722,6 +722,8 @@ export type ByokRealtimeAiModelConfiguration = {
     realtime: ({
         provider: 'openai_realtime';
     } & OpenAiRealtimeLlmConfiguration) | ({
+        provider: 'openai_live_subscription';
+    } & OpenAiLiveSubscriptionLlmConfiguration) | ({
         provider: 'grok_realtime';
     } & GrokRealtimeLlmConfiguration) | ({
         provider: 'ultravox_realtime';
@@ -737,7 +739,7 @@ export type ByokRealtimeAiModelConfiguration = {
     /**
      * Llm
      */
-    llm: ({
+    llm?: ({
         provider: 'openai';
     } & OpenAillmService) | ({
         provider: 'atlascloud';
@@ -763,7 +765,7 @@ export type ByokRealtimeAiModelConfiguration = {
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
-    } & SarvamLlmConfiguration);
+    } & SarvamLlmConfiguration) | null;
     /**
      * Embeddings
      */
@@ -4334,6 +4336,32 @@ export type OpenAillmService = {
 };
 
 /**
+ * OpenAI GPT-Live (ChatGPT subscription)
+ *
+ * Experimental, opt-in voice for self-hosted Dograh. Voice and workflow reasoning use your connected ChatGPT subscription. There is no automatic fallback to a paid API.
+ */
+export type OpenAiLiveSubscriptionLlmConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'openai_live_subscription';
+    /**
+     * Model
+     */
+    model?: 'gpt-live-1-codex';
+    /**
+     * Voice
+     */
+    voice?: 'cove';
+    /**
+     * Workflow reasoning model
+     *
+     * Codex model that follows the workflow and calls tools through the same connected ChatGPT subscription. Model availability depends on the connected account.
+     */
+    backend_model?: string;
+};
+
+/**
  * OpenAI
  */
 export type OpenAiRealtimeLlmConfiguration = {
@@ -4395,6 +4423,20 @@ export type OpenAisttConfiguration = {
      * Override only if using an OpenAI-compatible API (e.g. local STT, proxy).
      */
     base_url?: string;
+};
+
+/**
+ * OpenAISubscriptionStatusResponse
+ */
+export type OpenAiSubscriptionStatusResponse = {
+    /**
+     * Status
+     */
+    status: 'disabled' | 'login_required' | 'ready' | 'refresh_required' | 'reauthentication_required' | 'busy' | 'unavailable';
+    /**
+     * Message
+     */
+    message: string;
 };
 
 /**
@@ -10179,6 +10221,45 @@ export type GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetResponses 
 };
 
 export type GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetResponse = GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetResponses[keyof GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetResponses];
+
+export type GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/user/configurations/openai-subscription/status';
+};
+
+export type GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetError = GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetErrors[keyof GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetErrors];
+
+export type GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OpenAiSubscriptionStatusResponse;
+};
+
+export type GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetResponse = GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetResponses[keyof GetOpenaiSubscriptionStatusApiV1UserConfigurationsOpenaiSubscriptionStatusGetResponses];
 
 export type GetAuthUserApiV1UserAuthUserGetData = {
     body?: never;

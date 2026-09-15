@@ -31,7 +31,10 @@ from api.services.configuration.masking import (
     mask_key,
     resolve_masked_api_keys,
 )
-from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.registry import (
+    ServiceProviders,
+    is_openai_subscription_config,
+)
 from api.services.configuration.resolve import resolve_effective_config
 
 AIModelConfigurationSource = Literal["organization_v2", "legacy_user_v1", "empty"]
@@ -284,12 +287,19 @@ def mask_ai_model_configuration_v2(
 def convert_legacy_ai_model_configuration_to_v2(
     configuration: EffectiveAIModelConfiguration,
 ) -> OrganizationAIModelConfigurationV2:
-    dograh_key = _first_dograh_api_key(configuration)
+    dograh_key = (
+        None
+        if is_openai_subscription_config(configuration)
+        else _first_dograh_api_key(configuration)
+    )
     if dograh_key:
         return _convert_any_dograh_legacy_configuration(configuration, dograh_key)
 
     if configuration.is_realtime:
-        if configuration.realtime is None or configuration.llm is None:
+        if configuration.realtime is None or (
+            configuration.llm is None
+            and not is_openai_subscription_config(configuration)
+        ):
             raise ValueError("Realtime legacy configuration is incomplete")
         return OrganizationAIModelConfigurationV2(
             mode="byok",

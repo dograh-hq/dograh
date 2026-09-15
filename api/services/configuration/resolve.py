@@ -7,7 +7,9 @@ import copy
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import (
     REGISTRY,
+    ServiceProviders,
     ServiceType,
+    is_openai_subscription_config,
 )
 
 # Maps override key → (EffectiveAIModelConfiguration field, ServiceType for registry lookup)
@@ -53,6 +55,20 @@ def enrich_overrides_with_api_keys(
     save time so the override is self-contained.
     """
     result = copy.deepcopy(model_overrides)
+    inherited_realtime = (
+        user_config.realtime.model_dump() if user_config.realtime else {}
+    )
+    subscription_selected = is_openai_subscription_config(
+        {
+            "is_realtime": result.get("is_realtime", user_config.is_realtime),
+            "realtime": {**inherited_realtime, **result.get("realtime", {})},
+        }
+    )
+    if subscription_selected:
+        for field in ("llm", "stt", "tts"):
+            result.pop(field, None)
+        if "realtime" in result:
+            result["realtime"].pop("api_key", None)
     for section_key in _SECTION_MAP:
         if section_key not in result:
             continue
@@ -103,9 +119,21 @@ def resolve_effective_config(
     if "is_realtime" in model_overrides:
         effective.is_realtime = model_overrides["is_realtime"]
 
+    subscription_selected = is_openai_subscription_config(
+        {
+            "is_realtime": effective.is_realtime,
+            "realtime": {
+                **(effective.realtime.model_dump() if effective.realtime else {}),
+                **model_overrides.get("realtime", {}),
+            },
+        }
+    )
+
     # Handle service sections
     for section_key, service_type in _SECTION_MAP.items():
-        if section_key not in model_overrides:
+        if section_key not in model_overrides or (
+            subscription_selected and section_key in ("llm", "stt", "tts")
+        ):
             continue
 
         override = model_overrides[section_key]
@@ -127,7 +155,12 @@ def resolve_effective_config(
             )
         else:
             # Same provider — merge fields onto existing config
-            merged = base.model_copy(update=override)
+            if base.provider == ServiceProviders.OPENAI_LIVE_SUBSCRIPTION.value:
+                merged = type(base).model_validate({**base.model_dump(), **override})
+            else:
+                merged = base.model_copy(update=override)
             setattr(effective, section_key, merged)
 
+    if is_openai_subscription_config(effective):
+        return EffectiveAIModelConfiguration.model_validate(effective.model_dump())
     return effective

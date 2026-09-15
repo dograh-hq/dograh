@@ -85,7 +85,10 @@ async def start_session(service):
 @pytest.mark.asyncio
 async def test_model_dropdown_has_one_openai_provider_with_both_model_families():
     defaults = (await get_default_configurations()).model_dump()["realtime"]
-    assert [key for key in defaults if key.startswith("openai")] == ["openai_realtime"]
+    assert [key for key in defaults if key.startswith("openai")] == [
+        "openai_realtime",
+        "openai_live_subscription",
+    ]
     schema = defaults["openai_realtime"]
     assert schema["title"] == "OpenAI"
     assert {"gpt-live-1", "gpt-realtime-2.1"} <= set(

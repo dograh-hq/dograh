@@ -262,11 +262,57 @@ def test_delegation_unicode_chunking_preserves_identity_and_spoken_channel():
         ]["channel"]
         == "commentary"
     )
-    assert context_append_events("Hello")[0] == {
-        "type": "session.instructions.append",
-        "content": "Hello",
-        "delegation_id": None,
-    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "channel"),
+    [
+        ("instructions", "developer"),
+        ("thinking", "commentary"),
+        ("commentary", "speakable"),
+    ],
+)
+def test_session_context_uses_subscription_channels_and_typed_text(kind, channel):
+    text = "a\U0001f642\u754c" * 300
+    events = context_append_events(text, kind=kind)
+    assert len(events) > 1
+    assert "".join(event["content"][0]["text"] for event in events) == text
+    for event in events:
+        chunk = event["content"][0]["text"]
+        assert len(chunk.encode()) <= MAX_APPEND_BYTES
+        assert event == {
+            "type": "session.context.append",
+            "channel": channel,
+            "content": [{"type": "input_text", "text": chunk}],
+        }
+    assert context_append_events("", kind=kind) == ()
+
+
+@pytest.mark.parametrize(
+    ("kind", "channel"),
+    [
+        ("instructions", "commentary"),
+        ("thinking", "commentary"),
+        ("commentary", "speakable"),
+    ],
+)
+def test_delegated_context_keeps_identity_and_delegation_channels(kind, channel):
+    assert context_append_events(
+        "Hello", kind=kind, delegation_id="delegation_test"
+    ) == (
+        {
+            "type": "delegation.context.append",
+            "delegation_item_id": "delegation_test",
+            "channel": channel,
+            "content": [{"type": "input_text", "text": "Hello"}],
+        },
+    )
+
+
+def test_session_context_defaults_to_developer_and_rejects_unknown_kinds():
+    assert context_append_events("Hello")[0]["channel"] == "developer"
+    with pytest.raises(SubscriptionTransportError, match="context kind"):
+        context_append_events("Hello", kind="invalid")
 
 
 @pytest.mark.asyncio
@@ -530,9 +576,7 @@ async def test_send_failure_is_redacted_and_releases_resources(rig):
     await connect(rig)
     rig.aio.socket.failure = RuntimeError(TOKEN)
     with pytest.raises(SubscriptionTransportError) as caught:
-        await rig.transport.send_event(
-            {"type": "session.instructions.append", "content": "Hello"}
-        )
+        await rig.transport.send_event(context_append_events("Hello")[0])
     assert TOKEN not in str(caught.value) and TOKEN not in repr(rig.events)
     assert rig.peer.closed and rig.aio.socket.closed
     assert rig.events[0]["error"]["code"] == "connection_lost"

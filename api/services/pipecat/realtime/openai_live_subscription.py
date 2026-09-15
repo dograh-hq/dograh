@@ -369,7 +369,7 @@ class DograhOpenAILiveSubscriptionLLMService(
             await self._transport.send_event(event)
 
     async def _send_speech_instruction(self, text):
-        for event in context_append_events(text, kind="instructions"):
+        for event in context_append_events(text, kind="commentary"):
             await self._transport.send_event(event)
 
     async def _speak(self, text):

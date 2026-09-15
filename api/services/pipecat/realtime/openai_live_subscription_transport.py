@@ -145,8 +145,17 @@ def context_append_events(
         return delegation_context_events(
             delegation_id, text, spoken=kind == "commentary"
         )
+    channel = {
+        "instructions": "developer",
+        "thinking": "commentary",
+        "commentary": "speakable",
+    }[kind]
     return tuple(
-        {"type": f"session.{kind}.append", "content": chunk, "delegation_id": None}
+        {
+            "type": "session.context.append",
+            "channel": channel,
+            "content": [{"type": "input_text", "text": chunk}],
+        }
         for chunk in chunk_append_text(text)
     )
 
@@ -303,9 +312,7 @@ class OpenAILiveSubscriptionTransport:
                     code = (
                         "authentication_error"
                         if status in {401, 403}
-                        else "rate_limited"
-                        if status == 429
-                        else "negotiation_failed"
+                        else "rate_limited" if status == 429 else "negotiation_failed"
                     )
                     raise SubscriptionTransportError(
                         f"Subscription voice session creation failed (HTTP {status})",

@@ -160,8 +160,9 @@ async def test_greeting_once_uses_subscription_instruction_and_media_only_webrtc
     assert "synthetic-backend-key" not in str(connection)
     sent = [call.args[0] for call in service._transport.send_event.await_args_list]
     assert len(sent) == 1
-    assert sent[0]["type"] == "session.instructions.append"
-    assert "Hello test caller" in sent[0]["content"]
+    assert sent[0]["type"] == "session.context.append"
+    assert sent[0]["channel"] == "speakable"
+    assert "Hello test caller" in sent[0]["content"][0]["text"]
     service.push_frame.reset_mock()
     await service._on_subscription_event(
         {"type": "session.output_audio.delta", "delta": "AAAA"}
@@ -542,8 +543,9 @@ async def test_real_pipecat_engine_transition_preserves_delegation_and_worker_cl
         )
         wire = [c.args[0] for c in service._transport.send_event.await_args_list]
         assert sum("test workflow moved" in str(e) for e in wire) == 1
-        assert wire[-1]["type"] == "session.commentary.append"
-        assert wire[-1]["delegation_id"] is None
+        assert wire[-1]["type"] == "session.context.append"
+        assert wire[-1]["channel"] == "speakable"
+        assert "delegation_id" not in wire[-1]
         assert not service._terminal
     finally:
         await worker.queue_frame(EndFrame())

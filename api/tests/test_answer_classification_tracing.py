@@ -82,7 +82,6 @@ async def test_factory_classifier_follows_call_and_current_turn(
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=2424)
     supervisor = run_pipeline._create_answer_supervisor(
         {"enabled": True, "use_workflow_llm": use_workflow_llm},
-        call_direction="outbound",
         is_realtime=False,
         start_node=None,
         context=LLMContext(),

@@ -96,21 +96,16 @@ class AnswerSupervisorConfig(BaseModel):
 def resolve_answer_supervisor_config(
     voicemail_config: dict,
     *,
-    call_direction: str | None,
     is_realtime: bool,
     start_node,
 ) -> AnswerSupervisorConfig | None:
-    """Use the supervisor for every enabled outbound cascade workflow.
+    """Use answer handling for enabled inbound and outbound cascade workflows.
 
-    The Start node's enabled Delayed Start duration supplies the listening
-    window, ahead of a saved window or its 1200 ms default. This is a listening
-    deadline, not a separate sleep during node setup.
+    External PBX calls can arrive as inbound, so direction is not a gate.
+    The Start node's enabled Delayed Start sets the listening window;
+    otherwise, use the saved window or 1200 ms.
     """
-    if (
-        call_direction != "outbound"
-        or is_realtime
-        or not voicemail_config.get("enabled", False)
-    ):
+    if is_realtime or not voicemail_config.get("enabled", False):
         return None
     values = dict(voicemail_config)
     if start_node and start_node.delayed_start:

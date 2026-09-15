@@ -91,7 +91,6 @@ async def test_hello_produces_exactly_one_opening(
                 "human_utterance_max_ms": 60,
                 "screening_message": {"text": "Alex calling about your appointment."},
             },
-            call_direction="outbound",
             is_realtime=False,
             start_node=node,
         ),

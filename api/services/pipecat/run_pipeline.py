@@ -129,7 +129,6 @@ EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
 def _create_answer_supervisor(
     voicemail_config,
     *,
-    call_direction,
     is_realtime,
     start_node,
     context,
@@ -139,7 +138,6 @@ def _create_answer_supervisor(
 ):
     config = resolve_answer_supervisor_config(
         voicemail_config,
-        call_direction=call_direction,
         is_realtime=is_realtime,
         start_node=start_node,
     )
@@ -964,7 +962,6 @@ async def _run_pipeline_impl(
     )
     answer_supervisor = _create_answer_supervisor(
         voicemail_config,
-        call_direction=call_direction,
         is_realtime=is_realtime,
         start_node=start_node,
         context=context,

@@ -106,15 +106,6 @@ class NormalizedInboundData:
     raw_data: Dict[str, Any] = field(default_factory=dict)  # Original webhook data
 
 
-@dataclass
-class AnsweringMachineDetectionResult:
-    """Standardized answering-machine detection result across providers."""
-
-    call_id: str
-    answered_by: str
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
 class TelephonyProvider(ABC):
     """
     Abstract base class for telephony providers.
@@ -303,23 +294,6 @@ class TelephonyProvider(ABC):
                 - extra: Provider-specific additional data
         """
         pass
-
-    def supports_answering_machine_detection(self) -> bool:
-        """Return whether this provider can request answering-machine detection."""
-        return False
-
-    def apply_answering_machine_detection_call_params(
-        self,
-        data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Add provider-specific AMD parameters to an outbound call request."""
-        return data
-
-    def parse_answering_machine_detection_result(
-        self, data: Dict[str, Any]
-    ) -> Optional[AnsweringMachineDetectionResult]:
-        """Parse provider-specific callback data into a normalized AMD result."""
-        return None
 
     def get_sip_connectivity_details(self) -> SIPConnectivityDetails | None:
         """Return inbound SIP trunk details when this provider supports them.

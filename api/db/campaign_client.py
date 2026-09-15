@@ -2,18 +2,391 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, text, update
+from sqlalchemy import DateTime, and_, case, cast, func, or_, text, update
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
-from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
+from api.db.models import CampaignModel, QueuedRunModel, WorkflowModel, WorkflowRunModel
+from api.enums import WorkflowRunState
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class CampaignClient(BaseDBClient):
+    @staticmethod
+    def _possibly_dispatched_workflow_exists():
+        return (
+            select(WorkflowRunModel.id)
+            .where(
+                WorkflowRunModel.queued_run_id == QueuedRunModel.id,
+                func.coalesce(
+                    WorkflowRunModel.logs["campaign_dispatch"]["outcome"].as_string(),
+                    "unknown",
+                )
+                != "not_started",
+            )
+            .exists()
+        )
+
+    async def recover_stale_campaign_claims(
+        self, campaign_id: int, organization_id: int, *, claimed_before: datetime
+    ) -> int:
+        """Recover expired claims without redialing possibly accepted calls.
+
+        Claim age is independent of campaign activity and orchestrator memory.
+        Missing timestamps (pre-migration claims) get a full lease first. Workflow
+        history is only safe to requeue when every setup explicitly never dialed.
+        Otherwise settle dispatch bookkeeping; active calls still block completion.
+        """
+        now = datetime.now(UTC)
+        owned_campaign = select(CampaignModel.id).where(
+            CampaignModel.id == campaign_id,
+            CampaignModel.organization_id == organization_id,
+            CampaignModel.state == "running",
+        )
+        processing = (
+            QueuedRunModel.campaign_id.in_(owned_campaign),
+            QueuedRunModel.state == "processing",
+        )
+        workflow_exists = self._possibly_dispatched_workflow_exists()
+        async with self.async_session() as session:
+            await session.execute(
+                update(QueuedRunModel)
+                .where(*processing, QueuedRunModel.claimed_at.is_(None))
+                .values(claimed_at=now)
+                .execution_options(synchronize_session=False)
+            )
+            result = await session.execute(
+                update(QueuedRunModel)
+                .where(*processing, QueuedRunModel.claimed_at <= claimed_before)
+                .values(
+                    state=case((workflow_exists, "processed"), else_="queued").cast(
+                        QueuedRunModel.state.type
+                    ),
+                    processed_at=case((workflow_exists, now), else_=None),
+                    claimed_at=None,
+                )
+                .returning(QueuedRunModel.state)
+                .execution_options(synchronize_session=False)
+            )
+            states = result.scalars().all()
+            processed_count = states.count("processed")
+            if processed_count:
+                await session.execute(
+                    update(CampaignModel)
+                    .where(
+                        CampaignModel.id == campaign_id,
+                        CampaignModel.organization_id == organization_id,
+                    )
+                    .values(
+                        processed_rows=CampaignModel.processed_rows + processed_count,
+                        updated_at=now,
+                    )
+                )
+            await session.commit()
+            return len(states)
+
+    async def recover_stale_campaign_dispatches(
+        self, *, stale_before: datetime, limit: int = 100
+    ) -> list[dict]:
+        """Terminalize callback-less uncertain dispatches under a run lock.
+
+        Worker-only cross-campaign scan: ownership comes from the campaign and
+        its workflow. A durable cleanup marker survives process/Redis failures
+        and campaign state changes. Older uncertain runs use their queue's
+        processed_at (or creation time) when no explicit uncertainty time exists.
+        """
+        dispatch = WorkflowRunModel.logs["campaign_dispatch"]
+        uncertain_at = func.coalesce(
+            cast(dispatch["uncertain_at"].as_string(), DateTime(timezone=True)),
+            QueuedRunModel.processed_at,
+            WorkflowRunModel.created_at,
+        )
+        stale = and_(
+            WorkflowRunModel.gathered_context["call_initiation_uncertain"]
+            .as_boolean()
+            .is_(True),
+            WorkflowRunModel.state == WorkflowRunState.INITIALIZED.value,
+            WorkflowRunModel.is_completed.is_not(True),
+            uncertain_at <= stale_before,
+            func.coalesce(
+                func.json_array_length(
+                    WorkflowRunModel.logs["telephony_status_callbacks"]
+                ),
+                0,
+            )
+            == 0,
+        )
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel, CampaignModel.organization_id)
+                .join(
+                    CampaignModel,
+                    and_(
+                        CampaignModel.id == WorkflowRunModel.campaign_id,
+                        CampaignModel.workflow_id == WorkflowRunModel.workflow_id,
+                    ),
+                )
+                .join(
+                    WorkflowModel,
+                    and_(
+                        WorkflowModel.id == WorkflowRunModel.workflow_id,
+                        WorkflowModel.organization_id == CampaignModel.organization_id,
+                    ),
+                )
+                .outerjoin(
+                    QueuedRunModel,
+                    and_(
+                        QueuedRunModel.id == WorkflowRunModel.queued_run_id,
+                        QueuedRunModel.campaign_id == CampaignModel.id,
+                    ),
+                )
+                .where(
+                    or_(stale, dispatch["slot_cleanup_pending"].as_boolean().is_(True))
+                )
+                .order_by(WorkflowRunModel.id)
+                .limit(limit)
+                .with_for_update(of=WorkflowRunModel, skip_locked=True)
+            )
+            pending = []
+            for run, organization_id in result.all():
+                recovery = dict((run.logs or {}).get("campaign_dispatch") or {})
+                if not recovery.get("slot_cleanup_pending"):
+                    run.state = WorkflowRunState.COMPLETED.value
+                    run.is_completed = True
+                    run.gathered_context = {
+                        **(run.gathered_context or {}),
+                        "call_status": "failed",
+                        "call_disposition": "failed",
+                    }
+                    recovery.update(
+                        outcome="stale",
+                        recovered_at=datetime.now(UTC).isoformat(),
+                        reason="call_initiation_uncertainty_expired",
+                        slot_cleanup_pending=True,
+                    )
+                    run.logs = {**(run.logs or {}), "campaign_dispatch": recovery}
+                    # Also finish a claim if dispatch cleanup stopped between
+                    # saving uncertainty and marking the queue row failed.
+                    await session.execute(
+                        update(QueuedRunModel)
+                        .where(
+                            QueuedRunModel.id == run.queued_run_id,
+                            QueuedRunModel.campaign_id == run.campaign_id,
+                            QueuedRunModel.state.in_(["queued", "processing"]),
+                        )
+                        .values(state="failed", processed_at=datetime.now(UTC))
+                    )
+                pending.append(
+                    {
+                        "workflow_run_id": run.id,
+                        "organization_id": organization_id,
+                        "slot_id": recovery.get("slot_id"),
+                        "scope_key": recovery.get("scope_key"),
+                    }
+                )
+            await session.commit()
+            return pending
+
+    async def mark_campaign_dispatch_slot_reconciled(
+        self, workflow_run_id: int, organization_id: int
+    ) -> None:
+        async with self.async_session() as session:
+            run = await session.scalar(
+                select(WorkflowRunModel)
+                .join(WorkflowModel)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowRunModel.campaign_id.is_not(None),
+                    WorkflowModel.organization_id == organization_id,
+                )
+                .with_for_update(of=WorkflowRunModel)
+            )
+            if run is None:
+                return
+            recovery = (run.logs or {}).get("campaign_dispatch") or {}
+            if recovery.get("slot_cleanup_pending"):
+                run.logs = {
+                    **run.logs,
+                    "campaign_dispatch": {**recovery, "slot_cleanup_pending": False},
+                }
+                await session.commit()
+
+    async def has_dispatchable_campaign_runs(
+        self, campaign_id: int, organization_id: int
+    ) -> bool:
+        """Whether queued work is ready now; future retries are not dispatchable."""
+        async with self.async_session() as session:
+            return bool(
+                await session.scalar(
+                    select(
+                        select(QueuedRunModel.id)
+                        .join(
+                            CampaignModel,
+                            CampaignModel.id == QueuedRunModel.campaign_id,
+                        )
+                        .where(
+                            CampaignModel.id == campaign_id,
+                            CampaignModel.organization_id == organization_id,
+                            QueuedRunModel.state == "queued",
+                            or_(
+                                QueuedRunModel.scheduled_for.is_(None),
+                                QueuedRunModel.scheduled_for <= datetime.now(UTC),
+                            ),
+                        )
+                        .exists()
+                    )
+                )
+            )
+
+    async def complete_campaign_if_idle(
+        self, campaign_id: int, organization_id: int
+    ) -> Optional[CampaignModel]:
+        """Complete once, only after source sync, dispatch and calls have settled.
+
+        Future retries remain queued and block completion. Retry decisions must
+        be persisted before the original workflow run becomes terminal.
+        """
+        pending_rows = (
+            select(QueuedRunModel.id)
+            .where(
+                QueuedRunModel.campaign_id == CampaignModel.id,
+                QueuedRunModel.state.in_(["queued", "processing"]),
+            )
+            .exists()
+        )
+        active_calls = (
+            select(WorkflowRunModel.id)
+            .where(
+                WorkflowRunModel.campaign_id == CampaignModel.id,
+                or_(
+                    WorkflowRunModel.state != WorkflowRunState.COMPLETED.value,
+                    WorkflowRunModel.is_completed.is_not(True),
+                ),
+            )
+            .exists()
+        )
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(CampaignModel)
+                .where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                    CampaignModel.state == "running",
+                    CampaignModel.source_sync_status == "completed",
+                    ~pending_rows,
+                    ~active_calls,
+                )
+                .values(state="completed", completed_at=datetime.now(UTC))
+                .returning(CampaignModel)
+                .execution_options(synchronize_session=False)
+            )
+            campaign = result.scalar_one_or_none()
+            await session.commit()
+            if campaign is not None:
+                await session.refresh(campaign)
+            return campaign
+
+    async def record_campaign_retry_decision(
+        self,
+        workflow_run_id: int,
+        campaign_id: int,
+        organization_id: int,
+        reason: str,
+        scheduled_for: Optional[datetime],
+    ) -> Optional[int]:
+        """Persist a retry (or exhausted attempt) once, before run finalization.
+
+        The decision and new queue row/counter share a transaction. Serializing
+        on the run makes duplicate provider callbacks and legacy retry events
+        harmless. A missing scheduled_for means the retry limit was reached.
+        """
+        async with self.async_session() as session:
+            campaign = await session.scalar(
+                select(CampaignModel).where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                    CampaignModel.state.in_(["running", "syncing", "paused"]),
+                )
+            )
+            if campaign is None:
+                return None
+            run = await session.scalar(
+                select(WorkflowRunModel)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowRunModel.campaign_id == campaign_id,
+                    WorkflowRunModel.workflow_id == campaign.workflow_id,
+                )
+                .with_for_update()
+            )
+            if run is None:
+                return None
+            previous = (run.logs or {}).get("campaign_retry_decision")
+            if previous is not None:
+                return previous.get("retry_run_id")
+            original = await session.scalar(
+                select(QueuedRunModel).where(
+                    QueuedRunModel.id == run.queued_run_id,
+                    QueuedRunModel.campaign_id == campaign_id,
+                )
+            )
+            if original is None:
+                raise ValueError(
+                    f"Campaign run {workflow_run_id} has no matching queue row"
+                )
+
+            # Recognize retries created by the earlier event-driven path too.
+            retry = await session.scalar(
+                select(QueuedRunModel)
+                .where(
+                    QueuedRunModel.parent_queued_run_id == original.id,
+                    QueuedRunModel.campaign_id == campaign_id,
+                )
+                .limit(1)
+            )
+            if retry is None and scheduled_for is not None:
+                retry = QueuedRunModel(
+                    campaign_id=campaign_id,
+                    source_uuid=f"{original.source_uuid}_retry_{original.retry_count + 1}",
+                    context_variables={
+                        **original.context_variables,
+                        "is_retry": True,
+                        "retry_attempt": original.retry_count + 1,
+                        "retry_reason": reason,
+                    },
+                    state="queued",
+                    retry_count=original.retry_count + 1,
+                    parent_queued_run_id=original.id,
+                    scheduled_for=scheduled_for,
+                    retry_reason=reason,
+                )
+                session.add(retry)
+                await session.flush()
+            elif retry is None:
+                await session.execute(
+                    update(CampaignModel)
+                    .where(
+                        CampaignModel.id == campaign_id,
+                        CampaignModel.organization_id == organization_id,
+                    )
+                    .values(failed_rows=CampaignModel.failed_rows + 1)
+                )
+
+            retry_id = retry.id if retry else None
+            run.logs = {
+                **(run.logs or {}),
+                "campaign_retry_decision": {
+                    "reason": reason,
+                    "retry_run_id": retry_id,
+                    "outcome": "scheduled" if retry else "exhausted",
+                },
+            }
+            await session.commit()
+            return retry_id
+
     async def create_campaign(
         self,
         name: str,
@@ -27,6 +400,7 @@ class CampaignClient(BaseDBClient):
         schedule_config: Optional[dict] = None,
         circuit_breaker: Optional[dict] = None,
         telephony_configuration_id: Optional[int] = None,
+        rate_limit_per_second: int = 1,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -53,6 +427,7 @@ class CampaignClient(BaseDBClient):
                 ),
                 orchestrator_metadata=orchestrator_metadata,
                 telephony_configuration_id=telephony_configuration_id,
+                rate_limit_per_second=rate_limit_per_second,
             )
             session.add(campaign)
             try:
@@ -62,6 +437,57 @@ class CampaignClient(BaseDBClient):
                 raise e
             await session.refresh(campaign)
             return campaign
+
+    async def mark_campaign_run_dispatched(
+        self,
+        queued_run_id: int,
+        workflow_run_id: int,
+        campaign_id: int,
+        organization_id: int,
+    ) -> bool:
+        """Record a dispatch and its campaign progress once, in one transaction."""
+        async with self.async_session() as session:
+            owned_campaign = select(CampaignModel.id).where(
+                CampaignModel.id == campaign_id,
+                CampaignModel.organization_id == organization_id,
+            )
+            dispatched_run = (
+                select(WorkflowRunModel.id)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowRunModel.queued_run_id == QueuedRunModel.id,
+                    WorkflowRunModel.campaign_id == campaign_id,
+                )
+                .exists()
+            )
+            result = await session.execute(
+                update(QueuedRunModel)
+                .where(
+                    QueuedRunModel.id == queued_run_id,
+                    QueuedRunModel.campaign_id.in_(owned_campaign),
+                    QueuedRunModel.state == "processing",
+                    dispatched_run,
+                )
+                .values(
+                    state="processed",
+                    processed_at=datetime.now(UTC),
+                    claimed_at=None,
+                )
+            )
+            if result.rowcount:
+                await session.execute(
+                    update(CampaignModel)
+                    .where(
+                        CampaignModel.id == campaign_id,
+                        CampaignModel.organization_id == organization_id,
+                    )
+                    .values(
+                        processed_rows=CampaignModel.processed_rows + 1,
+                        updated_at=datetime.now(UTC),
+                    )
+                )
+            await session.commit()
+            return bool(result.rowcount)
 
     async def get_campaigns(
         self,
@@ -554,15 +980,15 @@ class CampaignClient(BaseDBClient):
     async def return_processing_queued_runs_without_workflow(
         self, queued_run_ids: list[int]
     ) -> int:
-        """Return claimed queued_runs to queued if no workflow was created for them."""
+        """Return claims unless a run may have contacted its telephony provider.
+
+        A previous cancelled setup can leave a workflow history row. Its explicit
+        not_started outcome must not strand later claims waiting for capacity.
+        """
         if not queued_run_ids:
             return 0
 
-        workflow_exists = (
-            select(WorkflowRunModel.id)
-            .where(WorkflowRunModel.queued_run_id == QueuedRunModel.id)
-            .exists()
-        )
+        workflow_exists = self._possibly_dispatched_workflow_exists()
         async with self.async_session() as session:
             result = await session.execute(
                 update(QueuedRunModel)
@@ -571,7 +997,7 @@ class CampaignClient(BaseDBClient):
                     QueuedRunModel.state == "processing",
                     ~workflow_exists,
                 )
-                .values(state="queued")
+                .values(state="queued", claimed_at=None)
             )
             try:
                 await session.commit()
@@ -812,6 +1238,7 @@ class CampaignClient(BaseDBClient):
             # Mark scheduled runs as processing
             for run in scheduled_runs:
                 run.state = "processing"
+                run.claimed_at = datetime.now(UTC)
                 claimed_runs.append(run)
 
             remaining_slots = limit - len(scheduled_runs)
@@ -836,6 +1263,7 @@ class CampaignClient(BaseDBClient):
                 # Mark regular runs as processing
                 for run in regular_runs:
                     run.state = "processing"
+                    run.claimed_at = datetime.now(UTC)
                     claimed_runs.append(run)
 
             # Commit the state changes

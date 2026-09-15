@@ -4,6 +4,7 @@ from typing import Dict, Optional
 
 from loguru import logger
 
+from api.services.pipecat.usage_metrics import LiveUsageMetricsData
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -33,6 +34,7 @@ class PipelineMetricsAggregator(FrameProcessor):
         self._llm_usage_metrics: Dict[str, LLMTokenUsage] = {}
         self._tts_usage_metrics: Dict[str, int] = defaultdict(int)
         self._stt_usage_metrics: Dict[str, float] = defaultdict(float)
+        self._live_usage_metrics: Dict[str, float] = defaultdict(float)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -49,6 +51,9 @@ class PipelineMetricsAggregator(FrameProcessor):
                     await self._handle_llm_usage_metrics(data)
                 elif isinstance(data, TTSUsageMetricsData):
                     await self._handle_tts_usage_metrics(data)
+                elif isinstance(data, LiveUsageMetricsData):
+                    key = f"{data.processor}|||{data.model}"
+                    self._live_usage_metrics[key] += data.seconds
                 elif isinstance(data, STTUsageMetricsData):
                     await self._handle_stt_usage_metrics(data)
 
@@ -149,17 +154,21 @@ class PipelineMetricsAggregator(FrameProcessor):
             for key, usage in self._llm_usage_metrics.items()
         }
 
-        return {
+        usage = {
             "llm": serialized_llm,
             "tts": dict(self._tts_usage_metrics),
             "stt": dict(self._stt_usage_metrics),
             "call_duration_seconds": self.get_call_duration(),
         }
+        if self._live_usage_metrics:
+            usage["live_audio_seconds"] = dict(self._live_usage_metrics)
+        return usage
 
     def reset_metrics(self):
         """Reset all aggregated metrics."""
         self._llm_usage_metrics.clear()
         self._tts_usage_metrics.clear()
         self._stt_usage_metrics.clear()
+        self._live_usage_metrics.clear()
         self._start_time = None
         self._stop_time = None

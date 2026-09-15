@@ -6,6 +6,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 
 import ChatwootWidget from "@/components/ChatwootWidget";
+import { EventBanner } from "@/components/EventBanner";
 import AppLayout from "@/components/layout/AppLayout";
 import MetaPixel from "@/components/MetaPixel";
 import PostHogIdentify from "@/components/PostHogIdentify";
@@ -44,6 +45,9 @@ export default function RootLayout({
   const gtmId = process.env.NEXT_PUBLIC_GTM_ID?.trim();
   const metaPixelId = process.env.NEXT_PUBLIC_META_PIXEL_ID?.trim();
   const reoClientId = process.env.NEXT_PUBLIC_REO_CLIENT_ID?.trim();
+  // Dograh Cloud only. Self-hosted/OSS installs leave this blank and never
+  // render the event bar — same gating shape as the Meta Pixel above.
+  const showEventBanner = process.env.NEXT_PUBLIC_EVENT_BANNER?.trim() === "1";
 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
@@ -75,6 +79,10 @@ export default function RootLayout({
         {metaPixelId ? <MetaPixel pixelId={metaPixelId} /> : null}
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <SentryErrorBoundary>
+            {/* Above the app chrome on every route (auth pages included). It
+                is sticky at top-0 and publishes --event-banner-h, which the
+                header/sidebar offsets in AppLayout + globals.css consume. */}
+            {showEventBanner ? <EventBanner /> : null}
             <AuthProvider>
               <AppConfigProvider>
                 <Suspense fallback={<SpinLoader />}>

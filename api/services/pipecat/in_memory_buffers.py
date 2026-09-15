@@ -18,10 +18,18 @@ from pipecat.utils.enums import RealtimeFeedbackType
 class InMemoryAudioBuffer:
     """Buffer audio data in memory during a call, then encode to WAV bytes on disconnect."""
 
-    def __init__(self, workflow_run_id: int, sample_rate: int, num_channels: int = 1):
+    def __init__(
+        self,
+        workflow_run_id: int,
+        sample_rate: int,
+        num_channels: int = 1,
+        *,
+        track: str = "mixed",
+    ):
         self._workflow_run_id = workflow_run_id
         self._sample_rate = sample_rate
         self._num_channels = num_channels
+        self._track = track
         self._chunks: List[bytes] = []
         self._lock = asyncio.Lock()
         self._total_size = 0
@@ -32,20 +40,23 @@ class InMemoryAudioBuffer:
         async with self._lock:
             if self._total_size + len(pcm_data) > self._max_size:
                 logger.error(
-                    f"Audio buffer size limit exceeded for workflow {self._workflow_run_id}. "
+                    f"{self._track.capitalize()} audio buffer size limit exceeded "
+                    f"for workflow {self._workflow_run_id}. "
                     f"Current: {self._total_size}, Attempted to add: {len(pcm_data)}"
                 )
                 raise MemoryError("Audio buffer size limit exceeded")
             self._chunks.append(pcm_data)
             self._total_size += len(pcm_data)
             logger.trace(
-                f"Appended {len(pcm_data)} bytes to audio buffer. Total size: {self._total_size}"
+                f"Appended {len(pcm_data)} bytes to {self._track} audio buffer. "
+                f"Total size: {self._total_size}"
             )
 
     async def to_wav_bytes(self) -> bytes:
         """Encode the buffered PCM data as an in-memory WAV file."""
         async with self._lock:
             chunks = list(self._chunks)
+            total_size = self._total_size
 
         def _encode() -> bytes:
             wav_io = io.BytesIO()
@@ -61,10 +72,7 @@ class InMemoryAudioBuffer:
 
         # Encoding is mostly memcpy but can touch ~100MB; keep it off the event loop
         data = await asyncio.to_thread(_encode)
-        logger.info(
-            f"Encoded {self._total_size} bytes of audio to {len(data)} WAV bytes "
-            f"for workflow {self._workflow_run_id}"
-        )
+        logger.info(f"Encoded {total_size} bytes of {self._track} audio")
         return data
 
     @property
@@ -79,23 +87,30 @@ class InMemoryAudioBuffer:
 
 
 class InMemoryRecordingBuffers:
-    """Holds the mixed recording plus aligned user and bot mono tracks."""
+    """Holds the mixed recording plus aligned user and bot mono tracks.
+
+    User and bot tracks include silence padding from AudioBufferProcessor, so
+    all three recordings have the same byte size when the mixed track is mono.
+    """
 
     def __init__(self, workflow_run_id: int, sample_rate: int, num_channels: int = 1):
         self.mixed = InMemoryAudioBuffer(
             workflow_run_id=workflow_run_id,
             sample_rate=sample_rate,
             num_channels=num_channels,
+            track="mixed",
         )
         self.user = InMemoryAudioBuffer(
             workflow_run_id=workflow_run_id,
             sample_rate=sample_rate,
             num_channels=1,
+            track="user",
         )
         self.bot = InMemoryAudioBuffer(
             workflow_run_id=workflow_run_id,
             sample_rate=sample_rate,
             num_channels=1,
+            track="bot",
         )
 
 

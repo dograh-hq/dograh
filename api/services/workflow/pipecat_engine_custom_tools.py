@@ -13,10 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.frames.frames import (
-    FunctionCallResultProperties,
-    TTSSpeakFrame,
-)
+from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.enums import EndTaskReason
 
@@ -137,14 +134,9 @@ class CustomToolManager:
         if message_type == "custom":
             custom_message = config.get("customMessage", "")
             if custom_message:
-                await self._engine.task.queue_frame(
-                    TTSSpeakFrame(
-                        custom_message,
-                        append_to_context=append_to_context,
-                        persist_to_logs=True,
-                    )
+                return await self._engine.queue_text_message(
+                    custom_message, append_to_context=append_to_context
                 )
-                return True
 
         return False
 
@@ -437,16 +429,8 @@ class CustomToolManager:
                                 persist_to_logs=True,
                             )
                 elif custom_message:
-                    logger.info(
-                        f"Playing custom message before HTTP tool: {custom_message}"
-                    )
-                    self._engine._queued_speech_mute_state = "waiting"
-                    await self._engine.task.queue_frame(
-                        TTSSpeakFrame(
-                            custom_message,
-                            append_to_context=False,
-                            persist_to_logs=True,
-                        )
+                    await self._engine.queue_text_message(
+                        custom_message, mute_user=True
                     )
 
                 result = await execute_http_tool(
@@ -536,9 +520,10 @@ class CustomToolManager:
                     properties=properties,
                 )
 
+                self._engine.arm_speech_playback()
                 played = await self._play_config_message(config)
                 if played:
-                    # End the call after the message (not immediately)
+                    await self._engine.wait_for_speech_playback()
                     await self._engine.end_call_with_reason(
                         EndTaskReason.END_CALL.value,
                         abort_immediately=False,
@@ -657,13 +642,7 @@ class CustomToolManager:
                 ) == "dynamic" and isinstance(resolver, dict)
 
                 if is_dynamic_transfer and resolver.get("wait_message"):
-                    await self._engine.task.queue_frame(
-                        TTSSpeakFrame(
-                            str(resolver["wait_message"]),
-                            append_to_context=False,
-                            persist_to_logs=True,
-                        )
-                    )
+                    await self._engine.queue_text_message(str(resolver["wait_message"]))
 
                 try:
                     resolved_transfer = await resolve_transfer_config(
@@ -708,14 +687,9 @@ class CustomToolManager:
 
                 self._engine.arm_speech_playback()
                 if resolved_transfer.message:
-                    await self._engine.task.queue_frame(
-                        TTSSpeakFrame(
-                            resolved_transfer.message,
-                            append_to_context=False,
-                            persist_to_logs=True,
-                        )
+                    message_queued = await self._engine.queue_text_message(
+                        resolved_transfer.message
                     )
-                    message_queued = True
                 else:
                     message_queued = await self._play_config_message(config)
 

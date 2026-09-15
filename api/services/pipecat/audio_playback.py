@@ -15,6 +15,7 @@ from loguru import logger
 
 from pipecat.frames.frames import (
     Frame,
+    LLMAssistantPushAggregationFrame,
     OutputAudioRawFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
@@ -137,6 +138,12 @@ async def play_audio(
         )
     )
     await queue_frame(TTSStoppedFrame(context_id=context_id))
+    if transcript and append_to_context:
+        # Nothing else closes an assistant turn opened by recorded audio: only
+        # a TTS service emits this frame, and the recording bypasses TTS.
+        # Without it the transcript sits in the aggregator until the next LLM
+        # response ends, and is committed as part of *that* message.
+        await queue_frame(LLMAssistantPushAggregationFrame())
 
 
 async def play_audio_loop(

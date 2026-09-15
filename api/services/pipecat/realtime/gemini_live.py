@@ -11,30 +11,32 @@ Layers Dograh engine integration quirks onto upstream-pristine
   reconnect (deferred until the bot turn ends if currently responding).
 - **Node-transition deferral.** Node-transition calls emitted mid-turn are
   queued and run when the bot stops speaking, to avoid cutting off its audio.
-- **User-mute audio gating.** ``UserMuteStarted/StoppedFrame`` from the
-  user aggregator gates whether incoming audio is forwarded to Gemini.
+- **Silent audio while muted.** The shared conversation mixin replaces muted
+  caller audio while preserving Gemini's readiness and activity windows.
 - **TTSSpeakFrame as greeting trigger.** The engine queues a TTSSpeakFrame
   to kick off the first response after node setup; the service intercepts
   it and runs the initial-context path.
+- **Silent open after a recorded greeting.** A configured audio greeting is
+  played straight to the transport, so the engine opens the session through
+  the shared mixin instead. The seed must not request a turn, or Gemini
+  greets the caller a second time.
 """
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
-from google.genai.types import Content, Part
+from google.genai.types import Content, ContentDict, Part
 from loguru import logger
 
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiLiveJSONSchemaAdapter,
 )
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
     FunctionCallFromLLM,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -42,7 +44,7 @@ from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
 
-class DograhGeminiLiveLLMService(GeminiLiveLLMService):
+class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService):
     """Gemini Live with Dograh engine integration quirks. See module docstring."""
 
     # Gemini input transcription is delivered independently from tool calls.
@@ -60,12 +62,6 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # User-mute state, driven by broadcast UserMute{Started,Stopped}Frames.
-        # Audio is not forwarded to Gemini while muted.
-        self._user_is_muted: bool = False
-        # Guards initial-response triggering against double-firing across the
-        # initial TTSSpeakFrame and any LLMContextFrame that may arrive.
-        self._handled_initial_context: bool = False
         # Node-transition calls emitted mid-bot-turn are deferred here so the
         # transition does not tear down Gemini while it is still producing audio.
         self._pending_node_transition_function_calls: list[FunctionCallFromLLM] = []
@@ -79,6 +75,10 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         self._awaiting_node_transition_context: bool = False
         self._node_transition_context_received: bool = False
         self._node_transition_context_seed_started: bool = False
+        # Greeting a recording already delivered, held until a session exists.
+        # Kept separate from the text-greeting slot because the transcript may
+        # legitimately be None while the open itself is still pending.
+        self._pending_prerecorded_greeting: tuple[str | None] | None = None
         # Set only by the base class's transient-error reconnect path. Dograh
         # pre-populates ``_context`` before its first Live session, so context
         # presence alone cannot distinguish an initial connection from a
@@ -270,32 +270,6 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
     # ------------------------------------------------------------------
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TTSSpeakFrame):
-            # Greeting trigger: the engine queues a TTSSpeakFrame to start the
-            # bot's first turn after node setup. Gemini Live renders its own
-            # audio, so we don't pass the frame through. For configured static
-            # text greetings, ask Gemini to say the exact greeting; otherwise
-            # re-enter _handle_context to kick off the normal initial response.
-            if not self._handled_initial_context:
-                greeting_text = frame.text.strip() if frame.text else ""
-                if greeting_text:
-                    await self._handle_initial_greeting(self._context, greeting_text)
-                else:
-                    await self._handle_context(self._context)
-            else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame after initial context already "
-                    "handled — Gemini Live owns audio generation, ignoring"
-                )
-            return
         if isinstance(frame, BotStoppedSpeakingFrame):
             # Belt-and-suspenders: the main drain happens in
             # _set_bot_is_responding(False), but if Gemini delays turn_complete
@@ -304,11 +278,6 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             await self._run_pending_node_transition_function_calls()
             # Fall through to super for the actual push.
         await super().process_frame(frame, direction)
-
-    async def _send_user_audio(self, frame):
-        if self._user_is_muted:
-            return
-        await super()._send_user_audio(frame)
 
     # ------------------------------------------------------------------
     # Context lifecycle: Dograh pre-populates self._context via the engine,
@@ -361,6 +330,66 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         self._handled_initial_context = True
         self._context = context
         await self._create_initial_greeting_response(greeting_text)
+
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Seed the greeting the caller heard and open the input gate.
+
+        Gemini Live drops every caller audio frame until an opening turn has
+        set ``_ready_for_realtime_input``, so a recording played straight to
+        the transport leaves the session deaf as well as unseeded.
+        """
+        await self._prepare_context_for_fresh_session()
+        await self._create_prerecorded_greeting_response(transcript)
+
+    async def _create_prerecorded_greeting_response(self, transcript: str | None):
+        """Seed the spoken greeting, leaving the turn open for the caller.
+
+        ``turn_complete=False`` is what separates this from every other
+        opening: Gemini takes the history but is not asked to produce a turn,
+        so it waits for the caller instead of greeting them again.
+        """
+        if self._disconnecting:
+            return
+
+        if not self._session:
+            self._pending_prerecorded_greeting = (transcript,)
+            self._run_llm_when_session_ready = True
+            return
+
+        self._pending_prerecorded_greeting = None
+
+        adapter = self.get_llm_adapter()
+        turns = cast(
+            "list[Content | ContentDict]",
+            list(adapter.get_llm_invocation_params(self._context).get("messages", [])),
+        )
+        if transcript:
+            turns.append(Content(role="model", parts=[Part(text=transcript)]))
+        if not self._is_gemini_3 and (
+            not turns or getattr(turns[-1], "role", None) != "user"
+        ):
+            # Gemini 2.5 requires a seed to end on a user turn. Padding one
+            # that already does would put two user turns back to back, which
+            # happens with an untranscribed recording on a context the caller
+            # has already spoken into.
+            turns.append(Content(role="user", parts=[Part(text=" ")]))
+
+        logger.debug("Seeding Gemini Live with a prerecorded greeting")
+
+        try:
+            if turns:
+                await self._session.send_client_content(
+                    turns=turns, turn_complete=False
+                )
+        except Exception as e:
+            await self._handle_send_error(e)
+
+        if not self._is_gemini_3:
+            # 2.5 only picks seeded history up once a turn completes; let the
+            # caller's first utterance carry that completion.
+            self._needs_initial_turn_complete_message = True
+
+        self._ready_for_realtime_input = True
 
     async def _create_initial_greeting_response(self, greeting_text: str):
         """Ask Gemini Live to speak the configured greeting exactly once."""
@@ -419,9 +448,13 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             # Context arrived before session was ready — fulfil the queued
             # initial response now.
             self._run_llm_when_session_ready = False
-            if self._pending_initial_greeting_text is not None:
+            if self._pending_prerecorded_greeting is not None:
                 # This is a brand-new session, so no queued result can refer to
                 # a function call issued by it.
+                self._pending_tool_results.clear()
+                (transcript,) = self._pending_prerecorded_greeting
+                await self._create_prerecorded_greeting_response(transcript)
+            elif self._pending_initial_greeting_text is not None:
                 self._pending_tool_results.clear()
                 await self._create_initial_greeting_response(
                     self._pending_initial_greeting_text

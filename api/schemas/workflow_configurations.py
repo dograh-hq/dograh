@@ -24,7 +24,6 @@ DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS = 10.0
 DEFAULT_SMART_TURN_STOP_SECS = 2.0
 DEFAULT_TURN_START_STRATEGY = "default"
 DEFAULT_TURN_START_MIN_WORDS = 3
-DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5
 DEFAULT_TURN_STOP_STRATEGY = "transcription"
 DEFAULT_CONTEXT_COMPACTION_ENABLED = False
 MAX_CALL_DISPOSITIONS = 50
@@ -145,11 +144,8 @@ class WorkflowConfigurationDefaults(BaseModel):
     )
     max_user_idle_timeout: float = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     smart_turn_stop_secs: float = DEFAULT_SMART_TURN_STOP_SECS
-    turn_start_strategy: Literal["default", "min_words", "provisional_vad"] = (
-        DEFAULT_TURN_START_STRATEGY
-    )
+    turn_start_strategy: Literal["default", "min_words"] = DEFAULT_TURN_START_STRATEGY
     turn_start_min_words: int = DEFAULT_TURN_START_MIN_WORDS
-    provisional_vad_pause_secs: float = DEFAULT_PROVISIONAL_VAD_PAUSE_SECS
     turn_stop_strategy: Literal["transcription", "turn_analyzer"] = (
         DEFAULT_TURN_STOP_STRATEGY
     )
@@ -176,6 +172,17 @@ class WorkflowConfigurationDefaults(BaseModel):
         default_factory=list,
         max_length=MAX_EXTERNAL_PBX_LEAD_HEADERS,
     )
+
+    @field_validator("turn_start_strategy", mode="before")
+    @classmethod
+    def _coerce_retired_turn_start_strategy(cls, value: object) -> object:
+        # "provisional_vad" was retired. The runtime already reads this key off
+        # the raw dict and falls through to the default for anything it does not
+        # recognise, so a row the data migration missed still runs correctly —
+        # this keeps such a row loadable (and re-savable) through the API too.
+        if value == "provisional_vad":
+            return DEFAULT_TURN_START_STRATEGY
+        return value
 
     @field_validator("call_dispositions")
     @classmethod

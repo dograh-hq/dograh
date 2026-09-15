@@ -1784,6 +1784,7 @@ class CircuitBreakerConfigResponse(BaseModel):
 class LastCampaignSettingsResponse(BaseModel):
     retry_config: Optional[RetryConfigResponse] = None
     max_concurrency: Optional[int] = None
+    rate_limit_per_second: int = 1
     schedule_config: Optional[ScheduleConfigResponse] = None
     circuit_breaker: Optional[CircuitBreakerConfigResponse] = None
 
@@ -1867,6 +1868,7 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
             last_campaign_settings = LastCampaignSettingsResponse(
                 retry_config=retry,
                 max_concurrency=max_conc,
+                rate_limit_per_second=last_campaign.rate_limit_per_second,
                 schedule_config=sched,
                 circuit_breaker=cb,
             )

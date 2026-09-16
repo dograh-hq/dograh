@@ -2,7 +2,7 @@
 
 This service ensures continuous campaign processing by listening to events
 and scheduling batches immediately upon completion. It also monitors campaigns
-for final completion after 1 hour of inactivity and handles retry events.
+for completion once source work and calls are terminal, and handles retry events.
 """
 
 from api.logging_config import setup_logging
@@ -19,19 +19,22 @@ from zoneinfo import ZoneInfo
 import redis.asyncio as aioredis
 from loguru import logger
 
-from api.constants import REDIS_URL
+from api.constants import CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS, REDIS_URL
 from api.db import db_client
-from api.db.models import CampaignModel, QueuedRunModel
+from api.db.models import CampaignModel
 from api.enums import RedisChannel
+from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_protocol import (
     BatchCompletedEvent,
     BatchFailedEvent,
+    CallCompletedEvent,
     CircuitBreakerTrippedEvent,
     RetryNeededEvent,
     SyncCompletedEvent,
     parse_campaign_event,
 )
 from api.services.campaign.campaign_event_publisher import CampaignEventPublisher
+from api.services.campaign.campaign_retry import schedule_campaign_retry
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
@@ -44,11 +47,7 @@ class CampaignOrchestrator:
         self.redis = redis_client
         self.publisher = CampaignEventPublisher(redis_client)
         self.completion_check_interval = 60  # 1 minute
-        self.completion_timeout = 3600  # 1 hour
         self._processing_locks: Dict[int, datetime] = {}  # prevent duplicate scheduling
-        self._last_activity: Dict[
-            int, datetime
-        ] = {}  # track last activity per campaign
         self._batch_in_progress: Dict[
             int, datetime
         ] = {}  # track batches that have been scheduled but not completed
@@ -140,9 +139,15 @@ class CampaignOrchestrator:
                 self._clear_campaign_state(campaign_id)
                 return
 
-            # Immediately schedule next batch
+            # Immediately schedule next batch, or complete if all calls have ended.
             await self._schedule_next_batch(campaign_id)
-            self._last_activity[campaign_id] = datetime.now(UTC)
+            await self._complete_campaign(campaign)
+
+        elif isinstance(event, CallCompletedEvent):
+            campaign = await db_client.get_campaign_by_id(campaign_id)
+            if campaign is not None and campaign.state == "running":
+                await self._schedule_next_batch(campaign_id)
+                await self._complete_campaign(campaign)
 
         elif isinstance(event, BatchFailedEvent):
             # Clear the batch in progress flag
@@ -158,15 +163,15 @@ class CampaignOrchestrator:
             # as failed just to be on the safe side from process_campaign_batch
             # if a batch fails
 
-            self._last_activity[campaign_id] = datetime.now(UTC)
-
         elif isinstance(event, SyncCompletedEvent):
             # Start processing after sync
             logger.info(
                 f"campaign_id: {campaign_id} - Sync completed, starting processing"
             )
             await self._schedule_next_batch(campaign_id)
-            self._last_activity[campaign_id] = datetime.now(UTC)
+            campaign = await db_client.get_campaign_by_id(campaign_id)
+            if campaign is not None:
+                await self._complete_campaign(campaign)
 
         elif isinstance(event, CircuitBreakerTrippedEvent):
             # Circuit breaker tripped - clear state for this campaign
@@ -177,113 +182,27 @@ class CampaignOrchestrator:
             self._clear_campaign_state(campaign_id)
 
     async def _handle_retry_event(self, event: RetryNeededEvent):
-        """Process retry event and schedule if eligible (from campaign_retry_manager)."""
-
-        # Check retry eligibility
-        campaign_id = event.campaign_id
-        if not campaign_id:
-            logger.debug("Skipping non-campaign retry event")
+        """Accept legacy retry events through the same idempotent decision path."""
+        campaign = await db_client.get_campaign_by_id(event.campaign_id)
+        if campaign is None:
             return
-
-        # Get campaign configuration
-        campaign = await db_client.get_campaign_by_id(campaign_id)
-        if not campaign:
-            logger.error(f"campaign_id: {campaign_id} - Campaign not found")
-            return
-
-        retry_config = campaign.retry_config or {}
-        if not retry_config.get("enabled", True):
-            logger.info(f"campaign_id: {campaign_id} - Retry disabled")
-            return
-
-        # Check if this reason should be retried
-        reason = event.reason
-        if reason == "busy" and not retry_config.get("retry_on_busy", True):
-            logger.info(f"campaign_id: {campaign_id} - Skipping retry for busy signal")
-            return
-        if reason == "no_answer" and not retry_config.get("retry_on_no_answer", True):
-            logger.info(f"campaign_id: {campaign_id} - Skipping retry for no-answer")
-            return
-        if reason == "voicemail" and not retry_config.get("retry_on_voicemail", True):
-            logger.info(f"campaign_id: {campaign_id} - Skipping retry for voicemail")
-            return
-
-        # Get the original queued run
-        queued_run = await db_client.get_queued_run_by_id(event.queued_run_id)
-        if not queued_run:
-            logger.error(
-                f"campaign_id: {campaign_id} - Queued run {event.queued_run_id} not found"
+        run = await db_client.get_workflow_run(
+            event.workflow_run_id, organization_id=campaign.organization_id
+        )
+        if (
+            run is None
+            or run.campaign_id != campaign.id
+            or run.queued_run_id != event.queued_run_id
+        ):
+            logger.warning(
+                f"campaign_id: {campaign.id} - Ignoring mismatched retry event"
             )
             return
-
-        max_retries = retry_config.get("max_retries", 1)
-
-        if queued_run.retry_count >= max_retries:
-            await self._mark_final_failure(queued_run, reason)
-            logger.info(
-                f"campaign_id: {campaign_id} - Max retries ({max_retries}) reached for queued run {queued_run.id}"
-            )
-            return
-
-        # Create scheduled retry entry
-        retry_delay = retry_config.get("retry_delay_seconds", 120)
-        await self._schedule_retry(queued_run, reason, retry_delay)
-
-        # Update last activity
-        self._last_activity[campaign_id] = datetime.now(UTC)
-
-    async def _schedule_retry(
-        self, original_run: QueuedRunModel, reason: str, delay_seconds: int
-    ):
-        """Create a new queued run for retry."""
-
-        campaign_id = original_run.campaign_id
-
-        # Create retry context
-        retry_context = {
-            **original_run.context_variables,
-            "is_retry": True,
-            "retry_attempt": original_run.retry_count + 1,
-            "retry_reason": reason,
-        }
-
-        logger.debug(
-            f"campaign_id: {campaign_id} - Scheduling retry for {reason} in {delay_seconds}s, "
-            f"retry attempt {original_run.retry_count + 1}"
+        await schedule_campaign_retry(
+            run, event.reason, organization_id=campaign.organization_id
         )
-
-        # Create retry entry with unique source_uuid
-        retry_run = await db_client.create_queued_run(
-            campaign_id=campaign_id,
-            source_uuid=f"{original_run.source_uuid}_retry_{original_run.retry_count + 1}",
-            context_variables=retry_context,
-            state="queued",
-            retry_count=original_run.retry_count + 1,
-            parent_queued_run_id=original_run.id,
-            scheduled_for=datetime.now(UTC) + timedelta(seconds=delay_seconds),
-            retry_reason=reason,
-        )
-
-        logger.info(
-            f"campaign_id: {campaign_id} - Scheduled retry {retry_run.id} for {reason} in {delay_seconds}s, "
-            f"retry attempt {retry_run.retry_count}"
-        )
-
-    async def _mark_final_failure(self, queued_run: QueuedRunModel, reason: str):
-        """Mark a queued run as finally failed after max retries."""
-        campaign_id = queued_run.campaign_id
-
-        # Update the campaign's failed_rows counter
-        campaign = await db_client.get_campaign_by_id(campaign_id)
-        if campaign:
-            await db_client.update_campaign(
-                campaign_id=campaign_id, failed_rows=campaign.failed_rows + 1
-            )
-
-        logger.info(
-            f"campaign_id: {campaign_id} - Queued run {queued_run.id} finally failed after max retries, "
-            f"last reason: {reason}"
-        )
+        await self._schedule_next_batch(campaign.id)
+        await self._complete_campaign(campaign)
 
     def _is_within_schedule(self, campaign: CampaignModel) -> bool:
         """Check if the current time falls within the campaign's schedule windows.
@@ -334,6 +253,9 @@ class CampaignOrchestrator:
 
     async def _schedule_next_batch(self, campaign_id: int):
         """Schedule next batch immediately if work available."""
+
+        if campaign_id in self._batch_in_progress:
+            return
 
         # Prevent duplicate scheduling with in-memory lock
         if campaign_id in self._processing_locks:
@@ -409,14 +331,17 @@ class CampaignOrchestrator:
                 return
 
             # Check for available work (queued runs + due retries)
-            has_work = await self._has_pending_work(campaign_id)
+            has_work = await db_client.has_dispatchable_campaign_runs(
+                campaign_id, campaign.organization_id
+            )
 
             if has_work:
                 # Schedule batch immediately
+                self._batch_in_progress[campaign_id] = datetime.now(UTC)
                 await enqueue_job(
                     FunctionNames.PROCESS_CAMPAIGN_BATCH,
                     campaign_id,
-                    10,  # batch_size
+                    20,  # batch_size; setup parallelism is bounded by the dispatcher
                 )
                 logger.info(f"campaign_id: {campaign_id} - Scheduled next batch")
 
@@ -436,22 +361,15 @@ class CampaignOrchestrator:
                 )
 
         except Exception as e:
+            self._batch_in_progress.pop(campaign_id, None)
             logger.error(f"campaign_id: {campaign_id} - Error scheduling batch: {e}")
         finally:
-            # Release lock after a short delay
-            asyncio.create_task(self._release_lock_after_delay(campaign_id, 5))
-
-    async def _release_lock_after_delay(self, campaign_id: int, delay: int):
-        """Release processing lock after delay."""
-        await asyncio.sleep(delay)
-        if campaign_id in self._processing_locks:
-            del self._processing_locks[campaign_id]
-            logger.debug(f"campaign_id: {campaign_id} - Released processing lock")
+            # The in-progress flag prevents duplicate batches. A time-based
+            # lock would discard completion events for batches finishing in <5s.
+            self._processing_locks.pop(campaign_id, None)
 
     def _clear_campaign_state(self, campaign_id: int):
         """Clear all in-memory state for a campaign."""
-        if campaign_id in self._last_activity:
-            del self._last_activity[campaign_id]
         if campaign_id in self._processing_locks:
             del self._processing_locks[campaign_id]
         if campaign_id in self._batch_in_progress:
@@ -472,11 +390,26 @@ class CampaignOrchestrator:
         """Check all running campaigns for completion or orphaned work."""
         logger.debug("Checking for stale campaigns...")
 
+        await campaign_call_dispatcher.recover_stale_dispatches()
         campaigns = await db_client.get_campaigns_by_status(statuses=["running"])
 
         for campaign in campaigns:
             try:
                 campaign_id = campaign.id
+
+                # A killed worker cannot return its persisted claims in finally.
+                # Recover them before looking for dispatchable work or completion,
+                # even after an orchestrator restart has lost the batch flags.
+                recovered = await db_client.recover_stale_campaign_claims(
+                    campaign_id,
+                    campaign.organization_id,
+                    claimed_before=datetime.now(UTC)
+                    - timedelta(seconds=CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS),
+                )
+                if recovered:
+                    logger.warning(
+                        f"campaign_id: {campaign_id} - Recovered {recovered} expired claims"
+                    )
 
                 # Check if batch is stuck (initiated > 5 minutes ago but no completion)
                 if campaign_id in self._batch_in_progress:
@@ -493,7 +426,9 @@ class CampaignOrchestrator:
                         del self._batch_in_progress[campaign_id]
 
                         # Check if there's work to be done
-                        if await self._has_pending_work(campaign_id):
+                        if await db_client.has_dispatchable_campaign_runs(
+                            campaign_id, campaign.organization_id
+                        ):
                             logger.info(
                                 f"campaign_id: {campaign_id} - Found pending work after stuck batch, "
                                 f"scheduling new batch"
@@ -503,7 +438,9 @@ class CampaignOrchestrator:
 
                 # Check for orphaned work (e.g., newly created retries with no batch in progress)
                 if campaign_id not in self._batch_in_progress:
-                    has_work = await self._has_pending_work(campaign_id)
+                    has_work = await db_client.has_dispatchable_campaign_runs(
+                        campaign_id, campaign.organization_id
+                    )
                     if has_work:
                         if not self._is_within_schedule(campaign):
                             logger.info(
@@ -519,102 +456,25 @@ class CampaignOrchestrator:
                         continue
 
                 # Check if campaign should be marked complete
-                if await self._should_mark_complete(campaign):
-                    await self._complete_campaign(campaign)
+                await self._complete_campaign(campaign)
             except Exception as e:
                 logger.error(
                     f"campaign_id: {campaign.id} - Completion check failed: {e}"
                 )
 
-    async def _should_mark_complete(self, campaign: CampaignModel) -> bool:
-        """Check if campaign has no activity for 1 hour."""
-        campaign_id = campaign.id
-
-        # Don't mark complete if batch is in progress
-        if campaign_id in self._batch_in_progress:
-            logger.debug(
-                f"campaign_id: {campaign_id} - Batch in progress, not marking complete"
-            )
-            return False
-
-        # Check for any pending work
-        has_work = await self._has_pending_work(campaign_id)
-        if has_work:
-            # If outside schedule window, don't mark complete — work remains for next window
-            if not self._is_within_schedule(campaign):
-                logger.debug(
-                    f"campaign_id: {campaign_id} - Outside schedule window with pending work, "
-                    f"not marking complete"
-                )
-            return False
-
-        # Check in-memory last activity
-        last_activity = self._last_activity.get(campaign_id)
-        if not last_activity:
-            # Fall back to database
-            last_activity = campaign.last_activity_at
-
-        if not last_activity:
-            # No activity recorded, use last batch scheduled time
-            last_activity = campaign.last_batch_scheduled_at
-
-        if not last_activity:
-            # No activity at all, use started_at
-            last_activity = campaign.started_at
-
-        if last_activity:
-            time_since = datetime.now(UTC) - last_activity
-            if time_since.total_seconds() < self.completion_timeout:
-                return False
-
-        logger.info(
-            f"campaign_id: {campaign_id} - No activity for {self.completion_timeout}s, "
-            f"marking complete"
-        )
-        return True
-
-    async def _has_pending_work(self, campaign_id: int) -> bool:
-        """Check if campaign has any work to do."""
-        # Check queued runs
-        queued_count = await db_client.get_queued_runs_count(
-            campaign_id=campaign_id, states=["queued"]
-        )
-
-        if queued_count > 0:
-            logger.debug(f"campaign_id: {campaign_id} - Has {queued_count} queued runs")
-            return True
-
-        # Check scheduled retries that are due
-        scheduled_count = await db_client.get_scheduled_runs_count(
-            campaign_id=campaign_id, scheduled_before=datetime.now(UTC)
-        )
-
-        if scheduled_count > 0:
-            logger.debug(
-                f"campaign_id: {campaign_id} - Has {scheduled_count} scheduled retries due"
-            )
-            return True
-
-        return False
-
     async def _complete_campaign(self, campaign: CampaignModel):
         """Mark campaign as complete."""
         campaign_id = campaign.id
 
-        try:
-            # Double-check no pending work
-            if await self._has_pending_work(campaign_id):
-                logger.info(
-                    f"campaign_id: {campaign_id} - Found pending work, not completing"
-                )
-                return
+        if campaign_id in self._batch_in_progress:
+            return
 
-            # Update campaign status
-            await db_client.update_campaign(
-                campaign_id=campaign_id,
-                state="completed",
-                completed_at=datetime.now(UTC),
+        try:
+            campaign = await db_client.complete_campaign_if_idle(
+                campaign_id, campaign.organization_id
             )
+            if campaign is None:
+                return
 
             logger.info(f"campaign_id: {campaign_id} - Campaign marked as completed")
 

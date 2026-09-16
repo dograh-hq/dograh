@@ -76,11 +76,13 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
     fetched, permission = asyncio.Event(), asyncio.Event()
     supervisor = SimpleNamespace(arm=Mock())
     engine = SimpleNamespace(
-        workflow=SimpleNamespace(start_node_id="start"),
+        active_agent=SimpleNamespace(workflow=SimpleNamespace(start_node_id="start")),
         _call_context_vars={},
         set_node=AsyncMock(),
         queue_node_opening=AsyncMock(),
         handle_answer_supervision=AsyncMock(side_effect=permission.wait),
+        # Readiness now also waits for the agent this call starts on.
+        start_initial_agent=AsyncMock(return_value=True),
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
@@ -119,11 +121,15 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
     try:
         async with asyncio.timeout(1):
             while not supervisor.arm.called:
+                if connected.done():
+                    await connected
                 await asyncio.sleep(0)
         engine.set_node.assert_not_awaited()
         fetched.set()
         async with asyncio.timeout(1):
             while not engine.handle_answer_supervision.called:
+                if connected.done():
+                    await connected
                 await asyncio.sleep(0)
         engine.set_node.assert_awaited_once_with("start")
         engine.queue_node_opening.assert_not_awaited()
@@ -169,7 +175,6 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
             "system_prompt": "Obsolete binary classifier prompt",
             "long_speech_timeout": 8,
         },
-        call_direction="outbound",
         is_realtime=False,
         start_node=None,
         context=context,
@@ -213,12 +218,9 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
         await supervisor.close()
 
 
-@pytest.mark.parametrize(
-    "direction, realtime, enabled",
-    [("inbound", False, True), ("outbound", True, True), ("outbound", False, False)],
-)
+@pytest.mark.parametrize("realtime, enabled", [(True, True), (False, False)])
 def test_unsupported_or_disabled_calls_do_not_create_a_classifier(
-    monkeypatch, direction, realtime, enabled
+    monkeypatch, realtime, enabled
 ):
     from pipecat.processors.aggregators.llm_context import LLMContext
 
@@ -232,7 +234,6 @@ def test_unsupported_or_disabled_calls_do_not_create_a_classifier(
     assert (
         _create_answer_supervisor(
             {"enabled": enabled},
-            call_direction=direction,
             is_realtime=realtime,
             start_node=None,
             context=LLMContext(),

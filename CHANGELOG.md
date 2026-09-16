@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.47.0 (2026-09-15)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: optional Reo.dev integration by @chewwbaka in https://github.com/dograh-hq/dograh/pull/728
+* feat(ui): add Cartesia event announcement banner (cloud only) by @sandeepvemu-dograh in https://github.com/dograh-hq/dograh/pull/751
+* feat: add answer supervision before pipeline kicks off by @a6kme in https://github.com/dograh-hq/dograh/pull/759
+* feat(tts): add Speechify as a Voice (TTS) provider (Simba 3.2) by @shauntrennery in https://github.com/dograh-hq/dograh/pull/654
+* feat(turns): let external-turn STT decide the turn start, retire provisional_vad by @a6kme in https://github.com/dograh-hq/dograh/pull/767
+* feat(telephony): expose provider call ID in workflow initial context by @chewwbaka in https://github.com/dograh-hq/dograh/pull/692
+* feat: refactor campaign dispatcher to handle higher concurrency by @a6kme in https://github.com/dograh-hq/dograh/pull/769
+* feat(workflow): expose run ID in initial context by @a6kme in https://github.com/dograh-hq/dograh/pull/774
+* feat: transfer call to a different agent by @a6kme in https://github.com/dograh-hq/dograh/pull/776
+### Bug Fixes
+* fix: ARI destination dial string in campaigns by @a6kme in https://github.com/dograh-hq/dograh/pull/764
+* fix(ui): derive session cookie Secure flag from the request, not NODE_ENV by @a6kme in https://github.com/dograh-hq/dograh/pull/771
+* fix: update MinIO image registry to Quay by @palinko91 in https://github.com/dograh-hq/dograh/pull/772
+* fix(answer): run answer handling on inbound, and let patterns beat the clock by @a6kme in https://github.com/dograh-hq/dograh/pull/773
+### Other Changes
+* Add Exotel telephony provider for Connect Voice AI by @vinayexotel in https://github.com/dograh-hq/dograh/pull/639
+
+## New Contributors
+* @vinayexotel made their first contribution in https://github.com/dograh-hq/dograh/pull/639
+* @shauntrennery made their first contribution in https://github.com/dograh-hq/dograh/pull/654
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.46.0...dograh-v1.47.0
+
 ## 1.46.0 (2026-09-03)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

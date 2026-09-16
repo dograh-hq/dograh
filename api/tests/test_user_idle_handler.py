@@ -195,7 +195,7 @@ async def create_pipeline_with_speech_injection(
     )
 
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, transport, task, user_idle_handler
 

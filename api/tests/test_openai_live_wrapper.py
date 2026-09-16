@@ -190,7 +190,7 @@ async def test_transition_skips_text_without_muting_and_updates_next_node(
     task.queue_frame.assert_not_awaited()
     assert sent_events(service, "session.instructions.append") == []
     assert not await engine.should_mute_user(InputAudioRawFrame(bytes(480), 24000, 1))
-    assert engine._current_node.id == "agent"
+    assert engine.active_agent.current_node.id == "agent"
     update = sent_events(service, "session.update")[-1]["session"]
     assert (
         workflow.nodes["agent"].prompt
@@ -481,7 +481,7 @@ async def test_end_node_keeps_live_open_until_last_audio_reaches_caller(
         call_context_vars={},
         is_realtime=True,
     )
-    engine._current_node = engine.workflow.nodes["agent"]
+    engine.active_agent.current_node = engine.active_agent.workflow.nodes["agent"]
     engine._perform_variable_extraction_if_needed = AsyncMock()
     engine.perform_final_variable_extraction = AsyncMock()
     turns, _ = _create_realtime_user_turn_config("openai_realtime", "gpt-live-1")
@@ -508,7 +508,7 @@ async def test_end_node_keeps_live_open_until_last_audio_reaches_caller(
         ]
     )
     worker = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(worker)
+    engine.call_worker = worker
     callbacks = []
 
     @worker.event_handler("on_pipeline_started")

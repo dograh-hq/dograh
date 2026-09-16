@@ -6,6 +6,7 @@ import pytest
 from api.enums import ToolCategory
 from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+from api.tests.pipecat_test_utils import stub_agent_runtime
 from api.tests.support.mcp_mock_server import running_mcp_server
 
 
@@ -34,7 +35,8 @@ async def test_get_tool_schemas_and_handler_for_mcp(monkeypatch):
         await session.start()
 
         engine = MagicMock()
-        engine._mcp_sessions = {tool.tool_uuid: session}
+        engine.active_agent = stub_agent_runtime(llm=MagicMock())
+        engine.active_agent.mcp_sessions = {tool.tool_uuid: session}
         registered = {}
         reg_kwargs = {}
 
@@ -42,7 +44,7 @@ async def test_get_tool_schemas_and_handler_for_mcp(monkeypatch):
             registered[name] = fn
             reg_kwargs[name] = kw
 
-        engine.llm.register_function = _reg
+        engine.active_agent.llm.register_function = _reg
 
         mgr = CustomToolManager(engine)
         mgr.get_organization_id = AsyncMock(return_value=42)
@@ -94,7 +96,8 @@ async def test_unavailable_mcp_session_contributes_nothing(monkeypatch):
     await session.start()  # degrades
 
     engine = MagicMock()
-    engine._mcp_sessions = {tool.tool_uuid: session}
+    engine.active_agent = stub_agent_runtime(llm=MagicMock())
+    engine.active_agent.mcp_sessions = {tool.tool_uuid: session}
     mgr = CustomToolManager(engine)
     mgr.get_organization_id = AsyncMock(return_value=42)
 
@@ -136,10 +139,11 @@ async def test_per_node_mcp_filter_intersection(monkeypatch):
         await session.start()
 
         engine = MagicMock()
-        engine._mcp_sessions = {tool.tool_uuid: session}
+        engine.active_agent = stub_agent_runtime(llm=MagicMock())
+        engine.active_agent.mcp_sessions = {tool.tool_uuid: session}
         registered = {}
-        engine.llm.register_function = lambda name, fn, **kw: registered.__setitem__(
-            name, fn
+        engine.active_agent.llm.register_function = lambda name, fn, **kw: (
+            registered.__setitem__(name, fn)
         )
 
         mgr = CustomToolManager(engine)

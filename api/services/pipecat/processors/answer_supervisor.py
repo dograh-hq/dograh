@@ -208,14 +208,9 @@ class AnswerSupervisor(FrameProcessor):
         if self._utterance_task:
             self._utterance_task.cancel()
         subtype = classify_machine_utterance(text)
-        # IVR instructions, clipped screener prompts, and screening acknowledgments
-        # can be brief. Recognize them before applying the short-human-turn
-        # shortcut, along with machine prompts while waiting for the subscriber.
-        machine_turn = subtype in (
-            MachineSubtype.IVR,
-            MachineSubtype.SCREENER,
-            MachineSubtype.SCREENING_WAIT,
-        ) or (self._screening and subtype != MachineSubtype.UNKNOWN)
+        # Matched machine prompts must bypass the short-turn human shortcut.
+        # Unmatched short turns skip the classifier so humans get a prompt reply.
+        machine_turn = subtype != MachineSubtype.UNKNOWN
         # A short continuation must not bypass classification of earlier speech.
         if (
             len(self._turn_texts) == 1

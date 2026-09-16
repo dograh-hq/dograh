@@ -212,6 +212,7 @@ async def initiate_call(
                 initial_context=run_inputs.initial_context,
                 organization_id=user.selected_organization_id,
                 definition_id=run_inputs.definition_id,
+                use_draft=run_inputs.use_draft,
             )
             workflow_run_id = workflow_run.id
         else:
@@ -520,6 +521,7 @@ async def _create_inbound_workflow_run(
         },
         organization_id=organization_id,
         definition_id=run_inputs.definition_id,
+        use_draft=run_inputs.use_draft,
     )
 
     logger.info(
@@ -794,7 +796,9 @@ async def _handle_telephony_websocket(
             pass
 
 
-@router.api_route("/inbound/run", methods=["GET", "POST"])
+# Exotel's inbound webhook is a GET, everyone else POSTs.
+@router.get("/inbound/run")
+@router.post("/inbound/run")
 async def handle_inbound_run(request: Request):
     """Workflow-agnostic inbound dispatcher.
 

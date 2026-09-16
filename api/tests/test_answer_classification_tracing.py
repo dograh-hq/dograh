@@ -82,7 +82,6 @@ async def test_factory_classifier_follows_call_and_current_turn(
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=2424)
     supervisor = run_pipeline._create_answer_supervisor(
         {"enabled": True, "use_workflow_llm": use_workflow_llm},
-        call_direction="outbound",
         is_realtime=False,
         start_node=None,
         context=LLMContext(),
@@ -93,7 +92,7 @@ async def test_factory_classifier_follows_call_and_current_turn(
     # Runtime tracing is installed after supervisor construction. Resolve it at
     # inference time, including when a screening rearm advances the current turn.
     tracing_context = TracingContext()
-    engine.task = SimpleNamespace(_tracing_context=tracing_context)
+    engine.call_worker = SimpleNamespace(_tracing_context=tracing_context)
     conversation = tracer.start_span("conversation")
     tracing_context.set_conversation_context(conversation.get_span_context())
     turn = tracer.start_span(

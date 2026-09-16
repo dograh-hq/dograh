@@ -66,6 +66,10 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         self._deferred_transitions: list[FunctionCallFromLLM] = []
         self._pending_speech: list[str] = []
         self._initial_backend_request = False
+        # A recorded greeting opens the conversation without the backend, so
+        # the session must start without requesting an opening line.
+        self._prerecorded_greeting_played = False
+        self._pending_prerecorded_greeting: str | None = None
         self._sent_backend_snapshot: str | None = None
         self._live_audio_seconds = 0.0
 
@@ -137,13 +141,16 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             return
         self._handled_initial_context = True
         if self._needs_session_config:
-            self._initial_backend_request = not self._pending_speech
+            self._initial_backend_request = (
+                not self._pending_speech and not self._prerecorded_greeting_played
+            )
         await super()._handle_context(context)
         await self._maybe_send_tools_update()
 
     async def _handle_evt_session_started(self, evt):
         self._live_audio_seconds = 0.0
         await super()._handle_evt_session_started(evt)
+        await self._flush_prerecorded_greeting()
         pending, self._pending_speech = self._pending_speech, []
         for text in pending:
             await self._send_speech_instruction(text)
@@ -206,6 +213,38 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             "Speak immediately, without waiting for the caller. "
             "Say the following text aloud in its original language, then wait "
             f"for the caller. Do not add a preamble:\n{greeting_text}"
+        )
+
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Start the session without asking the backend for an opening line.
+
+        The greeting reaches the model on the thinking channel rather than as
+        startup history: the session is configured from a context the
+        aggregator has not written the transcript to yet, and the commentary
+        channel would have it paraphrase the greeting aloud.
+
+        Guarded on teardown because ``_handle_context`` clears
+        ``_needs_session_config`` before the socket send, which is dropped
+        while disconnecting -- the flag would be spent with nothing sent, and
+        a later reconnect would never configure the session.
+        """
+        if self._disconnecting:
+            return
+        self._prerecorded_greeting_played = True
+        self._pending_prerecorded_greeting = transcript
+        await self._handle_context(self._context)
+        await self._flush_prerecorded_greeting()
+
+    async def _flush_prerecorded_greeting(self):
+        if not self._session_started or self._pending_prerecorded_greeting is None:
+            return
+        transcript = self._pending_prerecorded_greeting
+        self._pending_prerecorded_greeting = None
+        await self._send_context_append(
+            None,
+            "You have already greeted the caller, by playing a recording that "
+            f"said: {transcript}",
+            spoken=False,
         )
 
     async def _prepare_user_audio(self, frame: InputAudioRawFrame):

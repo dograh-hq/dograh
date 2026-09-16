@@ -98,8 +98,9 @@ class CustomToolManager:
       4. Executing tools when invoked by the LLM
     """
 
-    def __init__(self, engine: "PipecatEngine") -> None:
+    def __init__(self, engine: "PipecatEngine", agent=None) -> None:
         self._engine = engine
+        self._agent = agent or engine.active_agent
 
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
@@ -119,9 +120,11 @@ class CustomToolManager:
                 if result:
                     await play_audio(
                         result.audio,
-                        sample_rate=self._engine._audio_config.pipeline_sample_rate
-                        if self._engine._audio_config
-                        else 16000,
+                        sample_rate=(
+                            self._engine._audio_config.pipeline_sample_rate
+                            if self._engine._audio_config
+                            else 16000
+                        ),
                         queue_frame=self._engine._transport_output.queue_frame,
                         transcript=result.transcript,
                         persist_to_logs=True,
@@ -185,7 +188,7 @@ class CustomToolManager:
                     continue
 
                 if tool.category == ToolCategory.MCP.value:
-                    session = self._engine._mcp_sessions.get(tool.tool_uuid)
+                    session = self._agent.mcp_sessions.get(tool.tool_uuid)
                     if session is None or not session.available:
                         logger.warning(
                             f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
@@ -257,7 +260,7 @@ class CustomToolManager:
                     continue
 
                 if tool.category == ToolCategory.MCP.value:
-                    session = self._engine._mcp_sessions.get(tool.tool_uuid)
+                    session = self._agent.mcp_sessions.get(tool.tool_uuid)
                     if session is None or not session.available:
                         logger.warning(
                             f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
@@ -271,9 +274,11 @@ class CustomToolManager:
                     )
                     mcp_schemas = session.function_schemas(allowed)
                     for fs in mcp_schemas:
-                        self._engine.llm.register_function(
+                        self._agent.llm.register_function(
                             fs.name,
-                            self._create_mcp_handler(session, fs.name),
+                            self._agent.bind_tool(
+                                self._engine, self._create_mcp_handler(session, fs.name)
+                            ),
                             timeout_secs=session.call_timeout_secs,
                         )
                     logger.debug(
@@ -294,10 +299,11 @@ class CustomToolManager:
                 is_node_transition = tool.category in {
                     ToolCategory.END_CALL.value,
                     ToolCategory.TRANSFER_CALL.value,
+                    ToolCategory.TRANSFER_AGENT.value,
                 }
-                self._engine.llm.register_function(
+                self._agent.llm.register_function(
                     function_name,
-                    handler,
+                    self._agent.bind_tool(self._engine, handler),
                     timeout_secs=timeout_secs,
                     is_node_transition=is_node_transition,
                 )
@@ -324,6 +330,12 @@ class CustomToolManager:
 
         if tool.category == ToolCategory.END_CALL.value:
             handler = self._create_end_call_handler(tool, function_name)
+        elif tool.category == ToolCategory.TRANSFER_AGENT.value:
+            # The handler returns as soon as the handoff is accepted; the
+            # handoff itself runs on an engine-owned task well past this
+            # deadline.
+            timeout_secs = 10.0
+            handler = self._create_transfer_agent_handler(tool, function_name)
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
             timeout_secs = self._transfer_handler_timeout_secs(tool)
             handler = self._create_transfer_call_handler(tool, function_name)
@@ -383,7 +395,9 @@ class CustomToolManager:
             except Exception as e:
                 await function_call_params.result_callback({"error": str(e)})
 
-        self._engine.llm.register_function("safe_calculator", calculate_func)
+        self._agent.llm.register_function(
+            "safe_calculator", self._agent.bind_tool(self._engine, calculate_func)
+        )
 
     def _create_http_tool_handler(self, tool: Any, function_name: str):
         """Create a handler function for an HTTP API tool.
@@ -421,9 +435,11 @@ class CustomToolManager:
                         if result:
                             await play_audio(
                                 result.audio,
-                                sample_rate=self._engine._audio_config.pipeline_sample_rate
-                                if self._engine._audio_config
-                                else 16000,
+                                sample_rate=(
+                                    self._engine._audio_config.pipeline_sample_rate
+                                    if self._engine._audio_config
+                                    else 16000
+                                ),
                                 queue_frame=self._engine._transport_output.queue_frame,
                                 transcript=result.transcript,
                                 persist_to_logs=True,
@@ -543,6 +559,93 @@ class CustomToolManager:
                 )
 
         return end_call_handler
+
+    def _create_transfer_agent_handler(self, tool: Any, function_name: str):
+        """Create a handler that hands the live call to another Dograh agent.
+
+        The handler's job ends the moment the handoff is accepted. Announcing,
+        holding, preparing the destination and activating it all run on an
+        engine-owned task: they outlast the tool's deadline, and they must
+        survive the caller interrupting, which cancels the aggregator's
+        ``on_context_updated`` tasks.
+        """
+
+        async def transfer_agent_handler(
+            function_call_params: FunctionCallParams,
+        ) -> None:
+            from api.services.workflow.agent_transfer import TransferRequest
+
+            engine = self._engine
+            logger.info(f"Transfer Agent Tool EXECUTED: {function_name}")
+
+            config = (tool.definition or {}).get("config", {}) or {}
+
+            async def refuse(code: str, message: str) -> None:
+                # No properties: the agent gets its result and generates a
+                # reply, so the caller hears why nothing happened.
+                logger.warning(f"Transfer via '{function_name}' refused: {code}")
+                await function_call_params.result_callback(
+                    {"status": "transfer_failed", "reason": code, "message": message}
+                )
+
+            if not engine.agent_transfer_enabled:
+                await refuse(
+                    "transfer_unavailable",
+                    "Transferring to another agent is not available on this call. "
+                    "Continue helping the caller yourself.",
+                )
+                return
+
+            workflow_id = config.get("workflow_id")
+            if not isinstance(workflow_id, int):
+                await refuse(
+                    "destination_misconfigured",
+                    "That transfer is not configured correctly. Continue "
+                    "helping the caller yourself.",
+                )
+                return
+
+            announcement = config.get("message")
+            announcement = (
+                engine._format_prompt(str(announcement)) if announcement else None
+            )
+
+            request = TransferRequest(
+                destination_workflow_id=workflow_id,
+                # The tool's own name is what the caller-facing recovery
+                # message and the run record refer to.
+                destination_label=tool.name,
+                origin_visit_id=self._agent.visit_id,
+                announcement=announcement,
+            )
+
+            if not engine.transfer_coordinator.accept(request):
+                await refuse(
+                    "transfer_in_progress",
+                    "A transfer is already under way. Wait for it to finish.",
+                )
+                return
+
+            context_ready = asyncio.Event()
+            engine.transfer_coordinator.start(request, context_ready=context_ready)
+
+            async def on_context_updated() -> None:
+                # Runs once the tool result is committed to the conversation,
+                # so the handoff snapshot contains it rather than racing it.
+                context_ready.set()
+
+            await function_call_params.result_callback(
+                {"status": "transferring", "message": "Connecting the caller now."},
+                # The caller is about to hear the transfer message and then a
+                # ringer; another generation from this agent would talk over
+                # both, and it is being handed off regardless of what it says.
+                properties=FunctionCallResultProperties(
+                    run_llm=False,
+                    on_context_updated=on_context_updated,
+                ),
+            )
+
+        return transfer_agent_handler
 
     def _create_transfer_call_handler(self, tool: Any, function_name: str):
         """Create a handler function for a transfer call tool.

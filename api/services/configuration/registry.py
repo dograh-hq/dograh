@@ -26,6 +26,8 @@ from api.services.configuration.options import (
     CARTESIA_INK_WHISPER_STT_LANGUAGES,
     CARTESIA_STT_LANGUAGES,
     CARTESIA_STT_MODELS,
+    DEEPGRAM_BASE_URLS,
+    DEEPGRAM_DEFAULT_BASE_URL,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
@@ -60,7 +62,11 @@ from api.services.configuration.options import (
     SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
 )
-from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
+from api.services.configuration.options.google import (
+    GOOGLE_VERTEX_DEFAULT_LOCATION,
+    GOOGLE_VERTEX_LOCATIONS,
+    GOOGLE_VERTEX_MODELS,
+)
 
 
 class ServiceType(Enum):
@@ -479,8 +485,18 @@ class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
     )
     project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
     location: str = Field(
-        default="global",
-        description="GCP region for the Vertex AI endpoint (e.g. 'global').",
+        default=GOOGLE_VERTEX_DEFAULT_LOCATION,
+        description=(
+            "Vertex AI location, which decides where requests are processed. "
+            "'eu' and 'us' are multi-regions that keep processing inside that "
+            "geography; a single region such as 'europe-west4' pins it further; "
+            "'global' routes anywhere in the world and carries no data "
+            "residency guarantee. Model availability varies by location."
+        ),
+        json_schema_extra={
+            "examples": list(GOOGLE_VERTEX_LOCATIONS),
+            "allow_custom_input": True,
+        },
     )
     credentials: str | None = Field(
         default=None,
@@ -998,8 +1014,18 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
     location: str = Field(
-        default="global",
-        description="GCP region for the Vertex AI endpoint (e.g. 'global').",
+        default=GOOGLE_VERTEX_DEFAULT_LOCATION,
+        description=(
+            "Vertex AI location, which decides where requests are processed. "
+            "'eu' and 'us' are multi-regions that keep processing inside that "
+            "geography; a single region such as 'europe-west4' pins it further; "
+            "'global' routes anywhere in the world and carries no data "
+            "residency guarantee. Model availability varies by location."
+        ),
+        json_schema_extra={
+            "examples": list(GOOGLE_VERTEX_LOCATIONS),
+            "allow_custom_input": True,
+        },
     )
     credentials: str | None = Field(
         default=None,
@@ -1106,6 +1132,19 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
     voice: str = Field(
         default="aura-2-helena-en",
         description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
+    )
+    base_url: str = Field(
+        default=DEEPGRAM_DEFAULT_BASE_URL,
+        description=(
+            "Deepgram API endpoint. This is what decides where your text is "
+            "processed: use https://api.eu.deepgram.com to keep processing "
+            "inside the EU, or https://api.au.deepgram.com for Australia. The "
+            "same API key works on every regional endpoint."
+        ),
+        json_schema_extra={
+            "examples": list(DEEPGRAM_BASE_URLS),
+            "allow_custom_input": True,
+        },
     )
 
     @computed_field
@@ -1786,7 +1825,20 @@ class DeepgramSTTConfiguration(FluxEOTConfigMixin, BaseSTTConfiguration):
             },
         },
     )
-    
+    base_url: str = Field(
+        default=DEEPGRAM_DEFAULT_BASE_URL,
+        description=(
+            "Deepgram API endpoint. This is what decides where call audio is "
+            "processed: use https://api.eu.deepgram.com to keep processing "
+            "inside the EU, or https://api.au.deepgram.com for Australia. The "
+            "same API key works on every regional endpoint."
+        ),
+        json_schema_extra={
+            "examples": list(DEEPGRAM_BASE_URLS),
+            "allow_custom_input": True,
+        },
+    )
+
 
 @register_stt
 class CartesiaSTTConfiguration(BaseSTTConfiguration):

@@ -11,6 +11,8 @@ Adds:
 - **Silent audio while muted** via ``UserMuteStarted/StoppedFrame``.
 - **TTSSpeakFrame as initial-response trigger** so the engine's greeting
   flow kicks off the bot's first response.
+- **Silent session setup after a recorded greeting**, which the engine plays
+  straight to the transport instead of routing through the model.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
   like user-idle checks, without mutating Dograh's local ``LLMContext``.
 - **Workflow-control deferral** so node transitions, call termination, and
@@ -59,6 +61,11 @@ class DograhOpenAIRealtimeLLMService(
         self._bot_is_speaking: bool = False
         self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
+        # A recorded greeting can open the conversation before the API session
+        # is ready; its seed then waits for session.updated. Kept separate from
+        # the text-greeting slot because the transcript may be None while the
+        # open itself is still pending.
+        self._pending_prerecorded_greeting: tuple[str | None] | None = None
 
     # ------------------------------------------------------------------
     # Provider frames: ephemeral prompts and tool-call deferral
@@ -143,6 +150,37 @@ class DograhOpenAIRealtimeLLMService(
             tool_choice="none",
         )
 
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Configure the session and seed the greeting, without a response.
+
+        The greeting is sent as its own assistant item rather than through the
+        context: the realtime adapter only passes a lone *user* message
+        through untouched, and packs anything else into a synthetic "this is a
+        previously saved conversation" user turn that ends by telling the model
+        to say it is ready to continue.
+        """
+        if self._disconnecting:
+            return
+
+        if not self._api_session_ready:
+            self._pending_prerecorded_greeting = (transcript,)
+            return
+
+        self._pending_prerecorded_greeting = None
+        await self._ensure_conversation_setup()
+        if not transcript:
+            return
+
+        evt = events.ConversationItemCreateEvent(
+            item=events.ConversationItem(
+                type="message",
+                role="assistant",
+                content=[events.ItemContent(type="output_text", text=transcript)],
+            )
+        )
+        self._messages_added_manually[evt.item.id] = True
+        await self.send_client_event(evt)
+
     async def _ensure_conversation_setup(self):
         if not self._llm_needs_conversation_setup:
             return
@@ -166,6 +204,10 @@ class DograhOpenAIRealtimeLLMService(
         elif self._run_llm_when_api_session_ready:
             self._run_llm_when_api_session_ready = False
             await self._create_response()
+        elif self._pending_prerecorded_greeting is not None:
+            await self._open_after_prerecorded_greeting(
+                *self._pending_prerecorded_greeting
+            )
 
     async def _prepare_user_audio(self, frame):
         properties = self._settings.session_properties

@@ -745,7 +745,7 @@ async def test_end_node_reconnect_removes_previous_transition_tools(
     assert [
         tool["toolSpec"]["name"]
         for tool in initial_prompt["toolConfiguration"]["tools"]
-    ] == [engine.workflow.nodes["agent"].out_edges[0].get_function_name()]
+    ] == [engine.active_agent.workflow.nodes["agent"].out_edges[0].get_function_name()]
     service.send_event.reset_mock()
     service._send_text_event.reset_mock()
 
@@ -764,7 +764,9 @@ async def test_end_node_reconnect_removes_previous_transition_tools(
         "text": service._settings.system_instruction,
         "role": Role.SYSTEM,
     }
-    assert engine.workflow.nodes["end"].prompt in sent_text[0].kwargs["text"]
+    assert (
+        engine.active_agent.workflow.nodes["end"].prompt in sent_text[0].kwargs["text"]
+    )
     assert sent_text[-1].kwargs == {
         "text": "End the call.",
         "role": Role.USER,

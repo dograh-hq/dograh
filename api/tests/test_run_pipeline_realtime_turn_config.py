@@ -1,10 +1,7 @@
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import BotStartedSpeakingFrame, TranscriptionFrame
-from pipecat.turns.types import ProcessFrameResult
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
     MinWordsUserTurnStartStrategy,
-    ProvisionalVADUserTurnStartStrategy,
     TranscriptionUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
@@ -19,7 +16,6 @@ from pipecat.turns.user_stop import (
 import api.services.pipecat.run_pipeline as run_pipeline_module
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.run_pipeline import (
-    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_USER_TURN_STOP_TIMEOUT,
     EXTERNAL_TURN_USER_STOP_TIMEOUT,
@@ -173,15 +169,43 @@ def test_non_realtime_can_use_min_words_start_strategy():
     assert strategies[0]._min_words == 4
 
 
-def test_non_realtime_explicit_min_words_overrides_external_turn_default():
+def test_external_turn_stt_overrides_an_explicit_min_words_request():
+    """An STT that reports its own turn boundaries decides the turn start.
+
+    min_words gates the start on transcript text, which would ignore the
+    provider's turn detection on the start side while still using it to end the
+    turn, and would resolve the start from a queued frame — the shape that lets
+    a turn's own interruption flush the stop proposal queued behind it.
+    """
     strategies = _create_non_realtime_user_turn_start_strategies(
         {"turn_start_strategy": "min_words", "turn_start_min_words": 4},
         uses_external_turns=True,
     )
 
     assert len(strategies) == 1
-    assert isinstance(strategies[0], MinWordsUserTurnStartStrategy)
-    assert strategies[0]._min_words == 4
+    assert isinstance(strategies[0], ExternalUserTurnStartStrategy)
+
+
+def test_external_turn_stt_overrides_a_retired_strategy_value():
+    """A definition still carrying "provisional_vad" resolves, it does not raise."""
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "provisional_vad"},
+        uses_external_turns=True,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], ExternalUserTurnStartStrategy)
+
+
+def test_retired_strategy_value_falls_back_to_default_without_external_turns():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "provisional_vad"},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 2
+    assert isinstance(strategies[0], TranscriptionUserTurnStartStrategy)
+    assert isinstance(strategies[1], VADUserTurnStartStrategy)
 
 
 def test_non_realtime_min_words_start_strategy_has_default_threshold():
@@ -193,50 +217,6 @@ def test_non_realtime_min_words_start_strategy_has_default_threshold():
     assert len(strategies) == 1
     assert isinstance(strategies[0], MinWordsUserTurnStartStrategy)
     assert strategies[0]._min_words == DEFAULT_TURN_START_MIN_WORDS
-
-
-def test_non_realtime_can_use_provisional_vad_start_strategy():
-    strategies = _create_non_realtime_user_turn_start_strategies(
-        {"turn_start_strategy": "provisional_vad"},
-        uses_external_turns=False,
-    )
-
-    assert len(strategies) == 1
-    assert isinstance(strategies[0], ProvisionalVADUserTurnStartStrategy)
-    assert strategies[0]._pause_secs == DEFAULT_PROVISIONAL_VAD_PAUSE_SECS
-
-
-def test_non_realtime_provisional_vad_uses_configured_pause_secs():
-    strategies = _create_non_realtime_user_turn_start_strategies(
-        {"turn_start_strategy": "provisional_vad", "provisional_vad_pause_secs": 0.4},
-        uses_external_turns=False,
-    )
-
-    assert len(strategies) == 1
-    assert isinstance(strategies[0], ProvisionalVADUserTurnStartStrategy)
-    assert strategies[0]._pause_secs == 0.4
-
-
-async def test_non_realtime_provisional_vad_starts_on_transcript_without_vad():
-    strategies = _create_non_realtime_user_turn_start_strategies(
-        {"turn_start_strategy": "provisional_vad"},
-        uses_external_turns=False,
-    )
-    strategy = strategies[0]
-    turn_started = False
-
-    @strategy.event_handler("on_user_turn_started")
-    async def on_user_turn_started(strategy, params):
-        nonlocal turn_started
-        turn_started = True
-
-    await strategy.process_frame(BotStartedSpeakingFrame())
-    result = await strategy.process_frame(
-        TranscriptionFrame(text="Hello", user_id="user", timestamp="")
-    )
-
-    assert result == ProcessFrameResult.STOP
-    assert turn_started is True
 
 
 def test_non_realtime_uses_external_stop_for_external_turn_stt():

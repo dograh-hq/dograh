@@ -524,6 +524,7 @@ async def execute_text_chat_pending_turn(
     }
     initial_context = {
         **base_initial_context,
+        "workflow_run_id": workflow_run_id,
         "runtime_configuration": runtime_configuration,
     }
     if mps_correlation_id:
@@ -688,7 +689,7 @@ async def execute_text_chat_pending_turn(
     )
     runner_task = asyncio.create_task(run_pipeline_worker(task))
 
-    engine.set_task(task)
+    engine.call_worker = task
     engine.set_audio_config(audio_config)
     engine.set_transport_output(_TaskQueueProxy(task.queue_frame))
     engine.set_fetch_recording_audio(
@@ -762,7 +763,7 @@ async def execute_text_chat_pending_turn(
     )
     assistant_created_at = datetime.now(UTC).isoformat()
     usage = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
-    current_node = getattr(engine, "_current_node", None)
+    current_node = engine.active_agent.current_node
     context_messages = context.get_messages()
     encoded_messages = _serialize_text_chat_checkpoint_messages(context_messages)
     encoded_gathered_context = jsonable_encoder(gathered_context)

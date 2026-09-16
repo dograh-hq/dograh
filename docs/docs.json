@@ -76,6 +76,7 @@
                     "group": "Built-in Tools",
                     "pages": [
                       "voice-agent/tools/call-transfer",
+                      "voice-agent/tools/transfer-agent",
                       "voice-agent/tools/end-call"
                     ]
                   },

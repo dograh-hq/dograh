@@ -293,7 +293,7 @@ IDLE_REASON = EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
 @pytest.fixture
 async def farewell_engine():
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
-    engine.task = SimpleNamespace(queue_frame=AsyncMock())
+    engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
     with patch.object(engine, "perform_final_variable_extraction", AsyncMock()):
         yield engine
         await engine.cleanup()
@@ -301,8 +301,8 @@ async def farewell_engine():
 
 def assert_idle_ended(engine, disposition=IDLE_REASON):
     engine.perform_final_variable_extraction.assert_awaited_once()
-    engine.task.queue_frame.assert_awaited_once()
-    frame = engine.task.queue_frame.call_args.args[0]
+    engine.call_worker.queue_frame.assert_awaited_once()
+    frame = engine.call_worker.queue_frame.call_args.args[0]
     assert isinstance(frame, EndFrame)
     assert frame.reason == IDLE_REASON
     assert engine._gathered_context["call_status"] == IDLE_REASON
@@ -327,7 +327,7 @@ async def test_first_idle_and_reset_do_not_arm_termination(farewell_engine):
         assert engine._pending_farewell_task is None
         assert not engine._mute_pipeline
         handler.reset()
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -367,7 +367,7 @@ async def test_idle_waits_for_delayed_playback_and_rejects_duplicates(
     assert frame.run_llm is True
     assert "Wish them a good day" in frame.messages[0]["content"]
     engine.perform_final_variable_extraction.assert_not_awaited()
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
 
     assert await engine.should_mute_user(BotStartedSpeakingFrame())
     await handler.handle_idle(sink)
@@ -377,7 +377,7 @@ async def test_idle_waits_for_delayed_playback_and_rejects_duplicates(
     sink.push_frame.assert_awaited_once()
     await asyncio.sleep(0)
     engine.perform_final_variable_extraction.assert_not_awaited()
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
 
     assert await engine.should_mute_user(BotStoppedSpeakingFrame())
     await asyncio.wait_for(waiter, 1)
@@ -395,12 +395,12 @@ async def test_idle_ignores_previous_utterance_stop(farewell_engine):
     waiter = engine._pending_farewell_task
     await engine.should_mute_user(BotStoppedSpeakingFrame())
     await asyncio.sleep(0)
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
     assert not waiter.done()
     await engine.should_mute_user(BotStartedSpeakingFrame())
     assert not engine._speech_playback_finished.is_set()
     await asyncio.sleep(0)
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
     await engine.should_mute_user(BotStoppedSpeakingFrame())
     await asyncio.wait_for(waiter, 1)
     assert_idle_ended(engine)
@@ -476,7 +476,7 @@ async def test_playback_deadline_does_not_cancel_extraction_or_queueing(
         await finish_queueing.wait()
 
     engine.perform_final_variable_extraction.side_effect = extract
-    engine.task.queue_frame.side_effect = queue
+    engine.call_worker.queue_frame.side_effect = queue
     engine.defer_end_call_until_bot_playback(IDLE_REASON, fallback_secs=0.01)
     waiter = engine._pending_farewell_task
     if played:
@@ -506,8 +506,8 @@ async def test_idle_farewell_queues_terminal_frame_if_end_call_raises(
     engine.defer_end_call_until_bot_playback(IDLE_REASON, fallback_secs=0.01)
     waiter = engine._pending_farewell_task
     await asyncio.wait_for(waiter, 1)
-    engine.task.queue_frame.assert_awaited_once()
-    frame = engine.task.queue_frame.call_args.args[0]
+    engine.call_worker.queue_frame.assert_awaited_once()
+    frame = engine.call_worker.queue_frame.call_args.args[0]
     assert isinstance(frame, CancelFrame)
     assert frame.reason == EndTaskReason.PIPELINE_ERROR.value
     assert engine.is_call_disposed()
@@ -568,8 +568,8 @@ async def test_other_termination_wins_during_farewell(farewell_engine, reason, a
         await waiter
     await engine.should_mute_user(BotStartedSpeakingFrame())
     await engine.should_mute_user(BotStoppedSpeakingFrame())
-    engine.task.queue_frame.assert_awaited_once()
-    frame = engine.task.queue_frame.call_args.args[0]
+    engine.call_worker.queue_frame.assert_awaited_once()
+    frame = engine.call_worker.queue_frame.call_args.args[0]
     assert isinstance(frame, CancelFrame if abort else EndFrame)
     assert frame.reason == reason
     assert engine._gathered_context["call_status"] == reason
@@ -589,7 +589,7 @@ async def test_cleanup_awaits_farewell_cancellation(farewell_engine, started):
     assert engine._pending_farewell_task is None
     assert not engine.is_call_disposed()
     engine.perform_final_variable_extraction.assert_not_awaited()
-    engine.task.queue_frame.assert_not_awaited()
+    engine.call_worker.queue_frame.assert_not_awaited()
 
 
 class DeferredRealtimeService(FrameProcessor):
@@ -671,7 +671,7 @@ async def test_realtime_idle_audio_finishes_before_pipeline_teardown(farewell_en
         params=PipelineParams(),
         enable_rtvi=False,
     )
-    engine.set_task(task)
+    engine.call_worker = task
     handler = engine.create_user_idle_handler()
     handler._retry_count = 1
 

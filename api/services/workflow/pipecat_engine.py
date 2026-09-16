@@ -1405,15 +1405,16 @@ class PipecatEngine:
             try:
                 await self.end_call_with_reason(reason)
             except Exception as e:
-                # This task is unawaited. `end_call_with_reason` sets
-                # `_call_disposed` before extraction / `queue_frame`, so a
-                # later retry is a no-op and the user stays muted unless a
-                # terminal frame still goes out.
+                # This task is unawaited. `_end_call` sets `_call_disposed`
+                # and `_shutdown_task` before extraction / `queue_frame`, so
+                # a later retry is a no-op and the user stays muted unless
+                # those are cleared and a terminal frame still goes out.
                 logger.error(
                     f"Idle farewell termination failed: {e}",
                     exc_info=True,
                 )
                 self._call_disposed = False
+                self._shutdown_task = None
                 await self.end_call_with_reason(
                     EndTaskReason.PIPELINE_ERROR.value,
                     abort_immediately=True,

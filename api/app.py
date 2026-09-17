@@ -163,4 +163,19 @@ app.include_router(api_router, prefix=API_PREFIX)
 # authenticating with the same X-API-Key header used by the REST API.
 # Mounted under /api/v1 so existing reverse-proxy rules (nginx etc.) route it
 # without any extra configuration.
-app.mount(f"{API_PREFIX}/mcp", mcp_app)
+app.mount(f"{API_Set up logging and get the listener for cleanup
+setup_logging()
+             PREFIX}/mcp", mcp_app)
+# ==========================================
+# LH GROUP - AURA GLOBAL VOICE CONFIGURATION
+# ==========================================
+AURA_VOICE_AGENT = {
+    "agent_id": "aura-luxury-support",
+    "name": "Aura",
+    "role": "Chief AI Officer for Narayan Premium",
+    "default_language": "ko-KR",
+    "supported_languages": ["ko-KR", "en-US"],
+    "voice_provider": "elevenlabs",
+    "voice_id": "luxury_korean_female_premium",
+    "currency": "USD / KRW",
+    "greeting_message": "안녕하세요! Welcome to Narayan Premium. I am Aura."

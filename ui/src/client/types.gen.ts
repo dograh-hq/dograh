@@ -678,6 +678,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & OpenAisttConfiguration) | ({
         provider: 'google';
     } & GoogleSttConfiguration) | ({
+        provider: 'google_gemini';
+    } & GoogleGeminiSttConfiguration) | ({
         provider: 'dograh';
     } & DograhSttService) | ({
         provider: 'speechmatics';
@@ -2829,6 +2831,40 @@ export type GladiaSttConfiguration = {
      * ISO 639-1 language code.
      */
     language?: string;
+};
+
+/**
+ * Google Gemini
+ *
+ * Low-latency Gemini Live speech-to-text with automatic language detection, custom vocabulary, and optional smart transcription.
+ */
+export type GoogleGeminiSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'google_gemini';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Gemini Live transcription model.
+     */
+    model?: string;
+    /**
+     * Language
+     *
+     * BCP-47 language hint; use 'multi' for automatic language detection.
+     */
+    language?: string;
+    /**
+     * Mode
+     *
+     * VERBATIM preserves fillers and false starts; SMART returns cleaned, formatted text.
+     */
+    mode?: 'VERBATIM' | 'SMART';
 };
 
 /**

@@ -18,6 +18,7 @@ from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
+from api.services.pipecat.gemini_stt import DograhGeminiSTTService
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
@@ -50,6 +51,7 @@ from pipecat.services.elevenlabs.stt import (
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
+from pipecat.services.google.gemini_live.stt import GeminiSTTSettings
 from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
 from pipecat.services.google.tts import GoogleTTSService, GoogleTTSSettings
 from pipecat.services.google.vertex.llm import (
@@ -330,6 +332,19 @@ def create_stt_service(
             credentials=credentials,
             location=location,
             settings=GoogleSTTSettings(**settings_kwargs),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.GOOGLE_GEMINI.value:
+        language = getattr(user_config.stt, "language", None) or "multi"
+        return DograhGeminiSTTService(
+            api_key=user_config.stt.api_key,
+            settings=GeminiSTTSettings(
+                model=user_config.stt.model,
+                language=None if language == "multi" else language,
+            ),
+            transcription_mode=getattr(user_config.stt, "mode", "VERBATIM"),
+            custom_vocabulary=keyterms,
+            should_interrupt=False,
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:

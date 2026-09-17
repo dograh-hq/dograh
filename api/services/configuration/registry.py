@@ -34,6 +34,8 @@ from api.services.configuration.options import (
     ELEVENLABS_STT_MODELS,
     GLADIA_STT_LANGUAGES,
     GLADIA_STT_MODELS,
+    GOOGLE_GEMINI_STT_LANGUAGES,
+    GOOGLE_GEMINI_STT_MODELS,
     GOOGLE_MODELS,
     GOOGLE_REALTIME_LANGUAGES,
     GOOGLE_REALTIME_MODELS,
@@ -82,6 +84,7 @@ class ServiceProviders(str, Enum):
     # NEUPHONIC = "neuphonic"
     ELEVENLABS = "elevenlabs"
     GOOGLE = "google"
+    GOOGLE_GEMINI = "google_gemini"
     AZURE = "azure"
     AZURE_SPEECH = "azure_speech"
     DOGRAH = "dograh"
@@ -342,6 +345,14 @@ SARVAM_PROVIDER_MODEL_CONFIG = provider_model_config("Sarvam")
 CAMB_PROVIDER_MODEL_CONFIG = provider_model_config("Camb.ai")
 RIME_PROVIDER_MODEL_CONFIG = provider_model_config("Rime")
 GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG = provider_model_config("Google Cloud")
+GOOGLE_GEMINI_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Google Gemini",
+    description=(
+        "Low-latency Gemini Live speech-to-text with automatic language detection, "
+        "custom vocabulary, and optional smart transcription."
+    ),
+    provider_docs_url="https://ai.google.dev/gemini-api/docs/live-api/live-transcribe",
+)
 SPEECHMATICS_PROVIDER_MODEL_CONFIG = provider_model_config("Speechmatics")
 ASSEMBLYAI_PROVIDER_MODEL_CONFIG = provider_model_config("AssemblyAI")
 GLADIA_PROVIDER_MODEL_CONFIG = provider_model_config("Gladia")
@@ -1819,6 +1830,32 @@ class GoogleSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+@register_stt
+class GoogleGeminiSTTConfiguration(BaseSTTConfiguration):
+    model_config = GOOGLE_GEMINI_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GOOGLE_GEMINI] = ServiceProviders.GOOGLE_GEMINI
+    model: str = Field(
+        default="gemini-3.5-transcribe-live",
+        description="Gemini Live transcription model.",
+        json_schema_extra={"examples": GOOGLE_GEMINI_STT_MODELS},
+    )
+    language: str = Field(
+        default="multi",
+        description="BCP-47 language hint; use 'multi' for automatic language detection.",
+        json_schema_extra={
+            "examples": GOOGLE_GEMINI_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    mode: Literal["VERBATIM", "SMART"] = Field(
+        default="VERBATIM",
+        description=(
+            "VERBATIM preserves fillers and false starts; SMART returns cleaned, "
+            "formatted text."
+        ),
+    )
+
+
 # Dograh STT Service
 DOGRAH_STT_MODELS = ["default"]
 DOGRAH_STT_LANGUAGES = DEEPGRAM_LANGUAGES
@@ -2113,6 +2150,7 @@ STTConfig = Annotated[
         CartesiaSTTConfiguration,
         OpenAISTTConfiguration,
         GoogleSTTConfiguration,
+        GoogleGeminiSTTConfiguration,
         DograhSTTService,
         SpeechmaticsSTTConfiguration,
         SarvamSTTConfiguration,

@@ -44,6 +44,7 @@ class UserConfigurationValidator:
             ServiceProviders.INWORLD.value: self._check_inworld_api_key,
             ServiceProviders.ELEVENLABS.value: self._validate_elevenlabs_api_key,
             ServiceProviders.GOOGLE.value: self._check_google_api_key,
+            ServiceProviders.GOOGLE_GEMINI.value: self._check_google_api_key,
             ServiceProviders.AZURE.value: self._check_azure_api_key,
             ServiceProviders.AZURE_SPEECH.value: self._check_azure_speech_api_key,
             ServiceProviders.CARTESIA.value: self._check_cartesia_api_key,

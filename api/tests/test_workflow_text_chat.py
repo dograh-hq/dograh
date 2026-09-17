@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -17,7 +18,9 @@ from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
     _serialize_text_chat_checkpoint_messages,
 )
+from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_session_service import (
+    TextChatSessionRevisionConflictError,
     append_text_chat_user_message,
     complete_text_chat_session,
 )
@@ -1358,6 +1361,283 @@ async def test_text_chat_end_completes_when_the_checkpoint_cannot_be_parsed(
         FunctionNames.PROCESS_WORKFLOW_COMPLETION,
         workflow_run.id,
         _job_id=f"workflow-completion-{workflow_run.id}",
+    )
+
+
+def _extraction_workflow_definition() -> dict:
+    return {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the customer.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome to the workflow tester.",
+                    "extraction_enabled": True,
+                    "extraction_prompt": "Extract the customer's details.",
+                    "extraction_variables": [
+                        {
+                            "name": "ticket_number",
+                            "type": "string",
+                            "prompt": "The ticket number.",
+                        }
+                    ],
+                },
+            },
+        ],
+        "edges": [],
+    }
+
+
+def _detached_session_snapshot(text_session):
+    """A session snapshot that a concurrent write cannot mutate.
+
+    `db_session` hands every caller the same identity-mapped instance, so a
+    concurrent append would edit the very object completion is holding and the
+    staleness this exercises would never occur. In production each request owns
+    its session, so completion really does work from a frozen read.
+    """
+    return SimpleNamespace(
+        revision=text_session.revision,
+        checkpoint=copy.deepcopy(text_session.checkpoint),
+        session_data=copy.deepcopy(text_session.session_data),
+        created_at=text_session.created_at,
+        updated_at=text_session.updated_at,
+        # The run row is untouched by a session-only write, so it can be shared.
+        workflow_run=text_session.workflow_run,
+    )
+
+
+async def _session_with_one_user_turn(db_session, user, workflow, *, user_text: str):
+    """A run whose checkpoint already holds a completed user turn."""
+    # Re-fetch so the definition relationships are eager-loaded, as the route does.
+    loaded_workflow = await db_session.get_workflow(
+        workflow.id, organization_id=user.selected_organization_id
+    )
+    run_inputs = await prepare_workflow_run_inputs(
+        db_session,
+        loaded_workflow,
+        initial_context={},
+        use_draft=True,
+        include_template_context=True,
+    )
+    workflow_run = await db_session.create_workflow_run(
+        name="Concurrent completion chat",
+        workflow_id=workflow.id,
+        mode="textchat",
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+        initial_context=run_inputs.initial_context,
+        definition_id=run_inputs.definition_id,
+        use_draft=run_inputs.use_draft,
+    )
+    await db_session.ensure_workflow_run_text_session(
+        workflow_run.id,
+        session_data={
+            "version": 1,
+            "status": "idle",
+            "cursor_turn_id": None,
+            "turns": [
+                {
+                    "id": "turn-1",
+                    "status": "completed",
+                    "created_at": "2026-09-16T06:00:00+00:00",
+                    "user_message": {
+                        "text": user_text,
+                        "created_at": "2026-09-16T06:00:00+00:00",
+                    },
+                    "assistant_message": None,
+                    "events": [],
+                }
+            ],
+            "discarded_future": [],
+            "simulator": {"enabled": False, "config": {}},
+        },
+        checkpoint={
+            "version": 1,
+            "anchor_turn_id": "turn-1",
+            "current_node_id": "start",
+            "messages": [{"role": "user", "content": user_text}],
+            "gathered_context": {},
+            "tool_state": {},
+        },
+    )
+    return workflow_run
+
+
+@pytest.mark.asyncio
+async def test_text_chat_end_without_pinned_revision_keeps_a_concurrent_turn(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """An unpinned end must not overwrite state committed while it extracts.
+
+    `expected_revision` defaults to None on both end-request schemas, so the
+    write used to run unguarded. Extraction waits on an LLM between reading the
+    session and writing it back, which is easily long enough for a message or
+    rewind to commit -- and that turn would be silently erased.
+    """
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_extraction_workflow_definition(),
+        suffix="concurrent-unpinned",
+    )
+    workflow_run = await _session_with_one_user_turn(
+        db_session, user, workflow, user_text="My ticket is 1054202."
+    )
+
+    extraction_started = asyncio.Event()
+    release_extraction = asyncio.Event()
+
+    async def blocking_extraction(_self, _variables, *_args, **_kwargs):
+        extraction_started.set()
+        await release_extraction.wait()
+        return {"ticket_number": "1054202"}
+
+    loaded = await db_session.get_workflow_run_text_session(
+        workflow_run.id, organization_id=user.selected_organization_id
+    )
+
+    with (
+        patch(
+            "api.services.workflow.text_chat_runner.create_llm_service",
+            side_effect=lambda *a, **k: MockLLMService(
+                mock_steps=[], chunk_delay=0.001
+            ),
+        ),
+        patch(
+            "api.services.workflow.pipecat_engine_variable_extractor."
+            "VariableExtractionManager._perform_extraction",
+            new=blocking_extraction,
+        ),
+        patch("api.tasks.arq.enqueue_job", AsyncMock()),
+        patch(
+            "api.services.workflow.text_chat_session_service."
+            "upload_workflow_run_artifacts",
+            AsyncMock(),
+        ),
+    ):
+        completion = asyncio.create_task(
+            complete_text_chat_session(
+                run_id=workflow_run.id,
+                text_session=_detached_session_snapshot(loaded),
+                expected_revision=None,
+            )
+        )
+        await asyncio.wait_for(extraction_started.wait(), timeout=5)
+
+        # A message lands while completion is blocked on the LLM.
+        concurrent = await db_session.get_workflow_run_text_session(
+            workflow_run.id, organization_id=user.selected_organization_id
+        )
+        await append_text_chat_user_message(
+            run_id=workflow_run.id,
+            text_session=concurrent,
+            user_text="One more thing.",
+            expected_revision=concurrent.revision,
+        )
+
+        release_extraction.set()
+        result = await asyncio.wait_for(completion, timeout=10)
+
+    # The concurrent turn survived; completion rebuilt itself around it.
+    turn_texts = [
+        (turn.get("user_message") or {}).get("text")
+        for turn in result.session_data["turns"]
+    ]
+    assert turn_texts == ["My ticket is 1054202.", "One more thing."]
+    assert result.session_data["status"] == "completed"
+
+    completed_run = await db_session.get_workflow_run_by_id(workflow_run.id)
+    assert completed_run.is_completed is True
+    assert completed_run.gathered_context["extracted_variables"] == {
+        "ticket_number": "1054202"
+    }
+
+
+@pytest.mark.asyncio
+async def test_text_chat_end_with_pinned_revision_reports_a_concurrent_turn(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """A pinned end that loses the race still reports the conflict."""
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_extraction_workflow_definition(),
+        suffix="concurrent-pinned",
+    )
+    workflow_run = await _session_with_one_user_turn(
+        db_session, user, workflow, user_text="My ticket is 1054202."
+    )
+
+    extraction_started = asyncio.Event()
+    release_extraction = asyncio.Event()
+
+    async def blocking_extraction(_self, _variables, *_args, **_kwargs):
+        extraction_started.set()
+        await release_extraction.wait()
+        return {"ticket_number": "1054202"}
+
+    loaded = await db_session.get_workflow_run_text_session(
+        workflow_run.id, organization_id=user.selected_organization_id
+    )
+    pinned_revision = loaded.revision
+
+    with (
+        patch(
+            "api.services.workflow.text_chat_runner.create_llm_service",
+            side_effect=lambda *a, **k: MockLLMService(
+                mock_steps=[], chunk_delay=0.001
+            ),
+        ),
+        patch(
+            "api.services.workflow.pipecat_engine_variable_extractor."
+            "VariableExtractionManager._perform_extraction",
+            new=blocking_extraction,
+        ),
+        patch("api.tasks.arq.enqueue_job", AsyncMock()),
+    ):
+        completion = asyncio.create_task(
+            complete_text_chat_session(
+                run_id=workflow_run.id,
+                text_session=_detached_session_snapshot(loaded),
+                expected_revision=pinned_revision,
+            )
+        )
+        await asyncio.wait_for(extraction_started.wait(), timeout=5)
+
+        concurrent = await db_session.get_workflow_run_text_session(
+            workflow_run.id, organization_id=user.selected_organization_id
+        )
+        await append_text_chat_user_message(
+            run_id=workflow_run.id,
+            text_session=concurrent,
+            user_text="One more thing.",
+            expected_revision=concurrent.revision,
+        )
+
+        release_extraction.set()
+        with pytest.raises(TextChatSessionRevisionConflictError):
+            await asyncio.wait_for(completion, timeout=10)
+
+    # Nothing was committed: the chat is still live and the turn intact.
+    still_running = await db_session.get_workflow_run_by_id(workflow_run.id)
+    assert still_running.is_completed is False
+    reloaded = await db_session.get_workflow_run_text_session(
+        workflow_run.id, organization_id=user.selected_organization_id
+    )
+    assert reloaded.session_data["turns"][-1]["user_message"]["text"] == (
+        "One more thing."
     )
 
 

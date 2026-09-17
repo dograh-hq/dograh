@@ -198,6 +198,18 @@ class AnswerSupervisor(FrameProcessor):
         if isinstance(frame, (CancelFrame, EndFrame)):
             await self.close()
         elif isinstance(frame, UserStartedSpeakingFrame):
+            # Logged before _speech_started(), which returns early once the
+            # opening has been released -- those released calls are exactly the
+            # ones we cannot otherwise measure. elapsed_ms is the time from
+            # arming to this frame arriving; null means it arrived before the
+            # supervisor armed. The frame carries no source, so record only
+            # that it was received, never a guess at what produced it.
+            self._log(
+                "user_started_speaking",
+                strategy="frame_received",
+                released=self._released,
+                first_onset=self._onset is None,
+            )
             self._speech_started()
         await self.push_frame(frame, direction)
 

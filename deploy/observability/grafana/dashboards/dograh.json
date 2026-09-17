@@ -1,0 +1,170 @@
+{
+  "uid": "dograh-runtime",
+  "title": "Dograh runtime",
+  "tags": [
+    "dograh",
+    "observability"
+  ],
+  "schemaVersion": 39,
+  "version": 2,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Concurrent voice calls",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dograh-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 8
+      },
+      "description": "Running voice pipelines, including setup and teardown. An unavailable worker is missing data, not zero calls.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(dograh_active_calls{job=\"dograh\"})",
+          "legendFormat": "calls",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dograh-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "User-to-bot response latency",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dograh-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 18,
+        "h": 8
+      },
+      "description": "From actual user silence (where VAD timing is available) until bot speech starts at the server output. Includes endpointing and turn detection, excludes downstream playback/network delay.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(dograh_response_latency_seconds_bucket{job=\"dograh\",kind=\"user_to_bot\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dograh-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(dograh_response_latency_seconds_bucket{job=\"dograh\",kind=\"user_to_bot\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dograh-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(dograh_response_latency_seconds_bucket{job=\"dograh\",kind=\"user_to_bot\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dograh-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "AI latency p95 by service and model",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dograh-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 10
+      },
+      "description": "TTFB, TTFA, and TTFAT are separate measurements. Missing provider measurements are not reported as zero.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, service, model, kind) (rate(dograh_ai_latency_seconds_bucket{job=\"dograh\",conversation_type=\"voice\"}[$__rate_interval])))",
+          "legendFormat": "{{service}} / {{model}} / {{kind}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dograh-prometheus"
+          }
+        }
+      ]
+    }
+  ]
+}

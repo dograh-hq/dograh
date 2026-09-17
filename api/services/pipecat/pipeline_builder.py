@@ -296,6 +296,10 @@ def create_pipeline_task(
         additional_span_attributes=additional_span_attributes,
     )
 
+    from api.services.observability.pipeline_metrics import attach_pipeline_metrics
+
+    attach_pipeline_metrics(task, conversation_type=conversation_type)
+
     # Check if turn logging is enabled
     enable_turn_logging = os.getenv("ENABLE_TURN_LOGGING", "false").lower() == "true"
 

@@ -70,21 +70,25 @@ async def lifespan(app: FastAPI):
         await sync_manager.start()
         set_worker_sync_manager(sync_manager)
 
-        from api.services.observability import loop_exceptions, loop_lag
+        from api.services.observability import loop_exceptions, loop_lag, metrics
 
         # Event-loop lag gauge — per-pod saturation signal read off
         # /health/active-calls during autoscaling load tests.
+        metrics.start()
         loop_lag.start()
         # Routes exceptions that escape tasks and timer callbacks; demotes one
         # known aioice teardown race and leaves everything else at ERROR.
         loop_exceptions.install()
 
-        yield  # Run app
-
-        # Shutdown sequence - this runs when FastAPI is shutting down
-        logger.info("Starting graceful shutdown...")
-        await sync_manager.stop()
-        await loop_lag.stop()
+        try:
+            yield  # Run app
+        finally:
+            logger.info("Starting graceful shutdown...")
+            try:
+                await sync_manager.stop()
+            finally:
+                await loop_lag.stop()
+                metrics.stop()
 
 
 app = FastAPI(

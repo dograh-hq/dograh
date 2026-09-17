@@ -238,3 +238,55 @@ def test_gpt_live_policy_untouched():
     # header rather than OpenAI delegation wording.
     assert "Current workflow node" in POLICY
     assert POLICY != openai_live.TRANSITION_POLICY
+
+
+@pytest.mark.asyncio
+async def test_base_38_connect_config_omits_thinking():
+    # Exercise the real _connect/config seam: capture the LiveConnectConfig
+    # at the network boundary instead of only asserting settings state.
+    service = DograhGeminiLiveLLMService(
+        api_key="test-key",
+        google_search=True,
+        settings=DograhGeminiLiveLLMService.Settings(
+            model=BASE, voice="Puck", system_instruction="Test prompt."
+        ),
+    )
+    captured = {}
+
+    from pipecat.utils.asyncio.task_manager import TaskManager
+
+    service._task_manager = TaskManager()
+
+    async def fake_connect_handler(config=None, **kwargs):
+        captured["config"] = config
+        service._session = SimpleNamespace()
+        return None
+
+    service._connection_task_handler = fake_connect_handler
+    # Production pre-populates the context (with node tools) before connect;
+    # mirror that so the session payload includes workflow functions.
+    from pipecat.adapters.schemas.function_schema import FunctionSchema
+    from pipecat.adapters.schemas.tools_schema import ToolsSchema
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    context = LLMContext()
+    context.set_tools(
+        ToolsSchema(
+            standard_tools=[
+                FunctionSchema(
+                    name="go_to_b",
+                    description="Transition.",
+                    properties={},
+                    required=[],
+                )
+            ]
+        )
+    )
+    service._context = context
+    await service._connect()
+    await service._connection_task
+    config = captured["config"]
+    assert not getattr(config, "thinking_config", None)
+    tools = list(config.tools or [])
+    assert {"google_search": {}} in tools
+    assert tools[0]["function_declarations"][0]["behavior"] == "BLOCKING"

@@ -988,9 +988,9 @@ describe("Live Gemini 3.8 models", () => {
 });
 
 describe("Live Gemini Google Search explicit rendering", () => {
-    it("renders without relying on schema metadata", async () => {
-        // Simulate an older backend schema without google_search: the Live
-        // branch renders the toggle literally, never via generic iteration.
+    it("hides the toggle when the backend schema lacks google_search", async () => {
+        // Simulate an older backend schema without google_search: the toggle
+        // must not render, since its value could not be saved.
         const realtimeSchemas = { ...(defaults.realtime as Record<string, ProviderSchema>) };
         const geminiSchema = {
             ...realtimeSchemas["google_realtime"],
@@ -1021,13 +1021,9 @@ describe("Live Gemini Google Search explicit rendering", () => {
         );
         fireEvent.mouseDown(screen.getByRole("tab", { name: "Live" }));
         await screen.findByDisplayValue("gemini-3.8-live");
-        expect(screen.getByText("Google Search")).toBeTruthy();
-        expect(screen.getByText("Allow Gemini to use Google Search for up-to-date information.")).toBeTruthy();
-        expect(screen.getByText("Off")).toBeTruthy();
-        expect(document.getElementById("live-gemini-google-search")).toBeTruthy();
-        const link = screen.getByRole("link", { name: /View Gemini Live tool documentation/ });
-        expect(link.getAttribute("href")).toBe("https://ai.google.dev/gemini-api/docs/live-api/tools");
-        expect(link.getAttribute("target")).toBe("_blank");
+        expect(screen.queryByText("Google Search")).toBeNull();
+        expect(document.getElementById("live-gemini-google-search")).toBeNull();
+        expect(screen.queryByRole("link", { name: /View Gemini Live tool documentation/ })).toBeNull();
     });
 });
 
@@ -1590,5 +1586,176 @@ describe("Live tab-switch state fixes", () => {
         fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
         await waitFor(() => expect(onSave2).toHaveBeenCalledOnce());
         expect(onSave2.mock.calls[0][0].realtime.google_search).toBe(true);
+    });
+});
+
+describe("Live to Realtime fallback without snapshot", () => {
+    it("saved gpt-live-1 switched to Realtime gets a valid Realtime model", async () => {
+        const onSave = vi.fn();
+        render(
+            <ServiceConfigurationForm
+                mode="global"
+                forceRealtime
+                configurationDefaults={defaults}
+                initialConfig={{
+                    is_realtime: true,
+                    realtime: {
+                        provider: "openai_realtime",
+                        api_key: "live-key",
+                        model: "gpt-live-1",
+                        voice: "marin",
+                        language: "en",
+                        backend_model: "gpt-5.6-luna",
+                        reasoning_effort: "low",
+                        web_search: false,
+                    },
+                }}
+                onSave={onSave}
+            />,
+        );
+        await screen.findByDisplayValue("gpt-live-1");
+        fireEvent.mouseDown(screen.getByRole("tab", { name: "Realtime" }));
+        await screen.findByDisplayValue("gpt-realtime-2");
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        const saved = onSave.mock.calls[0][0].realtime;
+        expect(saved.provider).toBe("openai_realtime");
+        expect(saved.model).toBe("gpt-realtime-2");
+        expect(saved).not.toHaveProperty("backend_model");
+        expect(saved).not.toHaveProperty("reasoning_effort");
+        expect(saved).not.toHaveProperty("web_search");
+    });
+
+    it("saved gemini-3.8-live switched to Realtime gets a valid Realtime model and voice", async () => {
+        const onSave = vi.fn();
+        render(
+            <ServiceConfigurationForm
+                mode="global"
+                forceRealtime
+                configurationDefaults={defaults}
+                initialConfig={{
+                    is_realtime: true,
+                    realtime: {
+                        provider: "google_realtime",
+                        api_key: "g-key",
+                        model: "gemini-3.8-live",
+                        voice: "Sulafat",
+                        language: "en",
+                        google_search: false,
+                    },
+                }}
+                onSave={onSave}
+            />,
+        );
+        await screen.findByDisplayValue("gemini-3.8-live");
+        fireEvent.mouseDown(screen.getByRole("tab", { name: "Realtime" }));
+        await screen.findByDisplayValue("gemini-3.1-flash-live-preview");
+        // Sulafat is not a legacy Realtime voice: falls back to the default.
+        expect(screen.getByDisplayValue("Puck")).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        const saved = onSave.mock.calls[0][0].realtime;
+        expect(saved.provider).toBe("google_realtime");
+        expect(saved.model).toBe("gemini-3.1-flash-live-preview");
+        expect(saved.voice).toBe("Puck");
+        expect(saved).not.toHaveProperty("google_search");
+    });
+});
+
+describe("Live voice catalog rendering", () => {
+    const withVoiceCustomInput = () => {
+        const realtimeSchemas = { ...(defaults.realtime as Record<string, ProviderSchema>) };
+        const withCustom = (key: string) => ({
+            ...realtimeSchemas[key],
+            properties: {
+                ...realtimeSchemas[key].properties,
+                voice: { ...realtimeSchemas[key].properties.voice, allow_custom_input: true },
+            },
+        });
+        return {
+            ...defaults,
+            realtime: {
+                ...realtimeSchemas,
+                openai_realtime: withCustom("openai_realtime"),
+                google_realtime: withCustom("google_realtime"),
+            },
+        } as ServiceConfigurationDefaults;
+    };
+
+    it("OpenAI Live voice renders the dropdown for catalog voices", async () => {
+        render(
+            <ServiceConfigurationForm
+                mode="global"
+                forceRealtime
+                configurationDefaults={withVoiceCustomInput()}
+                initialConfig={{
+                    is_realtime: true,
+                    realtime: {
+                        provider: "openai_realtime",
+                        api_key: "live-key",
+                        model: "gpt-live-1",
+                        voice: "gleam",
+                        language: "en",
+                        backend_model: "gpt-5.6-luna",
+                        reasoning_effort: "low",
+                        web_search: false,
+                    },
+                }}
+                onSave={vi.fn()}
+            />,
+        );
+        await screen.findByDisplayValue("gpt-live-1");
+        // gleam is outside the legacy schema examples but inside the Live
+        // catalog: dropdown, not custom input.
+        expect(screen.getByDisplayValue("Gleam \u2014 English \u00b7 North American \u00b7 Feminine")).toBeTruthy();
+        expect(screen.queryByPlaceholderText("Enter voice")).toBeNull();
+    });
+
+    it("Gemini Live voice renders the dropdown for catalog voices", async () => {
+        render(
+            <ServiceConfigurationForm
+                mode="global"
+                forceRealtime
+                configurationDefaults={withVoiceCustomInput()}
+                initialConfig={{
+                    is_realtime: true,
+                    realtime: {
+                        provider: "google_realtime",
+                        api_key: "g-key",
+                        model: "gemini-3.8-live",
+                        voice: "Sulafat",
+                        language: "en",
+                    },
+                }}
+                onSave={vi.fn()}
+            />,
+        );
+        await screen.findByDisplayValue("gemini-3.8-live");
+        expect(screen.getByDisplayValue("Sulafat \u2014 Warm")).toBeTruthy();
+        expect(screen.queryByPlaceholderText("Enter voice")).toBeNull();
+    });
+
+    it("Out-of-catalog saved voice still loads as custom input", async () => {
+        render(
+            <ServiceConfigurationForm
+                mode="global"
+                forceRealtime
+                configurationDefaults={withVoiceCustomInput()}
+                initialConfig={{
+                    is_realtime: true,
+                    realtime: {
+                        provider: "google_realtime",
+                        api_key: "g-key",
+                        model: "gemini-3.8-live",
+                        voice: "Future-Voice",
+                        language: "en",
+                    },
+                }}
+                onSave={vi.fn()}
+            />,
+        );
+        await screen.findByDisplayValue("gemini-3.8-live");
+        const customInput = await screen.findByPlaceholderText("Enter voice");
+        expect((customInput as HTMLInputElement).value).toBe("Future-Voice");
     });
 });

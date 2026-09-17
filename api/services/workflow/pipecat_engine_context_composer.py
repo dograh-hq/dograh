@@ -102,6 +102,12 @@ def compose_extraction_section_for_live_backend(
         and getattr(node, "extraction_variables", None)
     ):
         return ""
+    # Same engine-owned exclusion as the normal extraction pipeline: fields
+    # like call_disposition are recorded only by the engine, so the Live
+    # backend must never ask the caller for them. Lazy import: the engine
+    # imports this composer module at load time.
+    from api.services.workflow.pipecat_engine import ENGINE_OWNED_CONTEXT_KEYS
+
     lines = []
     extraction_prompt = getattr(node, "extraction_prompt", None)
     if extraction_prompt:
@@ -109,6 +115,8 @@ def compose_extraction_section_for_live_backend(
     var_lines = []
     for var in node.extraction_variables or []:
         name = getattr(var, "name", "?")
+        if name in ENGINE_OWNED_CONTEXT_KEYS:
+            continue
         vtype = getattr(var, "type", "?")
         hint = getattr(var, "prompt", None)
         rendered = f"- {name} ({vtype})"

@@ -531,7 +531,22 @@ export function ServiceConfigurationForm({
 
                     const savedValue = src?.[field] as string | undefined;
                     const modelValue = src?.model as string | undefined;
-                    const dropdownOptions = getSchemaDropdownOptions(actualSchema, modelValue);
+                    let dropdownOptions = getSchemaDropdownOptions(actualSchema, modelValue);
+                    // Live voice catalogs are explicit per-provider lists that
+                    // extend beyond the legacy schema options. A saved Live
+                    // voice must validate against its active Live catalog,
+                    // otherwise every Live-only voice would wrongly load as
+                    // free-text custom input.
+                    if (service === "realtime" && field === "voice"
+                        && typeof modelValue === "string" && LIVE_MODEL_IDS.has(modelValue)) {
+                        const liveProvider = selectedProviders[service];
+                        const liveValues = liveProvider === "openai_realtime"
+                            ? LIVE_OPENAI_VOICES.map((voice) => voice.value)
+                            : liveProvider === "google_realtime"
+                                ? LIVE_GEMINI_VOICES.map((voice) => voice.value)
+                                : null;
+                        if (liveValues) dropdownOptions = liveValues;
+                    }
                     if (savedValue && dropdownOptions && !dropdownOptions.includes(savedValue)) {
                         detectedCustomInput[`${service}_${field}`] = true;
                     }
@@ -894,12 +909,30 @@ export function ServiceConfigurationForm({
                 setValue("realtime_voice", remembered.voice, { shouldDirty: true });
                 setIsCustomInput(prev => ({ ...prev, realtime_model: false, realtime_voice: !!remembered.customVoice }));
                 setApiKeys(prev => ({ ...prev, realtime: [...remembered.apiKeys] }));
-            } else if ((getValues("realtime_model") as string) === LIVE_MODEL_ID) {
+            } else {
+                // No Realtime snapshot (e.g. a saved Live config opened
+                // directly in Live): a Live-only model must not persist
+                // into a Realtime save. Replace any Live model with this
+                // provider's valid Realtime default, and likewise ensure
+                // the voice is a valid option with matching custom flags.
+                // API keys are deliberately preserved.
                 const schema = schemas?.realtime?.[serviceProviders.realtime];
-                const fallback = schema?.properties?.model?.default;
-                if (typeof fallback === "string" && fallback !== LIVE_MODEL_ID) {
-                    setValue("realtime_model", fallback, { shouldDirty: true });
+                const realtimeModel = getValues("realtime_model") as string;
+                if (typeof realtimeModel === "string" && LIVE_MODEL_IDS.has(realtimeModel)) {
+                    const fallback = schema?.properties?.model?.default;
+                    if (typeof fallback === "string" && fallback !== realtimeModel) {
+                        setValue("realtime_model", fallback, { shouldDirty: true });
+                    }
                 }
+                const activeModel = getValues("realtime_model") as string;
+                const voiceSchema = schema?.properties?.voice;
+                const validVoices = getSchemaDropdownOptions(voiceSchema, activeModel) || [];
+                const currentVoice = getValues("realtime_voice") as string;
+                const fallbackVoice = (voiceSchema?.default as string | undefined) || validVoices[0] || "";
+                if ((!currentVoice || !validVoices.includes(currentVoice)) && fallbackVoice) {
+                    setValue("realtime_voice", fallbackVoice, { shouldDirty: true });
+                }
+                setIsCustomInput(prev => ({ ...prev, realtime_model: false, realtime_voice: false }));
             }
         }
     };
@@ -1152,9 +1185,12 @@ export function ServiceConfigurationForm({
             // Explicit Google Search toggle for Live Gemini. Rendered
             // literally (not via schema iteration, visibility metadata, or
             // backend-field filtering) so the control is always present.
-            // Bound directly to the google_search form value; the backend
-            // persists it when present in schema.
+            // Bound directly to the google_search form value. Rendered only
+            // when the active backend schema actually supports the field,
+            // so the control can never be edited while its value would be
+            // silently discarded on save.
             const renderLiveGoogleSearch = () => {
+                if (!providerSchema?.properties?.google_search) return null;
                 const searchChecked = watch("realtime_google_search") === true;
                 return (
                     <div className="space-y-2">

@@ -1340,6 +1340,27 @@ async def test_competing_transitions_execute_exactly_once():
     await transition_a(SimpleNamespace(arguments={}, result_callback=AsyncMock()))
     assert engine.active_agent.current_node.id == "branch_a"
     assert engine._gathered_context["nodes_visited"] == ["Opening", "Issue A Branch"]
+    # A competing call for the other branch through the real service path
+    # must be dropped: issue_b is no longer advertised on branch_a, so the
+    # workflow cannot move again and no side effects run twice.
+    stale_b = FunctionCallFromLLM(
+        function_name="issue_b",
+        tool_call_id="stale-call",
+        arguments={},
+        context=None,
+    )
+    await service.run_function_calls([stale_b])
+    assert engine.active_agent.current_node.id == "branch_a"
+    assert engine._gathered_context["nodes_visited"] == ["Opening", "Issue A Branch"]
+    # The legitimate next transition from the new node still works exactly once.
+    finish_a = await engine._create_transition_func("finish_a", "terminal")
+    await finish_a(SimpleNamespace(arguments={}, result_callback=AsyncMock()))
+    assert engine.active_agent.current_node.id == "terminal"
+    assert engine._gathered_context["nodes_visited"] == [
+        "Opening",
+        "Issue A Branch",
+        "Terminal",
+    ]
 
 
 @pytest.mark.asyncio
@@ -2013,3 +2034,116 @@ def test_transition_policy_closing_guard_follows_next_node_rule():
     assert TRANSITION_POLICY.index(
         "do not simulate the next node"
     ) < TRANSITION_POLICY.index("Do not speak closing")
+
+
+@pytest.mark.asyncio
+async def test_is_currently_advertised_empty_list_fails_closed():
+    service = make_service()
+    # No context at all: fail open (deliberate, preserves existing behavior).
+    service._context = None
+    assert service._is_currently_advertised("anything") is True
+    # Context without tool metadata: fail open.
+    service._context = SimpleNamespace(tools=None)
+    assert service._is_currently_advertised("anything") is True
+    # Explicit empty tool list (e.g. terminal node): fail closed.
+    service._context = SimpleNamespace(tools=ToolsSchema(standard_tools=[]))
+    assert service._is_currently_advertised("anything") is False
+    # Advertised name still passes.
+    service._context = SimpleNamespace(
+        tools=ToolsSchema(
+            standard_tools=[
+                FunctionSchema(
+                    name="go",
+                    description="d",
+                    properties={},
+                    required=[],
+                )
+            ]
+        )
+    )
+    assert service._is_currently_advertised("go") is True
+    assert service._is_currently_advertised("other") is False
+
+
+@pytest.mark.asyncio
+async def test_delayed_session_started_after_cancel_does_not_resurrect():
+    service = make_service()
+    service._initial_backend_request = True
+    await service.cancel(CancelFrame())
+    assert service._terminal is True
+    await service._handle_evt_session_started(SimpleNamespace())
+    assert service._terminal is True
+    # Opening side effects must not run on the dead session: teardown had
+    # already cleared the backend request, the delayed start must not
+    # re-arm it, and no events may be emitted.
+    assert service._initial_backend_request is False
+    service.send_client_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fresh_session_started_initializes_normally():
+    service = make_service()
+    service._pending_speech = ["hello"]
+    service._initial_backend_request = True
+    await service._handle_evt_session_started(
+        SimpleNamespace(session=SimpleNamespace(id="s1"))
+    )
+    assert service._terminal is False
+    assert service._pending_speech == []
+    assert service._initial_backend_request is False
+
+
+@pytest.mark.asyncio
+async def test_caller_transcript_releases_initial_turn_guard():
+    from pipecat.utils.asyncio.task_manager import TaskManager
+
+    service = make_service()
+    service._task_manager = TaskManager()
+    await service._handle_evt_transcript_delta(
+        events.TranscriptDeltaEvent(
+            type="session.input_transcript.delta", delta="My boiler broke"
+        )
+    )
+    assert service._awaiting_caller_input is False
+    assert service._backend_responses_without_calls == 0
+
+
+def test_live_extraction_section_includes_normal_variables():
+    from api.services.workflow.pipecat_engine_context_composer import (
+        compose_extraction_section_for_live_backend,
+    )
+
+    node = SimpleNamespace(
+        extraction_enabled=True,
+        extraction_prompt="Get the details.",
+        extraction_variables=[
+            SimpleNamespace(name="phone", type="string", prompt="Callback number."),
+        ],
+    )
+    section = compose_extraction_section_for_live_backend(
+        node=node, format_prompt=lambda s: s
+    )
+    assert "Get the details." in section
+    assert "- phone (string): Callback number." in section
+
+
+def test_live_extraction_section_excludes_engine_owned_variables():
+    from api.services.workflow.pipecat_engine import ENGINE_OWNED_CONTEXT_KEYS
+    from api.services.workflow.pipecat_engine_context_composer import (
+        compose_extraction_section_for_live_backend,
+    )
+
+    node = SimpleNamespace(
+        extraction_enabled=True,
+        extraction_prompt="",
+        extraction_variables=[
+            SimpleNamespace(name="phone", type="string", prompt=None),
+            SimpleNamespace(name="call_disposition", type="string", prompt="Outcome."),
+        ],
+    )
+    assert "call_disposition" in ENGINE_OWNED_CONTEXT_KEYS
+    section = compose_extraction_section_for_live_backend(
+        node=node, format_prompt=lambda s: s
+    )
+    assert "- phone (string)" in section
+    assert "call_disposition" not in section

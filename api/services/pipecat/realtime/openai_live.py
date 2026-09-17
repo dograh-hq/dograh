@@ -159,6 +159,11 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         self._awaiting_caller_input = True
         # Terminal teardown: at most one session.close per session lifetime.
         self._close_requested = False
+        # Teardown commitment: once cancel()/stop() has committed terminal
+        # teardown for this service lifecycle, a stale or delayed
+        # session.started event must never resurrect it. Reconnects flow
+        # through _disconnect (transient) and never set this flag.
+        self._teardown_committed = False
         # Staleness currency: bumped on every workflow node change. Backend
         # function calls are tagged with the revision observed when their
         # output item arrived; execution requires a current revision, a still
@@ -410,9 +415,16 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         # events cannot resurrect workflow activity, then run the graceful
         # close handshake.
         self._terminal = True
+        self._teardown_committed = True
         await super().stop(frame)
 
     async def _handle_evt_session_started(self, evt):
+        if self._teardown_committed:
+            # Stale or delayed start arriving after teardown committed for
+            # this service lifecycle: skip upstream bookkeeping, opening
+            # speech, and the terminal reset so a dead session cannot resume
+            # speaking or executing workflow activity.
+            return
         self._terminal = False
         self._live_audio_seconds = 0.0
         await super()._handle_evt_session_started(evt)
@@ -533,12 +545,14 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         # A transition is only valid while the active node still advertises
         # it. The engine rewrites context tools on every set_node, so the
         # current context is the authority — not the handler registry, which
-        # may still hold handlers from previous nodes. Fail open when there
-        # is no context to consult.
+        # may still hold handlers from previous nodes. Fail open only when
+        # there is genuinely no tool metadata to consult (no context at
+        # all); an explicit empty list means the node advertises nothing and
+        # must fail closed so stale calls cannot execute.
         context = self._context
         tools = getattr(context, "tools", None) if context is not None else None
         standard = getattr(tools, "standard_tools", None) if tools is not None else None
-        if not standard:
+        if standard is None:
             return True
         for tool in standard:
             name = (
@@ -596,6 +610,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         # CancelFrame means teardown is already in progress downstream.
         # From here on the session is terminal: late backend work is dropped.
         self._terminal = True
+        self._teardown_committed = True
         if (
             self._websocket
             and self._session_started

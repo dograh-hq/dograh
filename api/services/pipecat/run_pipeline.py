@@ -165,7 +165,9 @@ def _create_answer_supervisor(
             usage_context="voicemail_detection",
         )
     classifier = AnswerClassificationService(
-        classifier_llm, get_parent_context=get_parent_context
+        classifier_llm,
+        system_prompt=voicemail_config.get("system_prompt"),
+        get_parent_context=get_parent_context,
     )
     return AnswerSupervisor(config, context=context, classify=classifier.classify)
 

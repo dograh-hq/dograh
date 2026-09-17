@@ -2096,6 +2096,12 @@ export type DefaultConfigurationsResponse = {
      * Built-in suggestions for call-disposition extraction. They do not enable extraction until saved in workflow_configurations.call_dispositions.
      */
     default_call_dispositions: Array<CallDispositionOption>;
+    /**
+     * Default Answer Classifier Prompt
+     *
+     * Built-in instructions for the voicemail/screening classifier. The editor starts from these when a workflow has saved none of its own; a workflow that has saved instructions keeps showing those.
+     */
+    default_answer_classifier_prompt: string;
     text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints;
     widget_text_defaults: WidgetTexts;
 };

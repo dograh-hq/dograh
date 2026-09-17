@@ -224,6 +224,10 @@ async def complete_text_chat_session(
         workflow_run_id=run_id,
         workflow_id=workflow_run.workflow_id,
         checkpoint=text_session.checkpoint,
+        # Completion can win while a turn is still pending, and that turn's user
+        # message is only in session_data until it executes. The transcript
+        # below reads it from there; so must extraction.
+        session_data=completed_session_data,
     )
 
     call_tags = list(gathered_context.get("call_tags") or [])

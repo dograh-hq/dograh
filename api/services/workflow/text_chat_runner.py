@@ -144,6 +144,26 @@ def normalize_text_chat_checkpoint(
     return normalized
 
 
+def pending_text_chat_user_message(
+    session_data: dict[str, Any] | None,
+) -> str | None:
+    """The user text of a turn still pending when the session ended.
+
+    ``append_text_chat_user_message`` persists the user's message into
+    ``session_data`` and only folds it into ``checkpoint["messages"]`` once the
+    turn executes. A session completed while a turn is in flight -- the worker
+    died mid-turn, or an ``/end`` arrived carrying no ``expected_revision`` --
+    therefore holds that message in its transcript but not in its checkpoint.
+    Extraction reads it from here so it does not miss the last thing the user
+    said, which is usually the one that matters most.
+    """
+    turns = list((session_data or {}).get("turns") or [])
+    if not turns or turns[-1].get("status") != "pending":
+        return None
+    user_message = turns[-1].get("user_message") or {}
+    return ((user_message.get("text") or "").strip()) or None
+
+
 @dataclass
 class TextChatTurnExecutionResult:
     assistant_text: str | None
@@ -813,6 +833,7 @@ async def extract_text_chat_final_variables(
     workflow_run_id: int,
     workflow_id: int,
     checkpoint: dict[str, Any] | None,
+    session_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Extract the current node's variables for a chat ending without a transition.
 
@@ -824,23 +845,38 @@ async def extract_text_chat_final_variables(
     ``gathered_context`` shipping blanks.
 
     Returns the extracted values, or an empty dict when there is nothing to
-    extract. Never raises: a chat must still complete when extraction fails.
+    extract. Never raises: the caller persists completion *after* this, so an
+    escaping exception would leave the chat incomplete -- no transcript, no
+    completion job and no webhook at all, which is worse than the blank fields
+    this exists to prevent. Parsing the stored checkpoint is therefore inside
+    the handler too: a legacy or corrupt shape raises from
+    `normalize_text_chat_checkpoint` and `_deserialize_text_chat_checkpoint_messages`
+    (which rejects unexpected shapes by design), not just from the work below.
     """
-    base_checkpoint = normalize_text_chat_checkpoint(checkpoint)
-    current_node_id = base_checkpoint.get("current_node_id")
-    if not current_node_id:
-        # No turn ever completed, so no node was entered and nothing was said.
-        return {}
-
-    messages = _deserialize_text_chat_checkpoint_messages(base_checkpoint["messages"])
-    if not any(
-        isinstance(message, dict) and message.get("role") == "user"
-        for message in messages
-    ):
-        # Only the greeting happened. Nothing a node could extract from.
-        return {}
-
     try:
+        base_checkpoint = normalize_text_chat_checkpoint(checkpoint)
+        current_node_id = base_checkpoint.get("current_node_id")
+        if not current_node_id:
+            # No turn ever completed, so no node was entered and nothing was said.
+            return {}
+
+        messages = _deserialize_text_chat_checkpoint_messages(
+            base_checkpoint["messages"]
+        )
+        # The checkpoint lags a turn that never finished executing; its user
+        # message lives in session_data. The transcript already includes it, so
+        # extraction must too or the two disagree about what was said.
+        pending_user_message = pending_text_chat_user_message(session_data)
+        if pending_user_message:
+            messages = [*messages, {"role": "user", "content": pending_user_message}]
+
+        if not any(
+            isinstance(message, dict) and message.get("role") == "user"
+            for message in messages
+        ):
+            # Only the greeting happened. Nothing a node could extract from.
+            return {}
+
         workflow_run, _ = await db_client.get_workflow_run_with_context(workflow_run_id)
         if (
             not workflow_run

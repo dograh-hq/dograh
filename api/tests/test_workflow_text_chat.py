@@ -17,6 +17,10 @@ from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
     _serialize_text_chat_checkpoint_messages,
 )
+from api.services.workflow.text_chat_session_service import (
+    append_text_chat_user_message,
+    complete_text_chat_session,
+)
 from api.tasks.function_names import FunctionNames
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
@@ -1095,6 +1099,266 @@ async def test_text_chat_user_end_persists_variable_extraction_without_transitio
     assert workflow_run.gathered_context["extracted_variables"] == {
         "ticket_number": "1054202"
     }
+
+
+@pytest.mark.asyncio
+async def test_text_chat_end_extracts_from_a_turn_left_pending(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """A message left pending by a dead worker still reaches extraction.
+
+    `append_text_chat_user_message` writes the user's text into session_data and
+    only folds it into the checkpoint once the turn executes. If the process
+    dies in between, the inactivity sweeper (or an `/end` with no
+    expected_revision) completes the session off a checkpoint that predates that
+    message -- while the transcript, built from session_data, contains it. The
+    two must not disagree about what was said.
+    """
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the customer.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome to the workflow tester.",
+                    "extraction_enabled": True,
+                    "extraction_prompt": "Extract the customer's details.",
+                    "extraction_variables": [
+                        {
+                            "name": "ticket_number",
+                            "type": "string",
+                            "prompt": "The ticket number mentioned by the customer.",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "end",
+                "type": "endCall",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "End",
+                    "prompt": "Thank the customer and end the conversation.",
+                    "is_end": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-end",
+                "source": "start",
+                "target": "end",
+                "data": {
+                    "label": "End The Call",
+                    "condition": "When the customer asks to end the conversation.",
+                },
+            }
+        ],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="pending-turn-extraction",
+    )
+
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+    ]
+
+    captured = {}
+
+    async def fake_extraction(self, variables, *_args, **_kwargs):
+        captured["messages"] = [
+            dict(message)
+            for message in self._context.get_messages()
+            if isinstance(message, dict)
+        ]
+        return {"ticket_number": "1054202"}
+
+    enqueue = AsyncMock()
+    upload_artifacts = AsyncMock()
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_variable_extractor."
+                "VariableExtractionManager._perform_extraction",
+                new=fake_extraction,
+            ),
+            patch("api.tasks.arq.enqueue_job", enqueue),
+            patch(
+                "api.services.workflow.text_chat_session_service."
+                "upload_workflow_run_artifacts",
+                upload_artifacts,
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={},
+            )
+            assert create_response.status_code == 200
+            session = create_response.json()
+            run_id = session["workflow_run_id"]
+
+            # The worker appended the pending turn and then died: session_data
+            # carries the user's message, the checkpoint does not.
+            text_session = await db_session.get_workflow_run_text_session(
+                run_id, organization_id=user.selected_organization_id
+            )
+            await append_text_chat_user_message(
+                run_id=run_id,
+                text_session=text_session,
+                user_text="My ticket is 1054202, please chase it.",
+                expected_revision=text_session.revision,
+            )
+            stranded = await db_session.get_workflow_run_text_session(
+                run_id, organization_id=user.selected_organization_id
+            )
+            assert stranded.session_data["turns"][-1]["status"] == "pending"
+            assert not any(
+                message.get("role") == "user"
+                for message in stranded.checkpoint["messages"]
+            )
+
+            end_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{run_id}/end",
+                json={"expected_revision": stranded.revision},
+            )
+            assert end_response.status_code == 200
+
+    payload = end_response.json()
+
+    assert captured["messages"][-1] == {
+        "role": "user",
+        "content": "My ticket is 1054202, please chase it.",
+    }
+    assert payload["gathered_context"]["extracted_variables"] == {
+        "ticket_number": "1054202"
+    }
+    # The transcript already carried this message; extraction now agrees.
+    workflow_run = await db_session.get_workflow_run_by_id(run_id)
+    assert _log_texts(workflow_run.logs, "rtf-user-transcription") == [
+        "My ticket is 1054202, please chase it."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_text_chat_end_completes_when_the_checkpoint_cannot_be_parsed(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """A corrupt or legacy checkpoint must not keep the chat from completing.
+
+    Extraction is best effort and runs before the completion write, so anything
+    escaping it would leave the run incomplete: no transcript, no completion job
+    and no webhook at all -- strictly worse than the blank fields extraction
+    exists to prevent. `_deserialize_text_chat_checkpoint_messages` rejects
+    unexpected shapes by design, so the parsing has to be inside the handler.
+    """
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the customer.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome to the workflow tester.",
+                    "extraction_enabled": True,
+                    "extraction_prompt": "Extract the customer's details.",
+                    "extraction_variables": [
+                        {
+                            "name": "ticket_number",
+                            "type": "string",
+                            "prompt": "The ticket number.",
+                        }
+                    ],
+                },
+            },
+        ],
+        "edges": [],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="corrupt-checkpoint",
+    )
+    workflow_run = await db_session.create_workflow_run(
+        name="Corrupt checkpoint chat",
+        workflow_id=workflow.id,
+        mode="textchat",
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    await db_session.ensure_workflow_run_text_session(
+        workflow_run.id,
+        session_data={
+            "version": 1,
+            "status": "idle",
+            "cursor_turn_id": None,
+            "turns": [],
+            "discarded_future": [],
+            "simulator": {"enabled": False, "config": {}},
+        },
+        # A shape no current writer produces: `messages` is not iterable, so
+        # normalization raises before any extraction work begins.
+        checkpoint={"current_node_id": "start", "messages": 5},
+    )
+    enqueue = AsyncMock()
+
+    # Driven at the service layer rather than through `/end`: the route's
+    # response builder normalizes the checkpoint a second time and raises on
+    # this shape too, which is a separate pre-existing weakness. What matters
+    # here is that completion itself is reached and persisted.
+    loaded_session = await db_session.get_workflow_run_text_session(
+        workflow_run.id, organization_id=user.selected_organization_id
+    )
+    with patch("api.tasks.arq.enqueue_job", enqueue):
+        await complete_text_chat_session(
+            run_id=workflow_run.id,
+            text_session=loaded_session,
+            expected_revision=loaded_session.revision,
+        )
+
+    completed_run = await db_session.get_workflow_run_by_id(workflow_run.id)
+    assert completed_run.is_completed is True
+    assert completed_run.state == "completed"
+    assert completed_run.gathered_context["call_disposition"] == "user_hangup"
+    assert "extracted_variables" not in completed_run.gathered_context
+    # The completion job still runs, so webhooks and billing are not stranded.
+    enqueue.assert_awaited_once_with(
+        FunctionNames.PROCESS_WORKFLOW_COMPLETION,
+        workflow_run.id,
+        _job_id=f"workflow-completion-{workflow_run.id}",
+    )
 
 
 @pytest.mark.asyncio

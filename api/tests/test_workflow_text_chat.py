@@ -936,6 +936,168 @@ async def test_text_chat_end_transition_persists_synchronous_variable_extraction
 
 
 @pytest.mark.asyncio
+async def test_text_chat_user_end_persists_variable_extraction_without_transition(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """A chat the user walks away from still extracts the current node's variables.
+
+    Voice calls get this from ``PipecatEngine._end_call``. Text chats tear the
+    pipeline down after every turn, so before this the only trigger was a node
+    transition -- and a user who simply closes the widget never causes one.
+    Anything rendered from ``gathered_context`` afterwards (webhooks especially)
+    would ship blanks for variables the node was configured to extract.
+    """
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the customer.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome to the workflow tester.",
+                    "extraction_enabled": True,
+                    "extraction_prompt": "Extract the customer's details.",
+                    "extraction_variables": [
+                        {
+                            "name": "ticket_number",
+                            "type": "string",
+                            "prompt": "The ticket number created for the customer.",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "end",
+                "type": "endCall",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "End",
+                    "prompt": "Thank the customer and end the conversation.",
+                    "is_end": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-end",
+                "source": "start",
+                "target": "end",
+                "data": {
+                    "label": "End The Call",
+                    "condition": "When the customer asks to end the conversation.",
+                },
+            }
+        ],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="user-end-extraction",
+    )
+
+    # The assistant answers and stays put -- no transition, so nothing on the
+    # turn path extracts anything.
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Your ticket is 1054202.")],
+            chunk_delay=0.001,
+        ),
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+    ]
+
+    extraction_calls = []
+
+    async def fake_extraction(_self, variables, *_args, **_kwargs):
+        extraction_calls.append([variable.name for variable in variables])
+        return {"ticket_number": "1054202"}
+
+    enqueue = AsyncMock()
+    upload_artifacts = AsyncMock()
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_variable_extractor."
+                "VariableExtractionManager._perform_extraction",
+                new=fake_extraction,
+            ),
+            patch("api.tasks.arq.enqueue_job", enqueue),
+            patch(
+                "api.services.workflow.text_chat_session_service."
+                "upload_workflow_run_artifacts",
+                upload_artifacts,
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={},
+            )
+            assert create_response.status_code == 200
+            session = create_response.json()
+
+            message_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+                f"{session['workflow_run_id']}/messages",
+                json={
+                    "text": "Please raise a ticket for my missing shipment.",
+                    "expected_revision": session["revision"],
+                },
+            )
+            assert message_response.status_code == 200
+            message_payload = message_response.json()
+
+            # Nothing extracted yet: the chat never left the Start node.
+            assert message_payload["checkpoint"]["current_node_id"] == "start"
+            assert "extracted_variables" not in (
+                message_payload["gathered_context"] or {}
+            )
+            assert extraction_calls == []
+
+            # The user closes the widget.
+            end_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+                f"{session['workflow_run_id']}/end",
+                json={"expected_revision": message_payload["revision"]},
+            )
+            assert end_response.status_code == 200
+
+    payload = end_response.json()
+
+    assert extraction_calls == [["ticket_number"]]
+    assert payload["is_completed"] is True
+    assert payload["gathered_context"]["call_disposition"] == "user_hangup"
+    assert payload["gathered_context"]["extracted_variables"] == {
+        "ticket_number": "1054202"
+    }
+    assert payload["gathered_context"]["ticket_number"] == "1054202"
+
+    workflow_run = await db_session.get_workflow_run_by_id(session["workflow_run_id"])
+    assert workflow_run.gathered_context["extracted_variables"] == {
+        "ticket_number": "1054202"
+    }
+
+
+@pytest.mark.asyncio
 async def test_text_chat_chains_multiple_follow_up_completions_in_one_turn(
     db_session,
     async_session,

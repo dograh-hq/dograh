@@ -20,6 +20,7 @@ from api.services.workflow.text_chat_logs import (
 from api.services.workflow.text_chat_runner import (
     default_text_chat_checkpoint,
     execute_text_chat_pending_turn,
+    extract_text_chat_final_variables,
     merge_text_chat_usage_info,
     normalize_text_chat_checkpoint,
 )
@@ -214,9 +215,28 @@ async def complete_text_chat_session(
         workflow_run.workflow.organization_id, disposition
     )
     gathered_context = workflow_run.gathered_context or {}
+
+    # A voice call extracts the current node's variables during engine teardown.
+    # Text chat has no engine here, and a chat the user walks away from never
+    # transitions, so without this the node's variables are never extracted at
+    # all -- and the webhooks rendered from gathered_context ship blanks.
+    extracted = await extract_text_chat_final_variables(
+        workflow_run_id=run_id,
+        workflow_id=workflow_run.workflow_id,
+        checkpoint=text_session.checkpoint,
+    )
+
     call_tags = list(gathered_context.get("call_tags") or [])
     if disposition not in call_tags:
         call_tags.append(disposition)
+    # A workflow author turns an extracted variable into a call tag by naming it
+    # `tag_*`; PipecatEngine.record_call_tags does this promotion on the voice
+    # path, after extraction has landed.
+    for key, value in extracted.items():
+        if not key.startswith("tag_") or not isinstance(value, str) or not value:
+            continue
+        if value not in call_tags:
+            call_tags.append(value)
 
     feedback_events = build_text_chat_realtime_feedback_events(completed_session_data)
     usage_info = dict(workflow_run.usage_info or {})
@@ -232,6 +252,7 @@ async def complete_text_chat_session(
             expected_revision=expected_revision,
             usage_info=usage_info,
             gathered_context={
+                **extracted,
                 "call_disposition": disposition,
                 "mapped_call_disposition": mapped_disposition,
                 # Text chats end on an explicit completion reason rather than a

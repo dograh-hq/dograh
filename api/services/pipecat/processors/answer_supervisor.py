@@ -198,6 +198,17 @@ class AnswerSupervisor(FrameProcessor):
         if isinstance(frame, (CancelFrame, EndFrame)):
             await self.close()
         elif isinstance(frame, UserStartedSpeakingFrame):
+            # Logged before _speech_started(), which returns early once the
+            # opening has been released. Those released calls are exactly the
+            # ones whose far-end onset is otherwise unmeasurable: elapsed_ms
+            # here is the time from arming to far-end speech, and a null
+            # elapsed_ms means speech arrived before the supervisor armed.
+            self._log(
+                "speech_started",
+                strategy="vad",
+                released=self._released,
+                first_onset=self._onset is None,
+            )
             self._speech_started()
         await self.push_frame(frame, direction)
 

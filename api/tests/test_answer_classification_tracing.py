@@ -54,7 +54,10 @@ async def test_classifier_records_generation_input_output_and_model(tracing):
     assert span.attributes["stream"] is False
     assert json.loads(span.attributes["input"]) == {
         "messages": [
-            {"role": "system", "content": classification._SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": classification.ANSWER_CLASSIFIER_SYSTEM_PROMPT,
+            },
             {"role": "user", "content": "An ambiguous answer"},
         ]
     }

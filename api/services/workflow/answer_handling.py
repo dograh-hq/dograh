@@ -79,6 +79,7 @@ async def _handle_answer(engine: "PipecatEngine", supervisor, update_idle_timeou
         supervisor.commit()
         engine._gathered_context.setdefault("answer_supervisor", []).append(
             {
+                **verdict.diagnostics,
                 "action": verdict.action.value,
                 "reason": verdict.reason,
                 "subtype": verdict.subtype.value if verdict.subtype else None,

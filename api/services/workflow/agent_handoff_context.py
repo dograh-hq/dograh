@@ -21,14 +21,25 @@ filtered out because they belong to the previous agent's execution context.
 from __future__ import annotations
 
 import asyncio
+import json
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from pipecat.frames.frames import LLMContextSummaryRequestFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.utils.context.llm_context_summarization import LLMContextSummaryConfig
+from pipecat.utils.context.llm_context_summarization import (
+    LLMContextSummarizationUtil,
+    LLMContextSummaryConfig,
+)
+from pipecat.utils.tracing.langfuse_helpers import mark_trace_public
+from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
+
+from api.services.pipecat.tracing_config import ensure_tracing
 
 # Messages kept verbatim behind the summary. Enough for the destination to
 # answer "as I was saying" without re-reading the whole call.
@@ -94,6 +105,64 @@ def conversation_messages(messages: list[Any]) -> list[Any]:
     return kept
 
 
+@contextmanager
+def _compaction_span(llm: Any, request: LLMContextSummaryRequestFrame, parent_context):
+    """Trace the out-of-band summary call, or yield ``None`` when tracing is off.
+
+    ``_generate_summary`` reaches the model through ``run_inference``, which
+    runs outside the pipeline and so inherits neither the streaming LLM's
+    ``@traced_llm`` decorator nor an ambient span. Compaction also runs on its
+    own ``TaskGroup`` task, so there is no current span to attach to either --
+    hence ``parent_context``, resolved by the caller. Without this, handoff
+    compaction is the one summarization in a call that never reaches Langfuse.
+
+    The request attributes are set before the caller awaits, so a timeout or a
+    failure still shows what was asked for.
+    """
+    if not ensure_tracing():
+        yield None
+        return
+
+    selected = LLMContextSummarizationUtil.get_messages_to_summarize(
+        request.context, request.min_messages_to_keep
+    )
+    transcript = LLMContextSummarizationUtil.format_messages_for_summary(
+        selected.messages
+    )
+    tracer = trace.get_tracer("pipecat")
+    with tracer.start_as_current_span(
+        "llm-handoff-compaction", context=parent_context
+    ) as span:
+        # Same per-org policy every other span in the call uses, so compaction
+        # is public exactly when the rest of the trace is, and private by
+        # default. Matters only when there is no parent to inherit it from.
+        mark_trace_public(span)
+        # Mirrors what `_generate_summary` sends: the prompt as a system
+        # message, the formatted transcript as the user message.
+        model = getattr(getattr(llm, "_settings", None), "model", None)
+        add_llm_span_attributes(
+            span,
+            service_name=llm.__class__.__name__,
+            model=model if isinstance(model, str) else "unknown",
+            operation_name="llm-handoff-compaction",
+            messages=[
+                {"role": "system", "content": request.summarization_prompt},
+                {"role": "user", "content": f"Conversation history:\n{transcript}"},
+            ],
+            stream=False,
+            parameters={"target_context_tokens": request.target_context_tokens},
+        )
+        yield span
+
+
+def _record_fallback(span: Any, reason: str) -> None:
+    """Mark a compaction that handed over full history instead of a summary."""
+    if span is None:
+        return
+    span.set_attribute("handoff.fallback_reason", reason)
+    span.set_status(Status(StatusCode.ERROR, reason))
+
+
 async def build_handoff_snapshot(
     context: "LLMContext",
     llm: Any,
@@ -101,6 +170,7 @@ async def build_handoff_snapshot(
     request_id: str,
     retained_messages: int = DEFAULT_RETAINED_MESSAGES,
     timeout: float = DEFAULT_HANDOFF_SUMMARY_TIMEOUT_SECONDS,
+    parent_context: Any = None,
 ) -> HandoffSnapshot:
     """Compact ``context`` for a destination agent without mutating it.
 
@@ -111,6 +181,9 @@ async def build_handoff_snapshot(
         request_id: Identifies this compaction in traces and logs.
         retained_messages: Recent turns kept verbatim behind the summary.
         timeout: Seconds to wait for the summary before falling back.
+        parent_context: OTel context the compaction span hangs off. This runs
+            on its own task, so there is no ambient span to inherit; without
+            it the span becomes a detached root.
 
     Returns:
         The prepared :class:`HandoffSnapshot`. Never raises: a handoff that
@@ -149,31 +222,38 @@ async def build_handoff_snapshot(
         summarization_timeout=timeout,
     )
 
-    try:
-        summary_text, last_index = await asyncio.wait_for(
-            generate_summary(request), timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        logger.warning(
-            f"Handoff compaction {request_id} timed out after {timeout}s; "
-            "handing over conversation history instead"
-        )
-        return fallback
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        logger.warning(
-            f"Handoff compaction {request_id} failed ({e}); handing over "
-            "conversation history instead"
-        )
-        return fallback
+    with _compaction_span(llm, request, parent_context) as span:
+        try:
+            summary_text, last_index = await asyncio.wait_for(
+                generate_summary(request), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Handoff compaction {request_id} timed out after {timeout}s; "
+                "handing over conversation history instead"
+            )
+            _record_fallback(span, "timeout")
+            return fallback
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(
+                f"Handoff compaction {request_id} failed ({e}); handing over "
+                "conversation history instead"
+            )
+            _record_fallback(span, "error")
+            return fallback
 
-    if not summary_text or last_index < 0:
-        logger.warning(
-            f"Handoff compaction {request_id} produced no summary; handing "
-            "over conversation history instead"
-        )
-        return fallback
+        if not summary_text or last_index < 0:
+            logger.warning(
+                f"Handoff compaction {request_id} produced no summary; handing "
+                "over conversation history instead"
+            )
+            _record_fallback(span, "empty_summary")
+            return fallback
+
+        if span is not None:
+            span.set_attribute("output", json.dumps({"content": summary_text}))
 
     last_index = min(last_index, boundary - 1)
     retained = conversation_messages(source_messages[last_index + 1 :])

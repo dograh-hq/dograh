@@ -1,7 +1,8 @@
 """ENABLE_CALL_RECORDING_UPLOAD gates the end-of-call audio upload."""
 
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -24,7 +25,12 @@ class _EventSource:
 
 
 async def _run_pipeline_finished(
-    monkeypatch, *, recording_upload_enabled: bool, campaign_id: int | None = None
+    monkeypatch,
+    *,
+    recording_upload_enabled: bool,
+    campaign_id: int | None = None,
+    logs_buffer=None,
+    gathered_context=None,
 ):
     """Drive on_pipeline_finished with audio in the buffers, returning the
     kwargs the artifact upload was called with."""
@@ -73,14 +79,15 @@ async def _run_pipeline_finished(
         end_call_with_reason=AsyncMock(),
         record_call_tags=lambda tags: None,
         record_context=lambda ctx: None,
-        get_gathered_context=AsyncMock(return_value={}),
+        get_gathered_context=AsyncMock(return_value=gathered_context or {}),
         cleanup=AsyncMock(),
     )
-    logs_buffer = SimpleNamespace(
-        contains_user_speech=lambda: False,
-        is_empty=True,
-        generate_transcript_text=lambda include_end_timestamps=False: "hello",
-    )
+    if logs_buffer is None:
+        logs_buffer = SimpleNamespace(
+            contains_user_speech=lambda: False,
+            is_empty=True,
+            generate_transcript_text=lambda include_end_timestamps=False: "hello",
+        )
 
     buffers = register_event_handlers(
         task=task,
@@ -107,6 +114,69 @@ async def _run_pipeline_finished(
 
     await task.handlers["on_pipeline_finished"](task, None)
     return uploads
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recording_upload_enabled", [True, False])
+async def test_answer_decision_is_saved_in_gathered_context_without_rtf_events(
+    monkeypatch, recording_upload_enabled
+):
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    from api.schemas.answer_supervisor import AnswerSupervisorConfig
+    from api.services.pipecat import event_handlers
+    from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+    from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
+    from api.services.workflow.answer_handling import handle_answer
+
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=88)
+    supervisor = AnswerSupervisor(
+        AnswerSupervisorConfig(),
+        context=LLMContext(),
+    )
+    engine = SimpleNamespace(
+        _gathered_context={},
+        is_call_disposed=lambda: False,
+        set_call_disposition=Mock(),
+        end_call_with_reason=AsyncMock(),
+    )
+    try:
+        await supervisor._classify_turn("Please leave a message after the tone.", 0)
+        await asyncio.wait_for(
+            handle_answer(engine, supervisor, update_idle_timeout=AsyncMock()), 1
+        )
+    finally:
+        await supervisor.close()
+
+    application_logger = Mock()
+    monkeypatch.setattr(event_handlers, "logger", application_logger)
+    await _run_pipeline_finished(
+        monkeypatch,
+        recording_upload_enabled=recording_upload_enabled,
+        logs_buffer=logs_buffer,
+        gathered_context=engine._gathered_context,
+    )
+
+    [saved] = [
+        call.kwargs
+        for call in event_handlers.db_client.update_workflow_run.await_args_list
+        if "gathered_context" in call.kwargs
+    ]
+    assert saved["run_id"] == 88
+    [decision] = saved["gathered_context"]["answer_supervisor"]
+    assert decision["transcript"] == "Please leave a message after the tone."
+    assert decision["subtype"] == "VOICEMAIL"
+    assert decision["strategy"] == "transcript_patterns"
+    assert decision["action"] == "drop"
+    assert logs_buffer.is_empty
+    assert all(
+        "logs" not in call.kwargs
+        for call in event_handlers.db_client.update_workflow_run.await_args_list
+    )
+    assert all(
+        decision["transcript"] not in str(call)
+        for call in application_logger.mock_calls
+    )
 
 
 @pytest.mark.asyncio

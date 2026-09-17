@@ -35,7 +35,10 @@ from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from api.schemas.answer_supervisor import AnswerSupervisorConfig
-from api.services.pipecat.answer_classification import MachineSubtype
+from api.services.pipecat.answer_classification import (
+    MachineSubtype,
+    classify_machine_utterance,
+)
 from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.worker_runner import run_pipeline_worker
 
@@ -155,7 +158,9 @@ async def test_short_hello_is_committed_and_trigger_dropped_before_release():
         ("My account number is synthetic-private-value.", 0.06),
     ],
 )
-async def test_decision_logs_omit_caller_transcripts(monkeypatch, text, duration):
+async def test_decision_audit_keeps_transcripts_out_of_application_logs(
+    monkeypatch, text, duration
+):
     from api.services.pipecat.processors import answer_supervisor
 
     messages = []
@@ -166,10 +171,75 @@ async def test_decision_logs_omit_caller_transcripts(monkeypatch, text, duration
     )
     async with call(classify=AsyncMock(return_value=MachineSubtype.CONVERSATION)) as c:
         await c.say(text, duration=duration)
-        await verdict(c)
+        result = await verdict(c)
         assert messages
         assert all(text not in message for message in messages)
         assert any(f"transcript_chars={len(text)}" in message for message in messages)
+        # The pattern verdict stays visible beside the final one, so a missing
+        # pattern can be told apart from a classifier disagreement. Here the
+        # mailbox line matches VOICEMAIL while the other two do not.
+        expected = classify_machine_utterance(text).value
+        assert any(f"pattern_subtype='{expected}'" in message for message in messages)
+        c.supervisor.commit()
+        await c.supervisor.close()
+        # Clearing the supervisor on termination must not erase the accepted
+        # verdict's evidence before the engine persists gathered_context.
+        decision = result.diagnostics
+        assert decision["transcript"] == text
+        assert decision["timestamp"]
+        assert decision["pattern_subtype"] == expected
+        assert decision["turn_index"] == 1
+        assert decision["duration_ms"] is not None
+        assert decision["speech_epoch"] == 1
+        assert text not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_audit_retains_full_transcript_for_pattern_analysis(monkeypatch):
+    from api.services.pipecat.processors import answer_supervisor
+
+    messages = []
+    monkeypatch.setattr(
+        answer_supervisor,
+        "logger",
+        SimpleNamespace(info=lambda fmt, *args: messages.append(fmt.format(*args))),
+    )
+    # Stripped, because the supervisor strips the turn before measuring it.
+    text = ("Synthetic caller speech. " * 40).strip()
+    assert len(text) > 200
+    async with call(classify=AsyncMock(return_value=MachineSubtype.CONVERSATION)) as c:
+        await c.say(text, duration=0.01)
+        result = await verdict(c)
+        assert all(text[:200] not in message for message in messages)
+        assert all(text not in message for message in messages)
+        assert any(f"transcript_chars={len(text)}" in message for message in messages)
+        decision = result.diagnostics
+        assert decision["transcript"] == text
+        assert decision["transcript_chars"] == len(text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [TimeoutError(), RuntimeError("private provider detail")]
+)
+async def test_audit_records_classifier_failures_and_fallback(failure):
+    supervisor = AnswerSupervisor(
+        AnswerSupervisorConfig(),
+        context=LLMContext(),
+        classify=AsyncMock(side_effect=failure),
+    )
+    try:
+        await supervisor._classify_turn("An ambiguous answer", 0)
+        result = await asyncio.wait_for(supervisor.wait_for_verdict(), 1)
+        status = "timeout" if isinstance(failure, TimeoutError) else "error"
+        assert result.diagnostics["transcript"] == "An ambiguous answer"
+        assert result.subtype == MachineSubtype.UNKNOWN
+        assert result.diagnostics["pattern_subtype"] == "UNKNOWN"
+        assert result.diagnostics["strategy"] == "llm_classifier"
+        assert result.diagnostics["classifier_status"] == status
+        assert result.action == "release"
+    finally:
+        await supervisor.close()
 
 
 @pytest.mark.asyncio
@@ -641,6 +711,8 @@ async def test_initial_wait_announcement_enters_bounded_screening_wait():
         assert result.reason == "screening_timeout"
         assert c.context.messages == []
         classifier.assert_not_awaited()
+        assert result.diagnostics["screening"] is True
+        assert result.diagnostics["screening_wait_ms"] == 180
 
 
 @pytest.mark.asyncio

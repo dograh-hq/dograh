@@ -15,11 +15,10 @@ import {
 
 export default function SettingsPage() {
   return (
-    <div className="flex justify-center py-12 px-4">
-      <div className="w-full max-w-2xl space-y-6">
+    <div className="container mx-auto px-4 py-8 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Platform Settings</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold">Platform Settings</h1>
+          <p className="text-muted-foreground mt-1">
             Manage your platform configuration and integrations.
           </p>
         </div>
@@ -41,10 +40,10 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>MCP Server</CardTitle>
             <CardDescription>
-              Let AI agents access your Dograh workspace and documentation via
-              the Model Context Protocol.{" "}
+              Let AI agents access your Vani Studio workspace and documentation
+              via the Model Context Protocol.{" "}
               <a
-                href="https://docs.dograh.com/integrations/mcp"
+                href="https://docs.vani.indiclabs.ai/integrations/mcp"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
@@ -64,7 +63,7 @@ export default function SettingsPage() {
             <CardDescription>
               Configure Langfuse tracing for your voice agent calls.{" "}
               <a
-                href="https://docs.dograh.com/configurations/tracing"
+                href="https://docs.vani.indiclabs.ai/configurations/tracing"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
@@ -77,7 +76,6 @@ export default function SettingsPage() {
             <TelemetrySection />
           </CardContent>
         </Card>
-      </div>
     </div>
   );
 }

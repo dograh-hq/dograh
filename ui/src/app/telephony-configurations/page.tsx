@@ -12,7 +12,6 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -55,7 +54,6 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 
 export default function TelephonyConfigurationsPage() {
   const { user, getAccessToken, loading: authLoading } = useAuth();
-  const searchParams = useSearchParams();
   const {
     telnyxMissingWebhookPublicKeyCount,
     vonageMissingSignatureSecretCount,
@@ -99,12 +97,6 @@ export default function TelephonyConfigurationsPage() {
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
-
-  // ?add=1 lands the user straight on the provider form — used by the Phone
-  // Call dialog's "Add provider" action so the choice isn't asked twice.
-  useEffect(() => {
-    if (searchParams.get("add") === "1") setCreateOpen(true);
-  }, [searchParams]);
 
   const onEdit = async (item: TelephonyConfigurationListItem) => {
     try {
@@ -188,7 +180,7 @@ export default function TelephonyConfigurationsPage() {
               Connect one or more telephony provider accounts. Each campaign uses one
               configuration; inbound calls are routed to the right one by account ID.{" "}
               <a
-                href="https://docs.dograh.com/integrations/telephony/overview"
+                href="https://docs.vani.indiclabs.ai/integrations/telephony/overview"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
@@ -286,15 +278,6 @@ export default function TelephonyConfigurationsPage() {
                         {item.inactive && (
                           <Badge variant="destructive">Inactive</Badge>
                         )}
-                        {!item.inactive && item.is_ready_for_outbound === false && (
-                          <Badge
-                            variant="outline"
-                            className="gap-1 border-amber-400 text-amber-700 dark:border-amber-700 dark:text-amber-400"
-                          >
-                            <AlertTriangle className="h-3 w-3" />
-                            Setup incomplete
-                          </Badge>
-                        )}
                       </div>
                       <span className="text-sm text-muted-foreground">
                         {item.phone_number_count} phone{" "}
@@ -304,11 +287,6 @@ export default function TelephonyConfigurationsPage() {
                         <span className="text-sm text-destructive">
                           Disabled after repeated connection failures
                           {item.inactive_reason ? `: ${item.inactive_reason}` : ""}
-                        </span>
-                      )}
-                      {!item.inactive && item.outbound_blocked_reason && (
-                        <span className="text-sm text-amber-700 dark:text-amber-500">
-                          {item.outbound_blocked_reason}
                         </span>
                       )}
                       <button
@@ -387,7 +365,6 @@ export default function TelephonyConfigurationsPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         existing={null}
-        suggestDefaultOutbound={!items.some((item) => item.is_default_outbound)}
         onSaved={onSaved}
       />
       <ConfigFormDialog

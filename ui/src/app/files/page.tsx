@@ -52,7 +52,7 @@ export default function FilesPage() {
                 <h1 className="text-3xl font-bold mb-2">Knowledge Base Files</h1>
                 <p className="text-muted-foreground">
                     Upload and manage documents for your voice agents to reference.{" "}
-                    <a href="https://docs.dograh.com/voice-agent/knowledge-base" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                    <a href="https://docs.vani.indiclabs.ai/voice-agent/knowledge-base" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
                         Learn more <ExternalLink className="h-3 w-3" />
                     </a>
                 </p>

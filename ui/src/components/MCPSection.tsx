@@ -55,14 +55,7 @@ export function MCPSection() {
         <Label>MCP Endpoint</Label>
         <p className="text-xs text-muted-foreground">
           Connect an MCP-compatible AI assistant to this URL over Streamable
-          HTTP. Requires an API key in the X-API-Key header.{" "}
-          <Link
-            href="/api-keys"
-            target="_blank"
-            className="text-primary underline hover:no-underline"
-          >
-            Get your API key
-          </Link>
+          HTTP. Requires an API key in the X-API-Key header.
         </p>
         <div className="grid gap-3">
           {endpoints.map(({ key, label, url }) => (
@@ -104,7 +97,7 @@ export function MCPSection() {
         For step-by-step setup with Claude Code, Claude Desktop, Cursor, and
         other clients, see the{" "}
         <Link
-          href="https://docs.dograh.com/integrations/mcp"
+          href="https://docs.vani.indiclabs.ai/integrations/mcp"
           target="_blank"
           rel="noopener noreferrer"
           className="text-primary underline hover:no-underline"

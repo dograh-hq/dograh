@@ -78,7 +78,7 @@ function liveFeedbackItem(message: RealtimeFeedbackMessage, reasoningDurationMs?
             tone: "warning",
             title: "Interruption Disabled",
             text: message.text,
-            linkHref: "https://docs.dograh.com/configurations/interruption",
+            linkHref: "https://docs.vani.indiclabs.ai/configurations/interruption",
             linkLabel: "Learn more",
         };
     }
@@ -260,7 +260,7 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
                 tone: "warning",
                 title: "Interruption Disabled",
                 text: feedbackEventText(event),
-                linkHref: "https://docs.dograh.com/configurations/interruption",
+                linkHref: "https://docs.vani.indiclabs.ai/configurations/interruption",
                 linkLabel: "Learn more",
             });
             return;

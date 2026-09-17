@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Developer Documentation — Vani</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #fafafa;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 540px;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-family: 'Fraunces', Georgia, serif;
+            font-size: 2.25rem;
+            font-weight: 600;
+            line-height: 1.2;
+            margin-bottom: 1rem;
+        }
+
+        p {
+            font-size: 1.0625rem;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.55);
+            margin-bottom: 2.5rem;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.25rem;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 0.5rem;
+            color: #fafafa;
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .back-link:hover {
+            border-color: rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .back-link svg {
+            width: 16px;
+            height: 16px;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=Fraunces:wght@600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <span class="badge">Coming Soon</span>
+        <h1>Developer Documentation</h1>
+        <p>We're preparing comprehensive guides, API references, and tutorials to help you build with Vani. Stay tuned.</p>
+        <a href="https://vani.indiclabs.ai" class="back-link">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+            Back to Vani Studio
+        </a>
+    </div>
+</body>
+</html>

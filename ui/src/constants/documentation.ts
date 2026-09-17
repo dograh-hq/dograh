@@ -1,4 +1,18 @@
-export const DOCS_BASE = "https://docs.vani.com";
+export const DOCS_BASE = "https://docs.vani.indiclabs.ai";
+
+/**
+ * Rewrite any docs.dograh.com URLs from the backend to docs.vani.indiclabs.ai.
+ */
+export function rewriteDocsUrl(url: string): string {
+    return url.replace(/https?:\/\/docs\.dograh\.com/g, DOCS_BASE);
+}
+
+/**
+ * Rewrite "Dograh" mentions in backend-provided descriptions to "Vani Studio".
+ */
+export function rewriteBrandText(text: string): string {
+    return text.replace(/\bDograh\b/g, "Vani Studio");
+}
 
 export const NODE_DOCUMENTATION_URLS: Record<string, string> = {
     startCall: `${DOCS_BASE}/voice-agent/start-call`,

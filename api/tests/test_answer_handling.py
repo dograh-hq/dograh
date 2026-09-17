@@ -6,11 +6,15 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pipecat.frames.frames import CancelFrame, TTSSpeakFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.enums import AnswerAction
 from api.schemas.answer_supervisor import AnswerMessage, AnswerSupervisorConfig
 from api.services.pipecat.answer_classification import MachineSubtype
-from api.services.pipecat.processors.answer_supervisor import AnswerVerdict
+from api.services.pipecat.processors.answer_supervisor import (
+    AnswerSupervisor,
+    AnswerVerdict,
+)
 from api.services.workflow.answer_handling import handle_answer
 from api.services.workflow.pipecat_engine import PipecatEngine
 
@@ -28,6 +32,37 @@ def make_call(verdicts, **settings):
     supervisor.close = AsyncMock()
     supervisor.wait_closed = AsyncMock(side_effect=asyncio.Event().wait)
     return engine, supervisor, AsyncMock()
+
+
+@pytest.mark.asyncio
+async def test_only_accepted_decision_and_its_transcript_enter_gathered_context():
+    engine, _, idle = make_call([])
+    supervisor = AnswerSupervisor(AnswerSupervisorConfig(), context=LLMContext())
+    try:
+        # A result can be revoked while the engine is still fetching pre-call data.
+        await supervisor._classify_turn("Please leave a message after the tone.", 0)
+        supervisor._speech_started()
+        await supervisor._on_turn_stopped(
+            None, "external_turn", SimpleNamespace(content="Hello, this is Alex.")
+        )
+        await asyncio.wait_for(
+            handle_answer(engine, supervisor, update_idle_timeout=idle), 1
+        )
+
+        [decision] = engine._gathered_context["answer_supervisor"]
+        assert decision["action"] == "release"
+        assert decision["reason"] == "human_turn"
+        assert decision["subtype"] == "CONVERSATION"
+        assert decision["transcript"] == "Hello, this is Alex."
+        assert decision["strategy"] == "duration_threshold"
+        assert decision["pattern_subtype"] == "UNKNOWN"
+        assert decision["human_utterance_max_ms"] == 2500
+        assert decision["duration_ms"] is not None
+        assert decision["timestamp"]
+        assert "event" not in decision
+        engine.end_call_with_reason.assert_not_awaited()
+    finally:
+        await supervisor.close()
 
 
 @pytest.mark.asyncio

@@ -160,6 +160,9 @@ class AgentTransferCoordinator:
                             engine.context,
                             source.inference_llm,
                             request_id=request.request_id,
+                            # Resolved here, in the parent task: the compaction
+                            # task has no ambient span of its own to inherit.
+                            parent_context=engine._get_otel_context(),
                         )
                     )
                 snapshot = compact.result()

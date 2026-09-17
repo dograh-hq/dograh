@@ -123,6 +123,11 @@ def compose_extraction_section_for_live_backend(
         if hint:
             rendered += f": {format_prompt(hint)}"
         var_lines.append(rendered)
+    if not var_lines:
+        # No caller-derived fields remain after filtering: emit no section
+        # at all, including the extraction prompt, so the backend is never
+        # asked to collect engine-owned fields.
+        return ""
     if var_lines:
         lines.append(
             "Structured data to collect during this call. Ask the caller for "

@@ -2147,3 +2147,23 @@ def test_live_extraction_section_excludes_engine_owned_variables():
     )
     assert "- phone (string)" in section
     assert "call_disposition" not in section
+
+
+def test_live_extraction_section_empty_when_only_engine_owned_remain():
+    from api.services.workflow.pipecat_engine_context_composer import (
+        compose_extraction_section_for_live_backend,
+    )
+
+    node = SimpleNamespace(
+        extraction_enabled=True,
+        extraction_prompt="Collect the call disposition...",
+        extraction_variables=[
+            SimpleNamespace(name="call_disposition", type="string", prompt="Outcome."),
+        ],
+    )
+    assert (
+        compose_extraction_section_for_live_backend(
+            node=node, format_prompt=lambda s: s
+        )
+        == ""
+    )

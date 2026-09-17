@@ -83,3 +83,47 @@ async def test_mark_workflow_run_failed_swallows_enqueue_errors(
 
     mock_db.update_workflow_run.assert_awaited_once()
     enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_mark_workflow_run_failed_skips_enqueue_when_only_if_incomplete_and_already_completed(
+    no_disposition_mapping,
+):
+    enqueue = AsyncMock()
+    with (
+        patch("api.services.workflow_run_failure.db_client") as mock_db,
+        patch("api.tasks.arq.enqueue_job", enqueue),
+    ):
+        mock_db.update_workflow_run = AsyncMock(return_value=None)
+        mock_db.get_organization_id_by_workflow_run_id = AsyncMock(return_value=7)
+
+        await mark_workflow_run_failed(
+            101, "Error after complete", only_if_incomplete=True
+        )
+
+    mock_db.update_workflow_run.assert_awaited_once()
+    enqueue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mark_workflow_run_failed_enqueues_when_only_if_incomplete_and_not_completed(
+    no_disposition_mapping,
+):
+    enqueue = AsyncMock()
+    with (
+        patch("api.services.workflow_run_failure.db_client") as mock_db,
+        patch("api.tasks.arq.enqueue_job", enqueue),
+    ):
+        mock_db.update_workflow_run = AsyncMock(return_value={"id": 101})
+        mock_db.get_organization_id_by_workflow_run_id = AsyncMock(return_value=7)
+
+        await mark_workflow_run_failed(
+            101, "Error on incomplete", only_if_incomplete=True
+        )
+
+    mock_db.update_workflow_run.assert_awaited_once()
+    enqueue.assert_awaited_once_with(
+        FunctionNames.RUN_INTEGRATIONS_POST_WORKFLOW_RUN,
+        101,
+    )
+

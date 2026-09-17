@@ -156,6 +156,7 @@ services:
       # install only needs PUBLIC_BASE_URL + PUBLIC_HOST in .env.
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
       PUBLIC_HOST: "${PUBLIC_HOST:-}"
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: "${WHATSAPP_WEBHOOK_VERIFY_TOKEN:-}"
 
       # Optional explicit override of the public URL the backend builds webhook /
       # embed links from. Defaults to PUBLIC_BASE_URL. When the value is non-public

@@ -32,7 +32,7 @@ If you find yourself editing anything else, re-read the registry plumbing first:
 | Stored credentials → constructor dict            | `ProviderSpec.config_loader`                                                                                                                          |
 | Audio sample rate / VAD rate                     | `ProviderSpec.transport_sample_rate` (full `AudioConfig` is built in `pipecat/audio_config.py::create_audio_config`)                                  |
 | Which transport runs in `run_pipeline_telephony` | `ProviderSpec.transport_factory`                                                                                                                      |
-| Save-request validation + masked response shape  | `ProviderSpec.config_request_cls` / `config_response_cls`                                                                                             |
+| Save-request validation                          | `ProviderSpec.config_request_cls`                                                                                                                     |
 | Form rendered by the telephony-config UI         | `ProviderSpec.ui_metadata` (`ProviderUIField` list)                                                                                                   |
 | Which credential masks on read                   | `ui_metadata.fields[*].sensitive=True` (no separate list)                                                                                             |
 | Inbound webhook → config row matching            | `ProviderSpec.account_id_credential_field`                                                                                                            |
@@ -51,7 +51,6 @@ SPEC = ProviderSpec(
     transport_factory=create_transport,
     transport_sample_rate=8000,  # wire-format rate; pipecat derives the full AudioConfig
     config_request_cls=YourProviderConfigurationRequest,
-    config_response_cls=YourProviderConfigurationResponse,
     ui_metadata=ProviderUIMetadata(...),  # drives the form UI
     account_id_credential_field="api_key",  # "" if provider has no account-id concept
 )

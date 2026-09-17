@@ -1338,7 +1338,7 @@ async def test_competing_transitions_execute_exactly_once():
     assert service.has_function("issue_b")
     transition_a = await engine._create_transition_func("issue_a", "branch_a")
     await transition_a(SimpleNamespace(arguments={}, result_callback=AsyncMock()))
-    assert engine._current_node.id == "branch_a"
+    assert engine.active_agent.current_node.id == "branch_a"
     assert engine._gathered_context["nodes_visited"] == ["Opening", "Issue A Branch"]
 
 
@@ -1355,12 +1355,12 @@ async def test_safety_path_avoids_ordinary_branches():
     await engine.set_node("start", emit_transition_event=False)
     transition = await engine._create_transition_func("safety_concern", "escalation")
     await transition(SimpleNamespace(arguments={}, result_callback=AsyncMock()))
-    assert engine._current_node.id == "escalation"
+    assert engine.active_agent.current_node.id == "escalation"
     assert "Issue A Branch" not in engine._gathered_context["nodes_visited"]
     assert "Issue B Branch" not in engine._gathered_context["nodes_visited"]
     finish = await engine._create_transition_func("safety_done", "terminal")
     await finish(SimpleNamespace(arguments={}, result_callback=AsyncMock()))
-    assert engine._current_node.id == "terminal"
+    assert engine.active_agent.current_node.id == "terminal"
 
 
 @pytest.mark.asyncio
@@ -1383,7 +1383,7 @@ async def test_terminal_transition_queues_single_endframe():
         captured["props"] = properties
 
     await finish(SimpleNamespace(arguments={}, result_callback=result_callback))
-    assert engine._current_node.id == "terminal"
+    assert engine.active_agent.current_node.id == "terminal"
     # Simulate the aggregator firing on_context_updated after the closing
     # response reaches the caller.
     await captured["props"].on_context_updated()
@@ -1494,7 +1494,7 @@ async def test_live_extraction_writes_gathered_context(simple_workflow):
         is_realtime=True,
     )
     engine._variable_extraction_manager = VariableExtractionManager(engine)
-    engine.variable_extraction_llm = SimpleNamespace(
+    engine.active_agent.variable_extraction_llm = SimpleNamespace(
         run_inference=AsyncMock(return_value='{"user_intent": "billing"}'),
         model_name="stub",
     )

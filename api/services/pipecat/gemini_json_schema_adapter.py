@@ -50,4 +50,44 @@ class DograhGeminiLiveJSONSchemaAdapter(
     the ``parameters_json_schema`` tool formatting above.
     """
 
-    pass
+    # Enabled per service instance by ``DograhGeminiLiveLLMService``. When
+    # True, the native Google Search tool is appended to every Live session
+    # configuration alongside workflow function declarations. ``from_standard_tools``
+    # is the single funnel for all session tool payloads (initial connect,
+    # node-transition reconnects, error reconnects), so Search survives every
+    # reconnect without any per-connect call sites.
+    google_search_enabled: bool = False
+
+    # Enabled per service instance for gemini-3.8-live only. Google made async
+    # (NON_BLOCKING) the default function-calling mode on 3.8 Live while
+    # keeping synchronous BLOCKING for backwards compatibility; Dograh's
+    # engine (transition deferral, greeting/terminal flows) assumes blocking
+    # turns, so declarations are tagged explicitly. Never enabled for older
+    # models (untagged preserves their exact prior payloads).
+    force_blocking_tools: bool = False
+
+    def from_standard_tools(self, tools):
+        converted = super().from_standard_tools(tools)
+        if self.force_blocking_tools and converted:
+            converted = [
+                (
+                    {
+                        **tool,
+                        "function_declarations": [
+                            {**declaration, "behavior": "BLOCKING"}
+                            for declaration in tool.get("function_declarations", [])
+                        ],
+                    }
+                    if isinstance(tool, dict) and "function_declarations" in tool
+                    else tool
+                )
+                for tool in converted
+            ]
+        if not self.google_search_enabled:
+            return converted
+        tools_list = list(converted) if converted else []
+        if not any(
+            isinstance(tool, dict) and "google_search" in tool for tool in tools_list
+        ):
+            tools_list = [*tools_list, {"google_search": {}}]
+        return tools_list

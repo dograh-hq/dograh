@@ -1002,6 +1002,19 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
+    google_search: bool = Field(
+        default=False,
+        description=(
+            "Allow Gemini to use Google Search for up-to-date information. "
+            "When off, no Google Search tool is sent."
+        ),
+        json_schema_extra={
+            "visible_for_models": [
+                "gemini-3.1-flash-live-preview",
+                "gemini-3.8-live",
+            ],
+        },
+    )
 
 
 @register_service(ServiceType.REALTIME)

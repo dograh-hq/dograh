@@ -23,6 +23,7 @@ Layers Dograh engine integration quirks onto upstream-pristine
 """
 
 import asyncio
+from dataclasses import replace
 from typing import Any, cast
 
 from google.genai.types import Content, ContentDict, Part
@@ -44,8 +45,46 @@ from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
 
+def live_node_header(node_name: str, node_type: str) -> str:
+    """Current-node boundary header for Live voice sessions.
+
+    Mirrors the GPT Live header format so node boundaries are explicit in
+    the system instruction rather than implied by prompt text alone.
+    """
+    return f"Current workflow node: {node_name}\nNode type: {node_type}"
+
+
 class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService):
     """Gemini Live with Dograh engine integration quirks. See module docstring."""
+
+    # Workflow-transition policy for gemini-3.8-live: a transition tool call
+    # is the mechanism that actually moves the workflow to the next node.
+    # Without it the model must not drift into later-node behavior. Generic
+    # over all workflows: no node names, edge labels, or business rules are
+    # hardcoded here. Adapted from the proven GPT Live transition policy
+    # (see DograhOpenAILiveLLMService.TRANSITION_POLICY) with
+    # OpenAI-delegation wording removed.
+    GEMINI_38_TRANSITION_POLICY = """Workflow transition policy: you are currently
+executing exactly one workflow node (named under "Current workflow node"
+below). The current node does not change merely because you know what the
+next node should do. A transition function call is the ONLY mechanism that
+moves the workflow to another node. Complete the current node's purpose
+first, then determine whether a transition condition is satisfied. When the
+condition for a transition is satisfied, you MUST call the corresponding
+transition function; do not merely acknowledge the condition and start
+asking questions or collecting information that belongs to a later node. Do
+not continue as though the workflow has advanced until the transition
+function has been executed; after calling it, wait for the tool result and
+the new node instructions before continuing with the next node's work. On a
+node with several transition functions, call only the one whose condition
+matches the caller's situation. Do not call a transition merely because the
+caller mentioned something related to a later node while the current node
+still needs information. Do not simulate the next node before the transition
+occurs. Do not speak closing, summary-of-completion, or goodbye content
+while the current node is not terminal; closing content does not end the
+call — only a transition or end-call tool does.
+
+"""
 
     # Gemini input transcription is delivered independently from tool calls.
     # Give late transcription messages a small window to arrive before running
@@ -60,8 +99,33 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # ``DograhGeminiLiveVertexLLMService`` inherits this via MRO.
     adapter_class = DograhGeminiLiveJSONSchemaAdapter
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    # Live model ID for Google's Gemini 3.8 Live family. The base model keeps
+    # Dograh's historical synchronous function-call semantics via an explicit
+    # BLOCKING tag (async is the server default on 3.8 Live).
+    GEMINI_38_LIVE_MODEL = "gemini-3.8-live"
+
+    def __init__(
+        self,
+        *,
+        google_search: bool = False,
+        settings=None,
+        **kwargs,
+    ):
+        settings = settings or self.Settings()
+        super().__init__(settings=settings, **kwargs)
+        # Opt-in native Google Search tool for the Live session. Applied
+        # additively at session-config time (see get_llm_adapter), so
+        # workflow transition/node/custom tools are never replaced.
+        self._google_search_enabled = google_search
+        # Explicit BLOCKING keeps 3.8 Live on Dograh's historical synchronous
+        # semantics (async is the new server default there). Never set for
+        # older models (their payloads stay byte-identical).
+        self._force_blocking_tools = settings.model == self.GEMINI_38_LIVE_MODEL
+        # Master switch for the gemini-3.8-live transition policy (policy
+        # text here plus the engine-prepended current-node header). Only
+        # gemini-3.8-live gets it; older models keep their exact prior
+        # prompts.
+        self.supports_transition_policy = settings.model == self.GEMINI_38_LIVE_MODEL
         # Node-transition calls emitted mid-bot-turn are deferred here so the
         # transition does not tear down Gemini while it is still producing audio.
         self._pending_node_transition_function_calls: list[FunctionCallFromLLM] = []
@@ -88,6 +152,38 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # ------------------------------------------------------------------
     # Hooks from upstream GeminiLiveLLMService
     # ------------------------------------------------------------------
+
+    def get_llm_adapter(self):
+        # Sync the Google Search opt-in onto the cached adapter on every
+        # access. The adapter builds session tools on every connect, so
+        # Search is (re-)applied for initial connections, node-transition
+        # reconnects, and error reconnects. When the flag is off the
+        # adapter behaves exactly as before.
+        adapter = super().get_llm_adapter()
+        adapter.google_search_enabled = self._google_search_enabled
+        adapter.force_blocking_tools = self._force_blocking_tools
+        return adapter
+
+    def _compose_live_instruction(self, node_prompt: str) -> str:
+        # Prepend the 3.8 transition policy to the engine-composed prompt
+        # (global prompt + node header + node prompt). Model-gated: older
+        # models receive the prompt untouched.
+        if not self.supports_transition_policy or not node_prompt:
+            return node_prompt
+        if self.GEMINI_38_TRANSITION_POLICY in node_prompt:
+            return node_prompt
+        return self.GEMINI_38_TRANSITION_POLICY + node_prompt
+
+    async def _update_settings(self, delta):
+        # The engine sends a fresh node prompt on every set_node(); prepend
+        # the transition policy here so initial connects and node-transition
+        # reconnects (which read self._settings) always carry it exactly once.
+        instruction = getattr(delta, "system_instruction", None)
+        if isinstance(instruction, str) and instruction:
+            composed = self._compose_live_instruction(instruction)
+            if composed != instruction:
+                delta = replace(delta, system_instruction=composed)
+        return await super()._update_settings(delta)
 
     def _should_connect_on_start(self) -> bool:
         # Hold the connection until the engine sets a system_instruction. This

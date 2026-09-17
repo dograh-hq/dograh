@@ -852,21 +852,33 @@ class PipecatEngine:
         # conversational model receives exactly the prompt above.
         # Lazy import: engine <-> realtime service modules must not
         # import each other at module load time.
+        from api.services.pipecat.realtime.gemini_live import (
+            DograhGeminiLiveLLMService,
+            live_node_header,
+        )
         from api.services.pipecat.realtime.openai_live import (
             DograhOpenAILiveLLMService,
         )
 
-        if isinstance(self.llm, DograhOpenAILiveLLMService):
+        if isinstance(agent.llm, DograhOpenAILiveLLMService):
             node_header = (
                 f"Current workflow node: {node.name}\nNode type: {node.node_type}"
             )
-            system_prompt = node_header + "\n\n" + system_prompt
+            prompt = node_header + "\n\n" + prompt
             extraction_section = compose_extraction_section_for_live_backend(
                 node=node,
                 format_prompt=self._format_prompt,
             )
             if extraction_section:
-                system_prompt = system_prompt + "\n\n" + extraction_section
+                prompt = prompt + "\n\n" + extraction_section
+        elif (
+            isinstance(agent.llm, DograhGeminiLiveLLMService)
+            and agent.llm.supports_transition_policy
+        ):
+            # gemini-3.8-live only: same current-node boundary header the
+            # policy text refers to. Older Gemini models keep their exact
+            # prior prompts.
+            prompt = live_node_header(node.name, node.node_type) + "\n\n" + prompt
         functions = await compose_functions_for_node(
             node=node, custom_tool_manager=manager
         )
@@ -1416,9 +1428,9 @@ class PipecatEngine:
                 DograhOpenAILiveLLMService,
             )
 
-            if isinstance(self.llm, DograhOpenAILiveLLMService):
+            if isinstance(self.active_agent.llm, DograhOpenAILiveLLMService):
                 logger.debug("Speaking configured text via GPT Live session")
-                await self.llm._speak(text)
+                await self.active_agent.llm._speak(text)
                 return True
             logger.debug("Skipping configured text speech in realtime mode")
             return False

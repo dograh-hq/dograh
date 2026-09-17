@@ -1428,6 +1428,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             settings_kwargs["language"] = language
         return DograhGeminiLiveLLMService(
             api_key=api_key,
+            google_search=bool(getattr(realtime_config, "google_search", False)),
             settings=DograhGeminiLiveLLMService.Settings(**settings_kwargs),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX_REALTIME.value:

@@ -356,6 +356,8 @@ async def test_screener_prompt_stays_gated_regardless_of_duration(text, duration
         "Dial eight.",
         "Press nine.",
         "Press 1.",
+        "Premere zero",
+        "Premere 0",
     ],
 )
 async def test_ivr_prompt_stays_gated_regardless_of_duration(text, duration, screening):
@@ -892,6 +894,7 @@ async def test_shutdown_cancels_managed_classifier_and_waits_for_cleanup(screeni
     [
         ("Leave a message after the tone.", "voicemail"),
         ("The mailbox is full.", "no_message"),
+        ("L'utente da lei chiamato non e' al momento raggiungibile.", "no_message"),
     ],
 )
 async def test_short_recognised_machine_greeting_is_not_released_as_human(text, reason):
@@ -906,12 +909,37 @@ async def test_short_recognised_machine_greeting_is_not_released_as_human(text, 
 
 
 @pytest.mark.asyncio
-async def test_short_unrecognised_turn_is_still_called_human_without_the_classifier():
+@pytest.mark.parametrize("text", ["Who's calling?", "Sono momentaneamente occupato"])
+async def test_short_unrecognised_turn_is_still_called_human_without_the_classifier(
+    text,
+):
     """Unmatched short turns skip the classifier to avoid delaying human greetings."""
     classifier = AsyncMock(return_value=MachineSubtype.SCREENER)
-    async with call(classify=classifier) as c:
-        await c.say("Who's calling?")
+    # Allow scheduler delays without accidentally exercising the long-turn path.
+    async with call(classify=classifier, human_utterance_max_ms=500) as c:
+        await c.say(text)
         result = await verdict(c)
         assert result.action == "release"
         assert result.reason == "human_turn"
         classifier.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("human_utterance_max_ms", [1, 500])
+async def test_receptionist_unavailability_is_released_as_conversation(
+    human_utterance_max_ms,
+):
+    text = "Il signor Rossi non è raggiungibile al momento"
+    classifier = AsyncMock(return_value=MachineSubtype.CONVERSATION)
+    async with call(
+        classify=classifier, human_utterance_max_ms=human_utterance_max_ms
+    ) as c:
+        await c.say(text)
+        result = await verdict(c)
+        assert result.action == "release"
+        assert result.subtype == MachineSubtype.CONVERSATION
+        assert result.diagnostics["pattern_subtype"] == "UNKNOWN"
+        if human_utterance_max_ms == 500:
+            classifier.assert_not_awaited()
+        else:
+            classifier.assert_awaited_once_with(text)

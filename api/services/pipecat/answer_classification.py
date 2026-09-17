@@ -67,7 +67,7 @@ _EN_SCREENING_WAIT = (
 # phrases that a live person has no reason to utter are kept, so a miss costs an
 # LLM call while a false match would drop a human. "un" is deliberately absent
 # from the digits: it is also the indefinite article.
-_IT_DIGIT = r"(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|[1-9])"
+_IT_DIGIT = r"(?:zero|uno|due|tre|quattro|cinque|sei|sette|otto|nove|[0-9])"
 _IT_NO_MESSAGE = (
     r"\bsegreteria\b.{0,40}\b(?:piena|non (?:e'|è) (?:attiva|disponibile))\b"
     r"|\bcasella (?:vocale )?(?:(?:e'|è) )?(?:piena|non (?:e'|è) stata attivata)\b"
@@ -77,9 +77,9 @@ _IT_NO_MESSAGE = (
     # Carrier announcements: the network answered, not the subscriber, and
     # there is nothing to record. Rare among answered runs -- an unreachable
     # number usually never reaches this layer -- but unambiguous when it lands.
+    # Keep the carrier subject: "non è raggiungibile" alone can be a live answer.
     r"|\b(?:l')?(?:utente|numero) da lei (?:chiamat|compost)\w*\b.{0,40}"
-    r"\bnon (?:e'|è)\b"
-    r"|\bnon (?:e'|è) (?:al momento )?(?:attivo o )?raggiungibile\b"
+    r"\bnon (?:e'|è)(?!\w)"
     r"|\bnumero (?:selezionato|composto)\b.{0,25}\binesistente\b"
     r"|\btutte le linee\b.{0,20}\boccupate\b"
 )
@@ -109,7 +109,9 @@ _IT_SCREENING_WAIT = (
     r"|\bsi prega di (?:restare|rimanere|attendere)\b"
     r"|\bprimo operatore (?:libero|disponibile)\b"
     r"|\bun (?:nostro )?operatore\b.{0,40}\b(?:risponder|disposizione)"
-    r"|\b(?:momentaneamente|temporaneamente) occupat"
+    # Require a queue subject: a live person can say "sono momentaneamente occupato".
+    r"|\b(?:operatori|linee)\b.{0,40}\b"
+    r"(?:momentaneamente|temporaneamente) occupat[ie]\b"
 )
 
 # Specific negative/screening instructions precede generic voicemail phrases.

@@ -64,6 +64,10 @@ def test_ivr_recognizes_all_spoken_digits(instruction, digit):
     "text, expected",
     [
         # IVR: a keypad instruction carrying a spoken digit.
+        ("Premere zero", MachineSubtype.IVR),
+        ("Premere 0", MachineSubtype.IVR),
+        ("Digitare lo zero per parlare con un operatore.", MachineSubtype.IVR),
+        ("Selezionare 0 per continuare.", MachineSubtype.IVR),
         ("Per il commerciale digitare due.", MachineSubtype.IVR),
         ("Premere uno per parlare con l'amministrazione.", MachineSubtype.IVR),
         ("Selezionare tre per il magazzino.", MachineSubtype.IVR),
@@ -90,6 +94,18 @@ def test_ivr_recognizes_all_spoken_digits(instruction, digit):
             "Tutti i nostri operatori sono momentaneamente occupati.",
             MachineSubtype.SCREENING_WAIT,
         ),
+        (
+            "I nostri operatori sono temporaneamente occupati.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "Le nostre linee sono momentaneamente occupate.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "Le linee sono temporaneamente occupate.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
         ("Attendere in linea.", MachineSubtype.SCREENING_WAIT),
         (
             "Un operatore le rispondera' appena possibile.",
@@ -112,6 +128,18 @@ def test_ivr_recognizes_all_spoken_digits(instruction, digit):
         ),
         (
             "Il numero da lei chiamato non e' raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        (
+            "L'utente da lei chiamato non è al momento raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        (
+            "Il numero da lei composto non e' attivo o raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        (
+            "L’utente da lei chiamato non e’ raggiungibile.",
             MachineSubtype.NO_MESSAGE,
         ),
         ("Il numero selezionato e' inesistente.", MachineSubtype.NO_MESSAGE),
@@ -143,13 +171,28 @@ def test_italian_machine_subtypes(text, expected):
         "Non c'e' nessuno, mi dispiace.",
         "Lo trova domani mattina.",
         "E' fuori sede, rientra la settimana prossima.",
+        # A receptionist reporting unavailability is still a live answer.
+        "Il signor Rossi non è raggiungibile al momento",
+        "Il titolare non è al momento raggiungibile.",
+        "Il signor Rossi non e' raggiungibile al momento.",
+        "Il titolare non e’ al momento raggiungibile.",
+        "Non è al momento raggiungibile, posso aiutarla io?",
         "Non sono interessato, la ringrazio.",
         "Guardi, siamo gia' a posto con la telefonia.",
         "Non siamo interessati, buona giornata.",
+        # Being busy alone does not identify an automated queue announcement.
+        "Sono momentaneamente occupato",
+        "Sono momentaneamente occupata, puo' richiamare?",
+        "Sono temporaneamente occupato.",
+        "Scusi, sono temporaneamente occupata.",
+        "Siamo momentaneamente occupati.",
+        "Il titolare e' temporaneamente occupato.",
         # Numbers spoken by a person: times and quantities, not a keypad menu.
         "Richiami verso le due, dopo pranzo.",
         "Siamo aperti dalle otto alle dodici.",
         "Ci sono tre persone in ufficio adesso.",
+        "Ho zero tempo per parlare adesso.",
+        "Ho 0 chiamate perse.",
         # Closure and absence phrasings that the deployment's instructions list
         # as voicemail. A recorded greeting and a live employee say these in the
         # same words, so they stay with the classifier, which reads the whole

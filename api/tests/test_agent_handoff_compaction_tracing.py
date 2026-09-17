@@ -10,8 +10,10 @@ and pin that visibility follows the same per-org policy as every other span.
 
 import asyncio
 import json
+from contextlib import contextmanager
+from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from opentelemetry import context as otel_context
@@ -185,6 +187,107 @@ async def test_no_span_when_tracing_is_disabled(tracing, monkeypatch):
 
     assert snapshot.summarized
     assert not [s for s in exporter.get_finished_spans() if s.name == SPAN_NAME]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure_point",
+    [
+        "ensure_tracing",
+        "LLMContextSummarizationUtil.format_messages_for_summary",
+        "trace.get_tracer",
+        "mark_trace_public",
+        "add_llm_span_attributes",
+    ],
+)
+async def test_span_setup_failure_preserves_conversation(
+    tracing, monkeypatch, failure_point
+):
+    monkeypatch.setattr(
+        f"{handoff.__name__}.{failure_point}",
+        Mock(side_effect=RuntimeError("tracing setup failed")),
+    )
+    context = conversation()
+    expected = deepcopy(context.messages)
+    context.messages.insert(0, {"role": "system", "content": "Source instructions"})
+    context.add_message({"role": "tool", "content": "Source tool result"})
+    original = deepcopy(context.messages)
+    generate = AsyncMock(return_value=("summary", 5))
+
+    snapshot = await handoff.build_handoff_snapshot(
+        context,
+        SimpleNamespace(_generate_summary=generate),
+        request_id="req-setup-error",
+    )
+
+    assert snapshot == handoff.HandoffSnapshot(
+        messages=expected, boundary=len(original), summarized=False
+    )
+    assert context.messages == original
+    assert snapshot.messages[0] is not context.messages[1]
+    generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_span_exit_failure_preserves_conversation(tracing, monkeypatch):
+    tracer, _ = tracing
+    start_span = tracer.start_as_current_span
+
+    @contextmanager
+    def failing_exit(*args, **kwargs):
+        with start_span(*args, **kwargs) as span:
+            yield span
+        raise RuntimeError("tracing teardown failed")
+
+    monkeypatch.setattr(tracer, "start_as_current_span", failing_exit)
+    context = conversation()
+    snapshot = await handoff.build_handoff_snapshot(
+        context, summarizing_llm(), request_id="req-exit-error"
+    )
+
+    assert snapshot == handoff.HandoffSnapshot(
+        messages=context.messages, boundary=len(context.messages), summarized=False
+    )
+
+
+@pytest.mark.asyncio
+async def test_fallback_tracing_failure_preserves_conversation(tracing, monkeypatch):
+    monkeypatch.setattr(
+        handoff, "_record_fallback", Mock(side_effect=RuntimeError("tracing failed"))
+    )
+    context = conversation()
+    snapshot = await handoff.build_handoff_snapshot(
+        context,
+        failing_llm(RuntimeError("provider failed")),
+        request_id="req-record-error",
+    )
+
+    assert snapshot == handoff.HandoffSnapshot(
+        messages=context.messages, boundary=len(context.messages), summarized=False
+    )
+
+
+@pytest.mark.asyncio
+async def test_compaction_cancellation_propagates(tracing):
+    started = asyncio.Event()
+
+    async def generate_summary(request):
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(
+        handoff.build_handoff_snapshot(
+            conversation(),
+            SimpleNamespace(_generate_summary=generate_summary),
+            request_id="req-cancelled",
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
 
 def _raising_resolver():

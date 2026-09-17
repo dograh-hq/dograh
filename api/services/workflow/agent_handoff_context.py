@@ -186,8 +186,8 @@ async def build_handoff_snapshot(
             it the span becomes a detached root.
 
     Returns:
-        The prepared :class:`HandoffSnapshot`. Never raises: a handoff that
-        cannot summarize proceeds with conversation history rather than failing.
+        The prepared :class:`HandoffSnapshot`. Summary or tracing failures fall
+        back to conversation history. Task cancellation still propagates.
     """
     source_messages = deepcopy(context.messages)
     boundary = len(source_messages)
@@ -222,38 +222,43 @@ async def build_handoff_snapshot(
         summarization_timeout=timeout,
     )
 
-    with _compaction_span(llm, request, parent_context) as span:
-        try:
-            summary_text, last_index = await asyncio.wait_for(
-                generate_summary(request), timeout=timeout
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"Handoff compaction {request_id} timed out after {timeout}s; "
-                "handing over conversation history instead"
-            )
-            _record_fallback(span, "timeout")
-            return fallback
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.warning(
-                f"Handoff compaction {request_id} failed ({e}); handing over "
-                "conversation history instead"
-            )
-            _record_fallback(span, "error")
-            return fallback
+    # Span entry formats the transcript and initializes tracing; entry, writes,
+    # and teardown must all respect the same fallback as summary generation.
+    try:
+        with _compaction_span(llm, request, parent_context) as span:
+            try:
+                summary_text, last_index = await asyncio.wait_for(
+                    generate_summary(request), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Handoff compaction {request_id} timed out after {timeout}s; "
+                    "handing over conversation history instead"
+                )
+                _record_fallback(span, "timeout")
+                return fallback
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _record_fallback(span, "error")
+                raise
 
-        if not summary_text or last_index < 0:
-            logger.warning(
-                f"Handoff compaction {request_id} produced no summary; handing "
-                "over conversation history instead"
-            )
-            _record_fallback(span, "empty_summary")
-            return fallback
+            if not summary_text or last_index < 0:
+                logger.warning(
+                    f"Handoff compaction {request_id} produced no summary; handing "
+                    "over conversation history instead"
+                )
+                _record_fallback(span, "empty_summary")
+                return fallback
 
-        if span is not None:
-            span.set_attribute("output", json.dumps({"content": summary_text}))
+            if span is not None:
+                span.set_attribute("output", json.dumps({"content": summary_text}))
+    except Exception as e:
+        logger.warning(
+            f"Handoff compaction {request_id} failed ({e}); handing over "
+            "conversation history instead"
+        )
+        return fallback
 
     last_index = min(last_index, boundary - 1)
     retained = conversation_messages(source_messages[last_index + 1 :])

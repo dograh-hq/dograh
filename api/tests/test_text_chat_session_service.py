@@ -294,6 +294,9 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
     extract_variables.assert_awaited_once_with(
         workflow_run_id=42,
         workflow_id=11,
+        # The org this call was authorized against, so the helper's unscoped
+        # run read can be validated rather than trusted.
+        organization_id=7,
         checkpoint={"current_node_id": "agent"},
         session_data=text_chat_session_service.normalize_text_chat_session_data(
             {"status": "idle", "turns": []}

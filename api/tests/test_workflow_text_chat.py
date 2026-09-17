@@ -17,6 +17,7 @@ from api.services.configuration.ai_model_configuration import (
 from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
     _serialize_text_chat_checkpoint_messages,
+    extract_text_chat_final_variables,
 )
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_session_service import (
@@ -1639,6 +1640,84 @@ async def test_text_chat_end_with_pinned_revision_reports_a_concurrent_turn(
     assert reloaded.session_data["turns"][-1]["user_message"]["text"] == (
         "One more thing."
     )
+
+
+@pytest.mark.asyncio
+async def test_final_extraction_refuses_a_run_from_another_organization(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """The helper validates the run it loads against the caller's organization.
+
+    `get_workflow_run_with_context` is the unscoped system-caller read, and the
+    workflow_id check proves nothing about ownership because it comes from the
+    same row. api/AGENTS.md requires every org-scoped read to be filtered or
+    validated by organization_id.
+    """
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_extraction_workflow_definition(),
+        suffix="org-scope-owner",
+    )
+    # A real second organization, configured exactly like the first. A bogus id
+    # would be refused anyway for want of a model configuration, which would
+    # let this pass without the ownership check ever running.
+    other_user, _other_workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_extraction_workflow_definition(),
+        suffix="org-scope-intruder",
+    )
+    workflow_run = await _session_with_one_user_turn(
+        db_session, user, workflow, user_text="My ticket is 1054202."
+    )
+    text_session = await db_session.get_workflow_run_text_session(
+        workflow_run.id, organization_id=user.selected_organization_id
+    )
+
+    extraction_calls = []
+
+    async def fake_extraction(_self, _variables, *_args, **_kwargs):
+        extraction_calls.append(True)
+        return {"ticket_number": "1054202"}
+
+    with (
+        patch(
+            "api.services.workflow.text_chat_runner.create_llm_service",
+            side_effect=lambda *a, **k: MockLLMService(
+                mock_steps=[], chunk_delay=0.001
+            ),
+        ),
+        patch(
+            "api.services.workflow.pipecat_engine_variable_extractor."
+            "VariableExtractionManager._perform_extraction",
+            new=fake_extraction,
+        ),
+    ):
+        # The run's real organization: extraction proceeds.
+        allowed = await extract_text_chat_final_variables(
+            workflow_run_id=workflow_run.id,
+            workflow_id=workflow.id,
+            organization_id=user.selected_organization_id,
+            checkpoint=text_session.checkpoint,
+            session_data=text_session.session_data,
+        )
+
+        # Another real organization reaching the same run: refused, without
+        # touching the LLM, even though its own configuration would work.
+        refused = await extract_text_chat_final_variables(
+            workflow_run_id=workflow_run.id,
+            workflow_id=workflow.id,
+            organization_id=other_user.selected_organization_id,
+            checkpoint=text_session.checkpoint,
+            session_data=text_session.session_data,
+        )
+
+    assert allowed["extracted_variables"] == {"ticket_number": "1054202"}
+    assert refused == {}
+    assert len(extraction_calls) == 1
 
 
 @pytest.mark.asyncio

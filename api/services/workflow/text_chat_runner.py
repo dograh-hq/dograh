@@ -832,6 +832,7 @@ async def extract_text_chat_final_variables(
     *,
     workflow_run_id: int,
     workflow_id: int,
+    organization_id: int,
     checkpoint: dict[str, Any] | None,
     session_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -877,13 +878,31 @@ async def extract_text_chat_final_variables(
             # Only the greeting happened. Nothing a node could extract from.
             return {}
 
-        workflow_run, _ = await db_client.get_workflow_run_with_context(workflow_run_id)
+        # `get_workflow_run_with_context` is the unscoped system-caller read, so
+        # the run is fetched by id and its ownership validated here instead --
+        # the workflow_id check alone proves nothing, being derived from this
+        # same row. See api/AGENTS.md, "Organization Scoping (Security)".
+        (
+            workflow_run,
+            run_organization_id,
+        ) = await db_client.get_workflow_run_with_context(workflow_run_id)
         if (
             not workflow_run
             or workflow_run.workflow_id != workflow_id
             or workflow_run.definition is None
             or workflow_run.workflow is None
         ):
+            return {}
+        if run_organization_id != organization_id:
+            # A caller reached a run outside the organization it authorized
+            # against. Nothing is extracted, and it is logged rather than
+            # silently skipped because it means a bug upstream, not an
+            # ordinary "nothing to extract".
+            logger.warning(
+                f"Refusing final text-chat extraction for run {workflow_run_id}: "
+                f"run belongs to organization {run_organization_id}, "
+                f"caller authorized against {organization_id}"
+            )
             return {}
 
         workflow_graph = WorkflowGraph(
@@ -900,11 +919,11 @@ async def extract_text_chat_final_variables(
 
         # Route this extraction's spans to the org's Langfuse project, the way
         # the turn path does for every other text-chat span.
-        set_current_org_id(workflow_run.workflow.organization_id)
+        set_current_org_id(organization_id)
 
         run_configs = workflow_run.definition.workflow_configurations or {}
         user_config = await get_effective_ai_model_configuration_for_workflow(
-            organization_id=workflow_run.workflow.organization_id,
+            organization_id=organization_id,
             workflow_configurations=run_configs,
         )
         if user_config.llm is None:

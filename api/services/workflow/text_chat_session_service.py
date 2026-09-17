@@ -284,6 +284,9 @@ async def complete_text_chat_session(
     extracted = await extract_text_chat_final_variables(
         workflow_run_id=run_id,
         workflow_id=workflow_run.workflow_id,
+        # The organization this call was already authorized against, so the
+        # helper's unscoped run read can be validated rather than trusted.
+        organization_id=workflow_run.workflow.organization_id,
         checkpoint=text_session.checkpoint,
         # Completion can win while a turn is still pending, and that turn's user
         # message is only in session_data until it executes. The transcript

@@ -669,7 +669,7 @@ export default function UsagePage() {
                                     <div className="mt-4 p-3 bg-muted rounded-md">
                                         <p className="text-sm text-muted-foreground">
                                             Total for filtered period: <span className="font-semibold text-foreground">
-                                                {usageHistory.total_dograh_tokens.toLocaleString()} Dograh Tokens
+                                                {usageHistory.total_dograh_tokens.toLocaleString()} Vani Tokens
                                             </span>
                                             {' • '}
                                             <span className="font-semibold text-foreground">

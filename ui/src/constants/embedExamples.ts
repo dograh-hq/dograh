@@ -8,7 +8,7 @@ function withDograhWidget(callback) {
 
   const script = document.getElementById('dograh-widget');
   if (!script) {
-    console.error('Dograh embed script not found');
+    console.error('Vani embed script not found');
     return;
   }
 

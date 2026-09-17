@@ -60,7 +60,7 @@ export const ApiKeyErrorDialog = ({
                                 <p className="font-medium text-foreground">{error}</p>
                                 {isBillingCreditsError && (
                                     <p className="text-muted-foreground">
-                                        Purchase credits from Billing to continue using Dograh-managed models.
+                                        Purchase credits from Billing to continue using Vani-managed models.
                                     </p>
                                 )}
                                 {isServiceKeyOrgMismatch && (

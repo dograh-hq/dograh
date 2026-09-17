@@ -974,7 +974,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                                 <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
                                                     <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example React Component</h4>
                                                     <pre className="text-xs overflow-x-auto">
-                                                        <code className="text-blue-800 dark:text-blue-200">{`export function DograhAgent() {
+                                                        <code className="text-blue-800 dark:text-blue-200">{`export function VaniAgent() {
   const [isCallActive, setIsCallActive] = useState(false);
 
   useEffect(() => {

@@ -65,6 +65,7 @@ from api.services.workflow.disposition_mapping import (
 from api.services.workflow.initial_context import GREETING_OVERRIDE_CONTEXT_KEY
 from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_context_composer import (
+    compose_extraction_section_for_live_backend,
     compose_functions_for_node,
     compose_system_prompt_for_node,
 )
@@ -627,7 +628,10 @@ class PipecatEngine:
 
         async def _do_extraction() -> Optional[dict]:
             try:
-                logger.debug(f"Starting variable extraction for node: {node.name}")
+                logger.debug(
+                    f"Starting variable extraction for node: {node.name} "
+                    f"(id={node.id}, variables={len(extraction_variables)})"
+                )
                 extracted_data = (
                     await self._variable_extraction_manager._perform_extraction(
                         extraction_variables, parent_context, extraction_prompt
@@ -635,9 +639,10 @@ class PipecatEngine:
                 )
                 if not isinstance(extracted_data, dict):
                     logger.warning(
-                        f"Variable extraction for node {node.name} returned "
-                        f"{type(extracted_data).__name__} instead of dict, "
-                        f"skipping update. Data: {extracted_data}"
+                        f"Variable extraction for node {node.name} "
+                        f"(id={node.id}) returned "
+                        f"{type(extracted_data).__name__} instead of dict; "
+                        "keys/values omitted, skipping update."
                     )
                     return None
                 requested_names = {variable.name for variable in extraction_variables}
@@ -669,10 +674,19 @@ class PipecatEngine:
                     "extracted_variables", {}
                 )
                 extracted_variables.update(extracted_data)
+                # Log keys only: values may be caller PII (names, numbers).
                 logger.debug(
-                    f"Variable extraction completed for node: {node.name}. Extracted: {extracted_data}"
+                    f"Variable extraction completed for node: {node.name} "
+                    f"(id={node.id}). keys={sorted(extracted_data)} "
+                    f"is_dict=True"
                 )
                 return extracted_data
+            except asyncio.CancelledError:
+                logger.warning(
+                    f"Variable extraction for node {node.name} (id={node.id}) "
+                    "was cancelled before completing"
+                )
+                raise
             except Exception as e:
                 metadata = failure_metadata_for_processor(
                     self.active_agent.variable_extraction_llm
@@ -728,7 +742,12 @@ class PipecatEngine:
             elapsed = asyncio.get_event_loop().time() - start_time
             # Log any exceptions returned by gather
             for task_name, result in zip(task_names, results):
-                if isinstance(result, Exception):
+                if isinstance(result, asyncio.CancelledError):
+                    logger.warning(
+                        f"Pending extraction task '{task_name}' was cancelled "
+                        "before completing"
+                    )
+                elif isinstance(result, Exception):
                     logger.error(
                         f"Pending extraction task '{task_name}' failed: {result}"
                     )
@@ -784,8 +803,14 @@ class PipecatEngine:
         if self._final_extraction_done:
             logger.debug("Final variable extraction already performed; skipping")
             return
+        pending = len(self._pending_extraction_tasks)
+        logger.debug(f"Final extraction flush begins with {pending} pending task(s)")
         await self.flush_variable_extraction()
         self._final_extraction_done = True
+        logger.debug(
+            f"Final extraction flush finished with "
+            f"{len(self._pending_extraction_tasks)} pending task(s) remaining"
+        )
 
     async def _prepare_node(
         self, agent: AgentRuntime, node: Node, *, apply_settings=True
@@ -821,6 +846,39 @@ class PipecatEngine:
             format_prompt=self._format_prompt,
             has_recordings=self._has_recordings,
         )
+        # GPT Live backend parity: the Live voice model never receives
+        # extraction metadata, so append the node's structured-field context
+        # to the backend-bound prompt. Other providers are untouched: their
+        # conversational model receives exactly the prompt above.
+        # Lazy import: engine <-> realtime service modules must not
+        # import each other at module load time.
+        from api.services.pipecat.realtime.gemini_live import (
+            DograhGeminiLiveLLMService,
+            live_node_header,
+        )
+        from api.services.pipecat.realtime.openai_live import (
+            DograhOpenAILiveLLMService,
+        )
+
+        if isinstance(agent.llm, DograhOpenAILiveLLMService):
+            node_header = (
+                f"Current workflow node: {node.name}\nNode type: {node.node_type}"
+            )
+            prompt = node_header + "\n\n" + prompt
+            extraction_section = compose_extraction_section_for_live_backend(
+                node=node,
+                format_prompt=self._format_prompt,
+            )
+            if extraction_section:
+                prompt = prompt + "\n\n" + extraction_section
+        elif (
+            isinstance(agent.llm, DograhGeminiLiveLLMService)
+            and agent.llm.supports_transition_policy
+        ):
+            # gemini-3.8-live only: same current-node boundary header the
+            # policy text refers to. Older Gemini models keep their exact
+            # prior prompts.
+            prompt = live_node_header(node.name, node.node_type) + "\n\n" + prompt
         functions = await compose_functions_for_node(
             node=node, custom_tool_manager=manager
         )
@@ -1304,6 +1362,11 @@ class PipecatEngine:
                     f"{FINAL_EXTRACTION_TIMEOUT_SECONDS}s; keeping the recorded "
                     f"disposition '{call_disposition}'"
                 )
+            else:
+                logger.debug(
+                    "Final extraction flush completed within "
+                    f"{FINAL_EXTRACTION_TIMEOUT_SECONDS}s budget"
+                )
             if should_extract_disposition:
                 self.refine_call_disposition(
                     call_disposition,
@@ -1357,6 +1420,18 @@ class PipecatEngine:
         event to release either wait. Opening greetings use a separate path.
         """
         if self._is_realtime:
+            # GPT Live has no TTS service, but its session can speak text via
+            # an instructions append. Other realtime providers own their
+            # responses the same way as before. Lazy import: engine <->
+            # realtime service modules must not import at module load time.
+            from api.services.pipecat.realtime.openai_live import (
+                DograhOpenAILiveLLMService,
+            )
+
+            if isinstance(self.active_agent.llm, DograhOpenAILiveLLMService):
+                logger.debug("Speaking configured text via GPT Live session")
+                await self.active_agent.llm._speak(text)
+                return True
             logger.debug("Skipping configured text speech in realtime mode")
             return False
         if mute_user:

@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink, Plus, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet } from '@/client/sdk.gen';
@@ -158,6 +158,139 @@ function isVisibleForModel(schema: SchemaProperty | undefined, model?: string): 
     return !schema?.hidden_for_models?.includes(model || "");
 }
 
+// Speech-to-Speech UI mode selector (UI state only, never persisted).
+// "live" selects an explicit Live provider/model/voice set below; every
+// other realtime configuration resolves to "realtime". The saved
+// provider/model determines the initial mode, so existing configurations
+// load correctly with no migration.
+const LIVE_MODEL_ID = "gpt-live-1";
+const LIVE_BACKEND_FIELDS = ["backend_model", "reasoning_effort", "web_search", "google_search"];
+type RealtimeUiMode = "realtime" | "live";
+
+interface LiveVoiceOption {
+    value: string;
+    label: string;
+}
+
+const LIVE_OPENAI_VOICES: LiveVoiceOption[] = [
+    { value: "quartz", label: "Quartz — English · Australian · Feminine" },
+    { value: "ripple", label: "Ripple — English · Australian · Masculine" },
+    { value: "vesper", label: "Vesper — English · British · Masculine" },
+    { value: "willow", label: "Willow — English · Irish · Feminine" },
+    { value: "stone", label: "Stone — English · Irish · Masculine" },
+    { value: "gleam", label: "Gleam — English · North American · Feminine" },
+    { value: "meridian", label: "Meridian — English · North American · Masculine" },
+    { value: "bossa", label: "Bossa — Portuguese · Brazilian · Feminine" },
+    { value: "tempo", label: "Tempo — Portuguese · Brazilian · Masculine" },
+    { value: "beacon", label: "Beacon — English · Filipino · Masculine" },
+    { value: "delta", label: "Delta — English · Southern U.S. · Feminine" },
+    { value: "cinder", label: "Cinder — English · Southern U.S. · Masculine" },
+];
+
+interface LiveProviderEntry {
+    provider: string;
+    label: string;
+    // Explicit Live model options for this provider. models[0] is the
+    // default for new Live configurations.
+    models: string[];
+}
+
+// Live Gemini model. Only gemini-3.8-live is supported; Extended Thinking
+// is deliberately out of scope for this PR. Saved 3.1 configurations open
+// in the original Realtime tab; entering Live defaults to gemini-3.8-live.
+const LIVE_GEMINI_38_MODEL = "gemini-3.8-live";
+
+// Explicit saved-model -> initial-tab mapping (UI state only, never
+// persisted). Live models open on Live; everything else — including the
+// original gemini-3.1-flash-live-preview Realtime configuration — opens on
+// Realtime.
+const LIVE_MODEL_IDS: ReadonlySet<string> = new Set([
+    LIVE_MODEL_ID,
+    LIVE_GEMINI_38_MODEL,
+]);
+
+// Explicit Live catalog: only these provider/model combinations exist in
+// Live mode. Voices for OpenAI and Gemini are the Live-only lists above;
+// the shared schemas keep their original options for the Realtime tab.
+const LIVE_PROVIDERS: LiveProviderEntry[] = [
+    { provider: "openai_realtime", label: "OpenAI", models: [LIVE_MODEL_ID] },
+    { provider: "google_realtime", label: "Google Gemini", models: [LIVE_GEMINI_38_MODEL] },
+];
+
+interface RealtimeModeSnapshot {
+    provider: string;
+    model: string;
+    voice: string;
+    // Whether the voice field was using "Enter Custom Value" free text.
+    // Restored alongside the value so custom voices never collapse into a
+    // dropdown that cannot represent them.
+    customVoice: boolean;
+    apiKeys: string[];
+}
+
+// Explicit OpenAI Live voice options with user-friendly labels. Saved API
+// values are used verbatim. A previously saved voice outside this list is
+// preserved as the current selection until deliberately changed.
+function liveOpenAIVoices(currentVoice: string): LiveVoiceOption[] {
+    if (currentVoice && !LIVE_OPENAI_VOICES.some((voice) => voice.value === currentVoice)) {
+        return [
+            { value: currentVoice, label: `${currentVoice} (current)` },
+            ...LIVE_OPENAI_VOICES,
+        ];
+    }
+    return LIVE_OPENAI_VOICES;
+}
+
+// Explicit Live-only voice list for Gemini, per Google's documented native
+// voices. The shared google_realtime schema keeps its original 5 voices so
+// the legacy Realtime tab is unchanged; only the Live branch uses this set.
+const LIVE_GEMINI_VOICES: LiveVoiceOption[] = [
+    { value: "Zephyr", label: "Zephyr — Bright" },
+    { value: "Puck", label: "Puck — Upbeat" },
+    { value: "Charon", label: "Charon — Informative" },
+    { value: "Kore", label: "Kore — Firm" },
+    { value: "Fenrir", label: "Fenrir — Excitable" },
+    { value: "Leda", label: "Leda — Youthful" },
+    { value: "Orus", label: "Orus — Firm" },
+    { value: "Aoede", label: "Aoede — Breezy" },
+    { value: "Callirrhoe", label: "Callirrhoe — Easy-going" },
+    { value: "Autonoe", label: "Autonoe — Bright" },
+    { value: "Enceladus", label: "Enceladus — Breathy" },
+    { value: "Iapetus", label: "Iapetus — Clear" },
+    { value: "Umbriel", label: "Umbriel — Easy-going" },
+    { value: "Algieba", label: "Algieba — Smooth" },
+    { value: "Despina", label: "Despina — Smooth" },
+    { value: "Erinome", label: "Erinome — Clear" },
+    { value: "Algenib", label: "Algenib — Gravelly" },
+    { value: "Rasalgethi", label: "Rasalgethi — Informative" },
+    { value: "Laomedeia", label: "Laomedeia — Upbeat" },
+    { value: "Achernar", label: "Achernar — Soft" },
+    { value: "Alnilam", label: "Alnilam — Firm" },
+    { value: "Schedar", label: "Schedar — Even" },
+    { value: "Gacrux", label: "Gacrux — Mature" },
+    { value: "Pulcherrima", label: "Pulcherrima — Forward" },
+    { value: "Achird", label: "Achird — Friendly" },
+    { value: "Zubenelgenubi", label: "Zubenelgenubi — Casual" },
+    { value: "Vindemiatrix", label: "Vindemiatrix — Gentle" },
+    { value: "Sadachbia", label: "Sadachbia — Lively" },
+    { value: "Sadaltager", label: "Sadaltager — Knowledgeable" },
+    { value: "Sulafat", label: "Sulafat — Warm" },
+];
+
+const LIVE_GEMINI_VOICES_URL = "https://ai.google.dev/gemini-api/docs/speech-generation#voices";
+
+// Same saved-value preservation as the OpenAI list: a previously saved
+// voice outside the documented set stays selectable until changed.
+function liveGeminiVoices(currentVoice: string): LiveVoiceOption[] {
+    if (currentVoice && !LIVE_GEMINI_VOICES.some((voice) => voice.value === currentVoice)) {
+        return [
+            { value: currentVoice, label: `${currentVoice} (current)` },
+            ...LIVE_GEMINI_VOICES,
+        ];
+    }
+    return LIVE_GEMINI_VOICES;
+}
+
 export function ServiceConfigurationForm({
     mode,
     currentOverrides,
@@ -170,6 +303,18 @@ export function ServiceConfigurationForm({
     const [apiError, setApiError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isRealtime, setIsRealtime] = useState(forceRealtime ?? false);
+    // Local-only Speech-to-Speech architecture selection. Initialized from
+    // the saved model; afterwards only the toggle changes it. Never saved.
+    const [realtimeUiMode, setRealtimeUiMode] = useState<RealtimeUiMode>("realtime");
+    const userSelectedMode = useRef(false);
+    // Snapshots preserve each mode's provider/model/voice/keys across
+    // switches so toggling never erases user input.
+    const realtimeSnapshot = useRef<RealtimeModeSnapshot | null>(null);
+    const liveSnapshot = useRef<RealtimeModeSnapshot | null>(null);
+    // Last Live voice per provider (plus whether it was a custom value), so
+    // switching Live providers and back restores the previous selection
+    // instead of resetting to the provider default.
+    const liveVoiceMemory = useRef<Record<string, { voice: string; custom: boolean }>>({});
     const { userConfig } = useUserConfig();
     const [schemas, setSchemas] = useState<Record<ServiceSegment, Record<string, ProviderSchema>>>({
         llm: {},
@@ -232,6 +377,16 @@ export function ServiceConfigurationForm({
         }
         return merged as typeof userConfig;
     }, [mode, userConfig, currentOverrides, initialConfig]);
+
+    // Sync the mode toggle from the saved model until the user toggles it
+    // manually. Models in LIVE_MODEL_IDS resolve to Live, everything else
+    // resolves to Realtime.
+    useEffect(() => {
+        if (userSelectedMode.current) return;
+        const realtime = (configSource as Record<string, unknown> | null)?.realtime as Record<string, unknown> | undefined;
+        const savedModel = realtime?.model;
+        setRealtimeUiMode(typeof savedModel === "string" && LIVE_MODEL_IDS.has(savedModel) ? "live" : "realtime");
+    }, [configSource]);
 
     useEffect(() => {
         const fetchConfigurations = async () => {
@@ -376,7 +531,22 @@ export function ServiceConfigurationForm({
 
                     const savedValue = src?.[field] as string | undefined;
                     const modelValue = src?.model as string | undefined;
-                    const dropdownOptions = getSchemaDropdownOptions(actualSchema, modelValue);
+                    let dropdownOptions = getSchemaDropdownOptions(actualSchema, modelValue);
+                    // Live voice catalogs are explicit per-provider lists that
+                    // extend beyond the legacy schema options. A saved Live
+                    // voice must validate against its active Live catalog,
+                    // otherwise every Live-only voice would wrongly load as
+                    // free-text custom input.
+                    if (service === "realtime" && field === "voice"
+                        && typeof modelValue === "string" && LIVE_MODEL_IDS.has(modelValue)) {
+                        const liveProvider = selectedProviders[service];
+                        const liveValues = liveProvider === "openai_realtime"
+                            ? LIVE_OPENAI_VOICES.map((voice) => voice.value)
+                            : liveProvider === "google_realtime"
+                                ? LIVE_GEMINI_VOICES.map((voice) => voice.value)
+                                : null;
+                        if (liveValues) dropdownOptions = liveValues;
+                    }
                     if (savedValue && dropdownOptions && !dropdownOptions.includes(savedValue)) {
                         detectedCustomInput[`${service}_${field}`] = true;
                     }
@@ -419,6 +589,9 @@ export function ServiceConfigurationForm({
 
     const realtimeModel = watch("realtime_model");
     useEffect(() => {
+        // The Live branch manages its own explicit voice list; the schema
+        // model_options reset below only applies to the Realtime branch.
+        if (realtimeUiMode === "live") return;
         const voiceSchema = schemas?.realtime?.[serviceProviders.realtime]?.properties?.voice;
         const voices = voiceSchema?.model_options?.[realtimeModel as string];
         if (!voices?.length) return;
@@ -427,7 +600,7 @@ export function ServiceConfigurationForm({
             setValue("realtime_voice", voices[0], { shouldDirty: true });
             setIsCustomInput(previous => ({ ...previous, realtime_voice: false }));
         }
-    }, [realtimeModel, serviceProviders.realtime, schemas, getValues, setValue]);
+    }, [realtimeModel, serviceProviders.realtime, schemas, getValues, setValue, realtimeUiMode]);
 
     // Reset language when TTS model changes if the provider has model-dependent language options
     useEffect(() => {
@@ -493,7 +666,7 @@ export function ServiceConfigurationForm({
     };
 
     const buildServiceConfig = (service: ServiceSegment, data: FormValues) => {
-        const config: Record<string, string | number | string[]> = {
+        const config: Record<string, string | number | boolean | string[]> = {
             provider: serviceProviders[service],
         };
         const keys = apiKeys[service].map(k => k.trim()).filter(k => k.length > 0);
@@ -505,6 +678,21 @@ export function ServiceConfigurationForm({
             const field = property.slice(service.length + 1);
             if (field === "api_key" || field === "provider") return;
             const fieldSchema = schemas?.[service]?.[serviceProviders[service]]?.properties[field];
+            // In Live mode, drop values whose field no longer exists in the
+            // current provider schema (e.g. OpenAI backend fields after
+            // switching to Gemini). Values are kept in form state and
+            // restored by the mode snapshots.
+            if (service === "realtime" && realtimeUiMode === "live" && !fieldSchema) return;
+            if (isLiveBackendFieldHidden(service, field)) {
+                // Preserve a previously saved Live-only opt-in (e.g.
+                // google_search) when saving from the Realtime tab so the
+                // round-trip doesn't wipe it. All other hidden values stay
+                // dropped, keeping Realtime saves behaviorally unchanged.
+                if (value === true) {
+                    config[field] = value;
+                }
+                return;
+            }
             if (!isVisibleForModel(fieldSchema, data[`${service}_model`] as string)) return;
             config[field] = value as string | number;
         });
@@ -569,8 +757,184 @@ export function ServiceConfigurationForm({
         const model = watch(`${service}_model`) as string;
         return Object.keys(providerSchema.properties).filter(
             field => field !== "provider" && field !== "api_key"
+                && !isLiveBackendFieldHidden(service, field)
                 && isVisibleForModel(providerSchema.properties[field], model)
         );
+    };
+
+    // Backend-only fields stay hidden while the Realtime UI mode is active,
+    // even if the selected model would otherwise show them. In Live mode the
+    // existing per-model schema visibility applies unchanged.
+    const isLiveBackendFieldHidden = (service: ServiceSegment, field: string): boolean => {
+        return service === "realtime"
+            && realtimeUiMode === "realtime"
+            && LIVE_BACKEND_FIELDS.includes(field);
+    };
+
+    // Switch the realtime UI mode. Only provider/model/voice selection
+    // changes; API keys and all other field values are preserved. Switching
+    // snapshots the outgoing mode so returning restores it instead of
+    // reconstructing defaults.
+    const snapshotRealtimeMode = () => {
+        realtimeSnapshot.current = {
+            provider: serviceProviders.realtime,
+            model: getValues("realtime_model") as string,
+            voice: getValues("realtime_voice") as string,
+            customVoice: !!isCustomInput.realtime_voice,
+            apiKeys: [...apiKeys.realtime],
+        };
+    };
+
+    const applyLiveProvider = (entry: LiveProviderEntry) => {
+        // Remember the outgoing provider's voice before switching, so
+        // switching back restores it (see liveVoiceMemory).
+        const outgoingProvider = serviceProviders.realtime;
+        const outgoingModel = getValues("realtime_model") as string;
+        const outgoingVoice = getValues("realtime_voice") as string;
+        if (outgoingProvider && outgoingVoice) {
+            liveVoiceMemory.current[outgoingProvider] = {
+                voice: outgoingVoice,
+                custom: !!isCustomInput.realtime_voice,
+            };
+        }
+        if (serviceProviders.realtime !== entry.provider) {
+            setServiceProviders(prev => ({ ...prev, realtime: entry.provider }));
+        }
+        // New Live selections default to the entry's first model. The Live
+        // Gemini list is strictly 3.8-only, so a saved 3.1 model is never
+        // carried into Live; entering Live defaults to gemini-3.8-live.
+        const currentLiveModel = getValues("realtime_model") as string;
+        const validLiveModels = entry.models;
+        const nextLiveModel = validLiveModels.includes(currentLiveModel)
+            ? currentLiveModel
+            : entry.models[0];
+        setValue("realtime_model", nextLiveModel, { shouldDirty: true });
+        setIsCustomInput(prev => ({ ...prev, realtime_model: false }));
+        const voiceSchema = schemas?.realtime?.[entry.provider]?.properties?.voice;
+        const schemaVoices = getSchemaDropdownOptions(voiceSchema, nextLiveModel) || [];
+        // applyLiveProvider only runs in Live mode, so provider-specific
+        // Live voice lists apply here; the shared schemas (and the Realtime
+        // tab) are untouched.
+        const liveVoices = entry.provider === "openai_realtime"
+            ? LIVE_OPENAI_VOICES.map((voice) => voice.value)
+            : entry.provider === "google_realtime"
+                ? LIVE_GEMINI_VOICES.map((voice) => voice.value)
+                : schemaVoices;
+        const rememberedVoice = liveVoiceMemory.current[entry.provider];
+        const currentVoice = rememberedVoice?.voice || getValues("realtime_voice") as string;
+        // Default new Live selections to the provider default. A saved or
+        // already-selected voice (including a custom value the user typed,
+        // or a legacy value outside the outgoing provider's own options) is
+        // never replaced here; only an empty or outgoing-listed-but-Live-
+        // unknown non-custom voice falls back.
+        const isCustomVoice = rememberedVoice ? rememberedVoice.custom : !!isCustomInput.realtime_voice;
+        const outgoingVoiceOptions = getSchemaDropdownOptions(
+            schemas?.realtime?.[outgoingProvider]?.properties?.voice,
+            outgoingModel,
+        ) || [];
+        const carriedLegacyVoice = !!currentVoice
+            && !isCustomVoice
+            && !liveVoices.includes(currentVoice)
+            && outgoingProvider === entry.provider
+            && !outgoingVoiceOptions.includes(currentVoice);
+        const fallbackVoice = entry.provider === "openai_realtime"
+            ? "gleam"
+            : (voiceSchema?.default as string | undefined) || liveVoices[0] || "";
+        if ((!currentVoice || (!liveVoices.includes(currentVoice) && !isCustomVoice && !carriedLegacyVoice)) && fallbackVoice) {
+            setValue("realtime_voice", fallbackVoice, { shouldDirty: true });
+            setIsCustomInput(prev => ({ ...prev, realtime_voice: false }));
+        } else if (rememberedVoice || carriedLegacyVoice) {
+            // Restore the stashed per-provider selection (or a carried
+            // legacy value) verbatim.
+            setValue("realtime_voice", currentVoice, { shouldDirty: true });
+            setIsCustomInput(prev => ({ ...prev, realtime_voice: rememberedVoice ? rememberedVoice.custom : false }));
+        }
+        // Ensure backend fields present in form state (schema defaults for
+        // genuinely missing values only — existing values, including an
+        // explicit false, are never overwritten), so a fresh Live selection
+        // saves a complete valid configuration.
+        const entrySchema = schemas?.realtime?.[entry.provider];
+        for (const field of LIVE_BACKEND_FIELDS) {
+            const fieldSchema = entrySchema?.properties?.[field];
+            const key = `realtime_${field}`;
+            const existing = getValues(key) as unknown;
+            const missing = existing === undefined || existing === null || existing === "";
+            if (fieldSchema && fieldSchema.default !== undefined && missing) {
+                setValue(key, fieldSchema.default, { shouldDirty: true });
+            }
+        }
+    };
+
+    const handleArchitectureMode = (nextMode: RealtimeUiMode) => {
+        userSelectedMode.current = true;
+        if (nextMode === "live") {
+            snapshotRealtimeMode();
+            const remembered = liveSnapshot.current;
+            // Prefer the remembered Live provider; otherwise stay on the
+            // current provider when it is itself a Live provider (so e.g. a
+            // saved Gemini voice is not routed through OpenAI defaults and
+            // destroyed); otherwise default to OpenAI.
+            const entry = LIVE_PROVIDERS.find((item) => item.provider === remembered?.provider)
+                ?? LIVE_PROVIDERS.find((item) => item.provider === serviceProviders.realtime)
+                ?? LIVE_PROVIDERS[0];
+            setRealtimeUiMode("live");
+            if (remembered && remembered.provider === entry.provider) {
+                if (serviceProviders.realtime !== remembered.provider) {
+                    setServiceProviders(prev => ({ ...prev, realtime: remembered.provider }));
+                }
+                setValue("realtime_model", remembered.model || entry.models[0], { shouldDirty: true });
+                if (remembered.voice) {
+                    setValue("realtime_voice", remembered.voice, { shouldDirty: true });
+                    setIsCustomInput(prev => ({ ...prev, realtime_voice: !!remembered.customVoice }));
+                }
+                setApiKeys(prev => ({ ...prev, realtime: [...remembered.apiKeys] }));
+            } else {
+                applyLiveProvider(entry);
+            }
+        } else {
+            const remembered = realtimeSnapshot.current;
+            setRealtimeUiMode("realtime");
+            if (remembered) {
+                liveSnapshot.current = {
+                    provider: serviceProviders.realtime,
+                    model: getValues("realtime_model") as string,
+                    voice: getValues("realtime_voice") as string,
+                    customVoice: !!isCustomInput.realtime_voice,
+                    apiKeys: [...apiKeys.realtime],
+                };
+                if (serviceProviders.realtime !== remembered.provider) {
+                    setServiceProviders(prev => ({ ...prev, realtime: remembered.provider }));
+                }
+                setValue("realtime_model", remembered.model, { shouldDirty: true });
+                setValue("realtime_voice", remembered.voice, { shouldDirty: true });
+                setIsCustomInput(prev => ({ ...prev, realtime_model: false, realtime_voice: !!remembered.customVoice }));
+                setApiKeys(prev => ({ ...prev, realtime: [...remembered.apiKeys] }));
+            } else {
+                // No Realtime snapshot (e.g. a saved Live config opened
+                // directly in Live): a Live-only model must not persist
+                // into a Realtime save. Replace any Live model with this
+                // provider's valid Realtime default, and likewise ensure
+                // the voice is a valid option with matching custom flags.
+                // API keys are deliberately preserved.
+                const schema = schemas?.realtime?.[serviceProviders.realtime];
+                const realtimeModel = getValues("realtime_model") as string;
+                if (typeof realtimeModel === "string" && LIVE_MODEL_IDS.has(realtimeModel)) {
+                    const fallback = schema?.properties?.model?.default;
+                    if (typeof fallback === "string" && fallback !== realtimeModel) {
+                        setValue("realtime_model", fallback, { shouldDirty: true });
+                    }
+                }
+                const activeModel = getValues("realtime_model") as string;
+                const voiceSchema = schema?.properties?.voice;
+                const validVoices = getSchemaDropdownOptions(voiceSchema, activeModel) || [];
+                const currentVoice = getValues("realtime_voice") as string;
+                const fallbackVoice = (voiceSchema?.default as string | undefined) || validVoices[0] || "";
+                if ((!currentVoice || !validVoices.includes(currentVoice)) && fallbackVoice) {
+                    setValue("realtime_voice", fallbackVoice, { shouldDirty: true });
+                }
+                setIsCustomInput(prev => ({ ...prev, realtime_model: false, realtime_voice: false }));
+            }
+        }
     };
 
     const renderServiceFields = (service: ServiceSegment) => {
@@ -579,8 +943,84 @@ export function ServiceConfigurationForm({
         const availableProviders = schemas?.[service] ? Object.keys(schemas[service]) : [];
         const configFields = getConfigFields(service);
 
-        return (
-            <div className="space-y-6">
+        const renderModeToggle = () => (
+            <div className="space-y-2">
+                <Tabs value={realtimeUiMode} onValueChange={(value) => handleArchitectureMode(value as RealtimeUiMode)}>
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="realtime">Realtime</TabsTrigger>
+                        <TabsTrigger value="live">Live</TabsTrigger>
+                    </TabsList>
+                </Tabs>
+                <p className="text-xs text-muted-foreground">
+                    {realtimeUiMode === "live"
+                        ? "Use a Live speech-to-speech model."
+                        : "Use the existing realtime speech-to-speech configuration."}
+                </p>
+            </div>
+        );
+
+        const renderApiKeysBlock = () => (
+            <>
+                {currentProvider && providerSchema && providerSchema.properties.api_key && (
+                    <div className="space-y-2">
+                        <Label>{mode === 'override' ? 'API Key (leave empty to use global)' : 'API Key(s)'}</Label>
+                        {renderFieldDescription("api_key", providerSchema)}
+                        {apiKeys[service].map((key, index) => (
+                            <div key={index} className="flex gap-2">
+                                <Input
+                                    type="text"
+                                    placeholder="Enter API key"
+                                    value={key}
+                                    onChange={(e) => {
+                                        const newKeys = [...apiKeys[service]];
+                                        newKeys[index] = e.target.value;
+                                        setApiKeys(prev => ({ ...prev, [service]: newKeys }));
+                                    }}
+                                />
+                                {apiKeys[service].length > 1 && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="shrink-0"
+                                        onClick={() => {
+                                            setApiKeys(prev => ({
+                                                ...prev,
+                                                [service]: prev[service].filter((_, i) => i !== index),
+                                            }));
+                                        }}
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                )}
+                            </div>
+                        ))}
+                        {mode !== 'override' && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    setApiKeys(prev => ({
+                                        ...prev,
+                                        [service]: [...prev[service], ""],
+                                    }));
+                                }}
+                            >
+                                <Plus className="h-4 w-4 mr-1" /> Add API Key
+                            </Button>
+                        )}
+                    </div>
+                )}
+            </>
+        );
+
+        // Original Dograh Realtime renderer (3beecf23). Renders the
+        // schema-driven form exactly as the baseline did; the only
+        // difference from baseline is that the surrounding wrapper adds the
+        // Realtime/Live mode toggle above it.
+        const renderRealtimeBranch = () => (
+            <>
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <Label>Provider</Label>
@@ -644,57 +1084,275 @@ export function ServiceConfigurationForm({
                     </div>
                 )}
 
-                {currentProvider && providerSchema && providerSchema.properties.api_key && (
+                {renderApiKeysBlock()}
+            </>
+        );
+
+        // Explicit Live voice selector shared by the Live providers: a
+        // predefined dropdown plus "Enter Custom Value" free text (saved
+        // verbatim into the normal `voice` field) and a provider docs link.
+        const renderLiveVoiceSelect = (
+            voiceOptions: LiveVoiceOption[],
+            checkboxId: string,
+            docsHref: string,
+            docsLabel: string,
+        ) => (
+            <>
+                {isCustomInput.realtime_voice ? (
+                    <Input
+                        type="text"
+                        placeholder="Enter voice"
+                        value={watch("realtime_voice") as string || ""}
+                        onChange={(e) => {
+                            setValue("realtime_voice", e.target.value, { shouldDirty: true });
+                        }}
+                    />
+                ) : (
+                    <Select
+                        value={watch("realtime_voice") as string || ""}
+                        onValueChange={(value) => {
+                            if (!value) return;
+                            setValue("realtime_voice", value, { shouldDirty: true });
+                            setIsCustomInput(prev => ({ ...prev, realtime_voice: false }));
+                        }}
+                    >
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select voice" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {voiceOptions.map((voice) => (
+                                <SelectItem key={voice.value} value={voice.value}>
+                                    {voice.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                )}
+                <div className="flex items-center space-x-2">
+                    <Checkbox
+                        id={checkboxId}
+                        checked={!!isCustomInput.realtime_voice}
+                        onCheckedChange={(checked) => {
+                            setIsCustomInput(prev => ({ ...prev, realtime_voice: checked as boolean }));
+                        }}
+                    />
+                    <Label htmlFor={checkboxId} className="text-sm font-normal cursor-pointer">
+                        Enter Custom Value
+                    </Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                    <a
+                        href={docsHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 underline"
+                    >
+                        {docsLabel} <ExternalLink className="h-3 w-3" />
+                    </a>
+                </p>
+            </>
+        );
+
+        // Explicit Live branch: providers/models/voices are enumerated here,
+        // never derived from or filtered out of the Realtime registry view.
+        // All other fields render through the existing schema-driven path
+        // against the real provider schema, so descriptions, validation, and
+        // the save payload stay identical to a manual configuration.
+        const renderLiveBranch = () => {
+            const liveEntry = LIVE_PROVIDERS.find((item) => item.provider === currentProvider)
+                ?? LIVE_PROVIDERS[0];
+            // Explicit per-provider Live model options. Live Gemini is
+            // gemini-3.8-live only.
+            const liveModelOptions: string[] = liveEntry.models;
+            const liveVoiceOptions: LiveVoiceOption[] = currentProvider === "openai_realtime"
+                ? liveOpenAIVoices(watch("realtime_voice") as string || "")
+                : currentProvider === "google_realtime"
+                    ? liveGeminiVoices(watch("realtime_voice") as string || "")
+                    : (getSchemaDropdownOptions(
+                        providerSchema?.properties?.voice,
+                        watch("realtime_model") as string || "",
+                    ) || []).map((voice) => ({
+                        value: voice,
+                        label: voice.charAt(0).toUpperCase() + voice.slice(1),
+                    }));
+            const remainingFields = configFields.filter(
+                (field) => field !== "model" && field !== "voice"
+                    // Google Search renders explicitly below for Live Gemini
+                    // and must never appear via generic field iteration.
+                    && !(currentProvider === "google_realtime" && field === "google_search"),
+            );
+
+            // Explicit Google Search toggle for Live Gemini. Rendered
+            // literally (not via schema iteration, visibility metadata, or
+            // backend-field filtering) so the control is always present.
+            // Bound directly to the google_search form value. Rendered only
+            // when the active backend schema actually supports the field,
+            // so the control can never be edited while its value would be
+            // silently discarded on save.
+            const renderLiveGoogleSearch = () => {
+                if (!providerSchema?.properties?.google_search) return null;
+                const searchChecked = watch("realtime_google_search") === true;
+                return (
                     <div className="space-y-2">
-                        <Label>{mode === 'override' ? 'API Key (leave empty to use global)' : 'API Key(s)'}</Label>
-                        {renderFieldDescription("api_key", providerSchema)}
-                        {apiKeys[service].map((key, index) => (
-                            <div key={index} className="flex gap-2">
-                                <Input
-                                    type="text"
-                                    placeholder="Enter API key"
-                                    value={key}
-                                    onChange={(e) => {
-                                        const newKeys = [...apiKeys[service]];
-                                        newKeys[index] = e.target.value;
-                                        setApiKeys(prev => ({ ...prev, [service]: newKeys }));
-                                    }}
-                                />
-                                {apiKeys[service].length > 1 && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="shrink-0"
-                                        onClick={() => {
-                                            setApiKeys(prev => ({
-                                                ...prev,
-                                                [service]: prev[service].filter((_, i) => i !== index),
-                                            }));
-                                        }}
-                                    >
-                                        <X className="h-4 w-4" />
-                                    </Button>
-                                )}
-                            </div>
-                        ))}
-                        {mode !== 'override' && (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                    setApiKeys(prev => ({
-                                        ...prev,
-                                        [service]: [...prev[service], ""],
-                                    }));
+                        <Label className="capitalize">Google Search</Label>
+                        <div className="flex items-center gap-3 py-1">
+                            <Switch
+                                id="live-gemini-google-search"
+                                checked={searchChecked}
+                                onCheckedChange={(next) => {
+                                    setValue("realtime_google_search", next, { shouldDirty: true });
+                                }}
+                            />
+                            <Label htmlFor="live-gemini-google-search" className="text-sm text-muted-foreground cursor-pointer">
+                                {searchChecked ? "On" : "Off"}
+                            </Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Allow Gemini to use Google Search for up-to-date information.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            <a
+                                href="https://ai.google.dev/gemini-api/docs/live-api/tools"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-0.5 underline"
+                            >
+                                View Gemini Live tool documentation <ExternalLink className="h-3 w-3" />
+                            </a>
+                        </p>
+                    </div>
+                );
+            };
+            return (
+                <>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label>Provider</Label>
+                            <Select
+                                value={currentProvider}
+                                onValueChange={(providerName) => {
+                                    const entry = LIVE_PROVIDERS.find((item) => item.provider === providerName);
+                                    if (!entry) return;
+                                    applyLiveProvider(entry);
                                 }}
                             >
-                                <Plus className="h-4 w-4 mr-1" /> Add API Key
-                            </Button>
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select provider" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {LIVE_PROVIDERS.map((entry) => (
+                                        <SelectItem key={entry.provider} value={entry.provider}>
+                                            {entry.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {(providerSchema?.description || providerSchema?.provider_docs_url) && (
+                                <p className="text-xs text-muted-foreground">
+                                    {providerSchema?.description}{" "}
+                                    {providerSchema?.provider_docs_url && (
+                                        <a
+                                            href={providerSchema.provider_docs_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-0.5 underline"
+                                        >
+                                            Learn more <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                    )}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="capitalize">Live Model</Label>
+                            <Select
+                                value={watch("realtime_model") as string || ""}
+                                onValueChange={(value) => {
+                                    if (!value) return;
+                                    setValue("realtime_model", value, { shouldDirty: true });
+                                }}
+                            >
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select model" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {liveModelOptions.map((model) => (
+                                        <SelectItem key={model} value={model}>
+                                            {model}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label className="capitalize">Voice</Label>
+                            {currentProvider === "openai_realtime" ? (
+                                renderLiveVoiceSelect(
+                                    liveVoiceOptions,
+                                    "live-voice-custom-input",
+                                    "https://developers.openai.com/api/docs/guides/live-conversations#voice-options",
+                                    "View OpenAI Live voice options",
+                                )
+                            ) : currentProvider === "google_realtime" ? (
+                                renderLiveVoiceSelect(
+                                    liveVoiceOptions,
+                                    "live-gemini-voice-custom-input",
+                                    LIVE_GEMINI_VOICES_URL,
+                                    "View Gemini voice options",
+                                )
+                            ) : (
+                                currentProvider && providerSchema && renderField(service, "voice", providerSchema)
+                            )}
+                        </div>
+                        {remainingFields.filter((field) => field !== "voice").length > 0 && (
+                            <div className="space-y-2">
+                                <Label className="capitalize">{remainingFields.filter((field) => field !== "voice")[0].replace(/_/g, ' ')}</Label>
+                                {currentProvider && providerSchema && renderField(service, remainingFields.filter((field) => field !== "voice")[0], providerSchema)}
+                            </div>
                         )}
                     </div>
-                )}
+
+                    {currentProvider === "google_realtime" && renderLiveGoogleSearch()}
+
+                    {remainingFields.filter((field) => field !== "voice").length > 1 && (
+                        <div className="grid grid-cols-2 gap-4">
+                            {remainingFields.filter((field) => field !== "voice").slice(1).map((field) => {
+                                const fieldSchema = providerSchema?.properties[field];
+                                const actualFieldSchema = fieldSchema?.$ref && providerSchema?.$defs
+                                    ? providerSchema.$defs[fieldSchema.$ref.split('/').pop() || '']
+                                    : fieldSchema;
+                                const fullWidth = actualFieldSchema?.multiline;
+                                return (
+                                    <div key={field} className={`space-y-2 ${fullWidth ? "col-span-2" : ""}`}>
+                                        <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
+                                        {currentProvider && providerSchema && renderField(service, field, providerSchema)}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {renderApiKeysBlock()}
+                </>
+            );
+        };
+
+        if (service === "realtime") {
+            return (
+                <div className="space-y-6">
+                    {renderModeToggle()}
+                    {realtimeUiMode === "live" ? renderLiveBranch() : renderRealtimeBranch()}
+                </div>
+            );
+        }
+
+        return (
+            <div className="space-y-6">
+                {renderRealtimeBranch()}
             </div>
         );
     };
@@ -859,6 +1517,23 @@ export function ServiceConfigurationForm({
                         ))}
                     </SelectContent>
                 </Select>
+            );
+        }
+
+        if (actualSchema?.type === "boolean") {
+            const fieldKey = `${service}_${field}`;
+            const checked = watch(fieldKey);
+            return (
+                <div className="flex items-center gap-3 py-1">
+                    <Switch
+                        id={`${service}-${field}`}
+                        checked={checked === true || checked === "true"}
+                        onCheckedChange={(next) => setValue(fieldKey, next, { shouldDirty: true })}
+                    />
+                    <Label htmlFor={`${service}-${field}`} className="text-sm text-muted-foreground cursor-pointer">
+                        {checked ? "On" : "Off"}
+                    </Label>
+                </div>
             );
         }
 

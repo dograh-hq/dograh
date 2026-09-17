@@ -46,11 +46,11 @@ export default function ThemeToggle({
       onClick={toggleTheme}
     >
       <Sun className={cn(
-        "h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0",
+        "h-5 w-5 rotate-0 scale-100 text-foreground transition-all dark:-rotate-90 dark:scale-0",
         showLabel && "absolute"
       )} />
       <Moon className={cn(
-        "h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100",
+        "h-5 w-5 rotate-90 scale-0 text-foreground transition-all dark:rotate-0 dark:scale-100",
         !showLabel && "absolute"
       )} />
       {showLabel && theme && (

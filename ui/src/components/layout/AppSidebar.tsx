@@ -330,7 +330,8 @@ export function AppSidebar() {
               <div className="notranslate" translate="no">
                 <ThemeToggle
                   showLabel={false}
-                  className="rounded-full text-foreground hover:bg-accent hover:text-accent-foreground"
+                  variant="outline"
+                  className="h-8 w-8 rounded-full border-border/80 text-foreground"
                 />
               </div>
             </TooltipTrigger>

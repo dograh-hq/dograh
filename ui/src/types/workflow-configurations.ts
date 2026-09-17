@@ -72,6 +72,7 @@ export interface VoicemailDetectionConfiguration extends AnswerSupervisorSetting
     provider?: string;
     model?: string;
     api_key?: string;
+    system_prompt?: string;  // Overrides the built-in classifier instructions
 }
 
 export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfiguration = {

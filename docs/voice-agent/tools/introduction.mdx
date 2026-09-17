@@ -3,7 +3,7 @@ title: "Tools"
 description: "Extend your voice agent's capabilities by giving it tools to perform actions during live conversations."
 ---
 
-Tools let your AI agent take actions during a conversation — transfer calls, end calls, call external APIs, or invoke remote MCP servers — based on the context of the conversation and your prompt instructions.
+Tools let your AI agent take actions during a conversation — transfer calls, hand the caller to another agent, end calls, call external APIs, or invoke remote MCP servers — based on the context of the conversation and your prompt instructions.
 
 When a tool is attached to a workflow node, the LLM decides **when** to invoke it and **what parameters** to pass, based on the user's spoken intent and your node-level instructions.
 
@@ -16,6 +16,7 @@ Dograh provides two categories of tools:
 Pre-configured tools that handle common telephony operations out of the box:
 
 - [**Call Transfer**](/voice-agent/tools/call-transfer) — Transfer the active call to a phone number or SIP endpoint
+- [**Transfer to Agent**](/voice-agent/tools/transfer-agent) — Hand the live call to another Dograh agent, carrying a handover note with it
 - [**End Call**](/voice-agent/tools/end-call) — Terminate the call when the conversation is complete
 
 ### Custom Tools

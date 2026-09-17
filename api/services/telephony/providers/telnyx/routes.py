@@ -88,9 +88,19 @@ async def handle_telnyx_events(
         logger.warning(f"Workflow {workflow_run.workflow_id} not found")
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    provider = await get_telephony_provider_for_run(
-        workflow_run, workflow.organization_id
-    )
+    try:
+        provider = await get_telephony_provider_for_run(
+            workflow_run, workflow.organization_id
+        )
+    except ValueError as e:
+        logger.warning(
+            f"[run {workflow_run_id}] Telnyx event received but telephony "
+            f"not configured for org {workflow.organization_id}: {e}"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="telephony_not_configured",
+        ) from e
 
     signature_valid = await provider.verify_inbound_signature(
         "", event_data, dict(request.headers), raw_body

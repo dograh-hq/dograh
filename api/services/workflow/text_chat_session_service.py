@@ -20,6 +20,7 @@ from api.services.workflow.text_chat_logs import (
 from api.services.workflow.text_chat_runner import (
     default_text_chat_checkpoint,
     execute_text_chat_pending_turn,
+    extract_text_chat_final_variables,
     merge_text_chat_usage_info,
     normalize_text_chat_checkpoint,
 )
@@ -185,6 +186,64 @@ async def rewind_text_chat_session_state(
     return await _reload_text_chat_session(run_id)
 
 
+def _build_text_chat_completion_write(
+    *,
+    text_session: WorkflowRunTextSessionModel,
+    completed_at: datetime,
+    disposition: str,
+    mapped_disposition: str,
+    extracted: dict[str, Any],
+) -> dict[str, Any]:
+    """Project one session snapshot into the completion write's arguments.
+
+    Kept separate from ``complete_text_chat_session`` so a revision conflict can
+    rebuild the write against whatever state won, instead of re-committing the
+    stale snapshot the call started from.
+    """
+    workflow_run = text_session.workflow_run
+    completed_session_data = normalize_text_chat_session_data(text_session.session_data)
+    completed_session_data["status"] = "completed"
+
+    gathered_context = workflow_run.gathered_context or {}
+    call_tags = list(gathered_context.get("call_tags") or [])
+    if disposition not in call_tags:
+        call_tags.append(disposition)
+    # A workflow author turns an extracted variable into a call tag by naming it
+    # `tag_*`; PipecatEngine.record_call_tags does this promotion on the voice
+    # path, after extraction has landed.
+    for key, value in extracted.items():
+        if not key.startswith("tag_") or not isinstance(value, str) or not value:
+            continue
+        if value not in call_tags:
+            call_tags.append(value)
+
+    usage_info = dict(workflow_run.usage_info or {})
+    usage_info["call_duration_seconds"] = _text_chat_duration_seconds(
+        text_session,
+        completed_at=completed_at,
+    )
+
+    return {
+        "session_data": completed_session_data,
+        "usage_info": usage_info,
+        "gathered_context": {
+            **extracted,
+            "call_disposition": disposition,
+            "mapped_call_disposition": mapped_disposition,
+            # Text chats end on an explicit completion reason rather than a
+            # teardown Dograh observed, so mechanism and outcome coincide.
+            "call_status": disposition,
+            "call_tags": call_tags,
+        },
+        "logs": {
+            "realtime_feedback_events": build_text_chat_realtime_feedback_events(
+                completed_session_data
+            )
+        },
+        "state": WorkflowRunState.COMPLETED.value,
+    }
+
+
 async def complete_text_chat_session(
     *,
     run_id: int,
@@ -199,6 +258,12 @@ async def complete_text_chat_session(
     That makes an end request race safely with an in-flight message: whichever
     operation locks and updates the session first wins, and the other receives
     the normal revision conflict.
+
+    The write is always guarded by a revision, even when the caller pins none:
+    final variable extraction waits on an LLM between reading the session and
+    writing it back, and an unguarded write would clobber anything committed in
+    that window. A caller that pinned no revision still gets its chat ended --
+    the conflict is retried once against the state that won.
     """
     workflow_run = text_session.workflow_run
     if workflow_run.is_completed:
@@ -206,47 +271,87 @@ async def complete_text_chat_session(
         await _enqueue_text_chat_completion(run_id)
         return await _reload_text_chat_session(run_id)
 
-    completed_session_data = normalize_text_chat_session_data(text_session.session_data)
-    completed_session_data["status"] = "completed"
     completed_at = completed_at or datetime.now(UTC)
     disposition = completion_reason
     mapped_disposition = await map_disposition(
         workflow_run.workflow.organization_id, disposition
     )
-    gathered_context = workflow_run.gathered_context or {}
-    call_tags = list(gathered_context.get("call_tags") or [])
-    if disposition not in call_tags:
-        call_tags.append(disposition)
 
-    feedback_events = build_text_chat_realtime_feedback_events(completed_session_data)
-    usage_info = dict(workflow_run.usage_info or {})
-    usage_info["call_duration_seconds"] = _text_chat_duration_seconds(
-        text_session,
-        completed_at=completed_at,
+    # A voice call extracts the current node's variables during engine teardown.
+    # Text chat has no engine here, and a chat the user walks away from never
+    # transitions, so without this the node's variables are never extracted at
+    # all -- and the webhooks rendered from gathered_context ship blanks.
+    extracted = await extract_text_chat_final_variables(
+        workflow_run_id=run_id,
+        workflow_id=workflow_run.workflow_id,
+        # The organization this call was already authorized against, so the
+        # helper's unscoped run read can be validated rather than trusted.
+        organization_id=workflow_run.workflow.organization_id,
+        checkpoint=text_session.checkpoint,
+        # Completion can win while a turn is still pending, and that turn's user
+        # message is only in session_data until it executes. The transcript
+        # reads it from there; so must extraction.
+        session_data=normalize_text_chat_session_data(text_session.session_data),
     )
 
+    # The snapshot this write is built from was read before the extraction
+    # above, which waits on an LLM for a second or more. Guard the write with
+    # the revision that snapshot came from even when the caller pinned none,
+    # or a message or rewind committing meanwhile is silently overwritten.
     try:
         await db_client.complete_workflow_run_text_session(
             run_id,
-            session_data=completed_session_data,
-            expected_revision=expected_revision,
-            usage_info=usage_info,
-            gathered_context={
-                "call_disposition": disposition,
-                "mapped_call_disposition": mapped_disposition,
-                # Text chats end on an explicit completion reason rather than a
-                # teardown Dograh observed, so mechanism and outcome coincide.
-                "call_status": disposition,
-                "call_tags": call_tags,
-            },
-            logs={"realtime_feedback_events": feedback_events},
-            state=WorkflowRunState.COMPLETED.value,
+            expected_revision=(
+                text_session.revision
+                if expected_revision is None
+                else expected_revision
+            ),
+            **_build_text_chat_completion_write(
+                text_session=text_session,
+                completed_at=completed_at,
+                disposition=disposition,
+                mapped_disposition=mapped_disposition,
+                extracted=extracted,
+            ),
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
-        raise TextChatSessionRevisionConflictError(
-            expected_revision=e.expected_revision,
-            actual_revision=e.actual_revision,
-        ) from e
+        if expected_revision is not None:
+            raise TextChatSessionRevisionConflictError(
+                expected_revision=e.expected_revision,
+                actual_revision=e.actual_revision,
+            ) from e
+
+        # No revision was pinned, so the caller asked to end the chat whatever
+        # else lands. Honour that, but off the state that actually won rather
+        # than the snapshot this call started from. `extracted` is reused: the
+        # racing turn only appended to the same conversation, and a second LLM
+        # round trip on an already-contended path is not worth the freshness.
+        text_session = await _reload_text_chat_session(run_id)
+        if text_session.workflow_run.is_completed:
+            await _enqueue_text_chat_completion(run_id)
+            return text_session
+        try:
+            await db_client.complete_workflow_run_text_session(
+                run_id,
+                expected_revision=text_session.revision,
+                **_build_text_chat_completion_write(
+                    text_session=text_session,
+                    completed_at=completed_at,
+                    disposition=disposition,
+                    mapped_disposition=mapped_disposition,
+                    extracted=extracted,
+                ),
+            )
+        except WorkflowRunTextSessionRevisionConflictError as retry_error:
+            # Lost twice: report it rather than retry until something sticks.
+            raise TextChatSessionRevisionConflictError(
+                expected_revision=retry_error.expected_revision,
+                actual_revision=retry_error.actual_revision,
+            ) from retry_error
+
+    completed_session_data = normalize_text_chat_session_data(text_session.session_data)
+    completed_session_data["status"] = "completed"
+    feedback_events = build_text_chat_realtime_feedback_events(completed_session_data)
 
     await _upload_text_chat_transcript(run_id, feedback_events)
     await _enqueue_text_chat_completion(run_id)

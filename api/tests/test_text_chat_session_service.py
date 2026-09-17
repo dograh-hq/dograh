@@ -212,6 +212,7 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
     completed_at = started_at + timedelta(minutes=7, seconds=30)
     workflow_run = SimpleNamespace(
         is_completed=False,
+        workflow_id=11,
         gathered_context={"call_tags": ["existing"]},
         usage_info={"llm": {"prompt_tokens": 12}},
         created_at=started_at,
@@ -221,6 +222,7 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
         revision=4,
         created_at=started_at,
         session_data={"status": "idle", "turns": []},
+        checkpoint={"current_node_id": "agent"},
         workflow_run=workflow_run,
     )
     reloaded = SimpleNamespace(workflow_run=SimpleNamespace(is_completed=True))
@@ -248,6 +250,21 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
         "_reload_text_chat_session",
         AsyncMock(return_value=reloaded),
     )
+    # The node's variables are extracted here, not on the turn path -- an
+    # abandoned chat never transitions. `tag_*` values become call tags, the
+    # same promotion PipecatEngine.record_call_tags does for voice.
+    extract_variables = AsyncMock(
+        return_value={
+            "ticket_number": "1054202",
+            "tag_vip": "vip",
+            "extracted_variables": {"ticket_number": "1054202", "tag_vip": "vip"},
+        }
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "extract_text_chat_final_variables",
+        extract_variables,
+    )
 
     result = await complete_text_chat_session(
         run_id=42,
@@ -263,11 +280,28 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
     update = complete_session.await_args.kwargs
     assert update["state"] == "completed"
     assert update["gathered_context"] == {
+        "ticket_number": "1054202",
+        "tag_vip": "vip",
+        "extracted_variables": {"ticket_number": "1054202", "tag_vip": "vip"},
         "call_disposition": "user_hangup",
         "mapped_call_disposition": "user_hangup",
         "call_status": "user_hangup",
-        "call_tags": ["existing", "user_hangup"],
+        "call_tags": ["existing", "user_hangup", "vip"],
     }
+    # session_data goes along so a turn still pending when completion wins is
+    # not dropped from the extraction context. It is the session's own snapshot,
+    # not the write payload: extraction reads turns, the write stamps status.
+    extract_variables.assert_awaited_once_with(
+        workflow_run_id=42,
+        workflow_id=11,
+        # The org this call was authorized against, so the helper's unscoped
+        # run read can be validated rather than trusted.
+        organization_id=7,
+        checkpoint={"current_node_id": "agent"},
+        session_data=text_chat_session_service.normalize_text_chat_session_data(
+            {"status": "idle", "turns": []}
+        ),
+    )
     assert update["usage_info"] == {
         "llm": {"prompt_tokens": 12},
         "call_duration_seconds": 450.0,

@@ -89,7 +89,7 @@ CALL_STATUS_CONTEXT_KEY = "call_status"
 #
 # The call disposition is recorded only by the engine, which keeps its mapped
 # counterpart in sync for reporting, filters and external-PBX write-backs.
-_ENGINE_OWNED_CONTEXT_KEYS = frozenset(
+ENGINE_OWNED_CONTEXT_KEYS = frozenset(
     {
         CALL_DISPOSITION_CONTEXT_KEY,
         "mapped_call_disposition",
@@ -608,7 +608,7 @@ class PipecatEngine:
         node_variables = [
             variable
             for variable in node.extraction_variables
-            if variable.name not in _ENGINE_OWNED_CONTEXT_KEYS
+            if variable.name not in ENGINE_OWNED_CONTEXT_KEYS
         ]
         if not node_variables:
             logger.debug(
@@ -662,7 +662,7 @@ class PipecatEngine:
                     {
                         key: value
                         for key, value in extracted_data.items()
-                        if key not in _ENGINE_OWNED_CONTEXT_KEYS
+                        if key not in ENGINE_OWNED_CONTEXT_KEYS
                     }
                 )
                 extracted_variables = self._gathered_context.setdefault(
@@ -753,6 +753,25 @@ class PipecatEngine:
         return await self._perform_variable_extraction_if_needed(
             self.active_agent.current_node,
             run_in_background=False,
+        )
+
+    async def extract_variables_standalone(self, node: Node) -> Optional[dict]:
+        """Run one node's extraction on an engine that never owned a pipeline.
+
+        A text chat ends outside any pipeline -- every turn builds and tears one
+        down, and the session-end request arrives with none running -- so its
+        final extraction cannot come through ``_end_call``. This hands that path
+        the single piece of ``initialize`` extraction needs, without opening MCP
+        sessions or pushing LLM settings for a conversation that is already over.
+
+        Callers own the resulting values; ``self._gathered_context`` is updated
+        in place as usual, but nothing here persists it.
+        """
+        if self._variable_extraction_manager is None:
+            self._variable_extraction_manager = VariableExtractionManager(self)
+        self.active_agent.current_node = node
+        return await self._perform_variable_extraction_if_needed(
+            node, run_in_background=False
         )
 
     async def perform_final_variable_extraction(self) -> None:

@@ -7,7 +7,8 @@ Upstream UserStoppedSpeakingFrame is deliberately NOT a permission signal.
 
 import asyncio
 from collections.abc import Awaitable, Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 
 from loguru import logger
 from pipecat.frames.frames import (
@@ -32,6 +33,9 @@ class AnswerVerdict:
     action: AnswerAction
     reason: str
     subtype: MachineSubtype | None = None
+    # Snapshot of the evidence behind this decision. Keep caller speech out of
+    # repr/logs; the engine persists it only when accepting this verdict.
+    diagnostics: dict = field(default_factory=dict, compare=False, repr=False)
 
 
 class AnswerContextGate(FrameProcessor):
@@ -112,6 +116,20 @@ class AnswerSupervisor(FrameProcessor):
         if self._armed_at is not None or self._closed:
             return
         self._armed_at = asyncio.get_running_loop().time()
+        # Emit the resolved budgets once per call. listening_window_ms is derived
+        # from the Start node's Delayed Start, so nothing else reports it until a
+        # silent_window release happens to carry it.
+        self._log(
+            "armed",
+            strategy="config",
+            listening_window_ms=self.config.listening_window_ms,
+            human_utterance_max_ms=self.config.human_utterance_max_ms,
+            machine_utterance_cap_ms=self.config.machine_utterance_cap_ms,
+            classify_budget_ms=self.config.classify_budget_ms,
+            screening_wait_ms=self.config.screening_wait_ms,
+            max_screening_rearms=self.config.max_screening_rearms,
+            voicemail_action=self.config.voicemail_action,
+        )
         self._spawn(self._listening_timeout())
         if self._onset is not None:
             self._start_utterance_timer()
@@ -202,12 +220,18 @@ class AnswerSupervisor(FrameProcessor):
             "turn_stop_strategy": str(strategy),
             "duration_ms": round(duration * 1000) if self._onset is not None else None,
             "human_utterance_max_ms": self.config.human_utterance_max_ms,
+            "turn_index": len(self._turn_texts),
             "transcript_chars": len(text),
+            "transcript": text,
         }
         self._onset = None
         if self._utterance_task:
             self._utterance_task.cancel()
         subtype = classify_machine_utterance(text)
+        # What the patterns alone concluded, kept beside the final subtype so the
+        # two can be compared in gathered_context. UNKNOWN here next to a machine
+        # verdict is a candidate for a new pattern.
+        signals["pattern_subtype"] = subtype.value
         # Matched machine prompts must bypass the short-turn human shortcut.
         # Unmatched short turns skip the classifier so humans get a prompt reply.
         machine_turn = subtype != MachineSubtype.UNKNOWN
@@ -231,10 +255,16 @@ class AnswerSupervisor(FrameProcessor):
         )
 
     async def _classify_turn(self, text, epoch, *, subtype=None, **signals):
+        # Entering screening below can advance the epoch; evidence still belongs
+        # to the speech that triggered this classification.
+        signals.setdefault("speech_epoch", epoch)
         signals["transcript_chars"] = len(text)
+        signals["transcript"] = text
         strategy = "transcript_patterns"
         if subtype is None:
             subtype = classify_machine_utterance(text)
+        # Capture the pattern verdict before the classifier can overwrite subtype.
+        signals.setdefault("pattern_subtype", subtype.value)
         if subtype == MachineSubtype.UNKNOWN and self._classify:
             strategy = "llm_classifier"
             signals["classify_budget_ms"] = self.config.classify_budget_ms
@@ -296,7 +326,24 @@ class AnswerSupervisor(FrameProcessor):
     def _publish(self, verdict: AnswerVerdict, *, strategy: str, **signals):
         if self._closed or self._released or self._committed:
             return
-        self._verdict = verdict
+        # Preserve evidence with the verdict rather than logging every state
+        # transition. Revoked verdicts never enter the engine's audit history.
+        self._verdict = replace(
+            verdict,
+            diagnostics={
+                "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"),
+                "elapsed_ms": (
+                    round((asyncio.get_running_loop().time() - self._armed_at) * 1000)
+                    if self._armed_at is not None
+                    else None
+                ),
+                "strategy": strategy,
+                "speech_epoch": self._epoch,
+                "screening": self._screening,
+                "transcript": "",
+                **signals,
+            },
+        )
         self._changed.set()
         self._log(
             verdict.reason,
@@ -312,13 +359,18 @@ class AnswerSupervisor(FrameProcessor):
             if self._armed_at is not None
             else None
         )
+        # Caller speech belongs in gathered_context, never application logs.
         logger.info(
             "Answer supervisor event={} elapsed_ms={} subtype={} strategy={} {}",
             event,
             elapsed,
             subtype,
             strategy,
-            " ".join(f"{key}={value!r}" for key, value in signals.items()),
+            " ".join(
+                f"{key}={value!r}"
+                for key, value in signals.items()
+                if key != "transcript"
+            ),
         )
 
     async def wait_for_verdict(self) -> AnswerVerdict:

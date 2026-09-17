@@ -389,7 +389,9 @@ def register_event_handlers(
         usage_info = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
 
         logger.debug(
-            f"Usage metrics: {usage_info}, Gathered context: {gathered_context}"
+            "Usage metrics: {}, gathered context keys: {}",
+            usage_info,
+            list(gathered_context),
         )
 
         await db_client.update_workflow_run(

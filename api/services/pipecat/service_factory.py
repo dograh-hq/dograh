@@ -1057,6 +1057,29 @@ def _migrate_deprecated_google_model(model: str) -> str:
     return model
 
 
+# Models that reject reasoning_effort="minimal" with HTTP 400
+# unsupported_value. gpt-5.6-luna supports none/low/medium/high/xhigh only.
+# Legacy/default "minimal" is normalized to "low" for these models; every
+# other model keeps "minimal" unchanged.
+_MODELS_WITHOUT_MINIMAL_EFFORT = frozenset({"gpt-5.6-luna"})
+_REASONING_EFFORT_MINIMAL_FALLBACK = "low"
+
+
+def _normalize_reasoning_effort(model: str, effort: str) -> str:
+    """Map a reasoning effort to one the model accepts.
+
+    Only the documented incompatibility above is rewritten; explicitly valid
+    values pass through untouched.
+    """
+    if effort == "minimal" and model.lower() in _MODELS_WITHOUT_MINIMAL_EFFORT:
+        logger.info(
+            f"Normalizing reasoning_effort 'minimal' to "
+            f"'{_REASONING_EFFORT_MINIMAL_FALLBACK}' for model {model}"
+        )
+        return _REASONING_EFFORT_MINIMAL_FALLBACK
+    return effort
+
+
 @_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
 def create_llm_service_from_provider(
     provider: str,
@@ -1111,7 +1134,12 @@ def create_llm_service_from_provider(
                 api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
-                    extra={"reasoning_effort": "minimal", "verbosity": "low"},
+                    extra={
+                        "reasoning_effort": _normalize_reasoning_effort(
+                            model, "minimal"
+                        ),
+                        "verbosity": "low",
+                    },
                 ),
                 **kwargs,
             )
@@ -1247,11 +1275,31 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     )
 
     if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
-        from api.services.pipecat.realtime.openai_live import DograhOpenAILiveLLMService
+        try:
+            from api.services.pipecat.realtime.openai_live import (
+                DograhOpenAILiveLLMService,
+            )
+        except ImportError as exc:
+            logger.error(
+                "OpenAI Live model requested but pipecat.services.openai.live "
+                "is not importable in the installed Pipecat revision"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "The OpenAI Live model (gpt-live-1) is unavailable: the installed "
+                    "Pipecat revision does not contain the required OpenAI Live "
+                    "implementation. Please contact support."
+                ),
+            ) from exc
 
         return DograhOpenAILiveLLMService(
             api_key=api_key,
             backend_model=realtime_config.backend_model,
+            reasoning_effort=getattr(realtime_config, "reasoning_effort", None)
+            or "low",
+            web_search=bool(getattr(realtime_config, "web_search", False)),
+            language=language,
             settings=DograhOpenAILiveLLMService.Settings(
                 model=model,
                 voice=voice or "marin",

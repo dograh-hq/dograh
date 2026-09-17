@@ -83,6 +83,47 @@ def compose_system_prompt_for_node(
     return "\n\n".join(parts)
 
 
+def compose_extraction_section_for_live_backend(
+    *,
+    node: "Node",
+    format_prompt: Callable[[str], str],
+) -> str:
+    """Structured-field context for the GPT Live Responses backend.
+
+    The Live voice model never sees extraction metadata (it only receives the
+    node prompt via the backend), and the Responses backend otherwise gets
+    just prose plus transition tools. Mirror the variable/hint/type triples
+    the out-of-band extraction LLM receives so the backend asks for fields
+    with the same schema context. Generic over workflows: no field names,
+    formats, or locales are hardcoded here.
+    """
+    if not (
+        getattr(node, "extraction_enabled", False)
+        and getattr(node, "extraction_variables", None)
+    ):
+        return ""
+    lines = []
+    extraction_prompt = getattr(node, "extraction_prompt", None)
+    if extraction_prompt:
+        lines.append(format_prompt(extraction_prompt))
+    var_lines = []
+    for var in node.extraction_variables or []:
+        name = getattr(var, "name", "?")
+        vtype = getattr(var, "type", "?")
+        hint = getattr(var, "prompt", None)
+        rendered = f"- {name} ({vtype})"
+        if hint:
+            rendered += f": {format_prompt(hint)}"
+        var_lines.append(rendered)
+    if var_lines:
+        lines.append(
+            "Structured data to collect during this call. Ask the caller for "
+            "these fields as the workflow requires and do not invent values:\n"
+            + "\n".join(var_lines)
+        )
+    return "\n\n".join(p for p in lines if p)
+
+
 async def compose_functions_for_node(
     *,
     node: "Node",

@@ -172,17 +172,32 @@ def _create_answer_supervisor(
     return AnswerSupervisor(config, context=context, classify=classifier.classify)
 
 
-def _create_user_mute_strategies(engine, answer_supervisor):
+def _create_user_mute_strategies(
+    engine,
+    answer_supervisor,
+    *,
+    realtime_provider: str | None = None,
+    realtime_model: str | None = None,
+):
     first_speech = (
         FirstSpeechUserMuteStrategy()
         if answer_supervisor is not None
         else MuteUntilFirstBotCompleteUserMuteStrategy()
     )
-    return [
-        first_speech,
-        FunctionCallUserMuteStrategy(),
-        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-    ]
+    strategies = [first_speech]
+    # GPT Live manages its own turn-taking full-duplex and its backend tools
+    # run server-side; muting the caller while local Dograh functions execute
+    # would discard corrections spoken during tool execution ("Thursday, not
+    # Friday"). Other providers keep the mute-during-tool behavior.
+    if not (
+        realtime_provider == ServiceProviders.OPENAI_REALTIME.value
+        and realtime_model == "gpt-live-1"
+    ):
+        strategies.append(FunctionCallUserMuteStrategy())
+    strategies.append(
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user)
+    )
+    return strategies
 
 
 def _resolve_user_turn_stop_timeout(
@@ -978,7 +993,15 @@ async def _run_pipeline_impl(
         correlation_id=mps_correlation_id,
         get_parent_context=engine._get_otel_context,
     )
-    user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
+    if is_realtime and user_config.realtime is not None:
+        user_mute_strategies = _create_user_mute_strategies(
+            engine,
+            answer_supervisor,
+            realtime_provider=user_config.realtime.provider,
+            realtime_model=user_config.realtime.model,
+        )
+    else:
+        user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration

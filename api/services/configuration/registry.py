@@ -784,24 +784,46 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         default=None,
         description=(
             "ISO 639-1 language code for input audio transcription (e.g. 'pt', 'es'). "
-            "Improves transcription accuracy and latency. Leave unset to auto-detect."
+            "Improves transcription accuracy and latency. Leave unset to auto-detect. "
+            "For GPT-Live (no separate transcription step) it constrains the "
+            "conversation language instead."
         ),
         json_schema_extra={
             "examples": OPENAI_REALTIME_LANGUAGES,
             "allow_custom_input": True,
-            "hidden_for_models": ["gpt-live-1"],
         },
     )
     backend_model: str = Field(
-        default="gpt-5.4-mini",
+        default="gpt-5.6-luna",
         min_length=1,
         description=(
             "OpenAI Responses model that follows your workflow and calls tools. "
             "Uses the same API key; backend usage is billed separately from voice."
         ),
         json_schema_extra={
-            "examples": ["gpt-5.4-mini"],
+            "examples": ["gpt-5.6-luna"],
             "allow_custom_input": True,
+            "visible_for_models": ["gpt-live-1"],
+        },
+    )
+    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = Field(
+        default="low",
+        description=(
+            "Reasoning effort for the GPT Live Responses backend. Higher "
+            "effort improves reasoning quality at the cost of latency."
+        ),
+        json_schema_extra={
+            "examples": ["none", "low", "medium", "high", "xhigh", "max"],
+            "visible_for_models": ["gpt-live-1"],
+        },
+    )
+    web_search: bool = Field(
+        default=False,
+        description=(
+            "Allow the GPT Live Responses backend to use web search. "
+            "When off, no web search tool is sent."
+        ),
+        json_schema_extra={
             "visible_for_models": ["gpt-live-1"],
         },
     )

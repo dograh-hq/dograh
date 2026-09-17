@@ -1,4 +1,6 @@
 langfuse==4.14.3
+opentelemetry-exporter-prometheus==0.65b0
+prometheus-client==0.26.0
 fastapi==0.135.3
 asyncpg==0.30.0
 alembic==1.16.5

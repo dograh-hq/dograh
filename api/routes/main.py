@@ -1,7 +1,7 @@
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Response, status
 from loguru import logger
 from pydantic import BaseModel
 
@@ -232,3 +232,28 @@ async def autoscale_metric(
             detail="Fleet call count unavailable",
         )
     return AutoscaleMetricResponse(value=calls + max(0, buffer))
+
+
+@router.get("/metrics", include_in_schema=False)
+def prometheus_metrics(
+    x_dograh_devops_secret: Annotated[
+        str | None,
+        Header(alias=DOGRAH_DEVOPS_SECRET_HEADER),
+    ] = None,
+) -> Response:
+    """Prometheus exposition for this worker; scrape each worker directly."""
+    from api.constants import DOGRAH_DEVOPS_SECRET
+    from api.services.observability.metrics import get_runtime
+
+    runtime = get_runtime()
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="Metrics are disabled")
+    _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
+    from prometheus_client import CONTENT_TYPE_LATEST
+
+    # A synchronous handler runs collection/serialization in FastAPI's thread
+    # pool, away from the audio event loop. No database or Redis calls occur.
+    return Response(
+        content=runtime.render(),
+        headers={"Content-Type": CONTENT_TYPE_LATEST, "Cache-Control": "no-store"},
+    )

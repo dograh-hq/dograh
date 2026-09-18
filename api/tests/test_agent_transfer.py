@@ -964,10 +964,12 @@ async def test_an_announcement_that_never_plays_does_not_leave_the_caller_muted(
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
     engine._active_agent = stub_agent_runtime()
 
-    await engine.queue_text_message("Connecting you now.", mute_user=True)
+    speech = await engine.queue_speech(
+        "Connecting you now.", mute_user=True, timeout=0.01
+    )
     assert await engine.should_mute_user(SimpleNamespace()) is True
 
-    engine.clear_queued_speech_mute()
+    assert not await asyncio.wait_for(speech.wait(), 1)
     assert await engine.should_mute_user(SimpleNamespace()) is False
 
 

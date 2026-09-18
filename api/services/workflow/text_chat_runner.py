@@ -19,6 +19,8 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    TextFrame,
+    TTSAudioRawFrame,
     TTSSpeakFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
@@ -44,6 +46,7 @@ from api.services.pipecat.pipeline_metrics_aggregator import (
 from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
 from api.services.pipecat.recording_audio_cache import create_recording_audio_fetcher
 from api.services.pipecat.service_factory import create_llm_service
+from api.services.pipecat.speech_playback import SpeechBoundaryFrame
 from api.services.pipecat.tracing_config import (
     build_remote_parent_context,
     get_trace_url,
@@ -267,6 +270,16 @@ class _TextChatCaptureProcessor(FrameProcessor):
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         self._touch()
+        playback = self._engine.speech_playback
+        await playback.before_output(self, frame)
+        if isinstance(
+            frame, (SpeechBoundaryFrame, LLMFullResponseStartFrame, EndFrame)
+        ):
+            playback.after_output(self, frame)
+        if isinstance(frame, (TextFrame, TTSSpeakFrame)) and frame.text.strip():
+            playback.note_output()
+        if isinstance(frame, TTSAudioRawFrame):
+            playback.after_output(self, frame)
 
         if isinstance(frame, TTSSpeakFrame):
             append_to_context = (
@@ -313,6 +326,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
             # BotStoppedSpeakingFrame that never arrives.
             await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
             await self._engine.should_mute_user(BotStoppedSpeakingFrame())
+            playback.after_output(self, frame)
             return
 
         if isinstance(frame, FunctionCallInProgressFrame):

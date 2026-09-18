@@ -30,6 +30,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.services.pipecat.recording_audio_cache import RecordingAudio
+from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechBoundaryFrame
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
@@ -477,6 +478,7 @@ class TestStartGreeting:
         queued = [
             call.args[0]
             for call in engine._transport_output.queue_frame.await_args_list
+            if not isinstance(call.args[0], SpeechBoundaryFrame)
         ]
         assert [type(frame).__name__ for frame in queued] == [
             "TTSStartedFrame",
@@ -560,7 +562,11 @@ class TestStartGreeting:
 
         assert result == "greeting"
         llm.queue_frame.assert_not_awaited()
-        queued_frame = task.queue_frame.await_args.args[0]
+        queued_frame = next(
+            c.args[0]
+            for c in task.queue_frame.await_args_list
+            if isinstance(c.args[0], TTSSpeakFrame)
+        )
         assert isinstance(queued_frame, TTSSpeakFrame)
         assert queued_frame.text == TEXT_GREETING
         assert queued_frame.append_to_context is True
@@ -738,9 +744,7 @@ class TestPlayConfigMessage:
     @pytest.fixture
     def mock_engine(self):
         """Create a mock engine with frame capture on task.queue_frame."""
-        engine = Mock()
-        engine._is_realtime = False
-        engine.queue_text_message = PipecatEngine.queue_text_message.__get__(engine)
+        engine = PipecatEngine(workflow=None, call_context_vars={})
         engine._workflow_run_id = 1
         engine._call_context_vars = {}
         engine._fetch_recording_audio = None
@@ -761,7 +765,8 @@ class TestPlayConfigMessage:
         engine._transport_output.queue_frame = mock_queue_frame
         # Configured speech is spoken by the running agent, in its own voice.
         engine._active_agent = stub_agent_runtime(queue_frame=mock_queue_frame)
-        return engine
+        yield engine
+        engine.speech_playback.cancel_all()
 
     @pytest.mark.asyncio
     async def test_custom_text_queues_tts_speak_frame(self, mock_engine):
@@ -771,8 +776,12 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is True
-        frames = mock_engine._queued_frames
+        assert not result.done
+        frames = [
+            f
+            for f in mock_engine._queued_frames
+            if not isinstance(f, SpeechBoundaryFrame)
+        ]
         assert len(frames) == 1
         assert isinstance(frames[0], TTSSpeakFrame)
         assert frames[0].text == "Ending your call now."
@@ -788,10 +797,14 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is True
+        assert not result.done
         mock_fetch.assert_called_once_with(recording_pk=201)
 
-        frames = mock_engine._queued_frames
+        frames = [
+            f
+            for f in mock_engine._queued_frames
+            if not isinstance(f, SpeechBoundaryFrame)
+        ]
         assert len(frames) == 3
         assert isinstance(frames[0], TTSStartedFrame)
         assert isinstance(frames[1], TTSAudioRawFrame)
@@ -814,7 +827,7 @@ class TestPlayConfigMessage:
         manager = CustomToolManager(mock_engine)
         result = await manager._play_config_message({"messageType": "none"})
 
-        assert result is False
+        assert result is None
         assert len(mock_engine._queued_frames) == 0
 
     @pytest.mark.asyncio
@@ -827,7 +840,7 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is False
+        assert result.outcome is PlaybackOutcome.FAILED
         assert len(mock_engine._queued_frames) == 0
 
     @pytest.mark.asyncio
@@ -841,7 +854,7 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is False
+        assert result.outcome is PlaybackOutcome.FAILED
         mock_fetch.assert_called_once_with(recording_pk=301)
         assert len(mock_engine._queued_frames) == 0
 
@@ -853,5 +866,5 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is False
+        assert result is None
         assert len(mock_engine._queued_frames) == 0

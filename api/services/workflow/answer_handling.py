@@ -5,11 +5,9 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from pipecat.frames.frames import TTSSpeakFrame
 
 from api.enums import AnswerAction
 from api.schemas.answer_supervisor import AnswerMessage
-from api.services.pipecat.audio_playback import play_audio
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -29,43 +27,25 @@ async def _speak(engine: "PipecatEngine", message: AnswerMessage) -> bool:
     """Use the existing org-scoped recording fetcher and transport playback tracker."""
     if not message.configured:
         return False
-    engine._queued_speech_mute_state = "waiting"
-    engine.arm_speech_playback()
     try:
-        if message.recording_pk or message.recording_id:
-            if not engine._fetch_recording_audio or engine._transport_output is None:
-                return False
-            async with asyncio.timeout(10):
-                recording = await engine._fetch_recording_audio(
-                    **(
-                        {"recording_pk": message.recording_pk}
-                        if message.recording_pk
-                        else {"recording_id": message.recording_id}
-                    )
+        speech = await engine.queue_speech(
+            **(
+                {"recording_pk": message.recording_pk}
+                if message.recording_pk
+                else (
+                    {"recording_id": message.recording_id}
+                    if message.recording_id
+                    else {"text": engine._format_prompt(message.text)}
                 )
-            if recording is None:
-                return False
-            await play_audio(
-                recording.audio,
-                sample_rate=(
-                    engine._audio_config.pipeline_sample_rate
-                    if engine._audio_config
-                    else 16000
-                ),
-                queue_frame=engine._transport_output.queue_frame,
-                transcript=recording.transcript,
-                persist_to_logs=True,
-            )
-        else:
-            await engine.call_worker.queue_frame(
-                TTSSpeakFrame(engine._format_prompt(message.text))
-            )
-        return await engine.wait_for_speech_playback()
+            ),
+            mute_user=True,
+            append_to_context=not (message.recording_pk or message.recording_id),
+            persist_to_logs=bool(message.recording_pk or message.recording_id),
+        )
+        return await speech.wait()
     except Exception:
-        logger.warning("Answer message could not be played")
+        logger.exception("Answer-handling speech failed")
         return False
-    finally:
-        engine._queued_speech_mute_state = "idle"
 
 
 async def _handle_answer(engine: "PipecatEngine", supervisor, update_idle_timeout):
@@ -87,17 +67,15 @@ async def _handle_answer(engine: "PipecatEngine", supervisor, update_idle_timeou
             }
         )
         if verdict.action == AnswerAction.RELEASE:
-            engine._queued_speech_mute_state = "waiting"
-            engine.arm_speech_playback()
             try:
                 async with asyncio.timeout(45):
-                    opening = await engine.queue_node_opening(
+                    await engine.queue_node_opening(
                         node_id=engine.active_agent.workflow.start_node_id,
                         previous_node_id=None,
                         generate_if_no_greeting=True,
+                        wait_for_playback=True,
+                        mute_user=True,
                     )
-                    if opening != "none":
-                        await engine.wait_for_speech_playback()
             except TimeoutError:
                 logger.warning("Supervised opening timed out; releasing the workflow")
             except Exception as error:
@@ -105,8 +83,6 @@ async def _handle_answer(engine: "PipecatEngine", supervisor, update_idle_timeou
                     "Supervised opening failed ({}); releasing the workflow",
                     type(error).__name__,
                 )
-            finally:
-                engine._queued_speech_mute_state = "idle"
             supervisor.release()
             await update_idle_timeout(None)
             return
@@ -153,7 +129,9 @@ async def handle_answer(
         if actions in done:
             await actions
     finally:
+        interrupted = not actions.done()
         for task in (actions, disconnected):
             task.cancel()
         await asyncio.gather(actions, disconnected, return_exceptions=True)
-        engine._queued_speech_mute_state = "idle"
+        if interrupted:
+            engine.speech_playback.cancel_all()

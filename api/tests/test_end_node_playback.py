@@ -12,6 +12,7 @@ from pipecat.frames.frames import (
     EndFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    LLMTextFrame,
     TTSSpeakFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
@@ -20,6 +21,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.utils.enums import EndTaskReason
 
+from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechBoundaryFrame
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.text_chat_runner import (
     _ResponseWindowState,
@@ -63,9 +65,10 @@ async def test_end_node_waits_for_goodbye_playback(engine, is_realtime, playback
 
     # Realtime may start (or finish) before the context callback is scheduled.
     if playback != "delayed":
-        await engine.should_mute_user(BotStartedSpeakingFrame())
+        engine.speech_playback.after_output(None, LLMFullResponseStartFrame())
+        engine.speech_playback.note_output()
     if playback == "already_finished":
-        await engine.should_mute_user(BotStoppedSpeakingFrame())
+        engine.speech_playback.after_output(None, LLMFullResponseEndFrame())
 
     finishing = asyncio.create_task(finish())
     try:
@@ -73,13 +76,14 @@ async def test_end_node_waits_for_goodbye_playback(engine, is_realtime, playback
             await asyncio.sleep(0)
             engine.call_worker.queue_frame.assert_not_awaited()
             if playback == "delayed":
-                await engine.should_mute_user(BotStartedSpeakingFrame())
+                engine.speech_playback.after_output(None, LLMFullResponseStartFrame())
+                engine.speech_playback.note_output()
             # Finishing inference does not mean the audio has reached the caller.
             await engine.should_mute_user(LLMFullResponseEndFrame())
             await asyncio.sleep(0)
             engine.call_worker.queue_frame.assert_not_awaited()
             engine.perform_final_variable_extraction.assert_not_awaited()
-            await engine.should_mute_user(BotStoppedSpeakingFrame())
+            engine.speech_playback.after_output(None, LLMFullResponseEndFrame())
 
         await asyncio.wait_for(finishing, timeout=1)
         engine.perform_final_variable_extraction.assert_awaited_once()
@@ -114,14 +118,13 @@ async def test_caller_hangup_can_cancel_while_goodbye_is_pending(engine):
 @pytest.mark.parametrize("starts", [False, True])
 async def test_end_node_wait_is_bounded_when_audio_stalls(engine, starts):
     finish = await transition_to_end(engine)
-    original_wait = engine.wait_for_speech_playback
-
-    async def short_wait():
-        return await original_wait(start_timeout=0.01, playback_timeout=0.01)
-
-    engine.wait_for_speech_playback = short_wait
+    speech = next(iter(engine.speech_playback.pending.values()))
+    asyncio.get_running_loop().call_later(
+        0.01, speech.finish, PlaybackOutcome.TIMED_OUT
+    )
     if starts:
-        await engine.should_mute_user(BotStartedSpeakingFrame())
+        engine.speech_playback.after_output(None, LLMFullResponseStartFrame())
+        engine.speech_playback.note_output()
     await asyncio.wait_for(finish(), timeout=1)
     assert isinstance(engine.call_worker.queue_frame.await_args.args[0], EndFrame)
 
@@ -133,23 +136,41 @@ async def test_text_delivery_completes_the_shared_playback_wait(engine, source):
     window = _ResponseWindowState()
     capture = _TextChatCaptureProcessor(window, context, engine)
     capture.push_frame = AsyncMock()
-    engine.arm_speech_playback()
-    waiting = asyncio.create_task(engine.wait_for_speech_playback())
+    speech = (
+        engine.speech_playback.expect_response()
+        if source == "llm"
+        else engine.speech_playback.create()
+    )
+    waiting = asyncio.create_task(speech.wait())
+    if source != "llm":
+        await capture.process_frame(
+            SpeechBoundaryFrame(speech.id, True), FrameDirection.DOWNSTREAM
+        )
     try:
         if source == "static":
             await capture.process_frame(
                 TTSSpeakFrame("Goodbye!"), FrameDirection.DOWNSTREAM
             )
             assert window.outputs == ["Goodbye!"]
+            await capture.process_frame(
+                SpeechBoundaryFrame(speech.id, False), FrameDirection.DOWNSTREAM
+            )
         else:
             start = (
                 LLMFullResponseStartFrame() if source == "llm" else TTSStartedFrame()
             )
             stop = LLMFullResponseEndFrame() if source == "llm" else TTSStoppedFrame()
             await capture.process_frame(start, FrameDirection.DOWNSTREAM)
+            await capture.process_frame(
+                LLMTextFrame("Goodbye!"), FrameDirection.DOWNSTREAM
+            )
             await asyncio.sleep(0)
             assert not waiting.done()
             await capture.process_frame(stop, FrameDirection.DOWNSTREAM)
+            if source != "llm":
+                await capture.process_frame(
+                    SpeechBoundaryFrame(speech.id, False), FrameDirection.DOWNSTREAM
+                )
         assert await asyncio.wait_for(waiting, timeout=1)
     finally:
         if not waiting.done():

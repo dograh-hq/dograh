@@ -23,6 +23,7 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMServiceMetadataFrame,
+    TTSSpeakFrame,
     UserTurnInferenceCompletedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -1771,7 +1772,6 @@ class TestCustomToolManagerUnit:
         mock_engine._gathered_context = {}
         mock_engine._get_organization_id = AsyncMock(return_value=1)
         mock_engine.flush_variable_extraction = AsyncMock()
-        mock_engine.arm_speech_playback = Mock()
 
         manager = CustomToolManager(mock_engine)
         tool = MockToolModel(
@@ -1842,11 +1842,7 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
-        mock_engine = Mock()
-        mock_engine._is_realtime = False
-        mock_engine.queue_text_message = PipecatEngine.queue_text_message.__get__(
-            mock_engine
-        )
+        mock_engine = PipecatEngine(workflow=None, call_context_vars={})
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {"state": "TX"}
@@ -1979,9 +1975,11 @@ class TestCustomToolManagerUnit:
         spoken_texts = [
             call.args[0].text
             for call in mock_engine._active_agent.worker.queue_frame.await_args_list
+            if isinstance(call.args[0], TTSSpeakFrame)
         ]
         assert "One moment while I find the right team." in spoken_texts
         assert "I will connect you with our Texas partner now." in spoken_texts
+        mock_engine.speech_playback.cancel_all()
 
     @pytest.mark.asyncio
     async def test_transfer_call_resolver_failure_does_not_toggle_pipeline_mute(self):
@@ -1989,11 +1987,7 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
-        mock_engine = Mock()
-        mock_engine._is_realtime = False
-        mock_engine.queue_text_message = PipecatEngine.queue_text_message.__get__(
-            mock_engine
-        )
+        mock_engine = PipecatEngine(workflow=None, call_context_vars={})
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {"state": "TX"}
@@ -2066,6 +2060,7 @@ class TestCustomToolManagerUnit:
         assert result_received["status"] == "transfer_failed"
         assert result_received["reason"] == "no_destination"
         mock_engine.set_mute_pipeline.assert_not_called()
+        mock_engine.speech_playback.cancel_all()
 
     @pytest.mark.asyncio
     async def test_transfer_call_propagates_provider_destination_error(self):

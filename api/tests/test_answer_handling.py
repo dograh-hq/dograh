@@ -15,6 +15,7 @@ from api.services.pipecat.processors.answer_supervisor import (
     AnswerSupervisor,
     AnswerVerdict,
 )
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.answer_handling import handle_answer
 from api.services.workflow.pipecat_engine import PipecatEngine
 
@@ -25,7 +26,24 @@ def make_call(verdicts, **settings):
     engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
     engine.queue_node_opening = AsyncMock(return_value="greeting")
     engine.end_call_with_reason = AsyncMock()
-    engine.wait_for_speech_playback = AsyncMock(return_value=True)
+    engine.playback_wait = AsyncMock(return_value=True)
+    queue_speech = engine.queue_speech
+
+    async def queue(*args, **kwargs):
+        speech = await queue_speech(*args, **kwargs)
+        if not speech.done:
+
+            async def wait():
+                played = await engine.playback_wait()
+                speech.finish(
+                    PlaybackOutcome.PLAYED if played else PlaybackOutcome.FAILED
+                )
+                return played
+
+            speech.wait = wait
+        return speech
+
+    engine.queue_speech = queue
     supervisor = Mock()
     supervisor.config = AnswerSupervisorConfig(**settings)
     supervisor.wait_for_verdict = AsyncMock(side_effect=verdicts)
@@ -78,17 +96,23 @@ async def test_voicemail_verdict_waits_for_playback_before_hangup(voicemail_acti
         voicemail_message=AnswerMessage(text="Please call us back."),
     )
     playback = asyncio.Event()
-    engine.wait_for_speech_playback = AsyncMock(side_effect=playback.wait)
+    engine.playback_wait = AsyncMock(side_effect=playback.wait)
     running = asyncio.create_task(
         handle_answer(engine, supervisor, update_idle_timeout=idle)
     )
     async with asyncio.timeout(1):
-        while not engine.wait_for_speech_playback.called:
+        while not engine.playback_wait.called:
             await asyncio.sleep(0)
     engine.end_call_with_reason.assert_not_awaited()
-    frame = engine.call_worker.queue_frame.call_args.args[0]
+    frame = next(
+        call.args[0]
+        for call in engine.call_worker.queue_frame.await_args_list
+        if isinstance(call.args[0], TTSSpeakFrame)
+    )
     assert isinstance(frame, TTSSpeakFrame)
     assert frame.text == "Please call us back."
+    assert frame.append_to_context is True
+    assert frame.persist_to_logs is False
     playback.set()
     await asyncio.wait_for(running, 1)
     assert engine.end_call_with_reason.call_args.args[0] == "voicemail_detected"
@@ -116,7 +140,7 @@ async def test_screening_then_human_restores_idle_and_opens_once():
     engine.queue_node_opening.assert_awaited_once()
     assert [c.args[0] for c in idle.await_args_list] == [0, None]
     assert engine._mute_pipeline is False
-    assert engine._queued_speech_mute_state == "idle"
+    assert not engine.speech_playback.mutes_user
     engine.end_call_with_reason.assert_not_awaited()
     assert engine._gathered_context["answer_supervisor"] == [
         {
@@ -174,7 +198,13 @@ async def test_repeated_screeners_have_a_finite_budget():
     await asyncio.wait_for(
         handle_answer(engine, supervisor, update_idle_timeout=idle), 1
     )
-    assert engine.call_worker.queue_frame.await_count == 2
+    assert (
+        sum(
+            isinstance(c.args[0], TTSSpeakFrame)
+            for c in engine.call_worker.queue_frame.await_args_list
+        )
+        == 2
+    )
     assert engine.end_call_with_reason.call_args.args[0] == "screening_limit"
     history = engine._gathered_context["answer_supervisor"]
     assert [entry["screening_rearms"] for entry in history] == [0, 1, 2]
@@ -197,7 +227,7 @@ async def test_voicemail_drop_verdict_ignores_message_and_records_drop(message):
         handle_answer(engine, supervisor, update_idle_timeout=idle), 1
     )
     engine.call_worker.queue_frame.assert_not_awaited()
-    engine.wait_for_speech_playback.assert_not_awaited()
+    engine.playback_wait.assert_not_awaited()
     engine.queue_node_opening.assert_not_awaited()
     assert engine.end_call_with_reason.call_args.args[0] == "voicemail_detected"
     assert engine._gathered_context["answer_supervisor"] == [
@@ -262,7 +292,7 @@ async def test_opening_error_cannot_leave_gate_and_idle_detection_disabled():
     )
     supervisor.release.assert_called_once()
     assert [c.args[0] for c in idle.await_args_list] == [0, None]
-    assert engine._queued_speech_mute_state == "idle"
+    assert not engine.speech_playback.mutes_user
 
 
 @pytest.mark.asyncio
@@ -316,14 +346,14 @@ async def test_disconnect_during_playback_cancels_action_promptly():
     )
     disconnected = asyncio.Event()
     supervisor.wait_closed = AsyncMock(side_effect=disconnected.wait)
-    engine.wait_for_speech_playback = AsyncMock(side_effect=asyncio.Event().wait)
+    engine.playback_wait = AsyncMock(side_effect=asyncio.Event().wait)
     running = asyncio.create_task(
         handle_answer(engine, supervisor, update_idle_timeout=idle)
     )
     async with asyncio.timeout(1):
-        while not engine.wait_for_speech_playback.called:
+        while not engine.playback_wait.called:
             await asyncio.sleep(0)
     disconnected.set()
     await asyncio.wait_for(running, 1)
     engine.end_call_with_reason.assert_not_awaited()
-    assert engine._queued_speech_mute_state == "idle"
+    assert not engine.speech_playback.mutes_user

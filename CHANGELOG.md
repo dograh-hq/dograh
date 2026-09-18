@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.48.0 (2026-09-18)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: expose OTEL endpoint for telemetry by @a6kme in https://github.com/dograh-hq/dograh/pull/788
+* feat: enhance answer supervisor to listen even when playing initial greeting by @a6kme in https://github.com/dograh-hq/dograh/pull/790
+### Bug Fixes
+* fix: add multi locale in answer supervisor by @a6kme in https://github.com/dograh-hq/dograh/pull/782
+* fix: extract node variables when a text chat ends without a transition by @a6kme in https://github.com/dograh-hq/dograh/pull/783
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.47.0...dograh-v1.48.0
+
 ## 1.47.0 (2026-09-15)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

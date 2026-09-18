@@ -31,3 +31,4 @@ node_modules/
 .superpowers/
 docs/superpowers/
 .gstack/
+docker-compose.override.yaml

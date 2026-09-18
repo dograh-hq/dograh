@@ -24,6 +24,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregator,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.tests.mock_transport import MockOutputTransport
 from pipecat.tests.mock_tts_service import MockTTSService
 from pipecat.transports.base_transport import TransportParams
@@ -72,11 +73,28 @@ class ControlledOutput(MockOutputTransport):
         return await super().write_audio_frame(frame)
 
 
-class PlaybackHarness:
+class HeldResponseBoundaries(FrameProcessor):
     def __init__(self):
+        super().__init__()
+        self.hold = False
+        self.frames = asyncio.Queue()
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        if self.hold and isinstance(
+            frame, (LLMFullResponseStartFrame, LLMFullResponseEndFrame)
+        ):
+            await self.frames.put(frame)
+        else:
+            await self.push_frame(frame, direction)
+
+
+class PlaybackHarness:
+    def __init__(self, *, hold_boundaries=False):
         self.engine = PipecatEngine(workflow=None, call_context_vars={})
         self.tts = ControlledTTS()
         self.output = ControlledOutput()
+        self.boundaries = HeldResponseBoundaries()
         self.user = LLMUserAggregator(
             LLMContext(),
             params=LLMUserAggregatorParams(
@@ -89,9 +107,12 @@ class PlaybackHarness:
                 ),
             ),
         )
-        self.worker = PipelineWorker(
-            Pipeline([self.user, self.tts, self.output]), enable_rtvi=False
-        )
+        processors = [self.user, self.tts]
+        if hold_boundaries:
+            self.boundaries.hold = True
+            processors.append(self.boundaries)
+        processors.append(self.output)
+        self.worker = PipelineWorker(Pipeline(processors), enable_rtvi=False)
         self.engine.call_worker = self.worker
         # Configured speech enters the generation stage, as in a child worker.
         self.engine.active_agent.worker = SimpleNamespace(
@@ -109,10 +130,14 @@ class PlaybackHarness:
     async def muted(self):
         return await self.engine.should_mute_user(Frame())
 
+    async def emit_boundary(self, frame):
+        await self.tts.push_frame(frame)
+        return await asyncio.wait_for(self.boundaries.frames.get(), 1)
+
 
 @pytest.fixture
-async def playback():
-    harness = PlaybackHarness()
+async def playback(request):
+    harness = PlaybackHarness(hold_boundaries=getattr(request, "param", False))
     ready = asyncio.Event()
 
     @harness.worker.event_handler("on_pipeline_started")
@@ -377,6 +402,87 @@ async def test_response_already_queued_at_output_cannot_finish_next_response(pla
     ):
         await playback.tts.push_frame(frame)
     assert await asyncio.wait_for(speech.wait(), 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", [PlaybackOutcome.TIMED_OUT, PlaybackOutcome.INTERRUPTED]
+)
+@pytest.mark.parametrize("late_start", [False, True])
+@pytest.mark.parametrize("end_after_expiry", [False, True])
+@pytest.mark.parametrize("source_owned", [False, True])
+@pytest.mark.parametrize("playback", [True], indirect=True)
+async def test_stale_generation_boundaries_cannot_claim_new_response(
+    playback, outcome, late_start, end_after_expiry, source_owned
+):
+    tracker = playback.engine.speech_playback
+
+    old = tracker.expect_response(
+        source=playback.tts, timeout=0.05 if outcome is PlaybackOutcome.TIMED_OUT else 1
+    )
+    old_start = await playback.emit_boundary(LLMFullResponseStartFrame())
+    if not end_after_expiry:
+        old_end = await playback.emit_boundary(LLMFullResponseEndFrame())
+    if outcome is PlaybackOutcome.INTERRUPTED:
+        await playback.output.queue_frame(InterruptionFrame())
+    assert not await asyncio.wait_for(old.wait(), 1)
+    assert old.outcome is outcome
+    if end_after_expiry:
+        old_end = await playback.emit_boundary(LLMFullResponseEndFrame())
+
+    current = tracker.expect_response(
+        source=playback.tts if source_owned else None, mute_user=True, timeout=1
+    )
+    current_start, current_end = LLMFullResponseStartFrame(), LLMFullResponseEndFrame()
+    if source_owned:
+        current_start = await playback.emit_boundary(current_start)
+        current_end = await playback.emit_boundary(current_end)
+    await playback.output.queue_frame(current_start)
+    if late_start:
+        await playback.output.queue_frame(old_start)
+    await playback.output.queue_frame(old_end)
+    assert await playback.worker.flush_pipeline(timeout=1)
+    assert not current.done, "A stale end completed the newer response"
+    assert await playback.muted()
+
+    for frame in (
+        TTSStartedFrame(),
+        TTSAudioRawFrame(b"\x01\x00" * 640, 16000, 1),
+        TTSStoppedFrame(),
+        current_end,
+    ):
+        await playback.output.queue_frame(frame)
+    assert await asyncio.wait_for(current.wait(), 1)
+    assert current.outcome is PlaybackOutcome.PLAYED
+    assert old.outcome is outcome
+    assert not await playback.muted()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("playback", [True], indirect=True)
+async def test_stale_audio_does_not_make_an_empty_new_response_successful(playback):
+    tracker = playback.engine.speech_playback
+    old = tracker.expect_response(source=playback.tts, timeout=0.05)
+    old_start = await playback.emit_boundary(LLMFullResponseStartFrame())
+    old_end = await playback.emit_boundary(LLMFullResponseEndFrame())
+    assert not await asyncio.wait_for(old.wait(), 1)
+
+    current = tracker.expect_response(source=playback.tts, timeout=1)
+    current_start = await playback.emit_boundary(LLMFullResponseStartFrame())
+    current_end = await playback.emit_boundary(LLMFullResponseEndFrame())
+    for frame in (
+        current_start,
+        old_start,
+        TTSStartedFrame(),
+        TTSAudioRawFrame(b"\x01\x00" * 640, 16000, 1),
+        TTSStoppedFrame(),
+        old_end,
+        current_end,
+    ):
+        await playback.output.queue_frame(frame)
+    assert not await asyncio.wait_for(current.wait(), 1)
+    assert current.outcome is PlaybackOutcome.FAILED
+    assert not current.has_output
 
 
 @pytest.mark.asyncio

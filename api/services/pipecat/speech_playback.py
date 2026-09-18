@@ -76,9 +76,10 @@ class SpeechPlaybackTracker:
         self._output: FrameProcessor | None = None
         # Direct recordings can nest inside a still-generating TTS response.
         self._output_scopes: list[str] = []
-        self._response: str | None = None
+        self._unmarked_response: str | None = None
         self._expected_response: SpeechPlayback | None = None
         self._expected_source: FrameProcessor | None = None
+        self._response_sources: dict[FrameProcessor, str | None] = {}
 
     @property
     def mutes_user(self) -> bool:
@@ -92,41 +93,54 @@ class SpeechPlaybackTracker:
     def expect_response(self, *, source=None, **kwargs) -> SpeechPlayback:
         """Own the next response emitted by the LLM, before requesting it.
 
-        Tag its start at the source so an earlier response still buffered in TTS
-        cannot claim this operation when it eventually reaches output.
+        Tag both boundaries at the source so buffered responses retain ownership
+        through timeout or interruption. Source-free adapters must deliver their
+        response boundaries in order.
         """
         if self._expected_response and not self._expected_response.done:
             raise RuntimeError("A generated response is already pending")
         speech = self.create(**kwargs)
         self._expected_response = speech
         self._expected_source = source if isinstance(source, FrameProcessor) else None
-        if self._expected_source:
-
-            def mark_response(_processor, frame):
-                if (
-                    isinstance(frame, LLMFullResponseStartFrame)
-                    and self._expected_response is speech
-                    and not speech.done
-                ):
-                    frame.metadata["dograh_speech_id"] = speech.id
-                    self._expected_response = None
-                    self._expected_source = None
-
-            source.add_event_handler("on_before_push_frame", mark_response)
-            speech._result.add_done_callback(
-                lambda _: source.remove_event_handler(
-                    "on_before_push_frame", mark_response
-                )
+        if self._expected_source and source not in self._response_sources:
+            self._response_sources[source] = None
+            source.add_event_handler(
+                "on_before_push_frame", self._mark_response_boundaries
             )
         return speech
+
+    def _mark_response_boundaries(self, source: FrameProcessor, frame: Frame) -> None:
+        if isinstance(frame, LLMFullResponseStartFrame):
+            speech = (
+                self._expected_response if self._expected_source is source else None
+            )
+            # Unowned responses also need a scope so their audio cannot count as
+            # output for another speech request whose boundaries overlap them.
+            speech_id = speech.id if speech and not speech.done else str(uuid.uuid4())
+            self._response_sources[source] = speech_id
+            frame.metadata["dograh_speech_id"] = speech_id
+            if self._expected_source is source:
+                self._expected_response = None
+                self._expected_source = None
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            frame.metadata["dograh_speech_id"] = self._response_sources[source]
+            self._response_sources[source] = None
 
     def cancel_all(self, outcome: PlaybackOutcome = PlaybackOutcome.CLOSED) -> None:
         for speech in list(self.pending.values()):
             speech.finish(outcome)
         self._output_scopes.clear()
-        self._response = None
+        self._unmarked_response = None
         self._expected_response = None
         self._expected_source = None
+        # Keep source ownership through interruptions: an old generation's end
+        # may still be emitted and must retain its old ID. Detach at call closure.
+        if outcome is PlaybackOutcome.CLOSED:
+            for source in self._response_sources:
+                source.remove_event_handler(
+                    "on_before_push_frame", self._mark_response_boundaries
+                )
+            self._response_sources.clear()
 
     def bind_output(self, output) -> None:
         if self._output:
@@ -160,18 +174,30 @@ class SpeechPlaybackTracker:
                 await processor.process_frame(boundary, FrameDirection.DOWNSTREAM)
 
     def _response_boundary(self, frame: Frame) -> SpeechBoundaryFrame | None:
+        if not isinstance(frame, (LLMFullResponseStartFrame, LLMFullResponseEndFrame)):
+            return None
+        if "dograh_speech_id" in frame.metadata:
+            speech_id = frame.metadata["dograh_speech_id"]
+            if speech_id:
+                return SpeechBoundaryFrame(
+                    speech_id, beginning=isinstance(frame, LLMFullResponseStartFrame)
+                )
+            return None
+
+        # Only ordered adapters without a source use output-side pairing. Tagged
+        # frames never replace this owner or claim a source-free expectation.
         if isinstance(frame, LLMFullResponseStartFrame):
-            self._response = frame.metadata.get("dograh_speech_id")
-            if self._expected_source is None and self._expected_response:
-                # Adapters without a FrameProcessor source observe generation
-                # directly (also useful for transport-only tests).
-                self._response = self._expected_response.id
+            if (
+                self._expected_source is None
+                and self._expected_response
+                and not self._expected_response.done
+            ):
+                self._unmarked_response = self._expected_response.id
                 self._expected_response = None
-            if self._response:
-                return SpeechBoundaryFrame(self._response, beginning=True)
-        elif isinstance(frame, LLMFullResponseEndFrame) and self._response:
-            speech_id = self._response
-            self._response = None
+                return SpeechBoundaryFrame(self._unmarked_response, beginning=True)
+        elif self._unmarked_response:
+            speech_id = self._unmarked_response
+            self._unmarked_response = None
             return SpeechBoundaryFrame(speech_id, beginning=False)
         return None
 

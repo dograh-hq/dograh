@@ -37,6 +37,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -58,6 +59,7 @@ type SidebarNavItem = {
 };
 
 type SidebarNavSection = {
+  label?: string;
   items: SidebarNavItem[];
 };
 
@@ -65,6 +67,7 @@ const TELEPHONY_WARNING_COPY = "Action required";
 
 const NAV_SECTIONS: SidebarNavSection[] = [
   {
+    label: "Build",
     items: [
       {
         title: "Voice Agents",
@@ -100,6 +103,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     ],
   },
   {
+    label: "Manage",
     items: [
       {
         title: "Agent Runs",
@@ -273,6 +277,11 @@ export function AppSidebar() {
             key={index}
             className={index === 0 ? "pt-0" : "pt-6"}
           >
+            {section.label && !isCollapsed && (
+              <SidebarGroupLabel className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+                {section.label}
+              </SidebarGroupLabel>
+            )}
             <SidebarMenu>
               {section.items.map((item) => (
                 <SidebarMenuItem key={item.title}>

@@ -17,6 +17,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
+    SpeechBoundaryFrame,
     UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
@@ -34,6 +35,11 @@ from api.errors.failure import (
 )
 from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.pipecat.audio_playback import play_audio
+from api.services.pipecat.speech_playback import (
+    PlaybackOutcome,
+    SpeechPlayback,
+    SpeechPlaybackTracker,
+)
 from api.services.workflow.agent_runtime import AgentRuntime, new_visit_id
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
@@ -207,18 +213,10 @@ class PipecatEngine:
         self._answer_user_aggregator = None
         self._answer_idle_timeout = 0
 
-        # Mute state for queued TTSSpeakFrames (transition speech, custom tool messages)
-        # "idle" = not muting, "waiting" = speech queued, "playing" = bot speaking it
-        self._queued_speech_mute_state: str = "idle"
+        self.speech_playback = SpeechPlaybackTracker()
 
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
         self._bot_is_speaking: bool = False
-
-        # Playback tracking for speech a caller needs to await (see
-        # arm_speech_playback / wait_for_speech_playback). Armed state is
-        # "nothing started yet", so both events start cleared.
-        self._speech_playback_started: asyncio.Event = asyncio.Event()
-        self._speech_playback_finished: asyncio.Event = asyncio.Event()
 
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
@@ -427,26 +425,9 @@ class PipecatEngine:
                     logger.info(
                         f"Playing transition audio: {transition_speech_recording_id}"
                     )
-                    self._queued_speech_mute_state = "waiting"
-                    result = await self._fetch_recording_audio(
-                        recording_pk=int(transition_speech_recording_id)
+                    await self.queue_speech(
+                        recording_pk=int(transition_speech_recording_id), mute_user=True
                     )
-                    if result:
-                        await play_audio(
-                            result.audio,
-                            sample_rate=(
-                                self._audio_config.pipeline_sample_rate
-                                if self._audio_config
-                                else 16000
-                            ),
-                            queue_frame=self._transport_output.queue_frame,
-                            transcript=result.transcript,
-                            persist_to_logs=True,
-                        )
-                    else:
-                        logger.warning(
-                            f"Failed to fetch transition audio {transition_speech_recording_id}"
-                        )
                 elif transition_speech:
                     await self.queue_text_message(transition_speech, mute_user=True)
 
@@ -457,10 +438,10 @@ class PipecatEngine:
 
                 is_end_node = agent.workflow.nodes[transition_to_node].is_end
                 if is_end_node:
-                    # The tool result triggers the end node's closing response.
-                    # Arm before returning it: realtime can begin speaking before
-                    # the aggregator's on_context_updated callback runs.
-                    self.arm_speech_playback()
+                    # Register before the tool result can trigger generation.
+                    closing_speech = self.speech_playback.expect_response(
+                        source=agent.llm
+                    )
                     self._mute_pipeline = True
 
                 async def on_context_updated() -> None:
@@ -470,7 +451,7 @@ class PipecatEngine:
                         # model generation, and transport playback free to continue.
                         # EndFrame closes realtime sessions; transport draining
                         # alone cannot recover audio the model hasn't sent yet.
-                        await self.wait_for_speech_playback()
+                        await closing_speech.wait()
                         if self.agent_can_act(agent):
                             await self.end_call_with_reason(
                                 EndTaskReason.END_CALL.value
@@ -993,6 +974,9 @@ class PipecatEngine:
         previous_node_id: Optional[str] = None,
         generate_if_no_greeting: bool = False,
         origin_visit_id: Optional[str] = None,
+        wait_for_playback: bool = False,
+        mute_user: bool = False,
+        opening_context: LLMContext | None = None,
     ) -> Literal["none", "greeting", "llm"]:
         """Queue the opening behavior for a node.
 
@@ -1010,6 +994,9 @@ class PipecatEngine:
             origin_visit_id: The agent visit this opening belongs to. An
                 opening queued for a visit that is no longer running is
                 dropped, so exactly one opening runs per activation.
+            wait_for_playback: Await the opening's own output completion.
+            mute_user: Hold a mute for the lifetime of the opening.
+            opening_context: Isolated context for a provisional generated opening.
 
         Returns:
             "greeting" when a text/audio greeting was queued,
@@ -1042,17 +1029,15 @@ class PipecatEngine:
                     )
                     result = await self._fetch_recording_audio(**fetch_kwargs)
                     if result:
-                        await play_audio(
-                            result.audio,
-                            sample_rate=(
-                                self._audio_config.pipeline_sample_rate
-                                if self._audio_config
-                                else 16000
-                            ),
-                            queue_frame=self._transport_output.queue_frame,
+                        speech = await self.queue_speech(
+                            audio=result.audio,
                             transcript=result.transcript,
                             append_to_context=True,
+                            persist_to_logs=False,
+                            mute_user=mute_user,
                         )
+                        if wait_for_playback:
+                            await speech.wait()
                         await self._open_realtime_after_recorded_greeting(
                             result.transcript
                         )
@@ -1066,9 +1051,30 @@ class PipecatEngine:
                     # append_to_context=True so the assistant aggregator commits
                     # the greeting to the LLM context once TTS finishes; without
                     # it the LLM would re-greet on its first generation.
-                    await agent.speak(
-                        greeting_value, append_to_context=True, persist_to_logs=False
-                    )
+                    if self._is_realtime:
+                        # Realtime adapters consume the opening text as a prompt
+                        # and generate a response; configured tool text is skipped.
+                        speech = self.speech_playback.expect_response(
+                            source=agent.llm, mute_user=mute_user
+                        )
+                        try:
+                            await agent.speak(
+                                greeting_value,
+                                append_to_context=True,
+                                persist_to_logs=False,
+                            )
+                        except BaseException:
+                            speech.finish(PlaybackOutcome.FAILED)
+                            raise
+                    else:
+                        speech = await self.queue_speech(
+                            greeting_value,
+                            append_to_context=True,
+                            persist_to_logs=False,
+                            mute_user=mute_user,
+                        )
+                    if wait_for_playback:
+                        await speech.wait()
                     return "greeting"
 
         if (
@@ -1079,7 +1085,21 @@ class PipecatEngine:
             logger.debug("Queueing initial LLM generation for node opening")
             # Queue after the voicemail detector in the live pipeline so the
             # detector can gate initial generations when needed.
-            await agent.run_llm(self.context)
+            speech = (
+                self.speech_playback.expect_response(
+                    source=agent.llm, mute_user=mute_user
+                )
+                if wait_for_playback or mute_user
+                else None
+            )
+            try:
+                await agent.run_llm(opening_context or self.context)
+            except BaseException:
+                if speech:
+                    speech.finish(PlaybackOutcome.FAILED)
+                raise
+            if wait_for_playback:
+                await speech.wait()
             return "llm"
 
         return "none"
@@ -1234,6 +1254,7 @@ class PipecatEngine:
             return
 
         self._call_disposed = True
+        self.speech_playback.cancel_all()
 
         # Mute the pipeline
         self._mute_pipeline = True
@@ -1347,94 +1368,122 @@ class PipecatEngine:
         )
         await self.call_worker.queue_frame(frame_to_push)
 
+    async def queue_speech(
+        self,
+        text: str | None = None,
+        *,
+        audio: bytes | None = None,
+        recording_pk: int | None = None,
+        recording_id: str | None = None,
+        transcript: str | None = None,
+        append_to_context: bool = False,
+        persist_to_logs: bool = True,
+        mute_user: bool = False,
+        timeout: float = 35,
+    ) -> SpeechPlayback:
+        """Queue one message and return its independently owned playback result.
+
+        Recording preparation is bounded and happens before acquiring a mute.
+        Text and audio boundaries follow the same route as their message, so
+        completion acknowledges output rather than unrelated bot activity.
+        The timeout runs from enqueue, including when nobody calls wait().
+        """
+        from pipecat.frames.frames import TTSSpeakFrame
+
+        if (
+            sum(
+                value is not None for value in (text, audio, recording_pk, recording_id)
+            )
+            != 1
+        ):
+            raise ValueError("Provide exactly one speech source")
+
+        def completed(outcome):
+            speech = self.speech_playback.create()
+            speech.finish(outcome)
+            return speech
+
+        if self.is_call_disposed():
+            return completed(PlaybackOutcome.CLOSED)
+        if text is not None and (self._is_realtime or not text.strip()):
+            return completed(PlaybackOutcome.SKIPPED)
+        if recording_pk is not None or recording_id is not None:
+            if not self._fetch_recording_audio or self._transport_output is None:
+                return completed(PlaybackOutcome.FAILED)
+            try:
+                async with asyncio.timeout(10):
+                    recording = await self._fetch_recording_audio(
+                        **(
+                            {"recording_pk": recording_pk}
+                            if recording_pk is not None
+                            else {"recording_id": recording_id}
+                        )
+                    )
+                if recording is None:
+                    return completed(PlaybackOutcome.FAILED)
+                audio, transcript = recording.audio, recording.transcript
+            except Exception:
+                logger.warning("Could not prepare recorded speech")
+                return completed(PlaybackOutcome.FAILED)
+
+        if self.is_call_disposed():
+            return completed(PlaybackOutcome.CLOSED)
+        frames = []
+        if text is not None:
+            if self.active_agent.worker is None:
+                return completed(PlaybackOutcome.FAILED)
+            queue_frame = self.active_agent.queue_frame
+            frames.append(
+                TTSSpeakFrame(
+                    text,
+                    append_to_context=append_to_context,
+                    persist_to_logs=persist_to_logs,
+                )
+            )
+        else:
+            if not audio or self._transport_output is None:
+                return completed(PlaybackOutcome.FAILED)
+            queue_frame = self._transport_output.queue_frame
+
+            async def collect(frame):
+                frames.append(frame)
+
+            await play_audio(
+                audio,
+                sample_rate=(
+                    self._audio_config.pipeline_sample_rate
+                    if self._audio_config
+                    else 16000
+                ),
+                queue_frame=collect,
+                transcript=transcript,
+                append_to_context=append_to_context,
+                persist_to_logs=persist_to_logs,
+            )
+
+        speech = self.speech_playback.create(mute_user=mute_user, timeout=timeout)
+        try:
+            await queue_frame(SpeechBoundaryFrame(speech.id, beginning=True))
+            for frame in frames:
+                await queue_frame(frame)
+            await queue_frame(SpeechBoundaryFrame(speech.id, beginning=False))
+        except BaseException:
+            speech.finish(PlaybackOutcome.FAILED)
+            raise
+        return speech
+
     async def queue_text_message(
         self, text: str, *, append_to_context: bool = False, mute_user: bool = False
     ) -> bool:
-        """Queue edge/tool speech only when the pipeline has a TTS service.
-
-        Realtime services own their responses. Skip before arming mute or
-        reporting queued playback: discarded text cannot produce a completion
-        event to release either wait. Opening greetings use a separate path.
-        """
-        if self._is_realtime:
-            logger.debug("Skipping configured text speech in realtime mode")
-            return False
-        if mute_user:
-            self._queued_speech_mute_state = "waiting"
-        # Spoken by whichever agent is running, in its own voice: a transfer
-        # announcement has to come from the agent saying goodbye, not from
-        # whoever happens to own the transport.
-        await self._active_agent.speak(
-            text, append_to_context=append_to_context, persist_to_logs=True
+        """Queue a message whose caller does not need to await playback."""
+        speech = await self.queue_speech(
+            text, append_to_context=append_to_context, mute_user=mute_user
         )
-        return True
-
-    def clear_queued_speech_mute(self) -> None:
-        """Release a mute taken for speech that never reached the caller.
-
-        ``queue_text_message(mute_user=True)`` mutes until the speech starts
-        and stops playing. Speech that is never spoken -- a TTS that failed,
-        a handoff that gave up on waiting -- produces neither event, so
-        without this the caller stays muted for the rest of the call.
-        """
-        if self._queued_speech_mute_state != "idle":
-            logger.debug("Releasing queued-speech mute for speech that never played")
-            self._queued_speech_mute_state = "idle"
-
-    def arm_speech_playback(self) -> None:
-        """Start tracking the next piece of speech queued to the transport.
-
-        Call this immediately *before* queueing a TTSSpeakFrame (or raw
-        recording audio) whose playback a later step must wait for. Any speech
-        already in flight is ignored: the tracker only completes once a fresh
-        BotStartedSpeakingFrame has been followed by a BotStoppedSpeakingFrame.
-        """
-        self._speech_playback_started.clear()
-        self._speech_playback_finished.clear()
-
-    async def wait_for_speech_playback(
-        self, *, start_timeout: float = 5.0, playback_timeout: float = 30.0
-    ) -> bool:
-        """Wait for speech armed via ``arm_speech_playback`` to finish playing.
-
-        Speech queued to the pipeline only reaches the caller once the output
-        transport has written it out in real time, so anything that tears the
-        audio path down (a PBX transfer, a hangup) must wait for this first.
-
-        Args:
-            start_timeout: Seconds to wait for playback to begin. TTS can fail
-                or return nothing, so a message that never starts must not
-                block the caller indefinitely.
-            playback_timeout: Seconds to wait for playback to complete once it
-                has begun.
-
-        Returns:
-            True if the speech played to completion, False if either wait timed
-            out (the caller should carry on regardless).
-        """
-        try:
-            await asyncio.wait_for(
-                self._speech_playback_started.wait(), timeout=start_timeout
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"Queued speech never started playing within {start_timeout}s; "
-                "continuing without it"
-            )
-            return False
-
-        try:
-            await asyncio.wait_for(
-                self._speech_playback_finished.wait(), timeout=playback_timeout
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"Queued speech did not finish playing within {playback_timeout}s; "
-                "continuing"
-            )
-            return False
-
-        return True
+        return speech.outcome not in (
+            PlaybackOutcome.FAILED,
+            PlaybackOutcome.SKIPPED,
+            PlaybackOutcome.CLOSED,
+        )
 
     async def should_mute_user(self, frame: "Frame") -> bool:
         """
@@ -1442,7 +1491,9 @@ class PipecatEngine:
 
         This method tracks bot speaking state from frames and mutes the user when:
         - The pipeline is being shut down (_mute_pipeline is True), OR
-        - The bot is speaking AND the current node has allow_interrupt=False
+        - A pending speech operation requested muting, OR
+        - After answer supervision, the bot is speaking and the current node
+          has allow_interrupt=False
 
         Returns:
             True if the user should be muted, False otherwise.
@@ -1450,22 +1501,21 @@ class PipecatEngine:
         # Track bot speaking state from frames
         if isinstance(frame, BotStartedSpeakingFrame):
             self._bot_is_speaking = True
-            if self._queued_speech_mute_state == "waiting":
-                self._queued_speech_mute_state = "playing"
-            self._speech_playback_started.set()
-            self._speech_playback_finished.clear()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
-            self._queued_speech_mute_state = "idle"
-            self._speech_playback_finished.set()
 
         # Always mute if pipeline is shutting down
         if self._mute_pipeline:
             return True
 
         # Mute while queued speech (transition/tool message) is pending or playing
-        if self._queued_speech_mute_state != "idle":
+        if self.speech_playback.mutes_user:
             return True
+
+        # Keep caller turns live while a committed human verdict waits for the
+        # greeting to finish. The supervisor's gate still holds their inference.
+        if self.answer_supervisor and self.answer_supervisor.blocks_workflow:
+            return False
 
         # Mute if bot is speaking and current node doesn't allow interruption
         if self._bot_is_speaking and self.active_agent.current_node:
@@ -1474,6 +1524,17 @@ class PipecatEngine:
                 return True
 
         return False
+
+    def should_interrupt_user_turn(self) -> bool:
+        """Answer handling owns interruptions until it hands over the conversation."""
+        return (
+            self.answer_supervisor is None or not self.answer_supervisor.blocks_workflow
+        )
+
+    async def interrupt_answer_opening(self) -> bool:
+        """Stop generation and transport playback before queuing an answer message."""
+        await self._answer_user_aggregator.broadcast_interruption()
+        return await self.drain_call_pipeline()
 
     def create_user_idle_handler(self):
         """
@@ -1820,6 +1881,7 @@ class PipecatEngine:
         going straight to the caller.
         """
         self._transport_output = transport_output
+        self.speech_playback.bind_output(transport_output)
 
     def set_fetch_recording_audio(self, fetch_fn) -> None:
         """Set the recording audio fetcher callback."""
@@ -1940,6 +2002,7 @@ class PipecatEngine:
         Connection owners are finalized by close_mcp_sessions() in the run
         finally block, including failures before the pipeline starts.
         """
+        self.speech_playback.cancel_all()
         # Cancel any pending timeout tasks
         if (
             self._user_response_timeout_task

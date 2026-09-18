@@ -348,12 +348,13 @@ def register_turn_log_handlers(
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message):
-        if message.content:
-            try:
-                await transcript_coordinator.record_assistant_transcript(
-                    text=message.content,
-                    timestamp=message.timestamp,
-                    end_timestamp=getattr(message, "end_timestamp", None),
-                )
-            except Exception as e:
-                logger.error(f"Failed to coordinate assistant turn transcript: {e}")
+        # An interrupted opening can have no delivered text. Close that empty
+        # transcript slot too, so the next message cannot claim its playback turn.
+        try:
+            await transcript_coordinator.record_assistant_transcript(
+                text=message.content or "",
+                timestamp=message.timestamp,
+                end_timestamp=getattr(message, "end_timestamp", None),
+            )
+        except Exception as e:
+            logger.error(f"Failed to coordinate assistant turn transcript: {e}")

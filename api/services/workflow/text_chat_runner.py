@@ -19,6 +19,9 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    SpeechBoundaryFrame,
+    TextFrame,
+    TTSAudioRawFrame,
     TTSSpeakFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
@@ -267,6 +270,16 @@ class _TextChatCaptureProcessor(FrameProcessor):
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         self._touch()
+        playback = self._engine.speech_playback
+        await playback.before_output(self, frame)
+        if isinstance(
+            frame, (SpeechBoundaryFrame, LLMFullResponseStartFrame, EndFrame)
+        ):
+            playback.after_output(self, frame)
+        if isinstance(frame, (TextFrame, TTSSpeakFrame)) and frame.text.strip():
+            playback.note_output()
+        if isinstance(frame, TTSAudioRawFrame):
+            playback.after_output(self, frame)
 
         if isinstance(frame, TTSSpeakFrame):
             append_to_context = (
@@ -313,6 +326,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
             # BotStoppedSpeakingFrame that never arrives.
             await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
             await self._engine.should_mute_user(BotStoppedSpeakingFrame())
+            playback.after_output(self, frame)
             return
 
         if isinstance(frame, FunctionCallInProgressFrame):

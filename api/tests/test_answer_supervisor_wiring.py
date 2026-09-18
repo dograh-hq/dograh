@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pipecat.turns.user_mute import (
-    FirstSpeechUserMuteStrategy,
+    FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
@@ -20,7 +20,7 @@ from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
     "enabled, expected",
     [
         (False, MuteUntilFirstBotCompleteUserMuteStrategy),
-        (True, FirstSpeechUserMuteStrategy),
+        (True, FunctionCallUserMuteStrategy),
     ],
 )
 def test_answer_handling_listens_before_the_first_bot_speech(enabled, expected):

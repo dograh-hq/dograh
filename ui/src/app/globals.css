@@ -45,6 +45,11 @@
   --radius-xl: calc(var(--radius) + 4px);
   --color-cta: var(--cta);
   --color-cta-foreground: var(--cta-foreground);
+
+  /* Bump body text sizes for readability (excludes sidebar which uses hardcoded px) */
+  --text-xs: 0.8125rem;    /* 13px, was 12px */
+  --text-sm: 1rem;          /* 16px, was 14px */
+  --text-base: 1.0625rem;  /* 17px, was 16px */
 }
 
 :root {
@@ -134,7 +139,7 @@
 
   body {
     @apply bg-background text-foreground;
-    font-size: 15px;
+    font-size: 17px;
   }
 
   h1, h2, h3, h4 {

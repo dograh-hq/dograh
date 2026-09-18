@@ -69,10 +69,15 @@ async def test_end_node_waits_for_goodbye_playback(engine, is_realtime, playback
 
     finishing = asyncio.create_task(finish())
     try:
-        if playback != "already_finished":
+        # Cascading pipelines start the goodbye generation from the context
+        # update itself, so playback seen before the callback is stale drain
+        # (transition speech/audio, an utterance emitted alongside the tool
+        # call) and must not count as the goodbye.
+        goodbye_pending = not is_realtime or playback != "already_finished"
+        if goodbye_pending:
             await asyncio.sleep(0)
             engine.call_worker.queue_frame.assert_not_awaited()
-            if playback == "delayed":
+            if not is_realtime or playback == "delayed":
                 await engine.should_mute_user(BotStartedSpeakingFrame())
             # Finishing inference does not mean the audio has reached the caller.
             await engine.should_mute_user(LLMFullResponseEndFrame())

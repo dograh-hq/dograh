@@ -457,15 +457,27 @@ class PipecatEngine:
 
                 is_end_node = agent.workflow.nodes[transition_to_node].is_end
                 if is_end_node:
-                    # The tool result triggers the end node's closing response.
-                    # Arm before returning it: realtime can begin speaking before
-                    # the aggregator's on_context_updated callback runs.
-                    self.arm_speech_playback()
                     self._mute_pipeline = True
+                    if self._is_realtime:
+                        # The tool result triggers the end node's closing
+                        # response, and realtime can begin speaking it before
+                        # the aggregator's on_context_updated callback runs --
+                        # arm before returning the result.
+                        self.arm_speech_playback()
 
                 async def on_context_updated() -> None:
                     """Finish an end node after its response reaches the caller."""
                     if is_end_node:
+                        if not self._is_realtime:
+                            # Cascading pipelines start the closing generation
+                            # from this very context update, so no closing
+                            # speech can predate this arm. Arming any earlier
+                            # latches onto speech still draining through the
+                            # transport -- transition speech/audio, or an
+                            # utterance emitted alongside the tool call -- and
+                            # the call would end the moment that drain finishes,
+                            # cutting the closing response off entirely.
+                            self.arm_speech_playback()
                         # This callback runs in its own task, leaving input audio,
                         # model generation, and transport playback free to continue.
                         # EndFrame closes realtime sessions; transport draining

@@ -15,7 +15,6 @@ import {
 } from '@/client/sdk.gen';
 import type { TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -347,28 +346,28 @@ export default function NewCampaignPage() {
     };
 
     return (
-        <div className="container mx-auto p-6 pb-12 space-y-6 max-w-2xl">
+        <div className="container mx-auto px-4 py-8 space-y-6">
             <div>
                 <Button
                     variant="ghost"
                     onClick={handleBack}
-                    className="mb-4"
+                    className="mb-4 -ml-2 text-muted-foreground"
                 >
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back to Campaigns
                 </Button>
-                <h1 className="text-3xl font-bold mb-2">Create New Campaign</h1>
-                <p className="text-muted-foreground">Set up a new campaign to execute workflows at scale</p>
+                <h1 className="text-3xl font-bold">Create New Campaign</h1>
+                <p className="text-muted-foreground mt-1">Set up a new campaign to execute workflows at scale</p>
             </div>
 
-            <Card>
-                    <CardHeader>
-                        <CardTitle>Campaign Details</CardTitle>
-                        <CardDescription>
+            <div className="rounded-lg border bg-card p-6">
+                    <div className="mb-6">
+                        <h2 className="text-lg font-semibold">Campaign Details</h2>
+                        <p className="text-muted-foreground mt-0.5">
                             Configure your campaign settings
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
+                        </p>
+                    </div>
+                    <div>
                         <form onSubmit={handleSubmit} className="space-y-6">
                             <div className="space-y-2">
                                 <Label htmlFor="campaign-name">Campaign Name</Label>
@@ -569,8 +568,8 @@ export default function NewCampaignPage() {
                                 </Button>
                             </div>
                         </form>
-                    </CardContent>
-                </Card>
+                    </div>
+            </div>
         </div>
     );
 }

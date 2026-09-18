@@ -5,13 +5,11 @@ import { createContext, type ReactNode,useCallback, useContext, useEffect, useMe
 
 import { getWorkflowCountApiV1WorkflowCountGet } from "@/client/sdk.gen";
 import { EnterpriseModal } from "@/components/lead-forms/EnterpriseModal";
-import { HireExpertModal } from "@/components/lead-forms/HireExpertModal";
 import type { LeadSource } from "@/components/lead-forms/leadFieldOptions";
 import { OnboardingModal } from "@/components/lead-forms/OnboardingModal";
 import { PostHogEvent } from "@/constants/posthog-events";
 import { useOnboarding } from "@/context/OnboardingContext";
 import { useAuth } from "@/lib/auth";
-import { trackMetaCompleteRegistration } from "@/lib/metaPixel";
 
 interface LeadFormsContextValue {
   openHireExpert: (source: LeadSource) => void;
@@ -72,9 +70,6 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
         if (res.data?.total === 0 && !onboardingDoneRef.current) {
           setOnboardingOpen(true);
           posthog.capture(PostHogEvent.ONBOARDING_SHOWN);
-          // Brand-new user detected (0 workflows, onboarding not yet done) — the
-          // app's canonical "just registered" signal. Meta standard event.
-          trackMetaCompleteRegistration();
         }
       } catch {
         // If the count can't be fetched, do NOT show the modal — fail closed so
@@ -113,12 +108,6 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
   return (
     <LeadFormsContext.Provider value={value}>
       {children}
-      <HireExpertModal
-        open={hireOpen}
-        onOpenChange={setHireOpen}
-        source={hireSource}
-        onOpenEnterprise={() => openEnterprise("hire_expert")}
-      />
       <EnterpriseModal
         open={enterpriseOpen}
         onOpenChange={setEnterpriseOpen}

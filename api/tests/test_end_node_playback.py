@@ -13,6 +13,7 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMTextFrame,
+    SpeechBoundaryFrame,
     TTSSpeakFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
@@ -21,7 +22,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.utils.enums import EndTaskReason
 
-from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechBoundaryFrame
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.text_chat_runner import (
     _ResponseWindowState,

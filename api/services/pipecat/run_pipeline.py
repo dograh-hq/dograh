@@ -103,7 +103,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
-    FirstSpeechUserMuteStrategy,
     FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
@@ -173,16 +172,13 @@ def _create_answer_supervisor(
 
 
 def _create_user_mute_strategies(engine, answer_supervisor):
-    first_speech = (
-        FirstSpeechUserMuteStrategy()
-        if answer_supervisor is not None
-        else MuteUntilFirstBotCompleteUserMuteStrategy()
-    )
-    return [
-        first_speech,
+    strategies = [
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
+    if answer_supervisor is None:
+        strategies.insert(0, MuteUntilFirstBotCompleteUserMuteStrategy())
+    return strategies
 
 
 def _resolve_user_turn_stop_timeout(
@@ -1026,6 +1022,7 @@ async def _run_pipeline_impl(
 
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
+        should_interrupt=engine.should_interrupt_user_turn,
         user_mute_strategies=user_mute_strategies,
         user_turn_stop_timeout=user_turn_stop_timeout,
         user_idle_timeout=max_user_idle_timeout,

@@ -41,6 +41,15 @@ class AnswerSupervisorConfig(BaseModel):
             "Duration includes pauses."
         ),
     )
+    post_opening_wait_ms: int = Field(
+        default=1200,
+        ge=0,
+        le=10000,
+        description=(
+            "Continue answer supervision after a provisional opening. Speech "
+            "starting before expiry retains its utterance and classification budgets."
+        ),
+    )
     machine_utterance_cap_ms: int = Field(
         default=25000,
         gt=0,

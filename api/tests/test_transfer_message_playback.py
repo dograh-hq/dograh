@@ -16,12 +16,12 @@ import pytest
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
+    SpeechBoundaryFrame,
     TTSSpeakFrame,
 )
 from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory, WorkflowRunMode
-from api.services.pipecat.speech_playback import SpeechBoundaryFrame
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.tools.transfer_resolver import ResolvedTransferConfig

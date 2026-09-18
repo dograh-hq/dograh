@@ -17,6 +17,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
+    SpeechBoundaryFrame,
     UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
@@ -36,7 +37,6 @@ from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.speech_playback import (
     PlaybackOutcome,
-    SpeechBoundaryFrame,
     SpeechPlayback,
     SpeechPlaybackTracker,
 )
@@ -976,6 +976,7 @@ class PipecatEngine:
         origin_visit_id: Optional[str] = None,
         wait_for_playback: bool = False,
         mute_user: bool = False,
+        opening_context: LLMContext | None = None,
     ) -> Literal["none", "greeting", "llm"]:
         """Queue the opening behavior for a node.
 
@@ -995,6 +996,7 @@ class PipecatEngine:
                 dropped, so exactly one opening runs per activation.
             wait_for_playback: Await the opening's own output completion.
             mute_user: Hold a mute for the lifetime of the opening.
+            opening_context: Isolated context for a provisional generated opening.
 
         Returns:
             "greeting" when a text/audio greeting was queued,
@@ -1091,13 +1093,13 @@ class PipecatEngine:
                 else None
             )
             try:
-                await agent.run_llm(self.context)
-                if wait_for_playback:
-                    await speech.wait()
+                await agent.run_llm(opening_context or self.context)
             except BaseException:
                 if speech:
                     speech.finish(PlaybackOutcome.FAILED)
                 raise
+            if wait_for_playback:
+                await speech.wait()
             return "llm"
 
         return "none"
@@ -1490,7 +1492,8 @@ class PipecatEngine:
         This method tracks bot speaking state from frames and mutes the user when:
         - The pipeline is being shut down (_mute_pipeline is True), OR
         - A pending speech operation requested muting, OR
-        - The bot is speaking AND the current node has allow_interrupt=False
+        - After answer supervision, the bot is speaking and the current node
+          has allow_interrupt=False
 
         Returns:
             True if the user should be muted, False otherwise.
@@ -1509,6 +1512,11 @@ class PipecatEngine:
         if self.speech_playback.mutes_user:
             return True
 
+        # Keep caller turns live while a committed human verdict waits for the
+        # greeting to finish. The supervisor's gate still holds their inference.
+        if self.answer_supervisor and self.answer_supervisor.blocks_workflow:
+            return False
+
         # Mute if bot is speaking and current node doesn't allow interruption
         if self._bot_is_speaking and self.active_agent.current_node:
             # If we should not allow interruption, mute the pipeline
@@ -1516,6 +1524,17 @@ class PipecatEngine:
                 return True
 
         return False
+
+    def should_interrupt_user_turn(self) -> bool:
+        """Answer handling owns interruptions until it hands over the conversation."""
+        return (
+            self.answer_supervisor is None or not self.answer_supervisor.blocks_workflow
+        )
+
+    async def interrupt_answer_opening(self) -> bool:
+        """Stop generation and transport playback before queuing an answer message."""
+        await self._answer_user_aggregator.broadcast_interruption()
+        return await self.drain_call_pipeline()
 
     def create_user_idle_handler(self):
         """

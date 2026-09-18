@@ -13,6 +13,7 @@ import pytest
 from pipecat.frames.frames import (
     Frame,
     LLMContextFrame,
+    SpeechBoundaryFrame,
     TTSAudioRawFrame,
     TTSSpeakFrame,
     TTSStartedFrame,
@@ -30,7 +31,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.services.pipecat.recording_audio_cache import RecordingAudio
-from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechBoundaryFrame
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,

@@ -276,16 +276,18 @@ async def test_silent_answer_waits_for_window():
         pending = asyncio.create_task(c.supervisor.wait_for_verdict())
         await asyncio.sleep(0.025)
         assert not pending.done()
-        assert (await asyncio.wait_for(pending, 1)).action == "release"
+        assert (await asyncio.wait_for(pending, 1)).action == "start_opening"
 
 
 @pytest.mark.asyncio
 async def test_speech_during_pre_call_fetch_revokes_unused_silent_permission():
     async with call() as c:
-        assert (await verdict(c)).action == "release"
+        permission = await verdict(c)
+        assert permission.action == "start_opening"
         await c.worker.queue_frame(VADUserStartedSpeakingFrame())
         await c.worker.queue_frame(ProposedUserStartedSpeakingFrame())
         await asyncio.sleep(0.02)
+        assert not c.supervisor.commit(permission)
         pending = asyncio.create_task(c.supervisor.wait_for_verdict())
         await asyncio.sleep(0.02)
         assert not pending.done()
@@ -806,7 +808,7 @@ async def test_vad_alone_never_sets_onset_or_arms_utterance_timer(arm_on_start):
         if not arm_on_start:
             c.supervisor.arm()
         result = await verdict(c)
-        assert result.action == "release"
+        assert result.action == "start_opening"
         assert result.reason == "silent_window"
         assert c.supervisor._onset is None
         assert c.supervisor._utterance_task is None

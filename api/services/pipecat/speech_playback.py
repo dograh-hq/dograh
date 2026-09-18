@@ -2,20 +2,19 @@
 
 import asyncio
 import uuid
-from dataclasses import dataclass
 from enum import Enum
 
 from loguru import logger
 
 from pipecat.frames.frames import (
     CancelFrame,
-    ControlFrame,
     EndFrame,
     Frame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     OutputAudioRawFrame,
+    SpeechBoundaryFrame,
     StopFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -28,14 +27,6 @@ class PlaybackOutcome(Enum):
     TIMED_OUT = "timed_out"
     SKIPPED = "skipped"
     CLOSED = "closed"
-
-
-@dataclass
-class SpeechBoundaryFrame(ControlFrame):
-    """An ordered boundary that travels through synthesis and output queues."""
-
-    speech_id: str
-    beginning: bool
 
 
 class SpeechPlayback:

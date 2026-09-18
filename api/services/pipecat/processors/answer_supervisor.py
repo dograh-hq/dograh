@@ -142,7 +142,6 @@ class AnswerSupervisor(FrameProcessor):
             "armed",
             strategy="config",
             listening_window_ms=self.config.listening_window_ms,
-            post_opening_wait_ms=self.config.post_opening_wait_ms,
             human_utterance_max_ms=self.config.human_utterance_max_ms,
             machine_utterance_cap_ms=self.config.machine_utterance_cap_ms,
             classify_budget_ms=self.config.classify_budget_ms,
@@ -161,7 +160,7 @@ class AnswerSupervisor(FrameProcessor):
         has started (_epoch is still zero), allow a provisional opening.
         Any speech onset disables this fallback for the rest of supervision.
         Screening and committed decisions are excluded. Classification stays
-        active through playback and the bounded post-opening wait.
+        active through playback and any turn or classification already underway.
         """
         await asyncio.sleep(self.config.listening_window_ms / 1000)
         if self._epoch == 0 and not self._screening and not self._committed:
@@ -177,17 +176,12 @@ class AnswerSupervisor(FrameProcessor):
         self._utterance_task = self._spawn(self._utterance_timeout(self._epoch))
 
     def opening_finished(self) -> None:
-        """Consume opening-time triggers and bound the remaining observation."""
+        """Consume opening-time triggers and release unless an answer is underway."""
         # The greeting consumes inference triggers received during its playback.
         # Keep their transcripts, but wait for fresh speech or user idle instead
         # of immediately speaking another turn. Later context frames may still
         # need a response once their classification permits the handover.
         self._gate.pending_inference = False
-        if self.observing_opening:
-            self._spawn(self._post_opening_timeout())
-
-    async def _post_opening_timeout(self):
-        await asyncio.sleep(self.config.post_opening_wait_ms / 1000)
         if (
             self.observing_opening
             and self._onset is None
@@ -195,9 +189,8 @@ class AnswerSupervisor(FrameProcessor):
             and self._verdict is None
         ):
             self._publish(
-                AnswerVerdict(AnswerAction.RELEASE, "post_opening_silence"),
-                strategy="post_opening_timeout",
-                post_opening_wait_ms=self.config.post_opening_wait_ms,
+                AnswerVerdict(AnswerAction.RELEASE, "opening_complete"),
+                strategy="playback_complete",
             )
 
     async def _utterance_timeout(self, epoch):

@@ -131,7 +131,6 @@ async def late_call(
         AnswerSupervisorConfig(
             **{
                 "listening_window_ms": 10,
-                "post_opening_wait_ms": 40,
                 "human_utterance_max_ms": 100,
                 "machine_utterance_cap_ms": 1000,
                 "classify_budget_ms": 500,
@@ -387,13 +386,15 @@ async def test_delayed_human_classification_does_not_replay_a_greeting_turn(
 async def test_turn_completing_after_greeting_is_answered(
     simple_workflow, starts_during_greeting
 ):
-    async with late_call(simple_workflow, post_opening_wait_ms=500) as c:
+    async with late_call(simple_workflow) as c:
         if starts_during_greeting:
             await c.start()
         c.output.resume.set()
         await until(lambda: c.speech.done)
         assert await c.engine.drain_call_pipeline()
         if not starts_during_greeting:
+            await asyncio.wait_for(c.action, 3)
+            assert not c.supervisor.blocks_workflow
             await c.start()
         await c.stop("Can we reschedule?")
         await asyncio.wait_for(c.action, 3)
@@ -540,15 +541,16 @@ async def test_late_untranscribed_speech_is_bounded(simple_workflow):
 
 
 @pytest.mark.asyncio
-async def test_speech_in_post_opening_window_is_still_classified(simple_workflow):
-    async with late_call(simple_workflow, post_opening_wait_ms=300) as c:
+async def test_speech_after_opening_is_normal_conversation(simple_workflow):
+    async with late_call(simple_workflow) as c:
         c.output.resume.set()
-        await until(lambda: c.speech.done)
-        await c.say("Please leave a message after the tone.")
         await asyncio.wait_for(c.action, 3)
-        c.engine.end_call_with_reason.assert_awaited_once_with(
-            "voicemail_detected", abort_immediately=True
-        )
+        assert not c.supervisor.blocks_workflow
+        await c.say("Please leave a message after the tone.")
+        await until(lambda: c.llm.get_current_step() == 1)
+        assert await c.engine.drain_call_pipeline()
+        assert len(c.engine._gathered_context["answer_supervisor"]) == 2
+        c.engine.end_call_with_reason.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -559,7 +561,7 @@ async def test_silence_after_opening_finishes_without_a_human_verdict(simple_wor
         history = c.engine._gathered_context["answer_supervisor"]
         assert [v["reason"] for v in history] == [
             "silent_window",
-            "post_opening_silence",
+            "opening_complete",
         ]
         assert all(v["subtype"] is None for v in history)
         assert c.llm.get_current_step() == 0

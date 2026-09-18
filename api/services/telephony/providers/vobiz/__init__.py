@@ -15,7 +15,7 @@ from api.services.telephony.registry import (
 )
 from api.utils.common import get_backend_endpoints
 
-from .config import VobizConfigurationRequest
+from .config import VobizConfigurationRequest, VobizConfigurationResponse
 from .provider import VobizProvider
 from .transport import create_transport
 
@@ -32,10 +32,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _ensure_application_id(
-    credentials: Dict[str, Any],
-    existing_credentials: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+async def _ensure_application_id(credentials: Dict[str, Any]) -> Dict[str, Any]:
     """Auto-create a Vobiz Application if one wasn't supplied.
 
     The application is created with our inbound dispatcher URL pre-set — the
@@ -108,7 +105,7 @@ async def _ensure_application_id(
 
 _UI_METADATA = ProviderUIMetadata(
     display_name="Vobiz",
-    docs_url="https://docs.dograh.com/integrations/telephony/vobiz",
+    docs_url="https://docs.vani.com/integrations/telephony/vobiz",
     fields=[
         ProviderUIField(
             name="auth_id",
@@ -149,6 +146,7 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=VobizConfigurationRequest,
     ui_metadata=_UI_METADATA,
+    config_response_cls=VobizConfigurationResponse,
     account_id_credential_field="auth_id",
     preprocess_credentials_on_save=_ensure_application_id,
 )
@@ -160,6 +158,7 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "VobizConfigurationRequest",
+    "VobizConfigurationResponse",
     "VobizProvider",
     "create_transport",
 ]

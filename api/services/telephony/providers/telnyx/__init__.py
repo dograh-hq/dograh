@@ -15,7 +15,7 @@ from api.services.telephony.registry import (
 )
 from api.utils.common import get_backend_endpoints
 
-from .config import TelnyxConfigurationRequest
+from .config import TelnyxConfigurationRequest, TelnyxConfigurationResponse
 from .provider import TelnyxProvider
 from .transport import create_transport
 
@@ -32,10 +32,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _ensure_connection_id(
-    credentials: Dict[str, Any],
-    existing_credentials: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+async def _ensure_connection_id(credentials: Dict[str, Any]) -> Dict[str, Any]:
     """Auto-create a Telnyx Call Control Application if one wasn't supplied.
 
     The application is created with our inbound dispatcher URL pre-set on
@@ -113,7 +110,7 @@ async def _ensure_connection_id(
 
 _UI_METADATA = ProviderUIMetadata(
     display_name="Telnyx",
-    docs_url="https://docs.dograh.com/integrations/telephony/telnyx",
+    docs_url="https://docs.vani.com/integrations/telephony/telnyx",
     fields=[
         ProviderUIField(
             name="api_key", label="API Key", type="password", sensitive=True
@@ -158,6 +155,7 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=TelnyxConfigurationRequest,
     ui_metadata=_UI_METADATA,
+    config_response_cls=TelnyxConfigurationResponse,
     account_id_credential_field="connection_id",
     preprocess_credentials_on_save=_ensure_connection_id,
 )
@@ -169,6 +167,7 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "TelnyxConfigurationRequest",
+    "TelnyxConfigurationResponse",
     "TelnyxProvider",
     "create_transport",
 ]

@@ -9,7 +9,7 @@ from api.services.telephony.registry import (
     register,
 )
 
-from .config import VonageConfigurationRequest
+from .config import VonageConfigurationRequest, VonageConfigurationResponse
 from .provider import VonageProvider
 from .transport import create_transport
 
@@ -28,7 +28,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
 
 _UI_METADATA = ProviderUIMetadata(
     display_name="Vonage",
-    docs_url="https://docs.dograh.com/integrations/telephony/vonage",
+    docs_url="https://docs.vani.com/integrations/telephony/vonage",
     fields=[
         ProviderUIField(name="application_id", label="Application ID", type="text"),
         ProviderUIField(
@@ -75,6 +75,7 @@ SPEC = ProviderSpec(
     transport_sample_rate=16000,
     config_request_cls=VonageConfigurationRequest,
     ui_metadata=_UI_METADATA,
+    config_response_cls=VonageConfigurationResponse,
     account_id_credential_field="api_key",
 )
 
@@ -85,6 +86,7 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "VonageConfigurationRequest",
+    "VonageConfigurationResponse",
     "VonageProvider",
     "create_transport",
 ]

@@ -24,8 +24,8 @@ from api.services.telephony.registry import (
 
 from .config import MANAGED_BY
 
-MANAGED_DOCS_URL = "https://docs.dograh.com/integrations/telephony/dograh-sip"
-SELF_SERVE_DOCS_URL = "https://docs.dograh.com/integrations/telephony/cloudonix"
+MANAGED_DOCS_URL = "https://docs.vani.com/integrations/telephony/vani-sip"
+SELF_SERVE_DOCS_URL = "https://docs.vani.com/integrations/telephony/cloudonix"
 
 
 def resolve_setup_checklist(
@@ -42,7 +42,7 @@ def resolve_setup_checklist(
                 "SIP domain provisioned" if managed else "Cloudonix credentials saved"
             ),
             description=(
-                "Dograh provisioned a Cloudonix SIP domain for this "
+                "Vani provisioned a Cloudonix SIP domain for this "
                 "organization. Its inbound hostname and outbound origin IP "
                 "are listed under SIP connectivity below — you will need "
                 "them when configuring your carrier."
@@ -59,10 +59,10 @@ def resolve_setup_checklist(
             description=(
                 "Under Outbound trunks, add a trunk pointing at your SIP "
                 "carrier or PBX and allow its origin IP on your side. "
-                "Without one Dograh has nowhere to send outbound calls."
+                "Without one Vani has nowhere to send outbound calls."
                 if managed
                 else "Optional: add a trunk under Outbound trunks to pin "
-                "Dograh's calls to one route. Without it Cloudonix picks "
+                "Vani's calls to one route. Without it Cloudonix picks "
                 "among the active trunks on your domain."
             ),
             complete=state.enabled_trunk_count > 0,
@@ -91,11 +91,11 @@ def resolve_setup_checklist(
         steps.append(
             SetupStep(
                 key="trunk_assignment",
-                title="Tell Dograh which trunk each number dials out on",
+                title="Tell Vani which trunk each number dials out on",
                 description=(
                     "This configuration has more than one trunk, so a number's "
                     "carrier is no longer obvious. Assign each phone number to "
-                    "the trunk whose carrier authorised it — otherwise Dograh "
+                    "the trunk whose carrier authorised it — otherwise Vani "
                     "cannot pin the call and Cloudonix picks among your active "
                     "trunks."
                 ),

@@ -9,7 +9,7 @@ from api.services.telephony.registry import (
     register,
 )
 
-from .config import TwilioConfigurationRequest
+from .config import TwilioConfigurationRequest, TwilioConfigurationResponse
 from .provider import TwilioProvider
 from .transport import create_transport
 
@@ -26,7 +26,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
 
 _UI_METADATA = ProviderUIMetadata(
     display_name="Twilio",
-    docs_url="https://docs.dograh.com/integrations/telephony/twilio",
+    docs_url="https://docs.vani.com/integrations/telephony/twilio",
     fields=[
         ProviderUIField(
             name="account_sid",
@@ -69,6 +69,7 @@ SPEC = ProviderSpec(
     transport_sample_rate=8000,
     config_request_cls=TwilioConfigurationRequest,
     ui_metadata=_UI_METADATA,
+    config_response_cls=TwilioConfigurationResponse,
     account_id_credential_field="account_sid",
 )
 
@@ -79,6 +80,7 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "TwilioConfigurationRequest",
+    "TwilioConfigurationResponse",
     "TwilioProvider",
     "create_transport",
 ]

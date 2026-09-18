@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, ExternalLink } from "lucide-react";
+import { rewriteBrandText, rewriteDocsUrl } from "@/constants/documentation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -45,13 +46,6 @@ interface ConfigFormDialogProps {
   onOpenChange: (open: boolean) => void;
   // When provided, the dialog is in edit mode.
   existing?: TelephonyConfigurationDetail | null;
-  /**
-   * Pre-check "set as default for outbound" because the organization has no
-   * default yet. Nothing picks a default on the customer's behalf, so this is
-   * how the common single-configuration case gets one: as a visible, editable
-   * choice in the form rather than a write they never saw.
-   */
-  suggestDefaultOutbound?: boolean;
   onSaved: () => void;
 }
 
@@ -101,7 +95,6 @@ export function ConfigFormDialog({
   open,
   onOpenChange,
   existing,
-  suggestDefaultOutbound = false,
   onSaved,
 }: ConfigFormDialogProps) {
   const { user, getAccessToken } = useAuth();
@@ -121,16 +114,16 @@ export function ConfigFormDialog({
   );
   const visibleFields = useMemo(
     () =>
-      // Trunks are their own resource, edited alongside the SIP endpoints on
-      // the configuration detail page, so nothing provider-specific needs
-      // filtering out of the generic credentials dialog.
       currentProvider?.fields.filter(
         (field) =>
-          // A readonly field reports a value the server assigned. Before the
-          // configuration exists there is nothing to report, and announcing a
-          // field that is not there yet reads as something the user forgot to
-          // fill in — so it appears only once it has a value.
-          !(field.type === "readonly" && !values[field.name]) &&
+          // Cloudonix outbound routing is edited alongside the inbound SIP
+          // endpoints on the configuration detail page. Keep its metadata for
+          // validation and sensitive-field masking, but do not duplicate those
+          // controls in the generic credentials dialog.
+          !(
+            currentProvider.provider === "cloudonix" &&
+            field.name.startsWith("outbound_trunk.")
+          ) &&
           (!field.visible_when ||
             values[field.visible_when.field] === field.visible_when.equals),
       ) ?? [],
@@ -154,12 +147,9 @@ export function ConfigFormDialog({
         setName(existing.name);
         setIsDefault(existing.is_default_outbound);
         setValues(flattenValues(existing.credentials ?? {}));
-      } else {
-        setIsDefault(suggestDefaultOutbound);
-        if (list.length > 0 && !providerName) {
-          setProviderName(list[0].provider);
-          setValues({});
-        }
+      } else if (list.length > 0 && !providerName) {
+        setProviderName(list[0].provider);
+        setValues({});
       }
     })();
     return () => {
@@ -304,7 +294,7 @@ export function ConfigFormDialog({
             )}
             {currentProvider?.docs_url && (
               <a
-                href={currentProvider.docs_url}
+                href={rewriteDocsUrl(currentProvider.docs_url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-blue-600 underline"
@@ -320,9 +310,6 @@ export function ConfigFormDialog({
                 <Label className="text-sm">Set as default for outbound calls</Label>
                 <p className="text-xs text-muted-foreground">
                   Used by test calls and campaigns when no specific config is selected.
-                  {suggestDefaultOutbound
-                    ? " Your organization has no default yet."
-                    : ""}
                 </p>
               </div>
               <Switch checked={isDefault} onCheckedChange={setIsDefault} />
@@ -340,7 +327,7 @@ export function ConfigFormDialog({
                   )}
                   <Label htmlFor={`cfg-field-${field.name}`}>
                     {field.label}
-                    {!field.required && field.type !== "readonly" && (
+                    {!field.required && (
                       <span className="ml-1 text-xs text-muted-foreground">
                         (optional)
                       </span>
@@ -353,7 +340,7 @@ export function ConfigFormDialog({
                     isEdit={isEdit}
                   />
                   {field.description && (
-                    <p className="text-xs text-muted-foreground">{field.description}</p>
+                    <p className="text-xs text-muted-foreground">{rewriteBrandText(field.description)}</p>
                   )}
                 </div>
               ))}
@@ -396,28 +383,6 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
     field.placeholder ??
     (field.sensitive && isEdit ? "Leave masked to keep existing" : "");
 
-  // Server-generated and not editable. Shown because the customer has to copy
-  // it into configuration we do not control, so it cannot be hidden the way
-  // other server-managed fields are. Only rendered once a value exists —
-  // visibleFields drops it otherwise.
-  if (field.type === "readonly") {
-    const generated = String(value ?? "");
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          copyTextToClipboard(generated)
-            .then(() => toast.success(`${field.label} copied`))
-            .catch(() => toast.error("Failed to copy"));
-        }}
-        title="Click to copy"
-        className="group flex w-full items-center gap-2 rounded-md border bg-muted/20 p-2 text-left font-mono text-xs transition-colors hover:bg-muted/40"
-      >
-        <code className="flex-1 truncate">{generated}</code>
-        <Copy className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
-      </button>
-    );
-  }
   if (field.type === "textarea") {
     return (
       <Textarea

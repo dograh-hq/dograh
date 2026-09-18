@@ -1331,7 +1331,10 @@ export type CloudonixConfigurationRequest = {
      * Cloudonix Voice Application name. The application's url is updated when inbound workflows are attached to numbers on this domain. If omitted, an application is auto-created on save and its name is stored on the configuration.
      */
     application_name?: string | null;
+    outbound_trunks?: Array<CloudonixOutboundTrunkConfiguration>;
+    from_numbers?: Array<string>;
 };
+export type CloudonixConfigurationResponse = {    provider?: 'cloudonix';    bearer_token: string;    domain_id: string;    application_name?: string | null;    outbound_trunks?: Array<CloudonixOutboundTrunkConfiguration>;    from_numbers: Array<string>;};export type CloudonixOutboundTrunkConfiguration = {    id?: string | null;    enabled?: boolean;    name?: string | null;    region?: string | null;    sip_domain?: string | null;};
 
 /**
  * ContextDestinationMappingConfig

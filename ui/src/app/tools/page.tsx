@@ -300,7 +300,7 @@ export default function ToolsPage() {
                         <h1 className="text-3xl font-bold mb-2">Tools</h1>
                         <p className="text-muted-foreground">
                             Manage reusable tools that can be used across your workflows.{" "}
-                            <a href="https://docs.vani.indiclabs.ai/voice-agent/tools/introduction" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                            <a href="/docs" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
                                 Learn more <ExternalLink className="h-3 w-3" />
                             </a>
                         </p>

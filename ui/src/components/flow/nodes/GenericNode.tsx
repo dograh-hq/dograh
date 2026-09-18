@@ -13,7 +13,7 @@ import { ToolBadges } from "@/components/flow/ToolBadges";
 import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { NODE_DOCUMENTATION_URLS, rewriteDocsUrl } from "@/constants/documentation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -83,6 +83,17 @@ function seedValues(
     const d = data as unknown as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const prop of spec.properties) {
+        if (
+            spec.name === "startCall" &&
+            prop.name === "pre_call_fetch_mode" &&
+            d.pre_call_fetch_mode == null
+        ) {
+            // Old workflow definitions stored only the enable switch. Present
+            // those as Always so opening and resaving an existing node cannot
+            // silently disable its fetch.
+            out[prop.name] = d.pre_call_fetch_enabled === true ? "always" : "disabled";
+            continue;
+        }
         out[prop.name] = d[prop.name] ?? prop.default ?? undefined;
     }
     return out;
@@ -120,20 +131,12 @@ function resolveIntegrationSummary(
     spec: NodeSpec,
     data: FlowNodeData,
 ): string {
-    let hasSecret = false;
     for (const prop of spec.properties) {
-        if (prop.name === "name" || prop.name.endsWith("enabled")) {
-            continue;
-        }
-        // A configured API key/token/secret is never displayed, but it does
-        // prove the node is set up. Remember that so a node whose only real
-        // config is a secret (e.g. an integration identified solely by its key)
-        // isn't mislabelled "Not configured".
-        if (/api[_-]?key|token|secret/i.test(prop.name)) {
-            const secret = data[prop.name];
-            if (typeof secret === "string" && secret.trim().length > 0) {
-                hasSecret = true;
-            }
+        if (
+            prop.name === "name" ||
+            prop.name.endsWith("enabled") ||
+            /api[_-]?key|token|secret/i.test(prop.name)
+        ) {
             continue;
         }
 
@@ -145,7 +148,7 @@ function resolveIntegrationSummary(
             return String(value);
         }
     }
-    return hasSecret ? "Configured" : "Not configured";
+    return "Not configured";
 }
 
 function getBadgeForSpec(
@@ -616,7 +619,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
             : { source: true, target: true });
     const badge = getBadgeForSpec(spec, styleVariant);
     const Icon = spec ? resolveIcon(spec.icon) : Circle;
-    const docUrl = spec?.docs_url ?? DOC_URL_BY_SPEC[type];
+    const docUrl = spec?.docs_url ? rewriteDocsUrl(spec.docs_url) : DOC_URL_BY_SPEC[type];
     const contentLabel = spec?.properties.some((p) => p.name === "prompt")
         ? "Prompt"
         : "Details";

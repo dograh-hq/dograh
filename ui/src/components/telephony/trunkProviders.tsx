@@ -100,7 +100,7 @@ function CloudonixTrunkFields({
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          Sets the remote peer Dograh dials for this trunk.
+          Sets the remote peer Vani dials for this trunk.
           {originIp
             ? ` Calls leave from ${originIp} — allow it on your side.`
             : ""}

@@ -43,7 +43,7 @@ export default function SettingsPage() {
               Let AI agents access your Vani Studio workspace and documentation
               via the Model Context Protocol.{" "}
               <a
-                href="https://docs.vani.indiclabs.ai/integrations/mcp"
+                href="/docs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
@@ -63,7 +63,7 @@ export default function SettingsPage() {
             <CardDescription>
               Configure Langfuse tracing for your voice agent calls.{" "}
               <a
-                href="https://docs.vani.indiclabs.ai/configurations/tracing"
+                href="/docs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"

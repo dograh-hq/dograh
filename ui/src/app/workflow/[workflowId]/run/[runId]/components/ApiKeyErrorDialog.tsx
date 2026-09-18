@@ -3,7 +3,7 @@ import { AlertCircle, CreditCard, ExternalLink, Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-const SERVICE_KEYS_DOCS_URL = "https://docs.vani.indiclabs.ai/configurations/api-keys#service-keys";
+const SERVICE_KEYS_DOCS_URL = "/docs";
 
 interface ApiKeyErrorDialogProps {
     open: boolean;

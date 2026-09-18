@@ -284,7 +284,7 @@ export function OrganizationPreferencesSection() {
             </Label>
             <p className="text-xs text-muted-foreground">
               Report call outcomes using your own disposition codes instead of
-              Dograh&apos;s. Applies to webhooks, run filters, reports, and
+              the defaults. Applies to webhooks, run filters, reports, and
               external PBX write-backs. Configuration is preserved when this is
               disabled.
             </p>

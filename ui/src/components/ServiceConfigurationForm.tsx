@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLink, Plus, X } from "lucide-react";
+import { rewriteBrandText, rewriteDocsUrl } from "@/constants/documentation";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -566,10 +567,10 @@ export function ServiceConfigurationForm({
                         </Select>
                         {(providerSchema?.description || providerSchema?.provider_docs_url) && (
                             <p className="text-xs text-muted-foreground">
-                                {providerSchema?.description}{" "}
+                                {providerSchema?.description ? rewriteBrandText(providerSchema.description) : ""}{" "}
                                 {providerSchema?.provider_docs_url && (
                                     <a
-                                        href={providerSchema.provider_docs_url}
+                                        href={rewriteDocsUrl(providerSchema.provider_docs_url)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center gap-0.5 underline"
@@ -671,10 +672,10 @@ export function ServiceConfigurationForm({
         if (!actualSchema?.description && !actualSchema?.docs_url) return null;
         return (
             <p className="text-xs text-muted-foreground">
-                {actualSchema?.description}{" "}
+                {actualSchema?.description ? rewriteBrandText(actualSchema.description) : ""}{" "}
                 {actualSchema?.docs_url && (
                     <a
-                        href={actualSchema.docs_url}
+                        href={rewriteDocsUrl(actualSchema.docs_url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-0.5 underline"

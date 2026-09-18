@@ -130,6 +130,11 @@ export function PropertyInput({ spec, value, onChange, context }: PropertyInputP
 
 // ─── Layout helpers ──────────────────────────────────────────────────────
 
+/** Replace backend brand references in API-provided descriptions. */
+function sanitizeBrand(text: string): string {
+    return text.replace(/\bDograh\b/g, "Vani");
+}
+
 function StackedLabel({ spec }: { spec: PropertySpec }) {
     return (
         <>
@@ -138,7 +143,7 @@ function StackedLabel({ spec }: { spec: PropertySpec }) {
                 {spec.required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {spec.description && (
-                <Label className="text-xs text-muted-foreground">{spec.description}</Label>
+                <Label className="text-xs text-muted-foreground">{sanitizeBrand(spec.description)}</Label>
             )}
         </>
     );
@@ -215,7 +220,7 @@ function BooleanWidget({ spec, value, onChange }: WidgetProps) {
             <Label htmlFor={`prop-${spec.name}`}>{spec.display_name}</Label>
             {spec.description && (
                 <Label className="text-xs text-muted-foreground ml-2">
-                    {spec.description}
+                    {sanitizeBrand(spec.description)}
                 </Label>
             )}
         </div>
@@ -237,7 +242,7 @@ function OptionsWidget({ spec, value, onChange }: WidgetProps) {
             >
                 {spec.options?.map((o) => (
                     <option key={String(o.value)} value={String(o.value)}>
-                        {o.label}
+                        {sanitizeBrand(o.label)}
                     </option>
                 ))}
             </select>

@@ -48,7 +48,6 @@ import logger from "@/lib/logger";
 import { fetchModelConfigurationPricing } from "@/lib/modelConfigurationPricing";
 import {
     type AmbientNoiseConfiguration,
-    type CallDispositionOption,
     DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
@@ -63,13 +62,6 @@ import {
 
 import { EmbedDialog } from "../components/EmbedDialog";
 import { useWorkflowState } from "../hooks/useWorkflowState";
-import {
-    CallDispositionEditor,
-    type CallDispositionRow,
-    createCallDispositionRows,
-    normalizeCallDispositions,
-    validateCallDispositionRows,
-} from "./components/CallDispositionEditor";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -277,13 +269,11 @@ const MAX_AMBIENT_NOISE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function GeneralSection({
     workflowConfigurations,
-    defaultCallDispositions,
     workflowName,
     workflowId,
     onSave,
 }: {
     workflowConfigurations: WorkflowConfigurations;
-    defaultCallDispositions: CallDispositionOption[];
     workflowName: string;
     workflowId: number;
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
@@ -310,9 +300,6 @@ function GeneralSection({
     );
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
         workflowConfigurations.context_compaction_enabled,
-    );
-    const [callDispositionRows, setCallDispositionRows] = useState<CallDispositionRow[]>(
-        () => createCallDispositionRows(workflowConfigurations.call_dispositions),
     );
     const [includeTranscriptEndTimestamps, setIncludeTranscriptEndTimestamps] = useState(
         workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false,
@@ -341,14 +328,6 @@ function GeneralSection({
     );
     const externalPbxSettingsValid =
         externalPbxFieldMappingsValid && externalPbxLeadHeadersValid;
-    const normalizedCallDispositions = useMemo(
-        () => normalizeCallDispositions(callDispositionRows),
-        [callDispositionRows],
-    );
-    const callDispositionsValid = useMemo(
-        () => validateCallDispositionRows(callDispositionRows).isValid,
-        [callDispositionRows],
-    );
 
     const isDirty = useMemo(() => {
         const initAmbient = workflowConfigurations.ambient_noise_configuration;
@@ -363,8 +342,6 @@ function GeneralSection({
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
-            JSON.stringify(normalizedCallDispositions) !==
-                JSON.stringify(workflowConfigurations.call_dispositions) ||
             includeTranscriptEndTimestamps !==
             (workflowConfigurations.transcript_configuration?.include_end_timestamps ?? false) ||
             JSON.stringify(externalPbxFieldMappings) !==
@@ -372,7 +349,7 @@ function GeneralSection({
             JSON.stringify(externalPbxLeadHeaders) !==
             JSON.stringify(workflowConfigurations.external_pbx_lead_headers)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -436,7 +413,6 @@ function GeneralSection({
 
     const handleSave = async () => {
         setIsSaving(true);
-        const callDispositionRowsAtSave = callDispositionRows;
         try {
             await onSave(
                 {
@@ -450,7 +426,6 @@ function GeneralSection({
                     provisional_vad_pause_secs: provisionalVadPauseSecs,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
-                    call_dispositions: normalizedCallDispositions,
                     transcript_configuration: {
                         ...(workflowConfigurations.transcript_configuration ?? {}),
                         include_end_timestamps: includeTranscriptEndTimestamps,
@@ -460,14 +435,6 @@ function GeneralSection({
                 },
                 name,
             );
-            setCallDispositionRows((current) => (
-                current === callDispositionRowsAtSave
-                    ? current.map((row, index) => ({
-                        ...row,
-                        ...normalizedCallDispositions[index],
-                    }))
-                    : current
-            ));
             toast.success(`General settings saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save general settings:", error);
@@ -814,14 +781,6 @@ function GeneralSection({
 
                 <Separator />
 
-                <CallDispositionEditor
-                    rows={callDispositionRows}
-                    onChange={setCallDispositionRows}
-                    defaultDispositions={defaultCallDispositions}
-                />
-
-                <Separator />
-
                 {/* Call Management */}
                 <div className="space-y-4">
                     <div>
@@ -1009,12 +968,7 @@ function GeneralSection({
                 {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
                 <Button
                     onClick={handleSave}
-                    disabled={
-                        isSaving
-                        || !isDirty
-                        || !callDispositionsValid
-                        || (externalPbxIntegrationsEnabled && !externalPbxSettingsValid)
-                    }
+                    disabled={isSaving || !isDirty || (externalPbxIntegrationsEnabled && !externalPbxSettingsValid)}
                 >
                     {isSaving ? "Saving..." : "Save General Settings"}
                 </Button>
@@ -1692,7 +1646,6 @@ function WorkflowSettingsInner({
     const {
         workflowName,
         workflowConfigurations,
-        defaultCallDispositions,
         textChatInactivityTimeoutConstraints,
         widgetTextDefaults,
         templateContextVariables,
@@ -1792,22 +1745,13 @@ function WorkflowSettingsInner({
                             {/* General */}
                             <GeneralSection
                                 workflowConfigurations={resolvedWorkflowConfigurationsForRender}
-                                defaultCallDispositions={defaultCallDispositions}
                                 workflowName={workflowName || workflow.name}
                                 workflowId={workflowId}
                                 onSave={saveWorkflowConfigurations}
                             />
 
-                            <WorkflowModelOverridesSection
-                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
-                                workflowName={workflowName}
-                                onSave={saveWorkflowConfigurations}
-                                modelConfigurationDefaults={modelConfigurationDefaults}
-                                organizationModelConfiguration={organizationModelConfiguration}
-                                modelConfigurationPricing={modelConfigurationPricing}
-                                modelConfigurationLoading={modelConfigurationLoading}
-                                modelConfigurationError={modelConfigurationError}
-                            />
+                            {/* Model Overrides hidden — Vani manages model config automatically.
+                               Un-hide when BYOK or org-level config UI is ready. */}
 
                             {/* Template Variables */}
                             <TemplateVariablesSection

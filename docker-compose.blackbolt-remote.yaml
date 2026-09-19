@@ -1,0 +1,35 @@
+# Fork-specific override for the BlackBolt remote deployment, loaded by
+# scripts/start_docker_remote_fork.sh alongside docker-compose.yaml:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.blackbolt-remote.yaml ...
+#
+# It does NOT change which images api/ui run: those come from REGISTRY
+# pointing at images this fork built locally (see start_docker_remote_fork.sh),
+# same mechanism as scripts/start_docker_local.sh. This file only patches the
+# three things docker-compose.yaml can't already do via .env for this
+# deployment shape (external Postgres, no MinIO):
+#
+#   - api.environment.DATABASE_URL: docker-compose.yaml hardcodes this to the
+#     bundled `postgres` service; this deployment uses an external Postgres
+#     instead (172.31.5.196), so it's rebuilt from DOGRAH_DB_PASSWORD in .env.
+#   - api.depends_on: replaced (not merged -- see `!override` below) with
+#     redis only. docker-compose.yaml's api depends on postgres and minio
+#     being healthy; neither container runs in this deployment, so leaving
+#     them in depends_on would make `docker compose up api` start them anyway.
+#   - dograh-init's deploy volume: swapped to this fork's deploy/blackbolt-remote
+#     overlay, which has a nginx.remote.conf.template with no /voice-audio/
+#     MinIO proxy (see that file's header comment for why that route breaks
+#     nginx outright when minio isn't running). turnserver.remote.conf.template
+#     is duplicated unmodified into the same overlay dir because dograh-init
+#     resolves both templates from the one mounted deploy/ tree.
+services:
+  api:
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://dograh:${DOGRAH_DB_PASSWORD:?DOGRAH_DB_PASSWORD must be set in .env}@172.31.5.196:5432/dograh_dev"
+    depends_on: !override
+      redis:
+        condition: service_healthy
+
+  dograh-init:
+    volumes:
+      - ./deploy/blackbolt-remote:/workspace/deploy:ro

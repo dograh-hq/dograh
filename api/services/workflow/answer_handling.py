@@ -77,7 +77,9 @@ async def _stop_opening(engine, opening):
     return await engine.interrupt_answer_opening()
 
 
-async def _handle_answer(engine: "PipecatEngine", supervisor, update_idle_timeout):
+async def _handle_answer(
+    engine: "PipecatEngine", supervisor, update_idle_timeout
+) -> AnswerAction | None:
     rearms = 0
     opening = None
     opening_stopped = False
@@ -86,7 +88,7 @@ async def _handle_answer(engine: "PipecatEngine", supervisor, update_idle_timeou
         while not engine.is_call_disposed():
             verdict = await supervisor.wait_for_verdict()
             if verdict.action == AnswerAction.CANCELLED:
-                return
+                return verdict.action
             if not supervisor.commit(verdict):
                 continue
             engine._gathered_context.setdefault("answer_supervisor", []).append(
@@ -182,16 +184,17 @@ async def handle_answer(
         _handle_answer(engine, supervisor, update_idle_timeout)
     )
     disconnected = asyncio.create_task(supervisor.wait_closed())
+    cancelled = False
     try:
         done, _ = await asyncio.wait(
             (actions, disconnected), return_when=asyncio.FIRST_COMPLETED
         )
         if actions in done:
-            await actions
+            cancelled = await actions == AnswerAction.CANCELLED
     finally:
         interrupted = not actions.done()
         for task in (actions, disconnected):
             task.cancel()
         await asyncio.gather(actions, disconnected, return_exceptions=True)
-        if interrupted:
+        if interrupted or cancelled:
             engine.speech_playback.cancel_all()

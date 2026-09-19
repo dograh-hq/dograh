@@ -308,6 +308,59 @@ async def test_cancelled_pipeline_never_queues_an_opening():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("shutdown", ["cancelled_verdict", "disconnect", "parent"])
+async def test_shutdown_cancels_pending_opening_playback(shutdown):
+    engine, supervisor, idle = make_call([])
+    engine.context = LLMContext()
+    verdicts = asyncio.Queue()
+    verdicts.put_nowait(AnswerVerdict(AnswerAction.START_OPENING, "silent_window"))
+    supervisor.wait_for_verdict = AsyncMock(side_effect=verdicts.get)
+    disconnected = asyncio.Event()
+    supervisor.wait_closed = AsyncMock(side_effect=disconnected.wait)
+    opening_queued = asyncio.get_running_loop().create_future()
+
+    async def play_opening(**kwargs):
+        # Use the real playback handle: cancelling its waiter does not finish it.
+        speech = await PipecatEngine.queue_speech(
+            engine, text="Hello.", mute_user=kwargs["mute_user"]
+        )
+        opening_queued.set_result(speech)
+        await speech.wait()
+
+    engine.queue_node_opening = AsyncMock(side_effect=play_opening)
+    running = asyncio.create_task(
+        handle_answer(engine, supervisor, update_idle_timeout=idle)
+    )
+    try:
+        speech = await asyncio.wait_for(opening_queued, 1)
+        assert not speech.done
+        if shutdown == "cancelled_verdict":
+            # Exercise normal action completion, without the disconnect waiter
+            # winning the race and cancelling the action task instead.
+            verdicts.put_nowait(AnswerVerdict(AnswerAction.CANCELLED, "pipeline_ended"))
+        elif shutdown == "disconnect":
+            disconnected.set()
+        else:
+            running.cancel()
+
+        if shutdown == "parent":
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(running, 1)
+        else:
+            await asyncio.wait_for(running, 1)
+
+        assert speech.outcome is PlaybackOutcome.CLOSED
+        assert not engine.speech_playback.pending
+        assert not engine.speech_playback.mutes_user
+        supervisor.release.assert_not_called()
+        engine.end_call_with_reason.assert_not_awaited()
+    finally:
+        running.cancel()
+        await asyncio.wait_for(asyncio.gather(running, return_exceptions=True), 1)
+        engine.speech_playback.cancel_all()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "recording", [{"recording_id": "message-recording"}, {"recording_pk": 9}]
 )

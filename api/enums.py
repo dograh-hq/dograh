@@ -18,6 +18,8 @@ class CallType(Enum):
 
 
 class AnswerAction(str, Enum):
+    # Start speaking after silence, while continuing to supervise the answer.
+    START_OPENING = "start_opening"
     # Play the workflow opening, then allow normal conversation.
     RELEASE = "release"
     # Play the configured voicemail message, then disconnect.
@@ -26,6 +28,8 @@ class AnswerAction(str, Enum):
     DROP = "drop"
     # Play the screening introduction, then listen again for the subscriber.
     SCREEN_THEN_REARM = "screen_then_rearm"
+    # Stop a provisional greeting and wait silently for a screened subscriber.
+    WAIT_FOR_SCREENING = "wait_for_screening"
     # Stop answer handling because the pipeline has ended.
     CANCELLED = "cancelled"
 

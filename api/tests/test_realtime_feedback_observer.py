@@ -232,6 +232,48 @@ async def test_turn_log_handlers_persist_user_message_added_events():
 
 
 @pytest.mark.asyncio
+async def test_empty_interrupted_assistant_turn_does_not_claim_next_message():
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    coordinator = TranscriptLogCoordinator(logs)
+    user, assistant = _FakeAggregator(), _FakeAggregator()
+    register_turn_log_handlers(coordinator, user, assistant)
+    await coordinator.record_turn_started(1)
+    await coordinator.record_bot_started_speaking(1, "first-start")
+    await coordinator.record_turn_ended(1, interrupted=True)
+    await coordinator.record_bot_stopped_speaking(1, "first-stop")
+    await assistant.handlers["on_assistant_turn_stopped"](
+        assistant, SimpleNamespace(content="", timestamp="first-transcript")
+    )
+    assert logs.get_events() == []
+
+    await coordinator.record_turn_started(2)
+    await coordinator.record_bot_started_speaking(2, "second-start")
+    await assistant.handlers["on_assistant_turn_stopped"](
+        assistant,
+        SimpleNamespace(content="Call us back.", timestamp="second-transcript"),
+    )
+    await coordinator.record_bot_stopped_speaking(2, "second-stop")
+    await coordinator.record_turn_ended(2, interrupted=False)
+    [event] = logs.get_events()
+    assert event["turn"] == 2
+    assert event["payload"]["text"] == "Call us back."
+    assert event["payload"]["timestamp"] == "second-start"
+    assert event["payload"]["end_timestamp"] == "second-stop"
+
+
+@pytest.mark.asyncio
+async def test_empty_assistant_segments_do_not_add_blank_lines():
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    coordinator = TranscriptLogCoordinator(logs)
+    await coordinator.record_turn_started(1)
+    for text in ("", "Hello.", "", "How can I help?", ""):
+        await coordinator.record_assistant_transcript(text=text, timestamp=None)
+    await coordinator.record_turn_ended(1, interrupted=False)
+    [event] = logs.get_events()
+    assert event["payload"]["text"] == "Hello.\nHow can I help?"
+
+
+@pytest.mark.asyncio
 async def test_coordinator_attaches_speaking_intervals_to_logged_transcript_events():
     logs_buffer = InMemoryLogsBuffer(workflow_run_id=123)
     coordinator = TranscriptLogCoordinator(logs_buffer)

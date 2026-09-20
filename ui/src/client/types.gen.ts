@@ -4528,6 +4528,22 @@ export type OrganizationAiModelConfigurationV2 = {
 };
 
 /**
+ * OrganizationConcurrentCallsResponse
+ */
+export type OrganizationConcurrentCallsResponse = {
+    /**
+     * Organization Id
+     */
+    organization_id: number;
+    /**
+     * Active Calls
+     *
+     * Occupied concurrent call slots across all workers, including dialing/ringing reservations. Excludes expired slots.
+     */
+    active_calls: number;
+};
+
+/**
  * OrganizationContextResponse
  */
 export type OrganizationContextResponse = {
@@ -13553,6 +13569,53 @@ export type ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutRes
      */
     200: unknown;
 };
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/concurrent-calls';
+};
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetErrors = {
+    /**
+     * Missing or invalid credentials
+     */
+    401: unknown;
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * The current call count is unavailable
+     */
+    503: unknown;
+};
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetError = GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetErrors[keyof GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetErrors];
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrganizationConcurrentCallsResponse;
+};
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponse = GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponses[keyof GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponses];
 
 export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetData = {
     body?: never;

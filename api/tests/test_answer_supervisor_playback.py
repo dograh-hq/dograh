@@ -168,7 +168,7 @@ async def test_hello_produces_exactly_one_opening(
         assert [m["content"] for m in context.messages if m.get("role") == "user"] == [
             "Hello?"
         ]
-        assert engine._speech_playback_finished.is_set()
+        assert not engine.speech_playback.pending
         assert not supervisor.blocks_workflow
     finally:
         if action:

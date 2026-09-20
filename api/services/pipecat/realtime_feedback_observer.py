@@ -31,6 +31,7 @@ from api.errors.failure import (
     failure_metadata_for_processor,
     log_failure,
 )
+from api.services.pipecat.agent_bridge import AgentWorker
 from api.services.pipecat.realtime_feedback_events import (
     build_bot_text_event,
     build_function_call_end_event,
@@ -92,17 +93,24 @@ class RealtimeFeedbackObserver(BaseObserver):
         self,
         ws_sender: Callable[[dict], Awaitable[None]],
         logs_buffer: Optional["InMemoryLogsBuffer"] = None,
+        selected_visit: Callable[[], str | None] | None = None,
     ):
         """
         Args:
             ws_sender: Async function to send messages over WebSocket.
                        Expected signature: async def send(message: dict) -> None
             logs_buffer: Optional InMemoryLogsBuffer to persist events for post-call analysis.
+            selected_visit: Agent visit currently allowed to speak on the call.
         """
         super().__init__()
         self._ws_sender = ws_sender
         self._logs_buffer = logs_buffer
+        self._selected_visit = selected_visit
         self._frames_seen: set[int] = set()
+
+    async def log_speech(self, text: str):
+        """Persist speech that is intentionally excluded from assistant context."""
+        await self._append_to_buffer(build_bot_text_event(text=text))
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""
@@ -119,6 +127,17 @@ class RealtimeFeedbackObserver(BaseObserver):
         # avoid duplicate live UI messages.
         if frame.id in self._frames_seen:
             return
+        # Match the bridge's conversation routing while retaining diagnostics
+        # from every agent. The same observer instance is shared by all workers.
+        if self._selected_visit is not None and not isinstance(
+            frame, (ErrorFrame, MetricsFrame)
+        ):
+            worker = source.pipeline_worker
+            if (
+                isinstance(worker, AgentWorker)
+                and worker.name != self._selected_visit()
+            ):
+                return
         if frame_direction != FrameDirection.DOWNSTREAM:
             is_upstream_transcription = (
                 isinstance(frame, (InterimTranscriptionFrame, TranscriptionFrame))
@@ -186,7 +205,7 @@ class RealtimeFeedbackObserver(BaseObserver):
         # to avoid word-level log entries from word-timestamp providers.
         elif isinstance(frame, TTSSpeakFrame):
             if getattr(frame, "persist_to_logs", False):
-                await self._append_to_buffer(build_bot_text_event(text=frame.text))
+                await self.log_speech(frame.text)
         # Handle bot TTS text after output transport timing, WebSocket only
         # Complete turn text is persisted via register_turn_handlers,
         # except for frames explicitly flagged persist_to_logs (e.g. recording

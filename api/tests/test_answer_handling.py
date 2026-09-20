@@ -16,7 +16,7 @@ from api.services.pipecat.processors.answer_supervisor import (
     AnswerVerdict,
 )
 from api.services.pipecat.speech_playback import PlaybackOutcome
-from api.services.workflow.answer_handling import handle_answer
+from api.services.workflow.answer_handling import _speak_screening, handle_answer
 from api.services.workflow.pipecat_engine import PipecatEngine
 
 
@@ -25,6 +25,7 @@ def make_call(verdicts, **settings):
     engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
     engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
     engine.queue_node_opening = AsyncMock(return_value="greeting")
+    engine.drain_call_pipeline = AsyncMock(return_value=True)
     engine.end_call_with_reason = AsyncMock()
     engine.playback_wait = AsyncMock(return_value=True)
     queue_speech = engine.queue_speech
@@ -47,6 +48,7 @@ def make_call(verdicts, **settings):
     supervisor = Mock()
     supervisor.config = AnswerSupervisorConfig(**settings)
     supervisor.wait_for_verdict = AsyncMock(side_effect=verdicts)
+    supervisor.wait_for_human = AsyncMock(side_effect=asyncio.Event().wait)
     supervisor.close = AsyncMock()
     supervisor.wait_closed = AsyncMock(side_effect=asyncio.Event().wait)
     return engine, supervisor, AsyncMock()
@@ -387,15 +389,23 @@ async def test_recording_message_uses_scoped_fetcher_and_transport(recording):
 
 
 @pytest.mark.asyncio
-async def test_disconnect_during_playback_cancels_action_promptly():
+@pytest.mark.parametrize(
+    "action", [AnswerAction.LEAVE_MESSAGE, AnswerAction.SCREEN_THEN_REARM]
+)
+async def test_disconnect_during_playback_cancels_action_promptly(action):
     engine, supervisor, idle = make_call(
         [
             AnswerVerdict(
-                AnswerAction.LEAVE_MESSAGE, "voicemail", MachineSubtype.VOICEMAIL
+                action,
+                "voicemail" if action == AnswerAction.LEAVE_MESSAGE else "screener",
+                MachineSubtype.VOICEMAIL
+                if action == AnswerAction.LEAVE_MESSAGE
+                else MachineSubtype.SCREENER,
             ),
         ],
         voicemail_action="leave_message",
         voicemail_message=AnswerMessage(text="Call back."),
+        screening_message=AnswerMessage(text="Alex calling."),
     )
     disconnected = asyncio.Event()
     supervisor.wait_closed = AsyncMock(side_effect=disconnected.wait)
@@ -410,3 +420,42 @@ async def test_disconnect_during_playback_cancels_action_promptly():
     await asyncio.wait_for(running, 1)
     engine.end_call_with_reason.assert_not_awaited()
     assert not engine.speech_playback.mutes_user
+
+
+@pytest.mark.asyncio
+async def test_human_pickup_cancels_screening_recording_preparation():
+    engine, supervisor, _ = make_call(
+        [], screening_message=AnswerMessage(recording_pk=10)
+    )
+    fetching, cancelled, picked_up = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def fetch(**_kwargs):
+        fetching.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def human():
+        await picked_up.wait()
+        return AnswerVerdict(
+            AnswerAction.RELEASE, "human_turn", MachineSubtype.CONVERSATION
+        )
+
+    engine._fetch_recording_audio = AsyncMock(side_effect=fetch)
+    engine._transport_output = SimpleNamespace(queue_frame=AsyncMock())
+    engine.interrupt_screening_reply = AsyncMock(return_value=True)
+    supervisor.wait_for_human = AsyncMock(side_effect=human)
+    playing = asyncio.create_task(_speak_screening(engine, supervisor))
+    try:
+        await asyncio.wait_for(fetching.wait(), 1)
+        picked_up.set()
+        assert await asyncio.wait_for(playing, 1)
+        assert cancelled.is_set()
+        engine.interrupt_screening_reply.assert_awaited_once()
+        engine.call_worker.queue_frame.assert_not_awaited()
+        engine._transport_output.queue_frame.assert_not_awaited()
+        assert not engine.speech_playback.pending
+    finally:
+        playing.cancel()
+        await asyncio.gather(playing, return_exceptions=True)

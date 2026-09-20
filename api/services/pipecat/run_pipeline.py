@@ -176,7 +176,7 @@ def _create_user_mute_strategies(engine, answer_supervisor):
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
-    if answer_supervisor is None:
+    if answer_supervisor is None and getattr(engine, "_is_realtime", False):
         strategies.insert(0, MuteUntilFirstBotCompleteUserMuteStrategy())
     return strategies
 
@@ -1028,18 +1028,28 @@ async def _run_pipeline_impl(
         user_idle_timeout=max_user_idle_timeout,
         vad_analyzer=user_vad_analyzer,
     )
-    context_aggregator = LLMContextAggregatorPair(
-        context,
-        assistant_params=assistant_params,
-        user_params=user_params,
-        # Live publishes final user transcripts before delegation starts.
-        # Record them immediately, including while the assistant is speaking.
-        realtime_service_mode=is_realtime
-        and not (
-            user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
-            and user_config.realtime.model == "gpt-live-1"
-        ),
-    )
+    if is_realtime:
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            assistant_params=assistant_params,
+            user_params=user_params,
+            # Live publishes final user transcripts before delegation starts.
+            realtime_service_mode=not (
+                user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+                and user_config.realtime.model == "gpt-live-1"
+            ),
+        )
+        user_context_aggregator, assistant_context_aggregator = context_aggregator
+    else:
+        user_context_aggregator, assistant_context_aggregator = (
+            LLMContextAggregatorPair(
+                context,
+                user_params=user_params,
+                assistant_params=assistant_params,
+                realtime_service_mode=False,
+            )
+        )
+        engine.greeting.bind(user_context_aggregator)
 
     # Every cascade call runs the split pipeline: everything call-scoped stays
     # here and the generation stage (LLM through TTS) runs in a worker per
@@ -1062,9 +1072,6 @@ async def _run_pipeline_impl(
     # instead of cancelling the worker directly. Its handler is registered by
     # `register_event_handlers` once the task exists.
     termination_funnel = TerminationFunnelProcessor()
-
-    user_context_aggregator = context_aggregator.user()
-    assistant_context_aggregator = context_aggregator.assistant()
 
     if answer_supervisor is not None:
         answer_supervisor.bind(user_context_aggregator)
@@ -1180,6 +1187,15 @@ async def _run_pipeline_impl(
     engine.call_worker = task
     engine.set_transport_output(transport.output())
 
+    # Share frame-ID deduplication across the call and all agent workers.
+    feedback_observer = RealtimeFeedbackObserver(
+        ws_sender=ws_sender,
+        logs_buffer=in_memory_logs_buffer,
+        selected_visit=lambda: engine.selected_visit_id,
+    )
+    task.add_observer(feedback_observer)
+    engine.greeting.log_generated_speech = feedback_observer.log_speech
+
     if not is_realtime:
 
         def _agent_generation_callbacks(visit_id: str) -> AgentGenerationCallbacks:
@@ -1202,6 +1218,7 @@ async def _run_pipeline_impl(
             mps_correlation_id=mps_correlation_id,
             on_agent_error=engine.handle_agent_error,
             use_draft=bool(workflow_run.extra.get("use_draft")),
+            observers=[feedback_observer],
         )
         engine.set_agent_factory(agent_factory)
         # The agent this call starts on. Its services were resolved above from
@@ -1218,13 +1235,6 @@ async def _run_pipeline_impl(
         agent.runtime_configuration = runtime_configuration
         agent.is_child = True
         agent.worker = None
-
-    # Add the observer before initialization so early ErrorFrames are not missed.
-    feedback_observer = RealtimeFeedbackObserver(
-        ws_sender=ws_sender,
-        logs_buffer=in_memory_logs_buffer,
-    )
-    task.add_observer(feedback_observer)
 
     # Initialize the engine to set the initial context with
     # System Prompt and Tools

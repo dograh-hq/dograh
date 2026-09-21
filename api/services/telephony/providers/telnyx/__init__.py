@@ -1,5 +1,6 @@
 """Telnyx telephony provider package."""
 
+import asyncio
 import uuid
 from typing import Any, Dict
 
@@ -32,6 +33,58 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _fetch_first_outbound_voice_profile_id(
+    session: aiohttp.ClientSession,
+    headers: Dict[str, str],
+) -> str | None:
+    """Return the account's first Outbound Voice Profile id, or None.
+
+    Telnyx refuses outbound dialing from a Call Control Application with no
+    Outbound Voice Profile attached (error D38), so the auto-created
+    application is enriched with an existing profile when one is available.
+    Profiles are never created here — they are a billing-affecting resource.
+
+    Failures to list profiles are logged and swallowed: the config save must
+    still succeed so inbound calls work either way.
+    """
+    endpoint = f"{TELNYX_API_BASE_URL}/outbound_voice_profiles"
+    try:
+        async with session.get(endpoint, headers=headers) as response:
+            if response.status != 200:
+                response_text = await response.text()
+                logger.error(
+                    f"[Telnyx] outboundVoiceProfileList failed: "
+                    f"HTTP {response.status} body={response_text}"
+                )
+                return None
+            payload = await response.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logger.error(f"[Telnyx] outboundVoiceProfileList transport error: {e}")
+        return None
+
+    # Defensively tolerate any payload shape the API might return: a listing
+    # failure must never abort the config save, so anything unexpected is
+    # treated the same as "no profiles available".
+    if not isinstance(payload, dict):
+        logger.warning(
+            f"[Telnyx] outboundVoiceProfileList unexpected payload type: "
+            f"{type(payload).__name__}"
+        )
+        return None
+    profiles = payload.get("data") or []
+    if not isinstance(profiles, list):
+        logger.warning(
+            "[Telnyx] outboundVoiceProfileList 'data' is not a list; "
+            "treating as no profiles available"
+        )
+        return None
+    first = profiles[0] if profiles else None
+    if not isinstance(first, dict):
+        return None
+    profile_id = first.get("id")
+    return str(profile_id) if profile_id is not None else None
+
+
 async def _ensure_connection_id(
     credentials: Dict[str, Any],
     existing_credentials: Dict[str, Any] | None = None,
@@ -42,6 +95,14 @@ async def _ensure_connection_id(
     ``webhook_event_url`` — the same URL ``configure_inbound`` would PATCH
     later — so inbound calls work immediately for any number bound to this
     application.
+
+    When the account already has an Outbound Voice Profile, it is attached
+    via the nested ``outbound.outbound_voice_profile_id`` field so the first
+    outbound call does not fail with Telnyx error D38 ("Connection has no
+    Outbound Profile assigned"). Without one, the application is still
+    created and saved — inbound is unaffected — and a warning is logged
+    pointing at Mission Control. Profile listing failures never break the
+    save for the same reason.
     """
     if credentials.get("connection_id"):
         return credentials
@@ -66,6 +127,20 @@ async def _ensure_connection_id(
 
     try:
         async with aiohttp.ClientSession() as session:
+            outbound_profile_id = await _fetch_first_outbound_voice_profile_id(
+                session, headers
+            )
+            if outbound_profile_id:
+                body["outbound"] = {
+                    "outbound_voice_profile_id": outbound_profile_id
+                }
+            else:
+                logger.warning(
+                    "[Telnyx] Auto-created Call Control Application will "
+                    "have no Outbound Voice Profile; outbound calls will "
+                    "fail with Telnyx error D38 until one is assigned in "
+                    "Mission Control. Inbound calls are unaffected."
+                )
             async with session.post(endpoint, json=body, headers=headers) as response:
                 response_text = await response.text()
                 if response.status not in (200, 201):

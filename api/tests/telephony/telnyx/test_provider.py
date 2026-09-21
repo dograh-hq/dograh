@@ -2,13 +2,17 @@ import base64
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncio
+
+import aiohttp
 import nacl.signing
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from api.services.telephony.providers.telnyx import _ensure_connection_id
 from api.services.telephony.providers.telnyx.provider import TelnyxProvider
 from api.services.telephony.providers.telnyx.routes import handle_telnyx_events
 
@@ -409,3 +413,173 @@ async def test_telnyx_events_route_skips_informational_events_after_verification
 
     assert result == {"status": "success"}
     process_status.assert_not_awaited()
+def _fake_aiohttp_session(
+    *,
+    list_payload: dict | None = None,
+    list_error: Exception | None = None,
+    create_payload: dict | None = None,
+) -> MagicMock:
+    """Build an ``aiohttp.ClientSession`` mock for ``_ensure_connection_id``.
+
+    The session supports the async-context-manager GET used to list
+    Outbound Voice Profiles and the POST used to create the Call Control
+    Application, mirroring the mock pattern used by the other telephony
+    provider tests.
+    """
+    session = MagicMock()
+    session.__aenter__.return_value = session
+    session.__aexit__.return_value = False
+
+    if list_error is not None:
+        session.get.side_effect = list_error
+    else:
+        list_response = MagicMock()
+        list_response.status = 200
+        list_response.text = AsyncMock(
+            return_value=json.dumps(list_payload, default=str)
+        )
+        list_response.json = AsyncMock(return_value=list_payload)
+        session.get.return_value.__aenter__.return_value = list_response
+
+    create_response = MagicMock()
+    create_response.status = 201
+    create_response.text = AsyncMock(return_value=json.dumps(create_payload))
+    create_response.json = AsyncMock(return_value=create_payload)
+    session.post.return_value.__aenter__.return_value = create_response
+
+    return session
+
+
+def _patch_ensure_connection_id(
+    session: MagicMock,
+):
+    """Patch the two external seams of ``_ensure_connection_id``."""
+    return (
+        patch(
+            "api.services.telephony.providers.telnyx.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://api.backend.test", "wss://api.backend.test"),
+        ),
+        patch(
+            "api.services.telephony.providers.telnyx.aiohttp.ClientSession",
+            MagicMock(return_value=session),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_attaches_outbound_voice_profile_id_when_one_exists():
+    session = _fake_aiohttp_session(
+        list_payload={"data": [{"id": "1234567890", "name": "Default Profile"}]},
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    assert result["connection_id"] == "111111"
+    assert session.get.call_args.args[0].endswith("/outbound_voice_profiles")
+    create_body = session.post.call_args.kwargs["json"]
+    assert (
+        create_body["outbound"]["outbound_voice_profile_id"] == "1234567890"
+    )
+    assert create_body["application_name"]
+    assert "webhook_event_url" in create_body
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_omits_outbound_when_no_voice_profiles_exist():
+    session = _fake_aiohttp_session(
+        list_payload={"data": []},
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    assert result["connection_id"] == "111111"
+    create_body = session.post.call_args.kwargs["json"]
+    assert "outbound" not in create_body
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_omits_outbound_when_profile_list_call_raises():
+    session = _fake_aiohttp_session(
+        list_error=aiohttp.ClientError("connection reset"),
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    assert result["connection_id"] == "111111"
+    create_body = session.post.call_args.kwargs["json"]
+    assert "outbound" not in create_body
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_omits_outbound_when_profile_list_call_fails_http():
+    session = MagicMock()
+    session.__aenter__.return_value = session
+    session.__aexit__.return_value = False
+
+    list_response = MagicMock()
+    list_response.status = 401
+    list_response.text = AsyncMock(return_value='{"errors": ["unauthorized"]}')
+    list_response.json = AsyncMock(return_value={"errors": ["unauthorized"]})
+    session.get.return_value.__aenter__.return_value = list_response
+
+    create_response = MagicMock()
+    create_response.status = 201
+    create_response.text = AsyncMock(return_value='{"data": {"id": 111111}}')
+    create_response.json = AsyncMock(return_value={"data": {"id": 111111}})
+    session.post.return_value.__aenter__.return_value = create_response
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    assert result["connection_id"] == "111111"
+    create_body = session.post.call_args.kwargs["json"]
+    assert "outbound" not in create_body
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_omits_outbound_when_profile_list_times_out():
+    """A profile-list timeout must not abort the config save (contract: the
+    save always succeeds so inbound calls work). asyncio.TimeoutError is not
+    an aiohttp.ClientError subclass, so it is caught explicitly."""
+    session = _fake_aiohttp_session(
+        list_error=asyncio.TimeoutError("profile GET timed out"),
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    assert result["connection_id"] == "111111"
+    create_body = session.post.call_args.kwargs["json"]
+    assert "outbound" not in create_body
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_tolerates_unexpected_profile_payload_shapes():
+    """Non-dict payloads, non-list 'data', and non-dict entries must all be
+    treated as 'no profiles available' instead of raising."""
+    for bad_payload in ([], {"data": [None]}, {"data": "not-a-list"}, {"other": 1}):
+        session = _fake_aiohttp_session(
+            list_payload=bad_payload,
+            create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+        )
+
+        backend_patch, session_patch = _patch_ensure_connection_id(session)
+        with backend_patch, session_patch:
+            result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+        assert result["connection_id"] == "111111", f"payload {bad_payload!r}"
+        create_body = session.post.call_args.kwargs["json"]
+        assert "outbound" not in create_body, f"payload {bad_payload!r}"

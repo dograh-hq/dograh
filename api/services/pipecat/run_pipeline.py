@@ -908,8 +908,8 @@ async def _run_pipeline_impl(
         embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
         embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
-    # Check if the workflow has any active recordings so the engine can
-    # include recording response mode instructions in all node prompts.
+    # Check organization-level recording availability. Node preparation enables
+    # recording instructions and routing only for prompts that reference them.
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
 
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
@@ -1108,7 +1108,8 @@ async def _run_pipeline_impl(
         )
     # Recording router is only meaningful in non-realtime mode (it routes between
     # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
-    # directly).
+    # directly). It starts as a passthrough; node preparation enables it using
+    # the same formatted-prompt check that adds recording mode instructions.
     if not is_realtime and has_recordings:
         recording_router = RecordingRouterProcessor(
             audio_sample_rate=audio_config.pipeline_sample_rate,

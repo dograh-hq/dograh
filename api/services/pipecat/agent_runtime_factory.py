@@ -197,6 +197,8 @@ class AgentRuntimeFactory:
 
         recording_router = None
         if self._has_recordings and self._fetch_recording_audio is not None:
+            # Starts disabled until destination node preparation determines
+            # whether its formatted prompt uses recording response mode.
             recording_router = RecordingRouterProcessor(
                 audio_sample_rate=(
                     self._audio_config.pipeline_sample_rate

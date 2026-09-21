@@ -261,8 +261,8 @@ class PipecatEngine:
         # Recording audio fetcher (set via set_fetch_recording_audio from _run_pipeline)
         self._fetch_recording_audio = None
 
-        # True when the workflow has active recordings; enables recording
-        # response mode instructions on all nodes for in-context learning.
+        # Organization-level availability; each formatted node prompt decides
+        # whether to enable recording response instructions and routing.
         self._has_recordings: bool = has_recordings
 
         # Background context summarization on node transitions
@@ -817,9 +817,13 @@ class PipecatEngine:
             node=node, custom_tool_manager=manager
         )
         agent.tools = ToolsSchema(standard_tools=functions)
-        agent.system_prompt = prompt
+        agent.system_prompt = prompt.text
+        if agent.recording_router is not None:
+            agent.recording_router.set_enabled(prompt.recording_enabled)
         if apply_settings:
-            await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
+            await agent.llm._update_settings(
+                LLMSettings(system_instruction=prompt.text)
+            )
 
     async def _setup_llm_context(self, node: Node) -> None:
         agent = self.active_agent

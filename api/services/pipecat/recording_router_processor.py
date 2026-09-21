@@ -26,6 +26,7 @@ from pipecat.frames.frames import (
     Frame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     LLMTextFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
@@ -46,6 +47,10 @@ class RecordingRouterProcessor(FrameProcessor):
     If no marker is detected by the end of the response, text is passed through
     to TTS as a graceful degradation.
 
+    Starts disabled: node preparation enables routing only when its formatted
+    prompt includes recording response instructions. Otherwise text flows
+    straight through without waiting for a marker or the end of the response.
+
     Args:
         audio_sample_rate: Pipeline sample rate for OutputAudioRawFrame.
         fetch_recording_audio: Async callback that takes a recording_id and
@@ -62,13 +67,19 @@ class RecordingRouterProcessor(FrameProcessor):
         super().__init__(**kwargs)
         self._audio_sample_rate = audio_sample_rate
         self._fetch_recording_audio = fetch_recording_audio
+        self._enabled = False
 
         # Per-response state
+        self._response_enabled: Optional[bool] = None
         self._frame_buffer: list[tuple[LLMTextFrame, FrameDirection]] = []
         self._mode: Optional[str] = None  # None = detecting, "tts", "recording"
         self._recording_id_buffer = ""
         self._recording_playback_started = False
         self._second_marker_seen = False
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Configure routing for the next response, preserving any in flight."""
+        self._enabled = enabled
 
     # ------------------------------------------------------------------
     # Frame dispatch
@@ -80,8 +91,16 @@ class RecordingRouterProcessor(FrameProcessor):
         if isinstance(frame, InterruptionFrame):
             self._reset()
             await self.push_frame(frame, direction)
+        elif isinstance(frame, LLMFullResponseStartFrame):
+            self._response_enabled = self._enabled
+            await self.push_frame(frame, direction)
         elif isinstance(frame, LLMTextFrame):
-            await self._handle_llm_text(frame, direction)
+            if self._response_enabled is None:
+                self._response_enabled = self._enabled
+            if self._response_enabled:
+                await self._handle_llm_text(frame, direction)
+            else:
+                await self.push_frame(frame, direction)
         elif isinstance(frame, LLMFullResponseEndFrame):
             await self._handle_response_end(frame, direction)
         else:
@@ -281,6 +300,7 @@ class RecordingRouterProcessor(FrameProcessor):
 
     def _reset(self):
         """Reset per-response state."""
+        self._response_enabled = None
         self._frame_buffer = []
         self._mode = None
         self._recording_id_buffer = ""

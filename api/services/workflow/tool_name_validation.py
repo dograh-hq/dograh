@@ -53,12 +53,13 @@ async def validate_workflow_tool_name_collisions(
         sorted(all_tool_uuids),
         organization_id,
     )
+    resolved_tool_uuids = {tool.tool_uuid for tool in tools}
     tools_by_uuid = {
         tool.tool_uuid: tool
         for tool in tools
         if tool.category not in _DYNAMIC_SCHEMA_CATEGORIES
     }
-
+ 
     custom_tools_by_node: dict[str, dict[str, list[Any]]] = {}
     errors: list[WorkflowError] = []
     for node_id, tool_uuids in tool_uuids_by_node.items():
@@ -68,6 +69,25 @@ async def validate_workflow_tool_name_collisions(
             if tool is not None:
                 by_function_name[custom_tool_function_name(tool.name)].append(tool)
         custom_tools_by_node[node_id] = by_function_name
+
+        # get_tools_by_uuids only returns ACTIVE tools, and the runtime drops
+        # anything it does not resolve — silently, with no publish-time signal.
+        # Flag dangling references (archived, deleted, or cross-org) here so
+        # saving/publishing fails loudly instead of shipping an agent whose
+        # tools never register.
+        for tool_uuid in sorted(tool_uuids - resolved_tool_uuids):
+            errors.append(
+                WorkflowError(
+                    kind=ItemKind.node,
+                    id=node_id,
+                    field="data.tool_uuids",
+                    message=(
+                        f'Tool "{tool_uuid}" does not exist or is archived, so '
+                        "the agent cannot call it. Restore the tool or remove "
+                        "it from this node."
+                    ),
+                )
+            )
 
         for function_name, matching_tools in by_function_name.items():
             if len(matching_tools) < 2:

@@ -19,7 +19,8 @@ from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
-from api.services.pipecat.audio_playback import play_audio, play_audio_loop
+from api.services.pipecat.audio_playback import play_audio_loop
+from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlayback
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.factory import get_telephony_provider_for_run
@@ -104,44 +105,19 @@ class CustomToolManager:
 
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
-    ) -> bool:
-        """Play a message from tool config — text or pre-recorded audio.
-
-        Returns True if a message was queued, False otherwise.
-        """
+    ) -> SpeechPlayback | None:
+        """Queue configured text or audio, returning its playback operation."""
         message_type = config.get("messageType", "none")
-
-        if message_type == "audio":
-            recording_pk = config.get("audioRecordingId")
-            if recording_pk and self._engine._fetch_recording_audio:
-                result = await self._engine._fetch_recording_audio(
-                    recording_pk=int(recording_pk)
-                )
-                if result:
-                    await play_audio(
-                        result.audio,
-                        sample_rate=(
-                            self._engine._audio_config.pipeline_sample_rate
-                            if self._engine._audio_config
-                            else 16000
-                        ),
-                        queue_frame=self._engine._transport_output.queue_frame,
-                        transcript=result.transcript,
-                        persist_to_logs=True,
-                    )
-                    return True
-                else:
-                    logger.warning(f"Failed to fetch recording pk={recording_pk}")
-            return False
-
-        if message_type == "custom":
-            custom_message = config.get("customMessage", "")
-            if custom_message:
-                return await self._engine.queue_text_message(
-                    custom_message, append_to_context=append_to_context
-                )
-
-        return False
+        if message_type == "audio" and config.get("audioRecordingId"):
+            return await self._engine.queue_speech(
+                recording_pk=int(config["audioRecordingId"]),
+                append_to_context=append_to_context,
+            )
+        if message_type == "custom" and config.get("customMessage"):
+            return await self._engine.queue_speech(
+                config["customMessage"], append_to_context=append_to_context
+            )
+        return None
 
     async def get_organization_id(self) -> Optional[int]:
         """Get the organization ID from the engine (shared cache)."""
@@ -428,22 +404,9 @@ class CustomToolManager:
                         logger.info(
                             f"Playing audio message before HTTP tool: pk={recording_pk}"
                         )
-                        self._engine._queued_speech_mute_state = "waiting"
-                        result = await self._engine._fetch_recording_audio(
-                            recording_pk=int(recording_pk)
+                        await self._engine.queue_speech(
+                            recording_pk=int(recording_pk), mute_user=True
                         )
-                        if result:
-                            await play_audio(
-                                result.audio,
-                                sample_rate=(
-                                    self._engine._audio_config.pipeline_sample_rate
-                                    if self._engine._audio_config
-                                    else 16000
-                                ),
-                                queue_frame=self._engine._transport_output.queue_frame,
-                                transcript=result.transcript,
-                                persist_to_logs=True,
-                            )
                 elif custom_message:
                     await self._engine.queue_text_message(
                         custom_message, mute_user=True
@@ -536,10 +499,13 @@ class CustomToolManager:
                     properties=properties,
                 )
 
-                self._engine.arm_speech_playback()
-                played = await self._play_config_message(config)
-                if played:
-                    await self._engine.wait_for_speech_playback()
+                speech = await self._play_config_message(config)
+                if speech is not None and speech.outcome not in (
+                    PlaybackOutcome.FAILED,
+                    PlaybackOutcome.SKIPPED,
+                    PlaybackOutcome.CLOSED,
+                ):
+                    await speech.wait()
                     await self._engine.end_call_with_reason(
                         EndTaskReason.END_CALL.value,
                         abort_immediately=False,
@@ -788,13 +754,10 @@ class CustomToolManager:
                     workflow_run, organization_id
                 )
 
-                self._engine.arm_speech_playback()
                 if resolved_transfer.message:
-                    message_queued = await self._engine.queue_text_message(
-                        resolved_transfer.message
-                    )
+                    speech = await self._engine.queue_speech(resolved_transfer.message)
                 else:
-                    message_queued = await self._play_config_message(config)
+                    speech = await self._play_config_message(config)
 
                 if external_pbx_call:
                     transfer_disposition = (
@@ -813,11 +776,8 @@ class CustomToolManager:
                     # The external PBX pulls the customer off our leg as soon as
                     # the transfer API returns, so the pre-transfer message has
                     # to finish playing before we make that call.
-                    if message_queued:
-                        await self._engine.wait_for_speech_playback(
-                            start_timeout=_TRANSFER_PLAYBACK_START_TIMEOUT_SECS,
-                            playback_timeout=_TRANSFER_PLAYBACK_FINISH_TIMEOUT_SECS,
-                        )
+                    if speech is not None:
+                        await speech.wait()
                     external_result = await provider.transfer_external_pbx_call(
                         identity=external_pbx_call,
                         destination=destination,

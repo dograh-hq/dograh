@@ -43,6 +43,9 @@ from api.services.user_onboarding import (
     get_onboarding_state,
     update_onboarding_state,
 )
+from api.services.workflow.answer_classification_service import (
+    ANSWER_CLASSIFIER_SYSTEM_PROMPT,
+)
 
 router = APIRouter(prefix="/user")
 
@@ -64,6 +67,13 @@ class DefaultConfigurationsResponse(BaseModel):
         description=(
             "Built-in suggestions for call-disposition extraction. They do not "
             "enable extraction until saved in workflow_configurations.call_dispositions."
+        )
+    )
+    default_answer_classifier_prompt: str = Field(
+        description=(
+            "Built-in instructions for the voicemail/screening classifier. The "
+            "editor starts from these when a workflow has saved none of its own; "
+            "a workflow that has saved instructions keeps showing those."
         )
     )
     text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints
@@ -96,6 +106,7 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
         "workflow_configurations": get_default_workflow_configurations(),
         "default_call_dispositions": get_default_call_disposition_options(),
+        "default_answer_classifier_prompt": ANSWER_CLASSIFIER_SYSTEM_PROMPT,
         "text_chat_inactivity_timeout_constraints": (
             TextChatInactivityTimeoutConstraints()
         ),

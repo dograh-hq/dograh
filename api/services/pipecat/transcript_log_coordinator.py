@@ -194,8 +194,12 @@ class TranscriptLogCoordinator:
         async with self._lock:
             state = self._select_assistant_turn()
             side = state.assistant
-            first_text = side.text is None
-            side.text = text if first_text else f"{side.text}\n{text}"
+            first_text = not side.text
+            # Empty is a resolved transcript, distinct from None (still waiting).
+            # It closes an interrupted speech's slot without emitting a log entry.
+            side.text = (
+                f"{side.text}\n{text}" if side.text and text else (side.text or text)
+            )
             if first_text:
                 side.transcript_timestamp = timestamp
                 self._capture_node(side)

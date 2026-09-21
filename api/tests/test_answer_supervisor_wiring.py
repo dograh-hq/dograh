@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pipecat.turns.user_mute import (
-    FirstSpeechUserMuteStrategy,
+    FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
@@ -20,7 +20,7 @@ from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
     "enabled, expected",
     [
         (False, MuteUntilFirstBotCompleteUserMuteStrategy),
-        (True, FirstSpeechUserMuteStrategy),
+        (True, FunctionCallUserMuteStrategy),
     ],
 )
 def test_answer_handling_listens_before_the_first_bot_speech(enabled, expected):
@@ -146,7 +146,7 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("use_workflow_llm", [False, True])
-async def test_saved_detector_settings_build_a_private_classifier_with_fixed_instructions(
+async def test_saved_detector_settings_build_a_private_classifier_with_saved_instructions(
     monkeypatch, use_workflow_llm
 ):
     from pipecat.processors.aggregators.llm_context import LLMContext
@@ -172,7 +172,7 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
             "provider": "openai",
             "model": "gpt-4.1",
             "api_key": "test-key",
-            "system_prompt": "Obsolete binary classifier prompt",
+            "system_prompt": "Rispondi con una sola etichetta: SCREENER o CONVERSATION.",
             "long_speech_timeout": 8,
         },
         is_realtime=False,
@@ -200,20 +200,53 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
             workflow_factory.assert_not_called()
         # A completed ambiguous machine turn reaches the private inference path.
         await supervisor._classify_turn("An ambiguous machine answer", 0)
-        assert (await supervisor.wait_for_verdict()).action == "screen_then_rearm"
+        verdict = await asyncio.wait_for(supervisor.wait_for_verdict(), 1)
+        assert verdict.action == "screen_then_rearm"
+        assert verdict.diagnostics["transcript"] == "An ambiguous machine answer"
+        assert verdict.diagnostics["pattern_subtype"] == "UNKNOWN"
+        assert verdict.subtype.value == "SCREENER"
+        assert verdict.diagnostics["classifier_status"] == "completed"
         inference = llm.run_inference.call_args
         assert inference.args[0] is not context
+        # A workflow's own instructions replace the built-in ones, which is how a
+        # non-English deployment describes the greetings its callers actually hear.
         assert (
             inference.kwargs["system_instruction"]
-            == answer_classification_service._SYSTEM_PROMPT
-        )
-        assert (
-            "Obsolete binary classifier prompt"
-            not in inference.kwargs["system_instruction"]
+            == "Rispondi con una sola etichetta: SCREENER o CONVERSATION."
         )
         assert context.messages == [
             {"role": "system", "content": "Workflow instructions"}
         ]
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_without_saved_instructions_uses_the_built_in_prompt(
+    monkeypatch,
+):
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    from api.services.pipecat.run_pipeline import _create_answer_supervisor
+
+    llm = SimpleNamespace(run_inference=AsyncMock(return_value="SCREENER"))
+    monkeypatch.setattr(
+        "api.services.pipecat.run_pipeline.create_llm_service", Mock(return_value=llm)
+    )
+    supervisor = _create_answer_supervisor(
+        {"enabled": True, "use_workflow_llm": True},
+        is_realtime=False,
+        start_node=None,
+        context=LLMContext(),
+        user_config=object(),
+        correlation_id="test-run",
+    )
+    try:
+        await supervisor._classify_turn("An ambiguous machine answer", 0)
+        assert (
+            llm.run_inference.call_args.kwargs["system_instruction"]
+            == answer_classification_service.ANSWER_CLASSIFIER_SYSTEM_PROMPT
+        )
     finally:
         await supervisor.close()
 

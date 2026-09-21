@@ -235,6 +235,64 @@ def _unique_org_id() -> int:
     return uuid.uuid4().int % 10_000_000
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_operation", ["zremrangebyscore", "zcard"])
+async def test_strict_org_count_propagates_storage_errors(failed_operation):
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    rl = RateLimiter()
+    redis_client = AsyncMock()
+    getattr(redis_client, failed_operation).side_effect = RedisConnectionError(
+        "redis unavailable"
+    )
+    rl._get_redis = AsyncMock(return_value=redis_client)
+
+    with pytest.raises(RedisConnectionError):
+        await rl.get_concurrent_count(42, raise_on_error=True)
+    # Admission logging keeps its existing fallback behavior.
+    assert await rl.get_concurrent_count(42) == 0
+
+
+@requires_redis
+@pytest.mark.asyncio
+async def test_org_count_spans_workers_excludes_other_orgs_and_stale_slots():
+    import time
+
+    from api.services.call_concurrency.rate_limiter import FLEET_CONCURRENT_KEY
+
+    first_worker, second_worker = RateLimiter(), RateLimiter()
+    org_a, org_b = uuid.uuid4().int, uuid.uuid4().int
+    redis_client = await first_worker._get_redis()
+    slots = []
+    try:
+        assert await first_worker.get_concurrent_count(org_a, raise_on_error=True) == 0
+        for worker, org in (
+            (first_worker, org_a),
+            (second_worker, org_a),
+            (second_worker, org_b),
+        ):
+            slot = await worker.try_acquire_concurrent_slot_details(org, 10)
+            assert slot
+            slots.append((org, slot.slot_id))
+
+        await redis_client.zadd(
+            f"concurrent_calls:{org_a}",
+            {"stale": time.time() - first_worker.stale_call_timeout - 1},
+        )
+        assert await first_worker.get_concurrent_count(org_a, raise_on_error=True) == 2
+        assert await second_worker.get_concurrent_count(org_b, raise_on_error=True) == 1
+        await second_worker.release_concurrent_slot(*slots[0])
+        assert await first_worker.get_concurrent_count(org_a, raise_on_error=True) == 1
+    finally:
+        for org, slot_id in slots:
+            await redis_client.zrem(FLEET_CONCURRENT_KEY, f"{org}:{slot_id}")
+        await redis_client.delete(
+            f"concurrent_calls:{org_a}", f"concurrent_calls:{org_b}"
+        )
+        await first_worker.close()
+        await second_worker.close()
+
+
 @requires_redis
 @pytest.mark.asyncio
 async def test_scoped_acquisition_enforces_scope_limit_independently_of_org():

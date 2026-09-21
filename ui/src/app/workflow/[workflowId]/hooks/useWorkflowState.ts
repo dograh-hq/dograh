@@ -127,6 +127,8 @@ export const useWorkflowState = ({
         useState<WorkflowConfigurationDefaults | null>(null);
     const [defaultCallDispositions, setDefaultCallDispositions] =
         useState<CallDispositionOption[]>([]);
+    const [defaultAnswerClassifierPrompt, setDefaultAnswerClassifierPrompt] =
+        useState<string>("");
     const [textChatInactivityTimeoutConstraints, setTextChatInactivityTimeoutConstraints] =
         useState<TextChatInactivityTimeoutConstraints | null>(null);
     const [widgetTextDefaults, setWidgetTextDefaults] = useState<WidgetTexts | null>(null);
@@ -185,12 +187,16 @@ export const useWorkflowState = ({
                     );
                     setWorkflowConfigurationDefaults(null);
                     setDefaultCallDispositions([]);
+                    setDefaultAnswerClassifierPrompt("");
                     setTextChatInactivityTimeoutConstraints(null);
                     setWidgetTextDefaults(null);
                 } else {
                     setWorkflowConfigurationDefaults(response.data.workflow_configurations);
                     setDefaultCallDispositions(
                         response.data.default_call_dispositions ?? [],
+                    );
+                    setDefaultAnswerClassifierPrompt(
+                        response.data.default_answer_classifier_prompt ?? "",
                     );
                     setTextChatInactivityTimeoutConstraints(
                         response.data.text_chat_inactivity_timeout_constraints,
@@ -666,6 +672,7 @@ export const useWorkflowState = ({
         templateContextVariables,
         workflowConfigurations,
         defaultCallDispositions,
+        defaultAnswerClassifierPrompt,
         textChatInactivityTimeoutConstraints,
         widgetTextDefaults,
         dictionary,

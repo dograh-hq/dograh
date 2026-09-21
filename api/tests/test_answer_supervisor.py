@@ -35,7 +35,10 @@ from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from api.schemas.answer_supervisor import AnswerSupervisorConfig
-from api.services.pipecat.answer_classification import MachineSubtype
+from api.services.pipecat.answer_classification import (
+    MachineSubtype,
+    classify_machine_utterance,
+)
 from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.worker_runner import run_pipeline_worker
 
@@ -155,7 +158,9 @@ async def test_short_hello_is_committed_and_trigger_dropped_before_release():
         ("My account number is synthetic-private-value.", 0.06),
     ],
 )
-async def test_decision_logs_omit_caller_transcripts(monkeypatch, text, duration):
+async def test_decision_audit_keeps_transcripts_out_of_application_logs(
+    monkeypatch, text, duration
+):
     from api.services.pipecat.processors import answer_supervisor
 
     messages = []
@@ -166,10 +171,75 @@ async def test_decision_logs_omit_caller_transcripts(monkeypatch, text, duration
     )
     async with call(classify=AsyncMock(return_value=MachineSubtype.CONVERSATION)) as c:
         await c.say(text, duration=duration)
-        await verdict(c)
+        result = await verdict(c)
         assert messages
         assert all(text not in message for message in messages)
         assert any(f"transcript_chars={len(text)}" in message for message in messages)
+        # The pattern verdict stays visible beside the final one, so a missing
+        # pattern can be told apart from a classifier disagreement. Here the
+        # mailbox line matches VOICEMAIL while the other two do not.
+        expected = classify_machine_utterance(text).value
+        assert any(f"pattern_subtype='{expected}'" in message for message in messages)
+        c.supervisor.commit()
+        await c.supervisor.close()
+        # Clearing the supervisor on termination must not erase the accepted
+        # verdict's evidence before the engine persists gathered_context.
+        decision = result.diagnostics
+        assert decision["transcript"] == text
+        assert decision["timestamp"]
+        assert decision["pattern_subtype"] == expected
+        assert decision["turn_index"] == 1
+        assert decision["duration_ms"] is not None
+        assert decision["speech_epoch"] == 1
+        assert text not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_audit_retains_full_transcript_for_pattern_analysis(monkeypatch):
+    from api.services.pipecat.processors import answer_supervisor
+
+    messages = []
+    monkeypatch.setattr(
+        answer_supervisor,
+        "logger",
+        SimpleNamespace(info=lambda fmt, *args: messages.append(fmt.format(*args))),
+    )
+    # Stripped, because the supervisor strips the turn before measuring it.
+    text = ("Synthetic caller speech. " * 40).strip()
+    assert len(text) > 200
+    async with call(classify=AsyncMock(return_value=MachineSubtype.CONVERSATION)) as c:
+        await c.say(text, duration=0.01)
+        result = await verdict(c)
+        assert all(text[:200] not in message for message in messages)
+        assert all(text not in message for message in messages)
+        assert any(f"transcript_chars={len(text)}" in message for message in messages)
+        decision = result.diagnostics
+        assert decision["transcript"] == text
+        assert decision["transcript_chars"] == len(text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [TimeoutError(), RuntimeError("private provider detail")]
+)
+async def test_audit_records_classifier_failures_and_fallback(failure):
+    supervisor = AnswerSupervisor(
+        AnswerSupervisorConfig(),
+        context=LLMContext(),
+        classify=AsyncMock(side_effect=failure),
+    )
+    try:
+        await supervisor._classify_turn("An ambiguous answer", 0)
+        result = await asyncio.wait_for(supervisor.wait_for_verdict(), 1)
+        status = "timeout" if isinstance(failure, TimeoutError) else "error"
+        assert result.diagnostics["transcript"] == "An ambiguous answer"
+        assert result.subtype == MachineSubtype.UNKNOWN
+        assert result.diagnostics["pattern_subtype"] == "UNKNOWN"
+        assert result.diagnostics["strategy"] == "llm_classifier"
+        assert result.diagnostics["classifier_status"] == status
+        assert result.action == "release"
+    finally:
+        await supervisor.close()
 
 
 @pytest.mark.asyncio
@@ -206,16 +276,36 @@ async def test_silent_answer_waits_for_window():
         pending = asyncio.create_task(c.supervisor.wait_for_verdict())
         await asyncio.sleep(0.025)
         assert not pending.done()
-        assert (await asyncio.wait_for(pending, 1)).action == "release"
+        assert (await asyncio.wait_for(pending, 1)).action == "start_opening"
+
+
+@pytest.mark.asyncio
+async def test_completed_opening_releases_without_another_timer():
+    async with call() as c:
+        assert c.supervisor.commit(await verdict(c))
+        c.supervisor.opening_finished()
+        pending = asyncio.create_task(c.supervisor.wait_for_verdict())
+        try:
+            await asyncio.sleep(0)
+            assert pending.done()
+            result = pending.result()
+            assert result.action == "release"
+            assert result.reason == "opening_complete"
+            assert result.subtype is None
+        finally:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
 
 
 @pytest.mark.asyncio
 async def test_speech_during_pre_call_fetch_revokes_unused_silent_permission():
     async with call() as c:
-        assert (await verdict(c)).action == "release"
+        permission = await verdict(c)
+        assert permission.action == "start_opening"
         await c.worker.queue_frame(VADUserStartedSpeakingFrame())
         await c.worker.queue_frame(ProposedUserStartedSpeakingFrame())
         await asyncio.sleep(0.02)
+        assert not c.supervisor.commit(permission)
         pending = asyncio.create_task(c.supervisor.wait_for_verdict())
         await asyncio.sleep(0.02)
         assert not pending.done()
@@ -286,6 +376,8 @@ async def test_screener_prompt_stays_gated_regardless_of_duration(text, duration
         "Dial eight.",
         "Press nine.",
         "Press 1.",
+        "Premere zero",
+        "Premere 0",
     ],
 )
 async def test_ivr_prompt_stays_gated_regardless_of_duration(text, duration, screening):
@@ -641,6 +733,8 @@ async def test_initial_wait_announcement_enters_bounded_screening_wait():
         assert result.reason == "screening_timeout"
         assert c.context.messages == []
         classifier.assert_not_awaited()
+        assert result.diagnostics["screening"] is True
+        assert result.diagnostics["screening_wait_ms"] == 180
 
 
 @pytest.mark.asyncio
@@ -732,7 +826,7 @@ async def test_vad_alone_never_sets_onset_or_arms_utterance_timer(arm_on_start):
         if not arm_on_start:
             c.supervisor.arm()
         result = await verdict(c)
-        assert result.action == "release"
+        assert result.action == "start_opening"
         assert result.reason == "silent_window"
         assert c.supervisor._onset is None
         assert c.supervisor._utterance_task is None
@@ -820,6 +914,7 @@ async def test_shutdown_cancels_managed_classifier_and_waits_for_cleanup(screeni
     [
         ("Leave a message after the tone.", "voicemail"),
         ("The mailbox is full.", "no_message"),
+        ("L'utente da lei chiamato non e' al momento raggiungibile.", "no_message"),
     ],
 )
 async def test_short_recognised_machine_greeting_is_not_released_as_human(text, reason):
@@ -834,12 +929,37 @@ async def test_short_recognised_machine_greeting_is_not_released_as_human(text, 
 
 
 @pytest.mark.asyncio
-async def test_short_unrecognised_turn_is_still_called_human_without_the_classifier():
+@pytest.mark.parametrize("text", ["Who's calling?", "Sono momentaneamente occupato"])
+async def test_short_unrecognised_turn_is_still_called_human_without_the_classifier(
+    text,
+):
     """Unmatched short turns skip the classifier to avoid delaying human greetings."""
     classifier = AsyncMock(return_value=MachineSubtype.SCREENER)
-    async with call(classify=classifier) as c:
-        await c.say("Who's calling?")
+    # Allow scheduler delays without accidentally exercising the long-turn path.
+    async with call(classify=classifier, human_utterance_max_ms=500) as c:
+        await c.say(text)
         result = await verdict(c)
         assert result.action == "release"
         assert result.reason == "human_turn"
         classifier.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("human_utterance_max_ms", [1, 500])
+async def test_receptionist_unavailability_is_released_as_conversation(
+    human_utterance_max_ms,
+):
+    text = "Il signor Rossi non è raggiungibile al momento"
+    classifier = AsyncMock(return_value=MachineSubtype.CONVERSATION)
+    async with call(
+        classify=classifier, human_utterance_max_ms=human_utterance_max_ms
+    ) as c:
+        await c.say(text)
+        result = await verdict(c)
+        assert result.action == "release"
+        assert result.subtype == MachineSubtype.CONVERSATION
+        assert result.diagnostics["pattern_subtype"] == "UNKNOWN"
+        if human_utterance_max_ms == 500:
+            classifier.assert_not_awaited()
+        else:
+            classifier.assert_awaited_once_with(text)

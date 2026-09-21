@@ -31,6 +31,7 @@ async def run_engine_test_pipeline(
     use a direct ``LLMContextFrame`` as their default stimulus because they are
     exercising an LLM response rather than the configured node greeting.
     """
+    engine.set_transport_output(transport.output())
     await engine.initialize()
 
     ready_state = {

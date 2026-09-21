@@ -160,6 +160,9 @@ class AgentTransferCoordinator:
                             engine.context,
                             source.inference_llm,
                             request_id=request.request_id,
+                            # Resolved here, in the parent task: the compaction
+                            # task has no ambient span of its own to inherit.
+                            parent_context=engine._get_otel_context(),
                         )
                     )
                 snapshot = compact.result()
@@ -243,12 +246,10 @@ class AgentTransferCoordinator:
     async def _announce(self, request, source):
         engine = self._engine
         if request.announcement:
-            engine.arm_speech_playback()
-            spoken = await engine.queue_text_message(
+            speech = await engine.queue_speech(
                 request.announcement, append_to_context=True, mute_user=True
             )
-            if not spoken or not await engine.wait_for_speech_playback():
-                engine.clear_queued_speech_mute()
+            await speech.wait()
         # Also drain when the tool has no announcement.
         await source.cancel_tools()
         await engine.drain_call_pipeline()

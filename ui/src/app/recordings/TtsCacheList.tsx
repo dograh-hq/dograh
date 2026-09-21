@@ -59,15 +59,15 @@ export default function TtsCacheList() {
 
     useEffect(() => stopPreview, [stopPreview]);
 
-    const invalidDuration = (minDuration !== "" && Number(minDuration) < 0)
-        || (maxDuration !== "" && Number(maxDuration) < 0)
+    const invalidDuration = (minDuration !== "" && (!Number.isFinite(Number(minDuration)) || Number(minDuration) < 0))
+        || (maxDuration !== "" && (!Number.isFinite(Number(maxDuration)) || Number(maxDuration) < 0))
         || (minDuration !== "" && maxDuration !== "" && Number(minDuration) > Number(maxDuration));
 
     useEffect(() => {
         if (authLoading || !user) return;
         stopPreview();
         if (invalidDuration) {
-            setError("Enter a valid duration range: minimum must not exceed maximum.");
+            setError("Enter finite, non-negative durations: minimum must not exceed maximum.");
             setLoading(false);
             return;
         }

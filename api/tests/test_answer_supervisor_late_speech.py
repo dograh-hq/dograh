@@ -966,6 +966,41 @@ async def test_human_interrupts_screening_reply_before_initial_greeting(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "screening_message", [{"text": "Alex calling."}, {"recording_pk": 10}]
+)
+async def test_discarded_speech_during_screening_reply_resumes_silence_timeout(
+    simple_workflow, screening_message
+):
+    async with late_call(
+        simple_workflow,
+        start_with_screening=True,
+        screening_message=screening_message,
+        external_turns=False,
+        min_words=2,
+        screening_wait_ms=50,
+    ) as c:
+        await c.start()
+        assert not c.supervisor._screening_idle.is_set()
+        await c.stop("Hello.")
+        # The minimum-word strategy discards this without starting a logical
+        # turn, so no turn-stop callback will resume the screening timeout.
+        assert not c.supervisor._logical_turn
+        assert c.supervisor._onset is None
+        assert not c.user.aggregation_string()
+        assert not c.speech.done
+
+        c.output.resume.set()
+        await asyncio.wait_for(c.action, 3)
+        c.engine.end_call_with_reason.assert_awaited_once_with(
+            "screening_timeout", abort_immediately=True
+        )
+        assert c.speech.outcome == PlaybackOutcome.PLAYED
+        assert c.llm.get_current_step() == 0
+        assert not any(m.get("role") == "user" for m in c.context.messages)
+
+
+@pytest.mark.asyncio
 async def test_late_untranscribed_speech_is_bounded(simple_workflow):
     async with late_call(simple_workflow, machine_utterance_cap_ms=150) as c:
         await c.start()

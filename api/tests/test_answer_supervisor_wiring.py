@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from pipecat.turns.user_mute import (
     FunctionCallUserMuteStrategy,
+    MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
 from api.services.pipecat.event_handlers import register_event_handlers
@@ -16,14 +17,18 @@ from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
 
 
 @pytest.mark.parametrize(
-    "enabled, expected",
+    "realtime, enabled, expected",
     [
-        (False, FunctionCallUserMuteStrategy),
-        (True, FunctionCallUserMuteStrategy),
+        (False, False, FunctionCallUserMuteStrategy),
+        (False, True, FunctionCallUserMuteStrategy),
+        (True, False, MuteUntilFirstBotCompleteUserMuteStrategy),
+        (True, True, FunctionCallUserMuteStrategy),
     ],
 )
-def test_answer_handling_listens_before_the_first_bot_speech(enabled, expected):
-    engine = SimpleNamespace(should_mute_user=AsyncMock())
+def test_initial_user_mute_depends_on_realtime_and_answer_handling(
+    realtime, enabled, expected
+):
+    engine = SimpleNamespace(should_mute_user=AsyncMock(), _is_realtime=realtime)
     supervisor = SimpleNamespace() if enabled else None
     assert isinstance(_create_user_mute_strategies(engine, supervisor)[0], expected)
 

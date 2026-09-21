@@ -10,7 +10,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.enums import AnswerAction
 from api.schemas.answer_supervisor import AnswerMessage
-from api.services.pipecat.speech_playback import PlaybackOutcome
+from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlayback
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -96,10 +96,13 @@ async def _speak_screening(engine: "PipecatEngine", supervisor) -> bool:
         await asyncio.gather(playback, human, return_exceptions=True)
 
 
-async def _play_opening(engine, supervisor, *, provisional: bool, context=None):
+async def _play_opening(
+    engine, supervisor, *, provisional: bool, context=None
+) -> SpeechPlayback | None:
+    result = None
     try:
         async with asyncio.timeout(45):
-            await engine.queue_node_opening(
+            result = await engine.queue_node_opening(
                 node_id=engine.active_agent.workflow.start_node_id,
                 previous_node_id=None,
                 generate_if_no_greeting=True,
@@ -113,6 +116,7 @@ async def _play_opening(engine, supervisor, *, provisional: bool, context=None):
         logger.warning("Supervised opening failed ({})", type(error).__name__)
     if provisional:
         supervisor.opening_finished()
+    return result.playback if result is not None else None
 
 
 async def _handle_answer(
@@ -120,6 +124,7 @@ async def _handle_answer(
 ) -> AnswerAction | None:
     rearms = 0
     opening = None
+    speech = None
     screening = False
     await update_idle_timeout(0)
     try:
@@ -148,15 +153,16 @@ async def _handle_answer(
                 continue
             if opening is not None:
                 # Wait for completion or interruption before changing playback.
-                await asyncio.gather(opening, return_exceptions=True)
+                speech = await opening
             if verdict.action == AnswerAction.RELEASE:
                 if opening is None:
-                    await _play_opening(engine, supervisor, provisional=False)
-                speech = engine.speech_playback.greeting
+                    speech = await _play_opening(engine, supervisor, provisional=False)
                 interrupted = (
                     speech is not None and speech.outcome is PlaybackOutcome.INTERRUPTED
                 )
-                if interrupted:
+                # Only cascade greetings install the temporary turn strategy.
+                # Realtime caller turns are already committed before the verdict.
+                if interrupted and not engine._is_realtime:
                     interrupted = await engine.greeting.wait_for_turn()
                 # Commit queued caller speech before opening the inference gate.
                 if not await engine.drain_call_pipeline():

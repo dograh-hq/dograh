@@ -433,7 +433,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         engine._fetch_recording_audio.assert_awaited_once_with(
             recording_id="callback-welcome"
         )
@@ -472,7 +472,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         queued = [
             call.args[0]
             for call in engine._transport_output.queue_frame.await_args_list
@@ -574,7 +574,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         llm.queue_frame.assert_not_awaited()
         queued_frame = next(
             c.args[0]
@@ -650,7 +650,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "llm"
+        assert result.action == "llm"
         task.queue_frame.assert_not_awaited()
         queued_frame = llm.queue_frame.await_args.args[0]
         assert isinstance(queued_frame, LLMContextFrame)

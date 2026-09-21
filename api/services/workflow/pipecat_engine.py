@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Awaitable,
@@ -113,6 +114,14 @@ ENGINE_OWNED_CONTEXT_KEYS = frozenset(
 # service behind it open indefinitely. Measured on the abrupt-hangup path at
 # p50 1.4s / p90 4.0s / max 21.3s, so this cuts off the tail and nothing else.
 FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
+
+
+@dataclass(frozen=True)
+class NodeOpeningResult:
+    """The opening action and the playback owned by that invocation."""
+
+    action: Literal["none", "greeting", "llm"]
+    playback: SpeechPlayback | None = None
 
 
 class PipecatEngine:
@@ -979,7 +988,7 @@ class PipecatEngine:
         wait_for_playback: bool = False,
         mute_user: bool = False,
         opening_context: LLMContext | None = None,
-    ) -> Literal["none", "greeting", "llm"]:
+    ) -> NodeOpeningResult:
         """Queue the opening behavior for a node.
 
         This is the shared source of truth for how a node begins once the
@@ -1003,9 +1012,8 @@ class PipecatEngine:
             opening_context: Isolated context for a provisional generated opening.
 
         Returns:
-            "greeting" when a text/audio greeting was queued,
-            "llm" when an initial LLM generation was queued,
-            "none" when nothing was queued.
+            The action ("greeting", "llm", or "none") and its playback handle,
+            if tracked. The handle retains the outcome after playback finishes.
         """
         agent = self._active_agent
         if origin_visit_id is not None and origin_visit_id != agent.visit_id:
@@ -1013,7 +1021,7 @@ class PipecatEngine:
                 f"Dropping node opening from retired visit {origin_visit_id}; "
                 f"{agent.visit_id} owns the call"
             )
-            return "none"
+            return NodeOpeningResult("none")
 
         if previous_node_id != node_id:
             greeting_info = self.get_node_greeting(node_id)
@@ -1042,7 +1050,7 @@ class PipecatEngine:
                         if wait_for_playback:
                             await speech.wait()
                         await self._open_realtime_after_recorded_greeting(speech.text)
-                        return "greeting"
+                        return NodeOpeningResult("greeting", speech)
                     logger.warning(
                         f"Failed to fetch audio greeting {greeting_value}, "
                         "falling back to LLM generation"
@@ -1076,7 +1084,7 @@ class PipecatEngine:
                         )
                     if wait_for_playback:
                         await speech.wait()
-                    return "greeting"
+                    return NodeOpeningResult("greeting", speech)
 
         if (
             generate_if_no_greeting
@@ -1103,9 +1111,9 @@ class PipecatEngine:
                 raise
             if wait_for_playback:
                 await speech.wait()
-            return "llm"
+            return NodeOpeningResult("llm", speech)
 
-        return "none"
+        return NodeOpeningResult("none")
 
     async def _open_realtime_after_recorded_greeting(
         self, transcript: str | None

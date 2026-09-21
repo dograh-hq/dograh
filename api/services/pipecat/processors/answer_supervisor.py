@@ -135,6 +135,8 @@ class AnswerSupervisor(FrameProcessor):
             self._onset = None
             if self._utterance_task:
                 self._utterance_task.cancel()
+            if self._screening:
+                self._screening_idle.set()
             if self._opening_complete:
                 self.opening_finished()
 

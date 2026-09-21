@@ -5,8 +5,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from pipecat.frames.frames import CancelFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    CancelFrame,
+    InterruptionFrame,
+    LLMContextFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection
 
 from api.enums import AnswerAction
 from api.schemas.answer_supervisor import AnswerMessage, AnswerSupervisorConfig
@@ -17,14 +23,14 @@ from api.services.pipecat.processors.answer_supervisor import (
 )
 from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.answer_handling import _speak_screening, handle_answer
-from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.pipecat_engine import NodeOpeningResult, PipecatEngine
 
 
 def make_call(verdicts, **settings):
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
     engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
     engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
-    engine.queue_node_opening = AsyncMock(return_value="greeting")
+    engine.queue_node_opening = AsyncMock(return_value=NodeOpeningResult("greeting"))
     engine.drain_call_pipeline = AsyncMock(return_value=True)
     engine.end_call_with_reason = AsyncMock()
     engine.playback_wait = AsyncMock(return_value=True)
@@ -295,6 +301,91 @@ async def test_opening_error_cannot_leave_gate_and_idle_detection_disabled():
     supervisor.release.assert_called_once()
     assert [c.args[0] for c in idle.await_args_list] == [0, None]
     assert not engine.speech_playback.mutes_user
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_realtime_provisional_opening_answers_held_turn_after_interruption(
+    simple_workflow, greeting_type, interrupted
+):
+    node = simple_workflow.nodes[simple_workflow.start_node_id]
+    node.greeting_type = greeting_type
+    node.greeting = "Welcome." if greeting_type == "text" else None
+    node.greeting_recording_id = "9" if greeting_type == "audio" else None
+    context = LLMContext()
+    llm = SimpleNamespace(queue_frame=AsyncMock())
+    engine = PipecatEngine(
+        workflow=simple_workflow,
+        llm=llm,
+        context=context,
+        call_context_vars={},
+        is_realtime=True,
+    )
+    engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
+    engine.set_transport_output(SimpleNamespace(queue_frame=AsyncMock()))
+    engine.set_fetch_recording_audio(
+        AsyncMock(
+            return_value=SimpleNamespace(audio=b"\x01\x00" * 160, transcript="Welcome.")
+        )
+    )
+    supervisor = AnswerSupervisor(AnswerSupervisorConfig(), context=context)
+    idle = AsyncMock()
+
+    async def drain():
+        assert supervisor.blocks_workflow
+        assert context.messages == [{"role": "user", "content": "Hello, can you help?"}]
+        return True
+
+    engine.drain_call_pipeline = AsyncMock(side_effect=drain)
+    supervisor._publish(
+        AnswerVerdict(AnswerAction.START_OPENING, "silent_window"),
+        strategy="listening_timeout",
+    )
+    running = asyncio.create_task(
+        handle_answer(engine, supervisor, update_idle_timeout=idle)
+    )
+    try:
+        async with asyncio.timeout(1):
+            while not engine.speech_playback.pending:
+                await asyncio.sleep(0)
+        [speech] = engine.speech_playback.pending.values()
+        assert engine.speech_playback.greeting is None
+        # The provisional generation, if any, must not be counted as the reply.
+        llm.queue_frame.reset_mock()
+        supervisor._speech_started()
+        if interrupted:
+            await engine.speech_playback.before_output(None, InterruptionFrame())
+            await asyncio.sleep(0)
+            assert supervisor.blocks_workflow
+            llm.queue_frame.assert_not_awaited()
+        context.add_message({"role": "user", "content": "Hello, can you help?"})
+        await supervisor.llm_gate().process_frame(
+            LLMContextFrame(context), FrameDirection.DOWNSTREAM
+        )
+        assert supervisor.llm_gate().dropped_contexts == 1
+        await supervisor._on_turn_stopped(
+            None, "external_turn", SimpleNamespace(content="Hello, can you help?")
+        )
+        if not interrupted:
+            speech.finish(PlaybackOutcome.PLAYED)
+        await asyncio.wait_for(running, 1)
+
+        assert not supervisor.blocks_workflow
+        assert [call.args[0] for call in idle.await_args_list] == [0, None]
+        engine.drain_call_pipeline.assert_awaited_once()
+        if interrupted:
+            llm.queue_frame.assert_awaited_once()
+            [frame] = llm.queue_frame.await_args.args
+            assert isinstance(frame, LLMContextFrame)
+            assert frame.context is context
+        else:
+            llm.queue_frame.assert_not_awaited()
+    finally:
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+        engine.speech_playback.cancel_all()
+        await supervisor.close()
 
 
 @pytest.mark.asyncio

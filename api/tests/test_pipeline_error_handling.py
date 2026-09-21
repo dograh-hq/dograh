@@ -61,6 +61,7 @@ def campaign_call(monkeypatch):
     breaker = AsyncMock()
     monkeypatch.setattr(event_handlers.circuit_breaker, "record_and_evaluate", breaker)
     funnel = TerminationFunnelProcessor()
+    transcript_log_coordinator = SimpleNamespace(flush=AsyncMock())
     register_event_handlers(
         task=task,
         transport=_EventSource(),
@@ -72,14 +73,20 @@ def campaign_call(monkeypatch):
             is_empty=True,
             generate_transcript_text=lambda **kwargs: "",
         ),
-        transcript_log_coordinator=SimpleNamespace(flush=AsyncMock()),
+        transcript_log_coordinator=transcript_log_coordinator,
         pipeline_metrics_aggregator=SimpleNamespace(
             get_all_usage_metrics_serialized=dict
         ),
         termination_funnel=funnel,
         audio_config=SimpleNamespace(pipeline_sample_rate=16000),
     )
-    return SimpleNamespace(task=task, engine=engine, breaker=breaker, funnel=funnel)
+    return SimpleNamespace(
+        task=task,
+        engine=engine,
+        breaker=breaker,
+        funnel=funnel,
+        transcript_log_coordinator=transcript_log_coordinator,
+    )
 
 
 @pytest.mark.asyncio
@@ -116,6 +123,54 @@ async def test_terminal_errors_count_once_per_campaign_call(
         workflow_run_id=88,
         reason="pipeline_error",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure_stage", ["observers", "transcript", "workflow_lookup"]
+)
+async def test_finalization_error_cannot_suppress_campaign_failure(
+    campaign_call, failure_stage
+):
+    call = campaign_call
+    await call.engine.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
+    failure = RuntimeError(f"{failure_stage} failed")
+    if failure_stage == "observers":
+        call.task.wait_for_observers.side_effect = failure
+    elif failure_stage == "transcript":
+        call.transcript_log_coordinator.flush.side_effect = failure
+    else:
+        # The finalizer's workflow lookup follows observer draining. Fail that
+        # read without breaking the accounting path's own metadata lookup.
+        async def fail_later_lookup():
+            event_handlers.db_client.get_workflow_run_by_id.side_effect = failure
+
+        call.task.wait_for_observers.side_effect = fail_later_lookup
+
+    with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
+        await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=True,
+        workflow_run_id=88,
+        reason="pipeline_error",
+    )
+
+
+@pytest.mark.asyncio
+async def test_failure_accounting_error_does_not_abort_finalization(campaign_call):
+    call = campaign_call
+    await call.engine.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
+    call.breaker.side_effect = RuntimeError("circuit breaker unavailable")
+
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+
+    call.breaker.assert_awaited_once()
+    call.task.wait_for_observers.assert_awaited_once()
+    call.transcript_log_coordinator.flush.assert_awaited_once()
+    call.engine.cleanup.assert_awaited_once()
+    event_handlers.notify_campaign_call_completed.assert_awaited_once_with(42, 88)
 
 
 @pytest.mark.asyncio

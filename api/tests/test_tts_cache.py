@@ -68,25 +68,47 @@ def request_for(**overrides):
 
 
 class MemoryBackend:
-    """Test double with the production first-writer-wins behavior."""
+    """Test double with the production LRU admission behavior.
+
+    ``entries`` is ordered by last access so the first key is the LRU victim,
+    mirroring the index sorted set the Redis backend keeps.
+    """
 
     def __init__(self):
         self.entries = {}
         self.reads = 0
+        self.evicted = []
 
-    async def get(self, request, max_bytes):
+    async def get(self, request, max_bytes, ttl_seconds):
         self.reads += 1
-        return self.entries.get((request.organization_id, request.digest))
+        key = (request.organization_id, request.digest)
+        value = self.entries.get(key)
+        if value is not None:
+            self.entries[key] = self.entries.pop(key)  # refresh recency
+        return value
 
     async def put(self, request, value, policy):
         key = (request.organization_id, request.digest)
         if key in self.entries:
-            return False
+            self.entries[key] = self.entries.pop(key)
+            return False, 0
+        evicted = 0
+        while len(self.entries) >= policy.max_entries_per_org:
+            self.evicted.append(next(iter(self.entries)))
+            del self.entries[self.evicted[-1]]
+            evicted += 1
         self.entries[key] = value
-        return True
+        return True, evicted
 
     async def close(self):
         pass
+
+    async def delete_if_value(self, request, value):
+        key = (request.organization_id, request.digest)
+        if self.entries.get(key) != value:
+            return False
+        del self.entries[key]
+        return True
 
 
 @pytest.fixture
@@ -333,39 +355,146 @@ async def redis_backend():
         await backend.close()
 
 
-async def test_redis_atomic_admission_expiration_and_org_invalidation(redis_backend):
+async def test_redis_cap_holds_under_concurrent_admission(redis_backend):
+    """Every writer is admitted now, so the cap is the invariant that must hold."""
     policy = CachePolicy(
-        ttl_seconds=1, max_entries_per_org=2, operation_timeout_seconds=1
+        ttl_seconds=60, max_entries_per_org=2, operation_timeout_seconds=1
     )
-    cache = SpeechCache(redis_backend, policy)
     requests = [replace(request_for(), digest=f"{i:064x}") for i in range(10)]
-    admitted = await asyncio.gather(
+    results = await asyncio.gather(
         *(
             redis_backend.put(r, CachedSpeech(PCM, 16000).encode(), policy)
             for r in requests
         )
     )
-    assert sum(admitted) == 2
+    assert sum(stored for stored, _ in results) == 10
     index = redis_backend._index(1)
     assert await redis_backend.client.zcard(index) == 2
-    first = requests[admitted.index(True)]
-    assert await cache.get(first) == CachedSpeech(PCM, 16000)
-    assert not await redis_backend.put(first, b"replacement", policy)
+    live = 0
+    for r in requests:
+        live += await redis_backend.client.exists(redis_backend._key(r))
+    assert live == 2
+
+
+async def test_redis_evicts_least_recently_used_and_a_read_protects_an_entry(
+    redis_backend,
+):
+    policy = CachePolicy(
+        ttl_seconds=60, max_entries_per_org=3, operation_timeout_seconds=1
+    )
+    cache = SpeechCache(redis_backend, policy)
+    a, b, c, d = (replace(request_for(), digest=f"{i:064x}") for i in range(4))
+    for r in (a, b, c):
+        await cache.put(r, CachedSpeech(PCM, 16000))
+        await asyncio.sleep(0.01)  # distinct access scores
+    # Reading `a` makes `b` the least recently used entry.
+    assert await cache.get(a) is not None
+    await asyncio.sleep(0.01)
+    await cache.put(d, CachedSpeech(PCM, 16000))
+    assert await cache.get(b) is None
+    for survivor in (a, c, d):
+        assert await cache.get(survivor) is not None
+
+
+async def test_redis_read_extends_entry_lifetime(redis_backend):
+    policy = CachePolicy(
+        ttl_seconds=2, max_entries_per_org=4, operation_timeout_seconds=1
+    )
+    cache = SpeechCache(redis_backend, policy)
+    req = request_for()
+    await cache.put(req, CachedSpeech(PCM, 16000))
+    for _ in range(3):
+        await asyncio.sleep(1.0)
+        assert await cache.get(req) is not None  # each read pushes expiry out
+    await asyncio.sleep(2.5)
+    assert await cache.get(req) is None
+
+
+async def test_redis_prunes_expired_members_without_counting_them_as_evictions(
+    redis_backend,
+):
+    policy = CachePolicy(
+        ttl_seconds=1, max_entries_per_org=2, operation_timeout_seconds=1
+    )
+    cache = SpeechCache(redis_backend, policy)
+    a, b, c = (replace(request_for(), digest=f"{i:064x}") for i in range(3))
+    await cache.put(a, CachedSpeech(PCM, 16000))
+    await cache.put(b, CachedSpeech(PCM, 16000))
+    await asyncio.sleep(1.2)
+    stored, evicted = await redis_backend.put(
+        c, CachedSpeech(PCM, 16000).encode(), policy
+    )
+    assert stored and evicted == 0
+    assert await redis_backend.client.zcard(redis_backend._index(1)) == 1
+
+
+async def test_redis_org_invalidation_and_no_overwrite(redis_backend):
+    policy = CachePolicy(
+        ttl_seconds=60, max_entries_per_org=8, operation_timeout_seconds=1
+    )
+    cache = SpeechCache(redis_backend, policy)
+    first = request_for()
+    await cache.put(first, CachedSpeech(PCM, 16000))
+    assert await redis_backend.put(first, b"replacement", policy) == (False, 0)
     assert await cache.get(first) == CachedSpeech(PCM, 16000)
     await cache.put(replace(first, organization_id=2), CachedSpeech(PCM, 16000))
-    assert await cache.invalidate_organization(1) == 2
+    assert await cache.invalidate_organization(1) == 1
     assert await cache.get(first) is None
     assert await cache.get(replace(first, organization_id=2)) is not None
-    await asyncio.sleep(1.05)
-    assert await cache.get(replace(first, organization_id=2)) is None
-    await cache.put(first, CachedSpeech(PCM, 16000))
-    assert await cache.get(first) is not None
 
 
 async def test_redis_rejects_oversized_read(redis_backend):
     req = request_for()
     await redis_backend.client.set(redis_backend._key(req), b"x" * 200)
-    assert await redis_backend.get(req, 100) is None
+    assert await redis_backend.get(req, 100, 60) is None
+    assert not await redis_backend.client.exists(redis_backend._key(req))
+
+
+@pytest.mark.parametrize(
+    "broken", [b"", b"bad", b"xxxx", CachedSpeech(PCM, 24000).encode()]
+)
+async def test_redis_corrupt_entry_is_replaced_after_successful_synthesis(
+    redis_backend, broken
+):
+    req = request_for()
+    policy = CachePolicy(operation_timeout_seconds=1)
+    cache = SpeechCache(redis_backend, policy)
+    await cache.put(req, CachedSpeech(PCM, 16000))
+    key = redis_backend._key(req)
+    await redis_backend.client.set(key, broken, ex=60)
+    assert await cache.get(req) is None
+    assert not await redis_backend.client.exists(key, f"{key}:meta")
+    assert await redis_backend.client.zcard(redis_backend._index(1)) == 0
+
+    async def source():
+        yield TTSAudioRawFrame(PCM, 16000, 1)
+
+    assert [frame async for frame in synthesize(cache, source)]
+    assert await cache.get(req) == CachedSpeech(PCM, 16000)
+
+
+async def test_corruption_cleanup_does_not_delete_a_concurrent_replacement(
+    redis_backend,
+):
+    req = request_for()
+    key = redis_backend._key(req)
+    await redis_backend.client.set(key, b"bad", ex=60)
+    invalid = await redis_backend.get(req, 1024, 60)
+    replacement = CachedSpeech(PCM, 16000).encode()
+    await redis_backend.client.set(key, replacement, ex=60)
+    assert not await redis_backend.delete_if_value(req, invalid)
+    assert await redis_backend.client.get(key) == replacement
+
+
+async def test_redis_metadata_follows_eviction_and_invalidation(redis_backend):
+    policy = CachePolicy(max_entries_per_org=1)
+    first = request_for()
+    second = replace(first, digest="a" * 64)
+    await redis_backend.put(first, CachedSpeech(PCM, 16000).encode(), policy)
+    await redis_backend.put(second, CachedSpeech(PCM, 16000).encode(), policy)
+    assert not await redis_backend.client.exists(f"{redis_backend._key(first)}:meta")
+    assert await redis_backend.invalidate_organization(1) == 1
+    assert not await redis_backend.client.exists(f"{redis_backend._key(second)}:meta")
 
 
 async def test_cache_is_disabled_without_workflow_opt_in_or_valid_tenant():

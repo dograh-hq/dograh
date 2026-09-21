@@ -6113,6 +6113,74 @@ export type SuperuserWorkflowRunsListResponse = {
 };
 
 /**
+ * TTSCacheEntry
+ */
+export type TtsCacheEntry = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Text Preview
+     */
+    text_preview: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Model
+     */
+    model: string;
+    /**
+     * Voice Id
+     */
+    voice_id: string;
+    /**
+     * Duration Seconds
+     */
+    duration_seconds: number;
+    /**
+     * Hit Count
+     *
+     * Synthesis requests served from this entry; excludes previews
+     */
+    hit_count: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Used At
+     */
+    last_used_at: string;
+};
+
+/**
+ * TTSCacheInvalidation
+ */
+export type TtsCacheInvalidation = {
+    /**
+     * Removed
+     */
+    removed: number;
+};
+
+/**
+ * TTSCacheList
+ */
+export type TtsCacheList = {
+    /**
+     * Entries
+     */
+    entries: Array<TtsCacheEntry>;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
  * TelephonyConfigWarningsResponse
  *
  * Aggregated telephony-configuration warning counts for the user's org.
@@ -15415,6 +15483,201 @@ export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses = {
      */
     200: unknown;
 };
+
+export type ClearTtsCacheApiV1TtsCacheDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/tts-cache';
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteError = ClearTtsCacheApiV1TtsCacheDeleteErrors[keyof ClearTtsCacheApiV1TtsCacheDeleteErrors];
+
+export type ClearTtsCacheApiV1TtsCacheDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheInvalidation;
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteResponse = ClearTtsCacheApiV1TtsCacheDeleteResponses[keyof ClearTtsCacheApiV1TtsCacheDeleteResponses];
+
+export type ListTtsCacheApiV1TtsCacheGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Search
+         */
+        search?: string;
+        /**
+         * Sort
+         */
+        sort?: 'last_used' | 'duration' | 'usage';
+        /**
+         * Order
+         */
+        order?: 'asc' | 'desc';
+        /**
+         * Min Duration
+         */
+        min_duration?: number | null;
+        /**
+         * Max Duration
+         */
+        max_duration?: number | null;
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/tts-cache';
+};
+
+export type ListTtsCacheApiV1TtsCacheGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListTtsCacheApiV1TtsCacheGetError = ListTtsCacheApiV1TtsCacheGetErrors[keyof ListTtsCacheApiV1TtsCacheGetErrors];
+
+export type ListTtsCacheApiV1TtsCacheGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheList;
+};
+
+export type ListTtsCacheApiV1TtsCacheGetResponse = ListTtsCacheApiV1TtsCacheGetResponses[keyof ListTtsCacheApiV1TtsCacheGetResponses];
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Entry Id
+         */
+        entry_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tts-cache/{entry_id}/audio';
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetError = PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors[keyof PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors];
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: Blob | File;
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponse = PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses[keyof PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses];
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Entry Id
+         */
+        entry_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tts-cache/{entry_id}';
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteError = InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors[keyof InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors];
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheInvalidation;
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponse = InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses[keyof InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses];
 
 export type ListFoldersApiV1FolderGetData = {
     body?: never;

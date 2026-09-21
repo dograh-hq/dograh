@@ -16,13 +16,21 @@ from api.services.pipecat.tts_cache.models import (
 
 
 class CacheBackend(Protocol):
-    async def get(self, request: SynthesisRequest, max_bytes: int) -> bytes | None: ...
+    async def get(
+        self, request: SynthesisRequest, max_bytes: int, ttl_seconds: int
+    ) -> bytes | None: ...
 
     async def put(
         self, request: SynthesisRequest, value: bytes, policy: CachePolicy
-    ) -> bool: ...
+    ) -> tuple[bool, int]:
+        """Return whether the entry was admitted and how many were evicted."""
+        ...
 
     async def invalidate_organization(self, organization_id: int) -> int: ...
+
+    async def delete_if_value(
+        self, request: SynthesisRequest, value: bytes
+    ) -> bool: ...
 
     async def close(self) -> None: ...
 
@@ -54,7 +62,9 @@ class SpeechCache:
         try:
             async with asyncio.timeout(self.policy.operation_timeout_seconds):
                 value = await self.backend.get(
-                    request, self.policy.max_entry_bytes + 1028
+                    request,
+                    self.policy.max_entry_bytes + 1028,
+                    self.policy.ttl_seconds,
                 )
         except Exception:  # noqa: BLE001 - Cache availability must not stop a call.
             self._unavailable_until = (
@@ -72,6 +82,13 @@ class SpeechCache:
             )
         except (ValueError, TypeError, KeyError):
             self.record(request.provider, "invalid_entry")
+            # Another caller may have repaired this key since our read. Only
+            # remove the value we rejected, leaving any replacement intact.
+            try:
+                async with asyncio.timeout(self.policy.operation_timeout_seconds):
+                    await self.backend.delete_if_value(request, value)
+            except Exception:  # noqa: BLE001 - Repair must not stop synthesis.
+                self.record(request.provider, "delete_error")
             return None
         self.record(
             request.provider,
@@ -88,7 +105,7 @@ class SpeechCache:
             speech.validate(request, self.policy)
             value = speech.encode()
             async with asyncio.timeout(self.policy.operation_timeout_seconds):
-                stored = await self.backend.put(request, value, self.policy)
+                stored, evicted = await self.backend.put(request, value, self.policy)
         except Exception:  # noqa: BLE001 - Cache availability must not stop a call.
             self._unavailable_until = (
                 time.monotonic() + self.policy.failure_cooldown_seconds
@@ -102,10 +119,14 @@ class SpeechCache:
             "stored" if stored else "not_admitted",
             seconds=time.monotonic() - started,
         )
-        if stored and (runtime := get_runtime()):
-            runtime.tts_cache_audio_bytes.record(
-                len(speech.audio), {"provider": request.provider}
-            )
+        if runtime := get_runtime():
+            attrs = {"provider": request.provider}
+            if evicted:
+                # A sustained eviction rate means the working set no longer fits
+                # and the provider is being called for entries the cache held.
+                runtime.tts_cache_evictions.add(evicted, attrs)
+            if stored:
+                runtime.tts_cache_audio_bytes.record(len(speech.audio), attrs)
 
     def reserve(self, count: int) -> bool:
         if self.capture_bytes + count > self.policy.max_capture_bytes:

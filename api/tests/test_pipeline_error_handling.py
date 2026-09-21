@@ -1,16 +1,18 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from pipecat.frames.frames import ErrorFrame
+from pipecat.frames.frames import EndFrame, ErrorFrame
 from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.utils.enums import EndTaskReason
+from pipecat.utils.errors import ErrorCategory
 
-from api.services.pipecat import pipeline_builder
+from api.services.pipecat import event_handlers, pipeline_builder
 from api.services.pipecat.event_handlers import register_event_handlers
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
 )
+from api.services.workflow.pipecat_engine import PipecatEngine
 
 
 class _EventSource:
@@ -23,6 +25,135 @@ class _EventSource:
             return handler
 
         return decorator
+
+
+@pytest.fixture
+def campaign_call(monkeypatch):
+    """Wire the production error and completion handlers with external I/O mocked."""
+    task = _EventSource()
+    task.wait_for_observers = AsyncMock()
+    task.turn_trace_observer = None
+    context = {}
+
+    async def end_call(reason, **kwargs):
+        context.setdefault("call_status", reason)
+
+    engine = SimpleNamespace(
+        _active_agent=SimpleNamespace(visit_id="active", error=None),
+        end_call_with_reason=AsyncMock(side_effect=end_call),
+        get_gathered_context=AsyncMock(return_value=context),
+        record_call_tags=Mock(),
+        cleanup=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        event_handlers.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(return_value=SimpleNamespace(campaign_id=42, workflow_id=1)),
+    )
+    monkeypatch.setattr(event_handlers.db_client, "update_workflow_run", AsyncMock())
+    for name in (
+        "_capture_call_event",
+        "notify_campaign_call_completed",
+        "upload_workflow_run_artifacts",
+        "enqueue_job",
+    ):
+        monkeypatch.setattr(event_handlers, name, AsyncMock())
+    breaker = AsyncMock()
+    monkeypatch.setattr(event_handlers.circuit_breaker, "record_and_evaluate", breaker)
+    funnel = TerminationFunnelProcessor()
+    register_event_handlers(
+        task=task,
+        transport=_EventSource(),
+        workflow_run_id=88,
+        engine=engine,
+        audio_buffer=SimpleNamespace(stop_recording=AsyncMock()),
+        in_memory_logs_buffer=SimpleNamespace(
+            contains_user_speech=lambda: False,
+            is_empty=True,
+            generate_transcript_text=lambda **kwargs: "",
+        ),
+        transcript_log_coordinator=SimpleNamespace(flush=AsyncMock()),
+        pipeline_metrics_aggregator=SimpleNamespace(
+            get_all_usage_metrics_serialized=dict
+        ),
+        termination_funnel=funnel,
+        audio_config=SimpleNamespace(pipeline_sample_rate=16000),
+    )
+    return SimpleNamespace(task=task, engine=engine, breaker=breaker, funnel=funnel)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_origin", ["agent", "funnel", "input_transport"])
+async def test_terminal_errors_count_once_per_campaign_call(
+    campaign_call, error_origin
+):
+    call = campaign_call
+    error = ErrorFrame(
+        "MiniMax TTS error: 1008 insufficient balance",
+        category=ErrorCategory.QUOTA,
+    )
+    error.processor = SimpleNamespace(is_usable=False)
+
+    for _ in range(2):
+        if error_origin == "agent":
+            await PipecatEngine.handle_agent_error(
+                call.engine, call.engine._active_agent, error
+            )
+        elif error_origin == "funnel":
+            await call.funnel._handler(EndTaskReason.PIPELINE_ERROR.value, error)
+        else:
+            await call.task.handlers["on_pipeline_error"](call.task, error)
+
+    assert call.engine.end_call_with_reason.await_count == 2
+    call.breaker.assert_not_awaited()
+    await call.task.handlers["on_pipeline_finished"](
+        call.task, EndFrame(reason=EndTaskReason.PIPELINE_ERROR.value)
+    )
+
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=True,
+        workflow_run_id=88,
+        reason="pipeline_error",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_kind", ["recoverable", "inactive_agent"])
+async def test_errors_the_call_survives_do_not_count_as_campaign_failures(
+    campaign_call, error_kind
+):
+    call = campaign_call
+    error = ErrorFrame("MiniMax TTS quota", category=ErrorCategory.QUOTA)
+    error.processor = SimpleNamespace(is_usable=error_kind == "recoverable")
+    agent = (
+        call.engine._active_agent
+        if error_kind == "recoverable"
+        else SimpleNamespace(visit_id="pending", error=None)
+    )
+
+    await PipecatEngine.handle_agent_error(call.engine, agent, error)
+    call.engine.end_call_with_reason.assert_not_awaited()
+    await call.engine.end_call_with_reason(EndTaskReason.USER_HANGUP.value)
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+
+    call.breaker.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_failure_outside_campaign_does_not_count(
+    campaign_call, monkeypatch
+):
+    call = campaign_call
+    monkeypatch.setattr(
+        event_handlers.db_client,
+        "get_workflow_run_by_id",
+        AsyncMock(return_value=SimpleNamespace(campaign_id=None, workflow_id=1)),
+    )
+    await call.engine.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+
+    call.breaker.assert_not_awaited()
 
 
 def test_dograh_workers_cancel_when_a_processor_becomes_permanently_unusable(

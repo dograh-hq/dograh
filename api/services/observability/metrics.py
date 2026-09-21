@@ -90,6 +90,10 @@ class RuntimeMetrics:
         self.tts_cache_audio_bytes = meter.create_histogram(
             "dograh_tts_cache_audio_bytes", unit="By", description="Admitted PCM size"
         )
+        self.tts_cache_evictions = meter.create_counter(
+            "dograh_tts_cache_evictions",
+            description="Entries evicted to admit a new one",
+        )
         self.tts_cache_avoided_characters = meter.create_counter(
             "dograh_tts_cache_avoided_characters",
             description="Synthesis characters served from cache",

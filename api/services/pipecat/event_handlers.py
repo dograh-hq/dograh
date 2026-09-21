@@ -267,7 +267,6 @@ def register_event_handlers(
         """
         if error is not None:
             logger.error(f"Pipeline error for workflow run {workflow_run_id}: {error}")
-            await _record_pipeline_error()
         await engine.end_call_with_reason(reason, abort_immediately=True)
 
     termination_funnel.set_termination_handler(dispose_call)
@@ -328,6 +327,11 @@ def register_event_handlers(
         # them under a row lock at write time, so re-merging a staler unlocked
         # copy would only be a second, worse answer.
         gathered_context = await engine.get_gathered_context()
+
+        # Agent workers handle errors locally. Count the call's final outcome
+        # once, including failures that never passed through the call's funnel.
+        if gathered_context.get("call_status") == EndTaskReason.PIPELINE_ERROR.value:
+            await _record_pipeline_error()
 
         # Store disposition code in workflow for dynamic filtering
         disposition_code = gathered_context.get("mapped_call_disposition")

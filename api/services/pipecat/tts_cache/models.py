@@ -12,7 +12,8 @@ class CachePolicy:
     ttl_seconds: int = 86400
     max_entry_bytes: int = 1024 * 1024
     max_duration_seconds: float = 30
-    max_entries_per_org: int = 128
+    max_entries_per_org: int = 512
+    max_evictions_per_put: int = 64
     operation_timeout_seconds: float = 0.02
     max_capture_bytes: int = 64 * 1024 * 1024
     failure_cooldown_seconds: float = 1
@@ -36,6 +37,9 @@ class SynthesisRequest:
     digest: str
     sample_rate: int
     channels: int
+    text_preview: str = ""
+    model: str = ""
+    voice_id: str = ""
 
     @classmethod
     def from_payload(
@@ -83,6 +87,9 @@ class SynthesisRequest:
             hashlib.sha256(canonical.encode()).hexdigest(),
             sample_rate,
             channels,
+            str(payload.get("text", ""))[:1000],
+            str(payload.get("model", ""))[:200],
+            str((payload.get("voice_setting") or {}).get("voice_id", ""))[:200],
         )
 
 

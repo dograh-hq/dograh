@@ -1881,3 +1881,305 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
         default_retry_config=RetryConfigResponse(**DEFAULT_CAMPAIGN_RETRY_CONFIG),
         last_campaign_settings=last_campaign_settings,
     )
+
+
+# =========================================================================
+# Customer Plan & Subscription Endpoints
+# =========================================================================
+
+class CustomerUpgradePlanRequest(BaseModel):
+    plan_slug: str
+    payment_method: str = "wallet"  # "wallet" | "razorpay"
+
+
+class CustomerVerifyPlanUpgradeRequest(BaseModel):
+    plan_slug: str
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@router.get("/subscription")
+async def get_my_organization_subscription(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Get the current organization's subscription status, limits, and public plans for upgrade."""
+    from api.services.plan_service import plan_service, normalize_plan_features
+
+    org_id = user.selected_organization_id
+    limits = await plan_service.get_effective_limits(org_id)
+    org = await db_client.get_organization_by_id(org_id)
+    workflow_count = await db_client.get_workflow_count(org_id)
+    public_plans = await plan_service.list_plans(include_inactive=False)
+
+    return {
+        "current_subscription": {
+            "tier": limits.tier,
+            "tier_name": limits.tier_name,
+            "subscription_status": limits.subscription_status,
+            "max_concurrent_calls": limits.max_concurrent_calls,
+            "max_agents": limits.max_agents,
+            "current_agents_count": workflow_count,
+            "included_minutes": limits.included_minutes,
+            "monthly_minutes_used": round(limits.monthly_minutes_used, 2),
+            "minutes_remaining": round(limits.minutes_remaining, 2),
+            "is_unlimited_minutes": limits.is_unlimited_minutes,
+            "overage_rate_per_minute_usd": limits.overage_rate_per_minute_usd,
+            "allow_byok": limits.allow_byok,
+            "wallet_balance_usd": round(limits.wallet_balance_usd, 4),
+            "billing_cycle_start": org.billing_cycle_start.isoformat() if org and org.billing_cycle_start else None,
+            "billing_cycle_end": org.billing_cycle_end.isoformat() if org and org.billing_cycle_end else None,
+        },
+        "available_plans": [
+            {
+                "id": p.id,
+                "slug": p.slug,
+                "name": p.name,
+                "description": p.description,
+                "price_usd": p.price_usd,
+                "price_inr": p.price_inr,
+                "billing_interval": p.billing_interval,
+                "included_minutes": p.included_minutes,
+                "max_concurrent_calls": p.max_concurrent_calls,
+                "max_agents": p.max_agents,
+                "overage_rate_per_minute_usd": p.overage_rate_per_minute_usd,
+                "allow_byok": p.allow_byok,
+                "features": normalize_plan_features(p.features),
+            }
+            for p in public_plans
+            if p.is_public
+        ],
+    }
+
+
+@router.post("/subscription/upgrade")
+async def upgrade_my_organization_plan(
+    request: CustomerUpgradePlanRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Customer self-service upgrade or switch plan with payment verification."""
+    from datetime import datetime, UTC
+    from api.services.plan_service import plan_service
+    from api.constants import RAZORPAY_KEY_ID
+    from api.services.platform_settings import get_gst_percentage, get_usd_to_inr_rate
+    from api.db.payment_client import payment_client
+    from api.services.razorpay_client import razorpay_service
+
+    org_id = user.selected_organization_id
+    plan = await plan_service.get_plan_by_slug(request.plan_slug)
+    if not plan or not plan.is_active:
+        raise HTTPException(status_code=400, detail="Requested plan is not available")
+
+    # If enterprise is selected, prompt to contact sales
+    if plan.slug == "enterprise":
+        return {
+            "status": "contact_sales",
+            "message": "Enterprise plans are customized per organization. Our team will contact you to configure your custom concurrency and SLA.",
+        }
+
+    # Free plan switch (Pay-As-You-Go or $0 price)
+    if plan.price_usd == 0.0 or plan.slug == "pay_as_you_go":
+        updated_limits = await plan_service.assign_organization_plan(
+            organization_id=org_id,
+            plan_slug=request.plan_slug,
+            reset_minutes_used=True,
+        )
+        return {
+            "status": "success",
+            "message": f"Successfully switched to {updated_limits.tier_name} plan!",
+            "new_limits": {
+                "tier": updated_limits.tier,
+                "tier_name": updated_limits.tier_name,
+                "max_concurrent_calls": updated_limits.max_concurrent_calls,
+                "max_agents": updated_limits.max_agents,
+                "included_minutes": updated_limits.included_minutes,
+                "minutes_remaining": updated_limits.minutes_remaining,
+            },
+        }
+
+    # Paid Plan Upgrade ($49+, $149+, etc.)
+    org = await db_client.get_organization_by_id(org_id)
+    wallet_balance = float(getattr(org, "wallet_balance_usd", 0.0) or 0.0)
+
+    if request.payment_method == "wallet":
+        if wallet_balance < plan.price_usd:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient wallet balance (${wallet_balance:.2f} USD). Upgrading to {plan.name} requires ${plan.price_usd:.2f} USD. Please recharge your wallet or choose Pay with Razorpay / UPI.",
+            )
+
+        # Deduct plan price from wallet
+        new_balance = await db_client.update_wallet_balance(org_id, -plan.price_usd)
+
+        # Record paid transaction in ledger
+        receipt_id = f"plan_{plan.slug[:10]}_{org_id}_{int(datetime.now(UTC).timestamp())}"
+        try:
+            await payment_client.create_transaction(
+                organization_id=org_id,
+                user_id=user.id,
+                amount_usd=plan.price_usd,
+                amount_inr=0.0,
+                currency="USD",
+                receipt=receipt_id,
+                razorpay_order_id="wallet_balance_payment",
+                notes={
+                    "purpose": "plan_subscription_purchase",
+                    "plan_slug": plan.slug,
+                    "paid_via": "wallet_balance",
+                    "status": "paid",
+                },
+            )
+        except Exception as exc:
+            logger.warning("Could not register plan payment transaction: {}", exc)
+
+        # Activate plan
+        updated_limits = await plan_service.assign_organization_plan(
+            organization_id=org_id,
+            plan_slug=request.plan_slug,
+            reset_minutes_used=True,
+        )
+
+        return {
+            "status": "success",
+            "message": f"Successfully activated {updated_limits.tier_name}! ${plan.price_usd:.2f} USD deducted from your wallet balance.",
+            "wallet_balance_after": new_balance,
+            "new_limits": {
+                "tier": updated_limits.tier,
+                "tier_name": updated_limits.tier_name,
+                "max_concurrent_calls": updated_limits.max_concurrent_calls,
+                "max_agents": updated_limits.max_agents,
+                "included_minutes": updated_limits.included_minutes,
+                "minutes_remaining": updated_limits.minutes_remaining,
+            },
+        }
+
+    elif request.payment_method == "razorpay":
+        # Create Razorpay Order for Subscription Purchase
+        usd_rate = get_usd_to_inr_rate()
+        gst = get_gst_percentage()
+        subtotal_inr = round(plan.price_usd * usd_rate, 2)
+        gst_amount_inr = round(subtotal_inr * (gst / 100.0), 2)
+        total_inr = round(subtotal_inr + gst_amount_inr, 2)
+        amount_paise = int(round(total_inr * 100))
+
+        receipt = razorpay_service.generate_receipt_id(org_id)
+        notes = {
+            "platform": "CallioAI",
+            "receipt": receipt,
+            "organization_id": str(org_id),
+            "user_id": str(user.id),
+            "user_email": str(user.email or ""),
+            "purpose": "plan_subscription_purchase",
+            "plan_slug": plan.slug,
+            "plan_name": plan.name,
+            "amount_usd": str(plan.price_usd),
+            "total_inr": str(total_inr),
+        }
+
+        order_data = await razorpay_service.create_order(
+            amount_paise=amount_paise,
+            currency="INR",
+            receipt=receipt,
+            notes=notes,
+        )
+        razorpay_order_id = order_data["id"]
+
+        try:
+            await payment_client.create_pending_transaction(
+                organization_id=org_id,
+                user_id=user.id,
+                amount_usd=plan.price_usd,
+                amount_inr=total_inr,
+                receipt=receipt,
+                razorpay_order_id=razorpay_order_id,
+                currency="INR",
+                notes=notes,
+            )
+        except Exception as exc:
+            logger.warning("Could not create pending transaction for plan upgrade: {}", exc)
+
+        return {
+            "status": "payment_required",
+            "order_id": razorpay_order_id,
+            "key_id": RAZORPAY_KEY_ID,
+            "amount": amount_paise,
+            "currency": "INR",
+            "plan_slug": plan.slug,
+            "plan_name": plan.name,
+            "amount_usd": plan.price_usd,
+            "total_inr": total_inr,
+            "receipt": receipt,
+        }
+
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid payment method. Must be 'wallet' or 'razorpay'.",
+        )
+
+
+@router.post("/subscription/upgrade/verify")
+async def verify_plan_upgrade_payment(
+    request: CustomerVerifyPlanUpgradeRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Verify Razorpay payment for plan subscription and activate the plan."""
+    from sqlalchemy import update
+    from api.db.models import PaymentTransactionModel
+    from api.services.plan_service import plan_service
+    from api.db.payment_client import payment_client
+    from api.services.razorpay_client import razorpay_service
+
+    org_id = user.selected_organization_id
+    plan = await plan_service.get_plan_by_slug(request.plan_slug)
+    if not plan or not plan.is_active:
+        raise HTTPException(status_code=400, detail="Plan not found")
+
+    is_valid = razorpay_service.verify_payment_signature(
+        order_id=request.razorpay_order_id,
+        payment_id=request.razorpay_payment_id,
+        signature=request.razorpay_signature,
+    )
+
+    if not is_valid:
+        await payment_client.mark_transaction_failed(
+            request.razorpay_order_id, reason="Invalid signature"
+        )
+        raise HTTPException(status_code=400, detail="Invalid payment verification signature")
+
+    # Mark transaction as paid
+    try:
+        async with payment_client.async_session() as session:
+            stmt = (
+                update(PaymentTransactionModel)
+                .where(PaymentTransactionModel.razorpay_order_id == request.razorpay_order_id)
+                .values(
+                    status="paid",
+                    razorpay_payment_id=request.razorpay_payment_id,
+                    razorpay_signature=request.razorpay_signature,
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Could not update plan transaction status: {}", exc)
+
+    # Activate plan for the organization!
+    updated_limits = await plan_service.assign_organization_plan(
+        organization_id=org_id,
+        plan_slug=request.plan_slug,
+        reset_minutes_used=True,
+    )
+
+    return {
+        "status": "success",
+        "message": f"Payment verified! Upgraded to {updated_limits.tier_name} plan!",
+        "new_limits": {
+            "tier": updated_limits.tier,
+            "tier_name": updated_limits.tier_name,
+            "max_concurrent_calls": updated_limits.max_concurrent_calls,
+            "max_agents": updated_limits.max_agents,
+            "included_minutes": updated_limits.included_minutes,
+            "minutes_remaining": updated_limits.minutes_remaining,
+        },
+    }

@@ -66,6 +66,14 @@ async def lifespan(app: FastAPI):
         from api.services.platform_keys import refresh_master_keys_cache
         await refresh_master_keys_cache()
 
+        # Load platform global settings (e.g. USD to INR rate, GST) from DB
+        from api.services.platform_settings import refresh_platform_settings_cache
+        await refresh_platform_settings_cache()
+
+        # Ensure SaaS plans table and seed standard tiers (Pay-as-you-go, Starter, Pro, Enterprise)
+        from api.services.plan_service import plan_service
+        await plan_service.ensure_default_plans()
+
         # Start cross-worker sync manager so config changes propagate to all workers
         sync_manager = WorkerSyncManager(REDIS_URL)
         sync_manager.register(

@@ -135,24 +135,29 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
                 rate_per_min = rates["rate_per_minute"]
                 cost_usd = round((duration_seconds / 60.0) * rate_per_min, 4)
 
-            new_balance = None
-            if hasattr(db_client, "update_wallet_balance"):
-                new_balance = await db_client.update_wallet_balance(
-                    organization_id, -cost_usd
-                )
+            # Multi-tier plan accounting (Included plan minutes deduction vs Platform wallet overage)
+            from api.services.plan_service import plan_service
+            billing_result = await plan_service.record_run_billing(
+                organization_id=organization_id,
+                duration_seconds=duration_seconds,
+                rate_per_min=rate_per_min,
+            )
 
             cost_info = getattr(workflow_run, "cost_info", None) or {}
             cost_info.update(
                 {
                     "total_cost_usd": cost_usd,
-                    "charge_usd": cost_usd,
+                    "charge_usd": billing_result["wallet_cost_usd"],
                     "call_duration_seconds": duration_seconds,
                     "rate_per_minute": rate_per_min,
                     "rates": rates,
+                    "charged_to": billing_result["charged_to"],
+                    "plan_minutes_deducted": billing_result["plan_minutes_deducted"],
+                    "overage_minutes": billing_result["overage_minutes"],
+                    "effective_tier": billing_result["effective_tier"],
+                    "wallet_balance_after": billing_result["wallet_balance_after"],
                 }
             )
-            if new_balance is not None:
-                cost_info["wallet_balance_after"] = new_balance
 
             if hasattr(db_client, "update_workflow_run"):
                 await db_client.update_workflow_run(
@@ -160,13 +165,14 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
                 )
 
             logger.info(
-                "Deducted ${} for run {} ({}s at ${}/min) from org {}. New balance: {}",
-                cost_usd,
+                "Usage recorded for run {} ({}s at ${}/min, charged to {}): plan_mins_deducted={}, wallet_charge=${}, balance_after={}",
                 workflow_run.id,
                 duration_seconds,
                 rate_per_min,
-                organization_id,
-                new_balance,
+                billing_result["charged_to"],
+                billing_result["plan_minutes_deducted"],
+                billing_result["wallet_cost_usd"],
+                billing_result["wallet_balance_after"],
             )
         except Exception as e:
             logger.warning(

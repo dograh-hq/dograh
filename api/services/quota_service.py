@@ -766,23 +766,56 @@ async def authorize_workflow_run_start(
             workflow_configurations=workflow_configurations,
         )
 
-        # Check platform wallet balance (must be > $0.00 to initiate billable runs)
+        # Check SaaS plan limits (Included Minutes, BYOK permission, and Wallet overage)
         try:
-            if hasattr(db_client, "get_wallet_balance"):
-                balance_val = await db_client.get_wallet_balance(organization_id)
-                if isinstance(balance_val, (int, float)) and balance_val <= 0.0:
+            from api.services.plan_service import plan_service
+            limits = await plan_service.get_effective_limits(organization_id)
+
+            # 1. Validate BYOK permissions if custom keys are used
+            is_byok_run = not uses_managed_model_services_v2(user_config)
+            if is_byok_run and not limits.allow_byok:
+                logger.warning(
+                    "Workflow start denied: org {} attempted BYOK without plan permission",
+                    organization_id,
+                )
+                return QuotaCheckResult(
+                    has_quota=False,
+                    error_code="byok_not_allowed",
+                    error_message=(
+                        f"Bring Your Own Key (BYOK) is not enabled on your {limits.tier_name} plan. "
+                        "Please upgrade to a plan that supports custom model keys."
+                    ),
+                )
+
+            # 2. Check if covered by monthly subscription included minutes
+            has_plan_minutes = limits.is_unlimited_minutes or limits.minutes_remaining > 0.25
+            if has_plan_minutes:
+                logger.info(
+                    "Workflow start authorized under monthly plan '{}' for org {}: {:.1f} mins remaining",
+                    limits.tier_name,
+                    organization_id,
+                    limits.minutes_remaining,
+                )
+            else:
+                # 3. If minutes exhausted or Pay-As-You-Go, fallback to platform wallet balance
+                if limits.wallet_balance_usd <= 0.0:
                     logger.warning(
-                        "Workflow start authorization denied: org {} has non-positive wallet balance (${})",
+                        "Workflow start denied: org {} exhausted plan minutes and wallet balance is ${:.2f}",
                         organization_id,
-                        balance_val,
+                        limits.wallet_balance_usd,
+                    )
+                    error_msg = (
+                        "Your platform wallet balance is insufficient ($0.00). Please recharge your account."
+                        if limits.included_minutes <= 0
+                        else f"Your monthly plan minutes ({limits.included_minutes} mins) are exhausted and wallet balance is $0.00. Please recharge your wallet or upgrade your plan."
                     )
                     return QuotaCheckResult(
                         has_quota=False,
                         error_code="insufficient_wallet_balance",
-                        error_message="Your platform wallet balance is insufficient ($0.00). Please recharge your account.",
+                        error_message=error_msg,
                     )
         except Exception as e:
-            logger.debug("Wallet balance check error or skipped: {}", e)
+            logger.debug("Plan & wallet check warning or fallback: {}", e)
 
         if DEPLOYMENT_MODE != "oss":
             return await _authorize_hosted_workflow_run_start(

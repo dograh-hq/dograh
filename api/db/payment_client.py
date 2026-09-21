@@ -52,6 +52,29 @@ class PaymentClient(BaseDBClient):
             logger.warning(f"Could not auto-ensure payment_transactions table: {exc}")
 
 
+    async def create_pending_transaction(
+        self,
+        organization_id: int,
+        user_id: Optional[int],
+        amount_usd: float,
+        amount_inr: float,
+        receipt: str,
+        razorpay_order_id: str,
+        currency: str = "INR",
+        notes: Optional[dict] = None,
+    ) -> PaymentTransactionModel:
+        """Create a new pending payment transaction record."""
+        return await self.create_transaction(
+            organization_id=organization_id,
+            user_id=user_id,
+            amount_usd=amount_usd,
+            amount_inr=amount_inr,
+            currency=currency,
+            receipt=receipt,
+            razorpay_order_id=razorpay_order_id,
+            notes=notes,
+        )
+
     async def create_transaction(
         self,
         organization_id: int,

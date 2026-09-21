@@ -90,10 +90,6 @@ from pipecat.services.smallest.tts import SmallestTTSService, SmallestTTSSetting
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
-from pipecat.services.speechmatics.stt import (
-    SpeechmaticsSTTService,
-    SpeechmaticsSTTSettings,
-)
 from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
@@ -101,6 +97,10 @@ from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 if TYPE_CHECKING:
     from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
     from api.services.pipecat.audio_config import AudioConfig
+    from pipecat.services.speechmatics.stt import (
+        SpeechmaticsSTTService,
+        SpeechmaticsSTTSettings,
+    )
 
 
 def _report_service_factory_failures(
@@ -573,11 +573,19 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
-        from pipecat.services.speechmatics.stt import (
-            AdditionalVocabEntry,
-            Model,
-            TurnDetectionMode,
-        )
+        try:
+            from pipecat.services.speechmatics.stt import (
+                AdditionalVocabEntry,
+                Model,
+                SpeechmaticsSTTService,
+                SpeechmaticsSTTSettings,
+                TurnDetectionMode,
+            )
+        except ImportError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Speechmatics is not installed: {e}. Install speechmatics-agent-stt or pipecat-ai[speechmatics].",
+            ) from e
 
         language = getattr(user_config.stt, "language", None) or "en"
         # Saved configurations may still use the legacy operating-point names.

@@ -237,3 +237,31 @@ async def autoscale_metric(
             detail="Fleet call count unavailable",
         )
     return AutoscaleMetricResponse(value=calls + max(0, buffer))
+
+
+@router.get("/plans")
+async def list_public_saas_plans():
+    """List all publicly active SaaS subscription plans for landing page & prospective customers."""
+    from api.services.plan_service import plan_service, normalize_plan_features
+
+    plans = await plan_service.list_plans(include_inactive=False)
+    return [
+        {
+            "id": p.id,
+            "slug": p.slug,
+            "name": p.name,
+            "description": p.description,
+            "price_usd": p.price_usd,
+            "price_inr": p.price_inr,
+            "billing_interval": p.billing_interval,
+            "included_minutes": p.included_minutes,
+            "max_concurrent_calls": p.max_concurrent_calls,
+            "max_agents": p.max_agents,
+            "overage_rate_per_minute_usd": p.overage_rate_per_minute_usd,
+            "allow_byok": p.allow_byok,
+            "features": normalize_plan_features(p.features),
+        }
+        for p in plans
+        if p.is_public
+    ]
+

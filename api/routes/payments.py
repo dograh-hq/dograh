@@ -9,12 +9,12 @@ from pydantic import BaseModel, Field
 from api.constants import (
     GST_PERCENTAGE,
     RAZORPAY_KEY_ID,
-    USD_TO_INR_RATE,
 )
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.payment_client import payment_client
 from api.services.auth.depends import get_user_with_selected_organization
+from api.services.platform_settings import get_gst_percentage, get_usd_to_inr_rate
 from api.services.razorpay_client import razorpay_service
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -99,8 +99,8 @@ async def get_payment_config(
     """Return current exchange rate, GST percentage, and public Razorpay Key ID."""
     return PaymentConfigResponse(
         key_id=RAZORPAY_KEY_ID,
-        usd_to_inr_rate=USD_TO_INR_RATE,
-        gst_percentage=GST_PERCENTAGE,
+        usd_to_inr_rate=get_usd_to_inr_rate(),
+        gst_percentage=get_gst_percentage(),
         currency="INR",
         min_recharge_usd=1.0,
     )
@@ -117,7 +117,7 @@ async def create_razorpay_order(
 ):
     """Create a new Razorpay order in INR with GST and register a pending transaction.
 
-    The order is converted from USD to INR using USD_TO_INR_RATE with 18% GST (GST_PERCENTAGE).
+    The order is converted from USD to INR using the live USD to INR rate with GST.
     The receipt ID is uniquely formatted as 'rcpt_org{org_id}_{timestamp}'
     so it can easily be searched and filtered in the Razorpay Dashboard.
     """
@@ -138,9 +138,11 @@ async def create_razorpay_order(
     org = await db_client.get_organization_by_id(organization_id)
     org_name = getattr(org, "name", None) or f"Organization #{organization_id}"
 
-    # Calculate INR conversion and GST
-    subtotal_inr = round(request.amount_usd * USD_TO_INR_RATE, 2)
-    gst_amount_inr = round(subtotal_inr * (GST_PERCENTAGE / 100.0), 2)
+    # Calculate INR conversion and GST using dynamic platform rates
+    usd_rate = get_usd_to_inr_rate()
+    gst = get_gst_percentage()
+    subtotal_inr = round(request.amount_usd * usd_rate, 2)
+    gst_amount_inr = round(subtotal_inr * (gst / 100.0), 2)
     total_inr = round(subtotal_inr + gst_amount_inr, 2)
     amount_paise = int(round(total_inr * 100))
 
@@ -149,43 +151,37 @@ async def create_razorpay_order(
     receipt = razorpay_service.generate_receipt_id(organization_id)
 
     notes: Dict[str, Any] = {
+        "platform": "CallioAI",
         "receipt": receipt,
         "organization_id": str(organization_id),
+        "organization_name": org_name[:40] if org_name else "",
         "user_id": str(user.id),
         "user_email": str(user.email or ""),
         "purpose": "calling_wallet_recharge",
         "amount_usd": str(request.amount_usd),
-        "usd_to_inr_rate": str(USD_TO_INR_RATE),
+        "usd_to_inr_rate": str(usd_rate),
         "subtotal_inr": str(subtotal_inr),
-        "gst_percentage": str(GST_PERCENTAGE),
+        "gst_percentage": str(gst),
         "gst_amount_inr": str(gst_amount_inr),
         "total_inr": str(total_inr),
-        "currency": "INR",
     }
 
-    try:
-        order_data = await razorpay_service.create_order(
-            amount_paise=amount_paise,
-            currency="INR",
-            receipt=receipt,
-            notes=notes,
-        )
-    except Exception as exc:
-        logger.error(f"Failed to create Razorpay order: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Payment provider error: {exc}",
-        )
+    # Create order directly via Razorpay API
+    order_data = await razorpay_service.create_order(
+        amount_paise=amount_paise,
+        currency="INR",
+        receipt=receipt,
+        notes=notes,
+    )
 
     razorpay_order_id = order_data["id"]
 
-    # Save transaction record in database
-    await payment_client.create_transaction(
+    # Register the pending transaction in database
+    await payment_client.create_pending_transaction(
         organization_id=organization_id,
         user_id=user.id,
         amount_usd=request.amount_usd,
         amount_inr=total_inr,
-        currency="INR",
         receipt=receipt,
         razorpay_order_id=razorpay_order_id,
         notes=notes,
@@ -198,9 +194,9 @@ async def create_razorpay_order(
         amount_inr=total_inr,
         subtotal_inr=subtotal_inr,
         gst_amount_inr=gst_amount_inr,
-        gst_percentage=GST_PERCENTAGE,
+        gst_percentage=gst,
         amount_usd=request.amount_usd,
-        usd_to_inr_rate=USD_TO_INR_RATE,
+        usd_to_inr_rate=usd_rate,
         currency="INR",
         receipt=receipt,
         organization_id=organization_id,

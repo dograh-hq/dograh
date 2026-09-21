@@ -693,6 +693,7 @@ async def list_organizations_admin(
             {
                 "id": org.id,
                 "provider_id": org.provider_id,
+                "subscription_tier": getattr(org, "subscription_tier", "pay_as_you_go") or "pay_as_you_go",
                 "wallet_balance_usd": float(org.wallet_balance_usd or 0.0),
                 "created_at": org.created_at.isoformat() if org.created_at else None,
             }
@@ -718,4 +719,289 @@ async def grant_organization_credits(
         "new_balance_usd": new_balance,
         "message": f"Successfully updated wallet balance to ${new_balance:.4f}",
     }
+
+
+# =========================================================================
+# Platform Global Settings (USD to INR, GST, etc.)
+# =========================================================================
+
+class PlatformSettingsResponse(BaseModel):
+    usd_to_inr_rate: float
+    gst_percentage: float
+
+
+class PlatformSettingsUpdateRequest(BaseModel):
+    usd_to_inr_rate: Optional[float] = None
+    gst_percentage: Optional[float] = None
+
+
+@router.get("/platform/settings", response_model=PlatformSettingsResponse)
+async def get_platform_settings_endpoint(
+    current_user: UserModel = Depends(get_superuser),
+):
+    """Retrieve global platform financial settings (USD to INR rate, GST)."""
+    from api.services.platform_settings import get_all_cached_settings
+    return get_all_cached_settings()
+
+
+@router.put("/platform/settings", response_model=PlatformSettingsResponse)
+async def update_platform_settings_endpoint(
+    request: PlatformSettingsUpdateRequest,
+    current_user: UserModel = Depends(get_superuser),
+):
+    """Update global platform financial settings (USD to INR rate, GST)."""
+    from api.services.platform_settings import update_platform_settings
+    try:
+        updated = await update_platform_settings(
+            usd_to_inr_rate=request.usd_to_inr_rate,
+            gst_percentage=request.gst_percentage,
+        )
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================================================================
+# Platform SaaS Plans & Enterprise Organization Management
+# =========================================================================
+
+class PlanUpsertRequest(BaseModel):
+    slug: str
+    name: str
+    description: Optional[str] = ""
+    price_usd: float
+    price_inr: float
+    billing_interval: Optional[str] = "month"
+    included_minutes: int
+    max_concurrent_calls: int
+    max_agents: int
+    overage_rate_per_minute_usd: float
+    allow_byok: bool = True
+    is_active: bool = True
+    is_public: bool = True
+    features: List[str] = []
+
+
+class AssignOrgPlanRequest(BaseModel):
+    plan_slug: str
+    custom_concurrent_limit: Optional[int] = None
+    custom_monthly_minutes: Optional[int] = None
+    custom_max_agents: Optional[int] = None
+    custom_allow_byok: Optional[bool] = None
+    custom_price_per_second_usd: Optional[float] = None
+    reset_minutes_used: Optional[bool] = False
+
+
+@router.get("/overview-metrics")
+@router.get("/fleet-stats")
+async def get_superadmin_overview_metrics(
+    current_user: UserModel = Depends(get_superuser),
+):
+    """Retrieve aggregate platform metrics for superadmin dashboard."""
+    from api.services.call_concurrency.service import call_concurrency_service
+    from api.db.models import OrganizationModel
+    from sqlalchemy import select, func
+
+    orgs = await db_client.list_all_organizations()
+    total_orgs = len(orgs)
+    total_wallet = sum(float(org.wallet_balance_usd or 0.0) for org in orgs)
+
+    tier_counts = {}
+    for org in orgs:
+        tier = getattr(org, "subscription_tier", "pay_as_you_go") or "pay_as_you_go"
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+
+    fleet_active = 0
+    try:
+        fleet_active = await call_concurrency_service.get_fleet_active_calls()
+    except Exception:
+        fleet_active = 0
+
+    return {
+        "total_organizations": total_orgs,
+        "total_wallet_balance_usd": round(total_wallet, 2),
+        "fleet_active_calls": fleet_active,
+        "plans_breakdown": tier_counts,
+        "active_paid_subscriptions": sum(
+            count for tier, count in tier_counts.items() if tier != "pay_as_you_go"
+        ),
+    }
+
+
+@router.get("/plans")
+async def list_saas_plans(
+    include_inactive: bool = False,
+    current_user: UserModel = Depends(get_superuser),
+):
+    """List all SaaS subscription plans."""
+    from api.services.plan_service import plan_service, normalize_plan_features
+    plans = await plan_service.list_plans(include_inactive=include_inactive)
+    return [
+        {
+            "id": p.id,
+            "slug": p.slug,
+            "name": p.name,
+            "description": p.description,
+            "price_usd": p.price_usd,
+            "price_inr": p.price_inr,
+            "billing_interval": p.billing_interval,
+            "included_minutes": p.included_minutes,
+            "max_concurrent_calls": p.max_concurrent_calls,
+            "max_agents": p.max_agents,
+            "overage_rate_per_minute_usd": p.overage_rate_per_minute_usd,
+            "allow_byok": p.allow_byok,
+            "is_active": p.is_active,
+            "is_public": p.is_public,
+            "features": normalize_plan_features(p.features),
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in plans
+    ]
+
+
+@router.post("/plans")
+async def upsert_saas_plan(
+    request: PlanUpsertRequest,
+    current_user: UserModel = Depends(get_superuser),
+):
+    """Create or update a SaaS subscription plan."""
+    from api.db.models import SubscriptionPlanModel
+    from sqlalchemy import select
+
+    async with db_client.get_async_session() as session:
+        stmt = select(SubscriptionPlanModel).where(SubscriptionPlanModel.slug == request.slug)
+        res = await session.execute(stmt)
+        plan = res.scalars().first()
+
+        if plan:
+            plan.name = request.name
+            plan.description = request.description
+            plan.price_usd = request.price_usd
+            plan.price_inr = request.price_inr
+            plan.billing_interval = request.billing_interval
+            plan.included_minutes = request.included_minutes
+            plan.max_concurrent_calls = request.max_concurrent_calls
+            plan.max_agents = request.max_agents
+            plan.overage_rate_per_minute_usd = request.overage_rate_per_minute_usd
+            plan.allow_byok = request.allow_byok
+            plan.is_active = request.is_active
+            plan.is_public = request.is_public
+            plan.features = request.features
+        else:
+            plan = SubscriptionPlanModel(
+                slug=request.slug,
+                name=request.name,
+                description=request.description,
+                price_usd=request.price_usd,
+                price_inr=request.price_inr,
+                billing_interval=request.billing_interval,
+                included_minutes=request.included_minutes,
+                max_concurrent_calls=request.max_concurrent_calls,
+                max_agents=request.max_agents,
+                overage_rate_per_minute_usd=request.overage_rate_per_minute_usd,
+                allow_byok=request.allow_byok,
+                is_active=request.is_active,
+                is_public=request.is_public,
+                features=request.features,
+            )
+            session.add(plan)
+
+        await session.commit()
+
+    return {"message": f"Plan '{request.name}' saved successfully", "slug": request.slug}
+
+
+@router.get("/organizations/{organization_id}/subscription")
+async def get_organization_subscription_admin(
+    organization_id: int,
+    current_user: UserModel = Depends(get_superuser),
+):
+    """Retrieve full subscription details and custom enterprise limits for an organization."""
+    from api.services.plan_service import plan_service
+    limits = await plan_service.get_effective_limits(organization_id)
+    org = await db_client.get_organization_by_id(organization_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    workflow_count = await db_client.get_workflow_count(organization_id)
+
+    return {
+        "organization_id": organization_id,
+        "provider_id": org.provider_id,
+        "subscription_tier": limits.tier,
+        "tier_name": limits.tier_name,
+        "subscription_status": limits.subscription_status,
+        "effective_limits": {
+            "max_concurrent_calls": limits.max_concurrent_calls,
+            "max_agents": limits.max_agents,
+            "included_minutes": limits.included_minutes,
+            "monthly_minutes_used": limits.monthly_minutes_used,
+            "minutes_remaining": limits.minutes_remaining,
+            "is_unlimited_minutes": limits.is_unlimited_minutes,
+            "overage_rate_per_minute_usd": limits.overage_rate_per_minute_usd,
+            "allow_byok": limits.allow_byok,
+            "wallet_balance_usd": limits.wallet_balance_usd,
+            "current_agents_count": workflow_count,
+        },
+        "enterprise_overrides": {
+            "custom_concurrent_limit": getattr(org, "custom_concurrent_limit", None),
+            "custom_monthly_minutes": getattr(org, "custom_monthly_minutes", None),
+            "custom_max_agents": getattr(org, "custom_max_agents", None),
+            "custom_allow_byok": getattr(org, "custom_allow_byok", None),
+            "price_per_second_usd": getattr(org, "price_per_second_usd", None),
+        },
+        "billing_cycle": {
+            "start": org.billing_cycle_start.isoformat() if org.billing_cycle_start else None,
+            "end": org.billing_cycle_end.isoformat() if org.billing_cycle_end else None,
+        },
+    }
+
+
+@router.post("/organizations/{organization_id}/plan")
+async def set_organization_plan_admin(
+    organization_id: int,
+    request: AssignOrgPlanRequest,
+    current_user: UserModel = Depends(get_superuser),
+):
+    """Assign plan or apply enterprise custom overrides (concurrency, minutes, agents) for an organization."""
+    from api.services.plan_service import plan_service
+
+    try:
+        updated_limits = await plan_service.assign_organization_plan(
+            organization_id=organization_id,
+            plan_slug=request.plan_slug,
+            custom_concurrent_limit=request.custom_concurrent_limit,
+            custom_monthly_minutes=request.custom_monthly_minutes,
+            custom_max_agents=request.custom_max_agents,
+            custom_allow_byok=request.custom_allow_byok,
+            reset_minutes_used=request.reset_minutes_used or False,
+        )
+
+        if request.custom_price_per_second_usd is not None:
+            async with db_client.get_async_session() as session:
+                from sqlalchemy import update
+                from api.db.models import OrganizationModel
+                stmt = (
+                    update(OrganizationModel)
+                    .where(OrganizationModel.id == organization_id)
+                    .values(price_per_second_usd=request.custom_price_per_second_usd)
+                )
+                await session.execute(stmt)
+                await session.commit()
+
+        return {
+            "message": f"Successfully updated organization {organization_id} to plan '{updated_limits.tier_name}'",
+            "effective_limits": {
+                "tier": updated_limits.tier,
+                "tier_name": updated_limits.tier_name,
+                "max_concurrent_calls": updated_limits.max_concurrent_calls,
+                "max_agents": updated_limits.max_agents,
+                "included_minutes": updated_limits.included_minutes,
+                "monthly_minutes_used": updated_limits.monthly_minutes_used,
+                "minutes_remaining": updated_limits.minutes_remaining,
+                "allow_byok": updated_limits.allow_byok,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 

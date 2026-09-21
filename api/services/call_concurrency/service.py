@@ -56,8 +56,13 @@ class CallConcurrencyService:
         self.default_concurrent_limit = int(DEFAULT_ORG_CONCURRENCY_LIMIT)
 
     async def get_org_concurrent_limit(self, organization_id: int) -> int:
-        """Get the concurrent call limit for an organization."""
+        """Get the concurrent call limit for an organization based on their SaaS plan or custom enterprise limit."""
         try:
+            from api.services.plan_service import plan_service
+            limits = await plan_service.get_effective_limits(organization_id)
+            if limits and limits.max_concurrent_calls:
+                return int(limits.max_concurrent_calls)
+
             config = await db_client.get_configuration(
                 organization_id,
                 OrganizationConfigurationKey.CONCURRENT_CALL_LIMIT.value,
@@ -289,3 +294,4 @@ class CallConcurrencyService:
 
 
 call_concurrency = CallConcurrencyService()
+call_concurrency_service = call_concurrency

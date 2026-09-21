@@ -158,6 +158,32 @@ class OrganizationModel(Base):
         comment="Organization wallet balance in USD for platform credits",
     )
 
+    # Subscription / Plan and Enterprise Overrides
+    subscription_tier = Column(
+        String(64),
+        nullable=False,
+        default="pay_as_you_go",
+        server_default=text("'pay_as_you_go'"),
+    )
+    subscription_status = Column(
+        String(32),
+        nullable=False,
+        default="active",
+        server_default=text("'active'"),
+    )
+    billing_cycle_start = Column(DateTime(timezone=True), nullable=True)
+    billing_cycle_end = Column(DateTime(timezone=True), nullable=True)
+    monthly_minutes_used = Column(
+        Float,
+        nullable=False,
+        default=0.0,
+        server_default=text("0.0"),
+    )
+    custom_concurrent_limit = Column(Integer, nullable=True)
+    custom_monthly_minutes = Column(Integer, nullable=True)
+    custom_max_agents = Column(Integer, nullable=True)
+    custom_allow_byok = Column(Boolean, nullable=True)
+
     # Relationships
     users = relationship(
         "UserModel",
@@ -1628,6 +1654,45 @@ class PaymentTransactionModel(Base):
 
     __table_args__ = (
         Index("ix_payment_transactions_org_status", "organization_id", "status"),
+    )
+
+
+class PlatformSettingModel(Base):
+    __tablename__ = "platform_settings"
+
+    key = Column(String(64), primary_key=True, index=True)
+    value = Column(String(256), nullable=False)
+    description = Column(String(256), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class SubscriptionPlanModel(Base):
+    __tablename__ = "subscription_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    price_usd = Column(Float, nullable=False, default=0.0, server_default=text("0.0"))
+    price_inr = Column(Float, nullable=False, default=0.0, server_default=text("0.0"))
+    billing_interval = Column(String(32), nullable=False, default="month", server_default=text("'month'"))
+    included_minutes = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    max_concurrent_calls = Column(Integer, nullable=False, default=2, server_default=text("2"))
+    max_agents = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    overage_rate_per_minute_usd = Column(Float, nullable=False, default=0.10, server_default=text("0.10"))
+    allow_byok = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    is_public = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    features = Column(JSON, nullable=False, default=list, server_default=text("'[]'::json"))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
 

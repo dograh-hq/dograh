@@ -472,6 +472,12 @@ async def create_workflow(
         request: The create workflow request
         user: The user to create the workflow for
     """
+    # Check SaaS plan agent count limit
+    from api.services.plan_service import plan_service
+    can_create, err_msg = await plan_service.validate_can_create_workflow(user.selected_organization_id)
+    if not can_create:
+        raise HTTPException(status_code=403, detail=err_msg)
+
     # Auto-mint trigger_path for any trigger node that didn't ship one so
     # clients don't need to generate UUIDs themselves.
     workflow_definition = ensure_trigger_paths(request.workflow_definition)
@@ -596,6 +602,12 @@ async def create_workflow_from_template(
         HTTPException: If MPS API call fails
     """
     try:
+        # Check SaaS plan agent count limit
+        from api.services.plan_service import plan_service
+        can_create, err_msg = await plan_service.validate_can_create_workflow(user.selected_organization_id)
+        if not can_create:
+            raise HTTPException(status_code=403, detail=err_msg)
+
         # Generate workflow directly using local LLM instead of external services.dograh.com
         workflow_data = await generate_workflow_from_template_llm(
             call_type=request.call_type,
@@ -1365,6 +1377,12 @@ async def duplicate_workflow_endpoint(
 ) -> WorkflowResponse:
     """Duplicate a workflow including its definition, configuration, recordings, and triggers."""
     try:
+        # Check SaaS plan agent count limit
+        from api.services.plan_service import plan_service
+        can_create, err_msg = await plan_service.validate_can_create_workflow(user.selected_organization_id)
+        if not can_create:
+            raise HTTPException(status_code=403, detail=err_msg)
+
         workflow = await duplicate_workflow(
             workflow_id=workflow_id,
             organization_id=user.selected_organization_id,

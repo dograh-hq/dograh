@@ -504,6 +504,15 @@ class WorkflowClient(BaseDBClient):
 
             return counts
 
+    async def get_workflow_count(
+        self, organization_id: int = None, status: str = "active"
+    ) -> int:
+        """Get workflow count for an organization, defaulting to active workflows."""
+        counts = await self.get_workflow_counts(organization_id)
+        if status:
+            return counts.get(status, 0)
+        return counts.get("total", 0)
+
     async def get_workflow_organization_id(self, workflow_id: int) -> int | None:
         """Fetch only the organization_id for a workflow. Lightweight query."""
         async with self.async_session() as session:

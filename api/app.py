@@ -40,6 +40,7 @@ from api.services.pipecat.tracing_config import (
     handle_langfuse_sync,
     load_all_org_langfuse_credentials,
 )
+from api.services.pipecat.tts_cache.runtime import close_speech_cache
 from api.services.worker_sync.manager import (
     WorkerSyncManager,
     set_worker_sync_manager,
@@ -87,8 +88,11 @@ async def lifespan(app: FastAPI):
             try:
                 await sync_manager.stop()
             finally:
-                await loop_lag.stop()
-                metrics.stop()
+                try:
+                    await close_speech_cache()
+                finally:
+                    await loop_lag.stop()
+                    metrics.stop()
 
 
 app = FastAPI(

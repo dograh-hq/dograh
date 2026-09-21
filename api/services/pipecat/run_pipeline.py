@@ -770,6 +770,8 @@ async def _run_pipeline_impl(
             user_config,
             audio_config,
             correlation_id=mps_correlation_id,
+            organization_id=workflow.organization_id,
+            tts_cache_enabled=run_configs.get("tts_cache_enabled") is True,
         )
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None

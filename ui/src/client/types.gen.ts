@@ -7719,6 +7719,12 @@ export type WorkflowConfigurationDefaults = {
      */
     context_compaction_enabled?: boolean;
     /**
+     * Tts Cache Enabled
+     *
+     * Reuse generated speech for repeated phrases. Supports MiniMax TTS.
+     */
+    tts_cache_enabled?: boolean;
+    /**
      * Call Dispositions
      *
      * Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.

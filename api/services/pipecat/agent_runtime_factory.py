@@ -167,7 +167,11 @@ class AgentRuntimeFactory:
 
         llm = create_llm_service(user_config, correlation_id=self._mps_correlation_id)
         tts = create_tts_service(
-            user_config, self._audio_config, correlation_id=self._mps_correlation_id
+            user_config,
+            self._audio_config,
+            correlation_id=self._mps_correlation_id,
+            organization_id=self._organization_id,
+            tts_cache_enabled=run_configs.get("tts_cache_enabled") is True,
         )
         # Same client policy as the run setup: the conversation LLM also
         # serves out-of-band inference, and extraction gets a separately

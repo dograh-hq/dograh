@@ -1372,6 +1372,12 @@ export interface components {
              */
             context_compaction_enabled: boolean;
             /**
+             * Tts Cache Enabled
+             * @description Reuse generated speech for repeated phrases. Supports MiniMax TTS.
+             * @default false
+             */
+            tts_cache_enabled: boolean;
+            /**
              * Call Dispositions
              * @description Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
              */

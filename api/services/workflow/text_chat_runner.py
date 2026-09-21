@@ -757,16 +757,16 @@ async def execute_text_chat_pending_turn(
         )
         if opening_expects_llm:
             response_window.note_direct_context_request()
-        opening_action = await engine.queue_node_opening(
+        opening = await engine.queue_node_opening(
             node_id=target_node_id,
             previous_node_id=current_node_id,
             generate_if_no_greeting=pending_user_message is None,
         )
-        if opening_action != "llm" and opening_expects_llm:
+        if opening.action != "llm" and opening_expects_llm:
             response_window.pending_context_requests = max(
                 0, response_window.pending_context_requests - 1
             )
-        if opening_action != "none":
+        if opening.action != "none":
             await _wait_for_quiescence(
                 capture_processor=capture_processor,
                 response_window=response_window,

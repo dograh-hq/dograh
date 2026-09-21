@@ -5,8 +5,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from pipecat.frames.frames import CancelFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    CancelFrame,
+    InterruptionFrame,
+    LLMContextFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection
 
 from api.enums import AnswerAction
 from api.schemas.answer_supervisor import AnswerMessage, AnswerSupervisorConfig
@@ -16,15 +22,16 @@ from api.services.pipecat.processors.answer_supervisor import (
     AnswerVerdict,
 )
 from api.services.pipecat.speech_playback import PlaybackOutcome
-from api.services.workflow.answer_handling import handle_answer
-from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.answer_handling import _speak_screening, handle_answer
+from api.services.workflow.pipecat_engine import NodeOpeningResult, PipecatEngine
 
 
 def make_call(verdicts, **settings):
     engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
     engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
     engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
-    engine.queue_node_opening = AsyncMock(return_value="greeting")
+    engine.queue_node_opening = AsyncMock(return_value=NodeOpeningResult("greeting"))
+    engine.drain_call_pipeline = AsyncMock(return_value=True)
     engine.end_call_with_reason = AsyncMock()
     engine.playback_wait = AsyncMock(return_value=True)
     queue_speech = engine.queue_speech
@@ -47,6 +54,7 @@ def make_call(verdicts, **settings):
     supervisor = Mock()
     supervisor.config = AnswerSupervisorConfig(**settings)
     supervisor.wait_for_verdict = AsyncMock(side_effect=verdicts)
+    supervisor.wait_for_human = AsyncMock(side_effect=asyncio.Event().wait)
     supervisor.close = AsyncMock()
     supervisor.wait_closed = AsyncMock(side_effect=asyncio.Event().wait)
     return engine, supervisor, AsyncMock()
@@ -296,6 +304,91 @@ async def test_opening_error_cannot_leave_gate_and_idle_detection_disabled():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_realtime_provisional_opening_answers_held_turn_after_interruption(
+    simple_workflow, greeting_type, interrupted
+):
+    node = simple_workflow.nodes[simple_workflow.start_node_id]
+    node.greeting_type = greeting_type
+    node.greeting = "Welcome." if greeting_type == "text" else None
+    node.greeting_recording_id = "9" if greeting_type == "audio" else None
+    context = LLMContext()
+    llm = SimpleNamespace(queue_frame=AsyncMock())
+    engine = PipecatEngine(
+        workflow=simple_workflow,
+        llm=llm,
+        context=context,
+        call_context_vars={},
+        is_realtime=True,
+    )
+    engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
+    engine.set_transport_output(SimpleNamespace(queue_frame=AsyncMock()))
+    engine.set_fetch_recording_audio(
+        AsyncMock(
+            return_value=SimpleNamespace(audio=b"\x01\x00" * 160, transcript="Welcome.")
+        )
+    )
+    supervisor = AnswerSupervisor(AnswerSupervisorConfig(), context=context)
+    idle = AsyncMock()
+
+    async def drain():
+        assert supervisor.blocks_workflow
+        assert context.messages == [{"role": "user", "content": "Hello, can you help?"}]
+        return True
+
+    engine.drain_call_pipeline = AsyncMock(side_effect=drain)
+    supervisor._publish(
+        AnswerVerdict(AnswerAction.START_OPENING, "silent_window"),
+        strategy="listening_timeout",
+    )
+    running = asyncio.create_task(
+        handle_answer(engine, supervisor, update_idle_timeout=idle)
+    )
+    try:
+        async with asyncio.timeout(1):
+            while not engine.speech_playback.pending:
+                await asyncio.sleep(0)
+        [speech] = engine.speech_playback.pending.values()
+        assert engine.speech_playback.greeting is None
+        # The provisional generation, if any, must not be counted as the reply.
+        llm.queue_frame.reset_mock()
+        supervisor._speech_started()
+        if interrupted:
+            await engine.speech_playback.before_output(None, InterruptionFrame())
+            await asyncio.sleep(0)
+            assert supervisor.blocks_workflow
+            llm.queue_frame.assert_not_awaited()
+        context.add_message({"role": "user", "content": "Hello, can you help?"})
+        await supervisor.llm_gate().process_frame(
+            LLMContextFrame(context), FrameDirection.DOWNSTREAM
+        )
+        assert supervisor.llm_gate().dropped_contexts == 1
+        await supervisor._on_turn_stopped(
+            None, "external_turn", SimpleNamespace(content="Hello, can you help?")
+        )
+        if not interrupted:
+            speech.finish(PlaybackOutcome.PLAYED)
+        await asyncio.wait_for(running, 1)
+
+        assert not supervisor.blocks_workflow
+        assert [call.args[0] for call in idle.await_args_list] == [0, None]
+        engine.drain_call_pipeline.assert_awaited_once()
+        if interrupted:
+            llm.queue_frame.assert_awaited_once()
+            [frame] = llm.queue_frame.await_args.args
+            assert isinstance(frame, LLMContextFrame)
+            assert frame.context is context
+        else:
+            llm.queue_frame.assert_not_awaited()
+    finally:
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+        engine.speech_playback.cancel_all()
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
 async def test_cancelled_pipeline_never_queues_an_opening():
     engine, supervisor, idle = make_call(
         [AnswerVerdict(AnswerAction.CANCELLED, "pipeline_ended")]
@@ -387,15 +480,23 @@ async def test_recording_message_uses_scoped_fetcher_and_transport(recording):
 
 
 @pytest.mark.asyncio
-async def test_disconnect_during_playback_cancels_action_promptly():
+@pytest.mark.parametrize(
+    "action", [AnswerAction.LEAVE_MESSAGE, AnswerAction.SCREEN_THEN_REARM]
+)
+async def test_disconnect_during_playback_cancels_action_promptly(action):
     engine, supervisor, idle = make_call(
         [
             AnswerVerdict(
-                AnswerAction.LEAVE_MESSAGE, "voicemail", MachineSubtype.VOICEMAIL
+                action,
+                "voicemail" if action == AnswerAction.LEAVE_MESSAGE else "screener",
+                MachineSubtype.VOICEMAIL
+                if action == AnswerAction.LEAVE_MESSAGE
+                else MachineSubtype.SCREENER,
             ),
         ],
         voicemail_action="leave_message",
         voicemail_message=AnswerMessage(text="Call back."),
+        screening_message=AnswerMessage(text="Alex calling."),
     )
     disconnected = asyncio.Event()
     supervisor.wait_closed = AsyncMock(side_effect=disconnected.wait)
@@ -410,3 +511,42 @@ async def test_disconnect_during_playback_cancels_action_promptly():
     await asyncio.wait_for(running, 1)
     engine.end_call_with_reason.assert_not_awaited()
     assert not engine.speech_playback.mutes_user
+
+
+@pytest.mark.asyncio
+async def test_human_pickup_cancels_screening_recording_preparation():
+    engine, supervisor, _ = make_call(
+        [], screening_message=AnswerMessage(recording_pk=10)
+    )
+    fetching, cancelled, picked_up = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def fetch(**_kwargs):
+        fetching.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def human():
+        await picked_up.wait()
+        return AnswerVerdict(
+            AnswerAction.RELEASE, "human_turn", MachineSubtype.CONVERSATION
+        )
+
+    engine._fetch_recording_audio = AsyncMock(side_effect=fetch)
+    engine._transport_output = SimpleNamespace(queue_frame=AsyncMock())
+    engine.interrupt_screening_reply = AsyncMock(return_value=True)
+    supervisor.wait_for_human = AsyncMock(side_effect=human)
+    playing = asyncio.create_task(_speak_screening(engine, supervisor))
+    try:
+        await asyncio.wait_for(fetching.wait(), 1)
+        picked_up.set()
+        assert await asyncio.wait_for(playing, 1)
+        assert cancelled.is_set()
+        engine.interrupt_screening_reply.assert_awaited_once()
+        engine.call_worker.queue_frame.assert_not_awaited()
+        engine._transport_output.queue_frame.assert_not_awaited()
+        assert not engine.speech_playback.pending
+    finally:
+        playing.cancel()
+        await asyncio.gather(playing, return_exceptions=True)

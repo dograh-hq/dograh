@@ -82,12 +82,23 @@ _IT_NO_MESSAGE = (
     r"\bnon (?:e'|è)(?!\w)"
     r"|\bnumero (?:selezionato|composto)\b.{0,25}\binesistente\b"
     r"|\btutte le linee\b.{0,20}\boccupate\b"
+    r"|\b(?:questa )?segreteria non prende\b"
+    r"|\bnumero\b.{0,25}\bnon (?:e'|è) (?:(?:piu'|più) )?(?:attivo|in uso|corretto)\b"
+    r"|\b(?:e'|è) occupato e non (?:puo'|può) ricevere\b"
 )
 _IT_IVR = (
     r"\b(?:digit(?:a|i|are|ate|atelo)|prem(?:a|i|ere|ete)"
     r"|selezion(?:a|i|are|ate))\b.{0,30}\b" + _IT_DIGIT + r"\b"
     r"|\b(?:l'interno desiderato|numero dell'interno)\b"
     r"|\bper (?:english|inglese|italiano)\b.{0,25}\b(?:prem|digit|press|select)"
+    # Italian keypad symbols; the digit alternation above cannot reach them.
+    r"|\b(?:prem(?:a|i|ere|ete)|digit(?:a|i|are|ate))\b.{0,30}"
+    r"\b(?:cancelletto|asterisco|cancellato)\b"
+    r"|\bseguito da (?:cancelletto|asterisco|cancellato)\b"
+    r"|\b(?:digit\w+|selezion\w+|compon\w+|prem\w+)\b.{0,20}\bl'interno\b"
+    r"|\bselezion(?:a|i|are|ate|ene)\b.{0,25}\b(?:una delle )?(?:seguenti )?opzion"
+    r"|\bcodice di accesso\b|\binserire (?:il )?codice\b"
+    r"|\bper il men(?:u'|ù|u)\b"
 )
 _IT_VOICEMAIL = (
     r"\bsegreteria telefonica\b"
@@ -102,6 +113,29 @@ _IT_VOICEMAIL = (
     r"|\b(?:vi|la|le|ti) richiamer(?:emo|à|a)\b"
     r"|\bsar(?:ete|à|a) (?:richiamat|ricontattat)"
     r"|\b(?:siamo|siete) momentaneamente assent"
+    # Recorded "we cannot take your call" announcements. 'attenti' is how the
+    # 8 kHz STT renders 'assenti'; it is not a word anyone answers a phone with.
+    r"|\b(?:al momento|in questo momento|momentaneamente)\b.{0,25}"
+    r"\bnon (?:siamo|sono|possiamo|posso|(?:e'|è))(?!\w).{0,20}"
+    r"(?:raggiungibil|disponibil|rispond|attiv)"
+    r"|\bnon (?:possiamo|posso) rispond(?:ere|ervi|erle|erti)\b"
+    r"|\b(?:siamo|siete|stiamo|sono) momentaneamente (?:assent|atten)"
+    r"|\bnon (?:puo'|può) (?:prendere|rispondere a) la (?:sua |vostra )?chiamata\b"
+    r"|\bsiamo spiacenti\b"
+    r"|\bimpossibilitat\w+ a rispond"
+    # Closure and opening-hours announcements: nobody is coming to the phone.
+    # A bare "gli uffici sono chiusi" is a live employee and stays with the
+    # classifier; only the recorded first-person register is matched here.
+    r"|\b(?:i )?nostri uffici\b.{0,25}\b(?:sono |(?:e'|è) )?(?:chius|apert)"
+    r"|\bchius[oi] per (?:ferie|il periodo|la |le )"
+    r"|\borar(?:io|i) di apertura\b"
+    r"|\bapert\w+\b.{0,20}"
+    r"\bdal(?:le)? (?:luned|marted|mercoled|gioved|venerd|sabato|domenica)"
+    r"|\briapr(?:iamo|ir(?:a'|à)|iremo|e)\b"
+    r"|\b(?:la|vi|le) (?:preghiamo|invitiamo) di (?:ri)?(?:chiamare|contattarci|contattare)\b"
+    # The 440 ms deaf window clips the head of "risponde la segreteria
+    # telefonica"; the surviving tail arrives as a whole utterance of its own.
+    r"|^(?:via )?telefonica[.,!?]*$"
 )
 _IT_SCREENING_WAIT = (
     r"\b(?:rest(?:a|i|are|ate)|riman(?:ga|ere|ete)|attend(?:a|ere|ete))\b"
@@ -112,6 +146,38 @@ _IT_SCREENING_WAIT = (
     # Require a queue subject: a live person can say "sono momentaneamente occupato".
     r"|\b(?:operatori|linee)\b.{0,40}\b"
     r"(?:momentaneamente|temporaneamente) occupat[ie]\b"
+    r"|\b(?:preghiamo|prega|invitiamo|invito) di (?:attendere|rimanere|restare)\b"
+    r"|\battend(?:a|ere|ete)\b[ ,]{0,2}prego\b|\bprego\b[ ,]{0,2}attend"
+    r"|\b(?:l'|un |il primo |primo )operatore\b.{0,40}"
+    r"\b(?:a sua disposizione|sar(?:a'|à)|(?:le |vi )?risponder)"
+    r"|\b(?:in attesa di essere|per essere|state per essere|stiamo per) "
+    r"(?:collegat|messi in contatto|rispondere)"
+    r"|\bverr(?:ete|(?:a'|à)|ai) (?:subito )?(?:messi in contatto|collegat|rispost)"
+    r"|\bposizione\b.{0,15}\b(?:in )?(?:questa )?coda\b|\bprima in (?:vista|coda)\b"
+    r"|\b(?:stiamo )?trasferendo la (?:tua|sua|vostra) chiamata\b"
+    r"|\b(?:vi|la|lo) stiamo trasferendo\b"
+    r"|\bla mettiamo in comunicazione\b"
+    r"|\bricerca della persona\b"
+    r"|\bnel (?:piu'|più) breve tempo possibile\b"
+    r"|\battend(?:a|ete) (?:solo )?qualche istante\b"
+    r"|\b(?:la linea|le linee) (?:(?:e'|è)|sono) (?:momentaneamente )?occupat"
+)
+
+# A recorded switchboard identification says a machine picked up; it does not
+# say no one is behind it. On 345 such answers 12% reached a live person within
+# seconds, so this waits rather than dropping -- and it is tested last, so an
+# identification followed by a mailbox prompt or a closure notice still lands on
+# the more actionable subtype above.
+_IT_RECORDED_ID = (
+    r"\b(?:siete|siamo) in linea con\b"
+    r"|\bin linea con (?:la |il |lo |l'|i |gli |le )?\w"
+    r"|\b(?:siete|sei) (?:collegat|conness)\w* con\b"
+    r"|\bbenvenut[oi]\b[ ,]{0,2}(?:in|a|al|alla|allo|ai|agli|alle|da|nel|nella)\b"
+    r"|\b(?:vi|le|ti|la) d(?:a'|[aà]) il benvenuto\b"
+    r"|\bgrazie (?:per|di) aver(?:ci)? (?:chiamat|contattat|telefonat)"
+    r"|\bper aver(?:ci)? (?:chiamat|contattat)"
+    r"|\brisponde (?:la|il|lo|l')\b"
+    r"|^(?:ben)?venut[oi][.,!?]*$"
 )
 
 # Specific negative/screening instructions precede generic voicemail phrases.
@@ -127,7 +193,10 @@ _PATTERNS = (
     (MachineSubtype.SCREENER, _any(_EN_SCREENER)),
     (MachineSubtype.IVR, _any(_EN_IVR, _IT_IVR)),
     (MachineSubtype.VOICEMAIL, _any(_EN_VOICEMAIL, _IT_VOICEMAIL)),
-    (MachineSubtype.SCREENING_WAIT, _any(_EN_SCREENING_WAIT, _IT_SCREENING_WAIT)),
+    (
+        MachineSubtype.SCREENING_WAIT,
+        _any(_EN_SCREENING_WAIT, _IT_SCREENING_WAIT, _IT_RECORDED_ID),
+    ),
 )
 
 

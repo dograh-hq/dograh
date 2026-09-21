@@ -151,6 +151,10 @@ class WorkflowConfigurationDefaults(BaseModel):
     )
     dictionary: str = ""
     context_compaction_enabled: bool = DEFAULT_CONTEXT_COMPACTION_ENABLED
+    tts_cache_enabled: bool = Field(
+        default=False,
+        description="Reuse generated speech for repeated phrases. Supports MiniMax TTS.",
+    )
     call_dispositions: list[CallDispositionOption] = Field(
         default_factory=list,
         max_length=MAX_CALL_DISPOSITIONS,

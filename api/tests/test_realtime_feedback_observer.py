@@ -1,3 +1,4 @@
+import asyncio
 import re
 from types import SimpleNamespace
 
@@ -5,6 +6,7 @@ import pytest
 from pipecat.frames.frames import (
     ErrorFrame,
     TranscriptionFrame,
+    TTSSpeakFrame,
     TTSTextFrame,
 )
 from pipecat.observers.base_observer import FramePushed
@@ -89,6 +91,37 @@ async def test_observer_ignores_upstream_broadcast_transcription_sibling():
     await observer.on_push_frame(_frame_pushed(frame, FrameDirection.UPSTREAM))
 
     assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_agent_speech_is_logged_once_without_persisting_each_tts_word():
+    messages = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    feedback = RealtimeFeedbackObserver(ws_sender=ws_sender, logs_buffer=logs)
+    speak = TTSSpeakFrame(
+        "Alex calling.", append_to_context=False, persist_to_logs=True
+    )
+    request = _frame_pushed(speak, FrameDirection.DOWNSTREAM)
+    # A request may be visible both in the call and at several agent processors.
+    await asyncio.gather(*(feedback.on_push_frame(request) for _ in range(3)))
+
+    output = BaseOutputTransport(TransportParams())
+    for word in ("Alex", " calling."):
+        frame = TTSTextFrame(word, aggregated_by="word")
+        frame.append_to_context = False
+        await feedback.on_push_frame(_frame_pushed(frame, FrameDirection.DOWNSTREAM))
+        await feedback.on_push_frame(
+            _frame_pushed(frame, FrameDirection.DOWNSTREAM, source=output)
+        )
+
+    assert [event["payload"]["text"] for event in logs.get_events()] == [
+        "Alex calling."
+    ]
+    assert [event["payload"]["text"] for event in messages] == ["Alex", " calling."]
 
 
 @pytest.mark.asyncio

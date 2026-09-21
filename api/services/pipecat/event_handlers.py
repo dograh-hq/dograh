@@ -238,6 +238,12 @@ def register_event_handlers(
 
     async def _record_pipeline_error() -> None:
         try:
+            gathered_context = await engine.get_gathered_context()
+            if (
+                gathered_context.get("call_status")
+                != EndTaskReason.PIPELINE_ERROR.value
+            ):
+                return
             workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
             if workflow_run and workflow_run.campaign_id:
                 await circuit_breaker.record_and_evaluate(
@@ -267,7 +273,6 @@ def register_event_handlers(
         """
         if error is not None:
             logger.error(f"Pipeline error for workflow run {workflow_run_id}: {error}")
-            await _record_pipeline_error()
         await engine.end_call_with_reason(reason, abort_immediately=True)
 
     termination_funnel.set_termination_handler(dispose_call)
@@ -296,6 +301,11 @@ def register_event_handlers(
     ):
         logger.debug("In on_pipeline_finished callback handler")
 
+        # Count the final call outcome once, including agent-worker failures
+        # that bypassed the funnel. Observer or persistence errors below must
+        # not suppress this independently protected accounting path.
+        await _record_pipeline_error()
+
         # Turn and feedback observers run on independent queues. Drain them
         # before finalizing immutable transcripts and taking the DB snapshot.
         await task.wait_for_observers()
@@ -322,9 +332,9 @@ def register_event_handlers(
 
         engine.record_call_tags(["user_speech"] if has_user_speech else [])
 
-        # One read, after every writer has had its say. Keys other processes put
-        # on this run -- AMD results, ARI transfer state, campaign retry tags --
-        # are deliberately not merged in here: `update_workflow_run` reconciles
+        # Take the persistence snapshot after every writer has had its say. Keys
+        # other processes put on this run -- AMD results, ARI transfer state,
+        # campaign retry tags -- are not merged in here: `update_workflow_run` reconciles
         # them under a row lock at write time, so re-merging a staler unlocked
         # copy would only be a second, worse answer.
         gathered_context = await engine.get_gathered_context()

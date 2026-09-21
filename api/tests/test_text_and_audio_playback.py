@@ -433,7 +433,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         engine._fetch_recording_audio.assert_awaited_once_with(
             recording_id="callback-welcome"
         )
@@ -443,10 +443,7 @@ class TestStartGreeting:
     async def test_recorded_greeting_is_committed_as_its_own_turn(
         self, is_realtime, text_workflow: WorkflowGraph
     ):
-        """Only a TTS service closes an assistant turn, and a recording skips TTS.
-
-        The commit is the same in both modes; realtime only adds the handoff.
-        """
+        """Cascade greetings commit on playback; realtime uses the aggregator."""
         llm = Mock(spec=["handle_prerecorded_greeting"]) if is_realtime else None
         if is_realtime:
             llm.handle_prerecorded_greeting = AsyncMock()
@@ -475,23 +472,39 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         queued = [
             call.args[0]
             for call in engine._transport_output.queue_frame.await_args_list
-            if not isinstance(call.args[0], SpeechBoundaryFrame)
         ]
-        assert [type(frame).__name__ for frame in queued] == [
+        expected_frames = [
             "TTSStartedFrame",
             "TTSTextFrame",
             "TTSAudioRawFrame",
             "TTSStoppedFrame",
-            "LLMAssistantPushAggregationFrame",
         ]
+        if is_realtime:
+            expected_frames.append("LLMAssistantPushAggregationFrame")
+        assert [
+            type(frame).__name__
+            for frame in queued
+            if not isinstance(frame, SpeechBoundaryFrame)
+        ] == expected_frames
         text_frame = next(f for f in queued if isinstance(f, TTSTextFrame))
-        assert text_frame.append_to_context is True
-        # The aggregator owns the write, once playback drains.
+        assert text_frame.append_to_context is is_realtime
+        assert text_frame.persist_to_logs is not is_realtime
         assert context.get_messages() == []
+        if not is_realtime:
+            # Only the final output boundary commits a completed greeting.
+            assert engine.speech_playback.greeting_pending
+            for frame in queued[:-1]:
+                engine.speech_playback.after_output(None, frame)
+            assert context.get_messages() == []
+            engine.speech_playback.after_output(None, queued[-1])
+            assert not engine.speech_playback.greeting_pending
+            assert context.get_messages() == [
+                {"role": "assistant", "content": "Welcome back"}
+            ]
 
     @pytest.mark.asyncio
     async def test_realtime_recorded_greeting_opens_the_llm_session(
@@ -561,7 +574,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         llm.queue_frame.assert_not_awaited()
         queued_frame = next(
             c.args[0]
@@ -570,7 +583,11 @@ class TestStartGreeting:
         )
         assert isinstance(queued_frame, TTSSpeakFrame)
         assert queued_frame.text == TEXT_GREETING
-        assert queued_frame.append_to_context is True
+        assert queued_frame.append_to_context is False
+        assert queued_frame.persist_to_logs is True
+        assert engine.speech_playback.greeting_pending
+        assert engine.speech_playback.greeting.text == TEXT_GREETING
+        assert engine.context.get_messages() == []
 
     @pytest.mark.asyncio
     async def test_queue_node_opening_falls_back_to_llm_without_greeting(self):
@@ -633,7 +650,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "llm"
+        assert result.action == "llm"
         task.queue_frame.assert_not_awaited()
         queued_frame = llm.queue_frame.await_args.args[0]
         assert isinstance(queued_frame, LLMContextFrame)

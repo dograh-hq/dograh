@@ -158,7 +158,7 @@ async def test_short_hello_is_committed_and_trigger_dropped_before_release():
         ("My account number is synthetic-private-value.", 0.06),
     ],
 )
-async def test_decision_audit_keeps_transcripts_out_of_application_logs(
+async def test_decision_audit_records_transcripts_and_classification_signals(
     monkeypatch, text, duration
 ):
     from api.services.pipecat.processors import answer_supervisor
@@ -173,7 +173,7 @@ async def test_decision_audit_keeps_transcripts_out_of_application_logs(
         await c.say(text, duration=duration)
         result = await verdict(c)
         assert messages
-        assert all(text not in message for message in messages)
+        assert any(f"transcript={text!r}" in message for message in messages)
         assert any(f"transcript_chars={len(text)}" in message for message in messages)
         # The pattern verdict stays visible beside the final one, so a missing
         # pattern can be told apart from a classifier disagreement. Here the
@@ -210,8 +210,7 @@ async def test_audit_retains_full_transcript_for_pattern_analysis(monkeypatch):
     async with call(classify=AsyncMock(return_value=MachineSubtype.CONVERSATION)) as c:
         await c.say(text, duration=0.01)
         result = await verdict(c)
-        assert all(text[:200] not in message for message in messages)
-        assert all(text not in message for message in messages)
+        assert any(f"transcript={text!r}" in message for message in messages)
         assert any(f"transcript_chars={len(text)}" in message for message in messages)
         decision = result.diagnostics
         assert decision["transcript"] == text

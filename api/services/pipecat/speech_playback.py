@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from collections.abc import Callable
 from enum import Enum
+from typing import Protocol
 
 from loguru import logger
 
@@ -31,6 +32,30 @@ class PlaybackOutcome(Enum):
     TIMED_OUT = "timed_out"
     SKIPPED = "skipped"
     CLOSED = "closed"
+
+
+class SpeechPlaybackObserver(Protocol):
+    """Delivery facts for call-owned consumers; observers supply their own policy."""
+
+    def on_response_expected(self, source: FrameProcessor) -> None:
+        """A caller registered an expectation for the source's next response."""
+        ...
+
+    def on_response_started(self, source: FrameProcessor, speech_id: str) -> None:
+        """The source emitted a response with this stable playback identity."""
+        ...
+
+    def on_output(self, speech_id: str) -> None:
+        """Audio (or text in a text adapter) was delivered for this speech."""
+        ...
+
+    def on_playback_finished(self, speech_id: str) -> None:
+        """The speech's end marker drained through the output queue."""
+        ...
+
+    def on_playback_cancelled(self, outcome: PlaybackOutcome) -> None:
+        """Playback was invalidated by interruption or call closure."""
+        ...
 
 
 class SpeechPlayback:
@@ -91,6 +116,16 @@ class SpeechPlaybackTracker:
         self._expected_response: SpeechPlayback | None = None
         self._expected_source: FrameProcessor | None = None
         self._response_sources: dict[FrameProcessor, str | None] = {}
+        self._observers: list[SpeechPlaybackObserver] = []
+
+    def add_observer(self, observer: SpeechPlaybackObserver) -> None:
+        """Subscribe a call-owned consumer to delivery facts."""
+        self._observers.append(observer)
+
+    def observe_responses(self, source) -> None:
+        """Tag generated responses so their delivered audio can be identified."""
+        if isinstance(source, FrameProcessor):
+            self._bind_response_boundaries(source)
 
     @property
     def mutes_user(self) -> bool:
@@ -125,12 +160,18 @@ class SpeechPlaybackTracker:
         speech = self.create(**kwargs)
         self._expected_response = speech
         self._expected_source = source if isinstance(source, FrameProcessor) else None
-        if self._expected_source and source not in self._response_sources:
+        if self._expected_source:
+            self._bind_response_boundaries(source)
+            for observer in self._observers:
+                observer.on_response_expected(source)
+        return speech
+
+    def _bind_response_boundaries(self, source: FrameProcessor) -> None:
+        if source not in self._response_sources:
             self._response_sources[source] = None
             source.add_event_handler(
                 "on_before_push_frame", self._mark_response_boundaries
             )
-        return speech
 
     def _mark_response_boundaries(self, source: FrameProcessor, frame: Frame) -> None:
         if isinstance(frame, LLMFullResponseStartFrame):
@@ -142,6 +183,8 @@ class SpeechPlaybackTracker:
             speech_id = speech.id if speech and not speech.done else str(uuid.uuid4())
             self._response_sources[source] = speech_id
             frame.metadata["dograh_speech_id"] = speech_id
+            for observer in self._observers:
+                observer.on_response_started(source, speech_id)
             if self._expected_source is source:
                 self._expected_response = None
                 self._expected_source = None
@@ -150,6 +193,8 @@ class SpeechPlaybackTracker:
             self._response_sources[source] = None
 
     def cancel_all(self, outcome: PlaybackOutcome = PlaybackOutcome.CLOSED) -> None:
+        for observer in self._observers:
+            observer.on_playback_cancelled(outcome)
         for speech in list(self.pending.values()):
             speech.finish(outcome)
         self._output_scopes.clear()
@@ -194,9 +239,11 @@ class SpeechPlaybackTracker:
         if frame.append_to_context and speech.text is None:
             speech.text_parts.append(
                 TextPartForConcatenation(
-                    frame.raw_text
-                    if isinstance(frame, AggregatedTextFrame) and frame.raw_text
-                    else frame.text,
+                    (
+                        frame.raw_text
+                        if isinstance(frame, AggregatedTextFrame) and frame.raw_text
+                        else frame.text
+                    ),
                     includes_inter_part_spaces=frame.includes_inter_frame_spaces,
                 )
             )
@@ -264,6 +311,8 @@ class SpeechPlaybackTracker:
                 if speech := self.pending.get(frame.speech_id):
                     speech.started = True
             else:
+                for observer in self._observers:
+                    observer.on_playback_finished(frame.speech_id)
                 speech = self.pending.get(frame.speech_id)
                 if speech:
                     self._complete(speech)
@@ -288,6 +337,9 @@ class SpeechPlaybackTracker:
         )
         if speech:
             speech.has_output = True
+        if self._output_scopes:
+            for observer in self._observers:
+                observer.on_output(self._output_scopes[-1])
 
     @staticmethod
     def _complete(speech: SpeechPlayback) -> None:

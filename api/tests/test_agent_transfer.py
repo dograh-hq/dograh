@@ -46,6 +46,7 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentGenerationCallbacks,
     AgentRuntimeFactory,
 )
+from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import build_pipeline
 from api.services.pipecat.pipeline_metrics_aggregator import (
@@ -290,7 +291,15 @@ class TransferHarness:
             audio_buffer,
             user,
             assistant,
-            None,
+            CallMonitorProcessor(
+                response_watchdog=self.engine.response_watchdog,
+                response_source=lambda: (
+                    None
+                    if self.engine.transfer_in_progress
+                    else self.engine.active_agent.llm
+                ),
+                max_duration_end_task_callback=self.engine.create_max_duration_callback(),
+            ),
             generation_segment,
             metrics_aggregator,
             TerminationFunnelProcessor(),

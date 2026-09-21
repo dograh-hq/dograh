@@ -35,7 +35,7 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentRuntimeFactory,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
-from api.services.pipecat.call_duration_processor import CallDurationProcessor
+from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -1062,8 +1062,12 @@ async def _run_pipeline_impl(
     worker_runner = create_worker_runner()
     call_worker_name = f"call-{workflow_run_id}"
 
-    # The call's clock is call-scoped in both shapes.
-    call_duration_processor = CallDurationProcessor(
+    # One call-scoped monitor covers duration and response progress in both shapes.
+    call_monitor_processor = CallMonitorProcessor(
+        response_watchdog=engine.response_watchdog,
+        response_source=lambda: (
+            None if engine.transfer_in_progress else engine.active_agent.llm
+        ),
         max_call_duration_seconds=max_call_duration_seconds,
         max_duration_end_task_callback=engine.create_max_duration_callback(),
     )
@@ -1132,7 +1136,7 @@ async def _run_pipeline_impl(
             audio_buffer,
             user_context_aggregator,
             assistant_context_aggregator,
-            call_duration_processor,
+            call_monitor_processor,
             # No agent worker to carry it, so the realtime service's own
             # generation stage reports from the call pipeline.
             AgentGenerationProcessor(
@@ -1149,7 +1153,7 @@ async def _run_pipeline_impl(
             audio_buffer,
             user_context_aggregator,
             assistant_context_aggregator,
-            call_duration_processor,
+            call_monitor_processor,
             [
                 AgentBridgeProcessor(
                     bus=worker_runner.bus,

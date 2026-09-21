@@ -37,7 +37,7 @@ def build_pipeline(
     audio_buffer,
     user_context_aggregator,
     assistant_context_aggregator,
-    call_duration_processor,
+    call_monitor_processor,
     generation_stage,
     pipeline_metrics_aggregator,
     termination_funnel,
@@ -53,8 +53,8 @@ def build_pipeline(
 
     Args:
         audio_buffer: AudioBufferProcessor that handles both input and output audio recording.
-        call_duration_processor: The call's own clock. Call-scoped, so it stays
-            here whatever occupies the generation slot.
+        call_monitor_processor: The call's duration and response monitor. Stays
+            ahead of generation so a stalled agent queue cannot hide a request.
         generation_stage: Processors occupying the slot between the user
             aggregator and the output transport.
         answer_supervisor: Optional answer sensor before the user aggregator,
@@ -82,7 +82,7 @@ def build_pipeline(
 
     processors.extend(
         [
-            call_duration_processor,
+            call_monitor_processor,
             *generation_stage,
             transport.output(),  # Transport bot output
             audio_buffer,  # AudioBufferProcessor - records both input and output audio
@@ -203,7 +203,7 @@ def build_realtime_pipeline(
     audio_buffer,
     user_context_aggregator,
     assistant_context_aggregator,
-    call_duration_processor,
+    call_monitor_processor,
     agent_generation_processor,
     pipeline_metrics_aggregator,
     termination_funnel,
@@ -220,13 +220,13 @@ def build_realtime_pipeline(
         transport.input(),
         termination_funnel,
         user_context_aggregator,
+        call_monitor_processor,
         realtime_llm,
     ]
 
     processors.extend(
         [
             agent_generation_processor,
-            call_duration_processor,
             transport.output(),
             audio_buffer,
             assistant_context_aggregator,

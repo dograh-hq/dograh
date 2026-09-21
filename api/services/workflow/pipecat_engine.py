@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
+    LLMContextFrame,
     SpeechBoundaryFrame,
     UserIdleTimeoutUpdateFrame,
 )
@@ -37,6 +38,7 @@ from api.errors.failure import (
 from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.greeting import GreetingController
+from api.services.pipecat.response_watchdog import CallResponseWatchdog
 from api.services.pipecat.speech_playback import (
     PlaybackOutcome,
     SpeechPlayback,
@@ -224,6 +226,10 @@ class PipecatEngine:
         self._answer_idle_timeout = 0
 
         self.speech_playback = SpeechPlaybackTracker()
+        self.response_watchdog = CallResponseWatchdog(
+            on_timeout=self._on_response_timeout
+        )
+        self.speech_playback.add_observer(self.response_watchdog)
         self.greeting = GreetingController(self.speech_playback, lambda: self.context)
 
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
@@ -1108,6 +1114,9 @@ class PipecatEngine:
                 else None
             )
             try:
+                self.watch_inference_frame(
+                    LLMContextFrame(opening_context or self.context)
+                )
                 await agent.run_llm(opening_context or self.context)
             except BaseException:
                 if speech:
@@ -1790,6 +1799,7 @@ class PipecatEngine:
         once the worker has started, which is why this confirms rather than
         assuming the message was enough.
         """
+        self._bind_response_watch(runtime)
         if not runtime.is_child or self._call_worker is None:
             return True
 
@@ -1813,6 +1823,7 @@ class PipecatEngine:
         while recognition, recording and the call timer carry on. Reversible --
         a rolled-back handoff activates the same worker again.
         """
+        self.response_watchdog.cancel()
         if not runtime.is_child or self._call_worker is None:
             return
         self._agent_on_hold = True
@@ -1911,6 +1922,58 @@ class PipecatEngine:
         """
         self._transport_output = transport_output
         self.speech_playback.bind_output(transport_output)
+        self._bind_response_watch(self.active_agent)
+
+    def _response_watch_enabled(self, runtime: AgentRuntime) -> bool:
+        from api.services.workflow.agent_transfer import TransferPhase
+
+        coordinator = self._transfer_coordinator
+        return (
+            self.agent_can_act(runtime)
+            and (
+                not self.transfer_in_progress
+                or coordinator.phase is TransferPhase.OPENING
+            )
+            and not (
+                self.answer_supervisor is not None
+                and self.answer_supervisor.blocks_workflow
+            )
+        )
+
+    def _bind_response_watch(self, runtime: AgentRuntime) -> None:
+        self.speech_playback.observe_responses(runtime.llm)
+        self.response_watchdog.bind_source(
+            runtime.llm, enabled=lambda: self._response_watch_enabled(runtime)
+        )
+
+    def watch_inference_frame(self, frame: "Frame") -> None:
+        """Arm before dispatch, even when the agent's input queue is stalled."""
+        self.response_watchdog.before_inference(self.active_agent.llm, frame)
+
+    def _on_response_timeout(self, source) -> None:
+        """Own failure recovery outside the stalled generation worker."""
+
+        async def end_unresponsive_call():
+            # An interruption or handoff can win the race with this task.
+            if (
+                source is not self.active_agent.llm
+                or not self._response_watch_enabled(self.active_agent)
+                or not self.response_watchdog.response_timed_out(source)
+            ):
+                return
+            logger.error(
+                f"Response watchdog expired for visit {self.active_agent.visit_id}; "
+                "ending the call after response audio stopped making progress"
+            )
+            # Provider retries already had the response budget. Replaying an
+            # arbitrary workflow turn could duplicate a tool's side effects.
+            await self.end_call_with_reason(
+                EndTaskReason.PIPELINE_ERROR.value, abort_immediately=True
+            )
+
+        self._user_response_timeout_task = asyncio.create_task(
+            end_unresponsive_call(), name="call-response-timeout"
+        )
 
     def set_fetch_recording_audio(self, fetch_fn) -> None:
         """Set the recording audio fetcher callback."""

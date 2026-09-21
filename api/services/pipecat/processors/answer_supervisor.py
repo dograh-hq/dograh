@@ -15,7 +15,10 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     LLMContextFrame,
+    ProposedUserStartedSpeakingFrame,
+    TranscriptionFrame,
     UserStartedSpeakingFrame,
+    VADUserStartedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessor
@@ -45,15 +48,12 @@ class AnswerContextGate(FrameProcessor):
         super().__init__(enable_direct_mode=True)
         self.closed = True
         self.dropped_contexts = 0
-        self.pending_inference = False
         self.held_user_messages: dict[int, dict] = {}
 
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
         if isinstance(frame, LLMContextFrame) and self.closed:
             self.dropped_contexts += 1
-            if not frame.speculation:
-                self.pending_inference = True
             for message in frame.context.messages:
                 if isinstance(message, dict) and message.get("role") == "user":
                     self.held_user_messages[id(message)] = message
@@ -76,12 +76,14 @@ class AnswerSupervisor(FrameProcessor):
         self._gate = AnswerContextGate()
         self._armed_at: float | None = None
         self._onset: float | None = None
+        self._logical_turn = False
+        self._uses_external_turns = True
         self._screening = False
         self._screening_idle = asyncio.Event()
         self._committed = False
         self._released = False
         self._opening_started = False
-        self._pre_opening_message_ids: set[int] = set()
+        self._opening_complete = False
         self._closed = False
         self._closed_event = asyncio.Event()
         self._epoch = 0
@@ -100,11 +102,6 @@ class AnswerSupervisor(FrameProcessor):
         return not self._released
 
     @property
-    def has_pending_inference(self) -> bool:
-        """Whether a gated trigger still needs a reply after playback consumption."""
-        return self._gate.pending_inference
-
-    @property
     def observing_opening(self) -> bool:
         return (
             self._opening_started
@@ -115,7 +112,31 @@ class AnswerSupervisor(FrameProcessor):
         )
 
     def bind(self, aggregator) -> None:
+        self._uses_external_turns = (
+            aggregator.user_turn_controller.resolves_proposed_turn_start_frames
+        )
         aggregator.add_event_handler("on_user_turn_stopped", self._on_turn_stopped)
+        aggregator.user_turn_controller.add_event_handler(
+            "on_user_turn_started", self._on_turn_started
+        )
+        aggregator.add_event_handler("on_after_process_frame", self._after_user_frame)
+
+    def _on_turn_started(self, *_):
+        self._logical_turn = True
+
+    def _after_user_frame(self, aggregator, frame):
+        if (
+            isinstance(frame, TranscriptionFrame)
+            and not self._logical_turn
+            and not aggregator.aggregation_string()
+        ):
+            # A start strategy discarded this transcript. It must not leave
+            # the answer timer waiting for a user turn that will never end.
+            self._onset = None
+            if self._utterance_task:
+                self._utterance_task.cancel()
+            if self._opening_complete:
+                self.opening_finished()
 
     async def wait_closed(self):
         await self._closed_event.wait()
@@ -176,12 +197,8 @@ class AnswerSupervisor(FrameProcessor):
         self._utterance_task = self._spawn(self._utterance_timeout(self._epoch))
 
     def opening_finished(self) -> None:
-        """Consume opening-time triggers and release unless an answer is underway."""
-        # The greeting consumes inference triggers received during its playback.
-        # Keep their transcripts, but wait for fresh speech or user idle instead
-        # of immediately speaking another turn. Later context frames may still
-        # need a response once their classification permits the handover.
-        self._gate.pending_inference = False
+        """Release after the greeting unless an answer is still underway."""
+        self._opening_complete = True
         if (
             self.observing_opening
             and self._onset is None
@@ -233,6 +250,13 @@ class AnswerSupervisor(FrameProcessor):
         await super().process_frame(frame, direction)
         if isinstance(frame, (CancelFrame, EndFrame)):
             await self.close()
+        elif isinstance(frame, ProposedUserStartedSpeakingFrame) or (
+            isinstance(frame, VADUserStartedSpeakingFrame)
+            and not self._uses_external_turns
+        ):
+            # Classification measures physical speech; interruption strategies
+            # may delay the logical turn until enough words have arrived.
+            self._speech_started()
         elif isinstance(frame, UserStartedSpeakingFrame):
             # Logged before _speech_started(), which returns early once the
             # opening has been released -- those released calls are exactly the
@@ -250,6 +274,7 @@ class AnswerSupervisor(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _on_turn_stopped(self, aggregator, strategy, message):
+        self._logical_turn = False
         if self._closed or self._released or self._committed:
             return
         text = (message.content or "").strip()
@@ -423,15 +448,18 @@ class AnswerSupervisor(FrameProcessor):
             elapsed,
             subtype,
             strategy,
-            " ".join(
-                f"{key}={value!r}"
-                for key, value in signals.items()
-                if key != "transcript"
-            ),
+            " ".join(f"{key}={value!r}" for key, value in signals.items()),
         )
 
     async def wait_for_verdict(self) -> AnswerVerdict:
         while self._verdict is None:
+            self._changed.clear()
+            await self._changed.wait()
+        return self._verdict
+
+    async def wait_for_human(self) -> AnswerVerdict:
+        """Wait for a human pickup while a screening reply is playing."""
+        while self._verdict is None or self._verdict.action != AnswerAction.RELEASE:
             self._changed.clear()
             await self._changed.wait()
         return self._verdict
@@ -442,34 +470,19 @@ class AnswerSupervisor(FrameProcessor):
             return False  # Speech revoked this decision before the engine accepted it.
         if self._verdict and self._verdict.action == AnswerAction.START_OPENING:
             self._opening_started = True
-            self._pre_opening_message_ids = {id(m) for m in self._context.messages}
             self._verdict = None
             return True
         self._committed = True
         return True
 
     def release(self) -> None:
-        """Hand inference to the workflow after its opening has played."""
+        """Allow future inference requests through, retaining accumulated context."""
         if self._closed:
             return
-        if self._opening_started and self.has_pending_inference:
-            # Caller turns finish while the greeting is still playing, so its
-            # assistant message can be appended after them. Replay the held
-            # turns after that message before resuming inference. Preserve prior
-            # context and keep transcript events in their original time order.
-            held = self._gate.held_user_messages.keys() - self._pre_opening_message_ids
-            if held:
-                messages = self._context.messages
-                self._context.set_messages(
-                    [m for m in messages if id(m) not in held]
-                    + [m for m in messages if id(m) in held]
-                )
         self._released = True
         self._committed = True
         self._gate.closed = False
-        self._gate.pending_inference = False
         self._gate.held_user_messages.clear()
-        self._pre_opening_message_ids.clear()
         self._turn_texts.clear()
         for task in self._supervision_tasks:
             task.cancel()
@@ -480,14 +493,14 @@ class AnswerSupervisor(FrameProcessor):
             [m for m in self._context.messages if id(m) not in held]
         )
         held.clear()
-        self._gate.pending_inference = False
         self._turn_texts.clear()
 
-    def begin_screening_wait(self) -> None:
-        """A dedicated silent wait; the ordinary fail-open window cannot release it.
+    def begin_screening_wait(self, *, start_timeout: bool = True) -> None:
+        """Listen for a pickup without allowing the ordinary fail-open timer.
 
         Keep the user aggregator live. Only inference is gated, so a subscriber's
         short answer resolves normally. Delete committed machine turns before it.
+        When playing a screening reply, defer the silence timeout until playback ends.
         """
         self._discard_held_turns()
         self._epoch += 1
@@ -499,6 +512,11 @@ class AnswerSupervisor(FrameProcessor):
         self._gate.closed = True
         for task in self._supervision_tasks:
             task.cancel()
+        if start_timeout:
+            self.start_screening_timeout()
+
+    def start_screening_timeout(self) -> None:
+        """Bound silence after screening playback without resetting incoming speech."""
         self._spawn(self._screening_timeout())
 
     async def _screening_timeout(self):

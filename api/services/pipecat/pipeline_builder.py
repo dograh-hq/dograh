@@ -4,6 +4,7 @@ from loguru import logger
 
 from api.services.pipecat.agent_bridge import AGENT_EDGE_EXCLUDED_FRAMES, AgentWorker
 from api.services.pipecat.audio_config import AudioConfig
+from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import (
     PipelineParams,
@@ -121,6 +122,7 @@ def create_agent_worker(
     *,
     call_tracing_context=None,
     call_worker_name: str,
+    observers: list[BaseObserver] | None = None,
 ) -> PipelineWorker:
     """Create the child worker that runs one agent visit's generation stage.
 
@@ -158,6 +160,7 @@ def create_agent_worker(
         pipeline,
         call_worker_name=call_worker_name,
         name=name,
+        observers=observers,
         params=params,
         active=False,
         bridged=(),

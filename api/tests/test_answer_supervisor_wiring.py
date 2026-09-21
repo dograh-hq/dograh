@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from pipecat.turns.user_mute import (
     FunctionCallUserMuteStrategy,
-    MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
 from api.services.pipecat.event_handlers import register_event_handlers
@@ -19,7 +18,7 @@ from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
 @pytest.mark.parametrize(
     "enabled, expected",
     [
-        (False, MuteUntilFirstBotCompleteUserMuteStrategy),
+        (False, FunctionCallUserMuteStrategy),
         (True, FunctionCallUserMuteStrategy),
     ],
 )

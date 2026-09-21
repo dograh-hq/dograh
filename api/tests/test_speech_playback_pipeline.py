@@ -509,11 +509,41 @@ async def test_enqueue_failure_releases_its_mute(playback):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [None, RuntimeError("unavailable")])
-async def test_recording_preparation_failure_never_takes_a_mute(playback, error):
+@pytest.mark.parametrize("greeting", [False, True])
+async def test_recording_preparation_failure_never_takes_a_mute(
+    playback, error, greeting
+):
     playback.engine.set_fetch_recording_audio(
         AsyncMock(return_value=None, side_effect=error)
     )
-    speech = await playback.engine.queue_speech(recording_pk=1, mute_user=True)
+    speech = await playback.engine.queue_speech(
+        recording_pk=1, mute_user=True, greeting=greeting
+    )
     assert not await speech.wait()
     assert speech.outcome is PlaybackOutcome.FAILED
     assert not await playback.muted()
+    assert not playback.engine.speech_playback.pending
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("greeting", [False, True])
+async def test_cancelling_recording_preparation_releases_playback(playback, greeting):
+    fetching = asyncio.Event()
+
+    async def fetch(**_):
+        fetching.set()
+        await asyncio.Event().wait()
+
+    playback.engine.set_fetch_recording_audio(AsyncMock(side_effect=fetch))
+    preparation = asyncio.create_task(
+        playback.engine.queue_speech(recording_pk=1, mute_user=True, greeting=greeting)
+    )
+    try:
+        await asyncio.wait_for(fetching.wait(), 1)
+        assert not await playback.muted()
+        assert playback.engine.speech_playback.pending
+    finally:
+        preparation.cancel()
+        await asyncio.gather(preparation, return_exceptions=True)
+    assert not playback.engine.speech_playback.pending
+    assert not playback.output.writing.is_set()

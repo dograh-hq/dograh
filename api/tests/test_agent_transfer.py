@@ -46,9 +46,13 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentGenerationCallbacks,
     AgentRuntimeFactory,
 )
+from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import build_pipeline
 from api.services.pipecat.pipeline_metrics_aggregator import (
     PipelineMetricsAggregator,
+)
+from api.services.pipecat.realtime_feedback_observer import (
+    RealtimeFeedbackObserver,
 )
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
@@ -201,6 +205,7 @@ class TransferHarness:
         self.call_worker: PipelineWorker | None = None
         self.audio_probe: RecordedAudioProbe | None = None
         self.speech = SpeechProbe()
+        self.logs = InMemoryLogsBuffer(workflow_run_id=1)
         self.destination_llm: MockLLMService | None = None
         self.destination_tts: MockTTSService | None = None
         self.built_destinations: list[int] = []
@@ -255,9 +260,11 @@ class TransferHarness:
             workflow_run_id=1,
         )
 
-        aggregators = LLMContextAggregatorPair(
+        user, assistant = LLMContextAggregatorPair(
             context,
+            realtime_service_mode=False,
             user_params=LLMUserAggregatorParams(
+                should_interrupt=self.engine.should_interrupt_user_turn,
                 user_mute_strategies=[
                     CallbackUserMuteStrategy(
                         should_mute_callback=self.engine.should_mute_user
@@ -265,6 +272,8 @@ class TransferHarness:
                 ],
             ),
         )
+
+        self.engine.greeting.bind(user)
 
         generation_segment = [
             AgentBridgeProcessor(
@@ -279,8 +288,8 @@ class TransferHarness:
             self.transport,
             None,
             audio_buffer,
-            aggregators.user(),
-            aggregators.assistant(),
+            user,
+            assistant,
             None,
             generation_segment,
             metrics_aggregator,
@@ -307,6 +316,13 @@ class TransferHarness:
             )
         )
         self.speech.watch(self.call_worker, "call")
+        feedback = RealtimeFeedbackObserver(
+            ws_sender=AsyncMock(),
+            logs_buffer=self.logs,
+            selected_visit=lambda: self.engine.selected_visit_id,
+        )
+        self.call_worker.add_observer(feedback)
+        self.engine.greeting.log_generated_speech = feedback.log_speech
 
         factory = AgentRuntimeFactory(
             organization_id=1,
@@ -319,6 +335,7 @@ class TransferHarness:
                 ),
                 llm_text_frame=self.engine.create_llm_text_frame_callback(visit_id),
             ),
+            observers=[feedback],
         )
 
         # Building a destination in a test resolves no workflow row; it wires
@@ -474,6 +491,23 @@ async def test_transfer_hands_the_call_over_without_dropping_it():
         spoken = harness.speech.lines
         assert ("source", "Let me put you through to billing.") in spoken
         assert ("destination", "Billing here, how can I help?") in spoken
+        assert [
+            event["payload"]["text"]
+            for event in harness.logs.get_events()
+            if event["type"] == "rtf-bot-text"
+        ].count("Let me put you through to billing.") == 1
+
+        # Retiring the source must not clean up the shared feedback observer
+        # out from under the destination.
+        speech = await engine.queue_speech("Billing follow-up.")
+        assert await speech.wait()
+        await engine.active_agent.worker.wait_for_observers()
+        await harness.call_worker.wait_for_observers()
+        assert [
+            event["payload"]["text"]
+            for event in harness.logs.get_events()
+            if event["type"] == "rtf-bot-text"
+        ].count("Billing follow-up.") == 1
 
         # Caller audio kept reaching the recorder's position across the
         # handoff. It is excluded from the bus precisely so that consuming
@@ -1120,7 +1154,7 @@ async def test_destination_version_follows_the_call(use_draft, draft, expected_i
 
 @pytest.mark.asyncio
 async def test_inactive_source_output_is_dropped_but_usage_is_collected():
-    from pipecat.metrics.metrics import TTSUsageMetricsData
+    from pipecat.metrics.metrics import TTFBMetricsData, TTSUsageMetricsData
 
     harness = TransferHarness()
     await harness.build(
@@ -1152,14 +1186,41 @@ async def test_inactive_source_output_is_dropped_but_usage_is_collected():
         # A provider may finish producing after deactivation. The candidate is
         # also active now, but neither the call nor the other child may hear A.
         await source.llm.push_frame(TTSAudioRawFrame(b"\0" * 640, 16000, 1))
+        for runtime in (source, destination):
+            await runtime.llm.push_frame(
+                TTSSpeakFrame("Unselected speech.", persist_to_logs=True)
+            )
+            await runtime.llm.push_error(f"Error from {runtime.visit_id}")
         await source.llm.push_frame(
-            MetricsFrame([TTSUsageMetricsData(processor="retiring-source", value=17)])
+            MetricsFrame(
+                [
+                    TTSUsageMetricsData(processor="retiring-source", value=17),
+                    TTFBMetricsData(processor="retiring-LLM", value=0.123),
+                ]
+            )
         )
         await asyncio.wait_for(usage_seen.wait(), 2)
         assert audio == []
         async with asyncio.timeout(2):
             while harness.metrics_frames == 0:
                 await asyncio.sleep(0.001)
+        await source.worker.wait_for_observers()
+        await destination.worker.wait_for_observers()
+        await harness.call_worker.wait_for_observers()
+        events = harness.logs.get_events()
+        assert not any(event["type"] == "rtf-bot-text" for event in events)
+        assert sorted(
+            event["payload"]["error"]
+            for event in events
+            if event["type"] == "rtf-pipeline-error"
+        ) == sorted(
+            [f"Error from {source.visit_id}", f"Error from {destination.visit_id}"]
+        )
+        # The same metrics frame is observed inside the agent and on the call.
+        assert (
+            sum(event["payload"].get("processor") == "retiring-LLM" for event in events)
+            == 1
+        )
     finally:
         await engine.end_call_with_reason("user_hangup", abort_immediately=True)
         await harness.stop()

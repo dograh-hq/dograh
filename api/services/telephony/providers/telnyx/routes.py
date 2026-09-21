@@ -109,9 +109,18 @@ async def handle_telnyx_events(
         f"(event_type={event_type})"
     )
 
-    # Skip streaming events. They are informational only, but still verified.
-    if event_type in ("streaming.started", "streaming.stopped"):
-        logger.debug(f"[run {workflow_run_id}] Telnyx streaming event: {event_type}")
+    # Skip informational events. Streaming and recording lifecycle events
+    # carry no status the processor needs, but they are still verified above
+    # so unsigned callers learn nothing from them.
+    if event_type in (
+        "streaming.started",
+        "streaming.stopped",
+        "call.recording.started",
+        "call.recording.saved",
+    ):
+        logger.debug(
+            f"[run {workflow_run_id}] Telnyx informational event: {event_type}"
+        )
         return {"status": "success"}
 
     # Parse the callback data into generic format

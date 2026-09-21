@@ -13,12 +13,12 @@ from api.services.telephony.providers.telnyx.provider import TelnyxProvider
 from api.services.telephony.providers.telnyx.routes import handle_telnyx_events
 
 
-def _body() -> str:
+def _event_body(event_type: str) -> str:
     return json.dumps(
         {
             "data": {
                 "record_type": "event",
-                "event_type": "call.initiated",
+                "event_type": event_type,
                 "payload": {
                     "call_control_id": "call-control-id",
                     "connection_id": "connection-id",
@@ -30,6 +30,10 @@ def _body() -> str:
         },
         separators=(",", ":"),
     )
+
+
+def _body() -> str:
+    return _event_body("call.initiated")
 
 
 def _provider(public_key: str = "") -> TelnyxProvider:
@@ -361,3 +365,47 @@ async def test_telnyx_events_route_rejects_invalid_utf8_body_with_400():
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Webhook body is not valid UTF-8"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "streaming.started",
+        "streaming.stopped",
+        "call.recording.started",
+        "call.recording.saved",
+    ],
+)
+async def test_telnyx_events_route_skips_informational_events_after_verification(
+    event_type,
+):
+    body = _event_body(event_type)
+    public_key, headers = _signed_headers(body)
+    provider = _provider(public_key)
+
+    with (
+        patch("api.services.telephony.providers.telnyx.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.telnyx.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.telnyx.routes._process_status_update",
+            new_callable=AsyncMock,
+        ) as process_status,
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+
+        result = await handle_telnyx_events(
+            _request(body, headers), workflow_run_id=123
+        )
+
+    assert result == {"status": "success"}
+    process_status.assert_not_awaited()

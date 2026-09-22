@@ -117,7 +117,7 @@ async def test_hello_produces_exactly_one_opening(
         audio_buffer=Passthrough(),
         user_context_aggregator=aggregators.user(),
         assistant_context_aggregator=aggregators.assistant(),
-        call_duration_processor=Passthrough(),
+        call_monitor_processor=Passthrough(),
         generation_stage=[llm, tts],
         pipeline_metrics_aggregator=Passthrough(),
         termination_funnel=Passthrough(),

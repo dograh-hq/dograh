@@ -749,6 +749,7 @@ async def execute_text_chat_pending_turn(
             target_node_id,
             emit_transition_event=current_node_id is None,
         )
+        engine.call_monitor.activate()
 
         opening_marker = capture_processor.activity_count
         opening_expects_llm = pending_user_message is None and (
@@ -778,6 +779,7 @@ async def execute_text_chat_pending_turn(
             context.add_message({"role": "user", "content": pending_user_message})
             generation_marker = capture_processor.activity_count
             response_window.note_direct_context_request()
+            engine.expect_response()
             await llm.queue_frame(LLMContextFrame(context))
             await _wait_for_quiescence(
                 capture_processor=capture_processor,

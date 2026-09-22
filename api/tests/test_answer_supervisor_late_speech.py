@@ -206,17 +206,17 @@ async def late_call(
             processed_transcripts.append(frame)
 
     idle_events = []
-    idle_handler = engine.create_user_idle_handler()
+    engine.call_monitor.bind_user(user, idle_timeout=idle_timeout)
 
     @user.event_handler("on_user_turn_started")
     async def user_started(_aggregator, strategy):
         user_starts.append(strategy)
-        idle_handler.reset()
 
-    @user.event_handler("on_user_turn_idle")
-    async def user_idle(aggregator):
+    async def user_idle(attempt):
         idle_events.append(asyncio.get_running_loop().time())
-        await idle_handler.handle_idle(aggregator)
+        await engine._on_user_idle(attempt)
+
+    engine.call_monitor._on_user_idle = user_idle
 
     if supervised:
         engine.set_answer_supervisor(supervisor, user, idle_timeout)
@@ -233,6 +233,7 @@ async def late_call(
                 *([supervisor] if supervised else []),
                 user,
                 *([supervisor.llm_gate()] if supervised else []),
+                engine.call_monitor,
                 bridge,
                 output,
                 assistant,
@@ -276,6 +277,7 @@ async def late_call(
             supervisor.arm()
             action = asyncio.create_task(engine.handle_answer_supervision())
         else:
+            engine.call_monitor.activate()
             action = asyncio.create_task(
                 engine.queue_node_opening(
                     node_id=workflow.start_node_id,

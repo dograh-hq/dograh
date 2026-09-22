@@ -19,7 +19,6 @@ from pipecat.frames.frames import (
     EndFrame,
     FunctionCallResultProperties,
     SpeechBoundaryFrame,
-    UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -36,6 +35,7 @@ from api.errors.failure import (
 )
 from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.pipecat.audio_playback import play_audio
+from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.greeting import GreetingController
 from api.services.pipecat.speech_playback import (
     PlaybackOutcome,
@@ -200,7 +200,7 @@ class PipecatEngine:
         self._call_disposed = False
         self._shutdown_task: asyncio.Task | None = None
         self._gathered_context: dict = {}
-        self._user_response_timeout_task: Optional[asyncio.Task] = None
+        self._response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
         # True once terminal call disposal has run its synchronous extraction.
         # Recoverable operations such as a failed transfer use a repeatable
@@ -221,9 +221,18 @@ class PipecatEngine:
         self._mute_pipeline: bool = False
         self.answer_supervisor = None
         self._answer_user_aggregator = None
-        self._answer_idle_timeout = 0
 
         self.speech_playback = SpeechPlaybackTracker()
+        self.call_monitor = CallMonitorProcessor(
+            response_source=lambda: (
+                None if self.transfer_in_progress else self.active_agent.llm
+            ),
+            on_response_timeout=self._on_response_timeout,
+            on_user_idle=self._on_user_idle,
+            conversation_enabled=self._conversation_enabled,
+            max_duration_end_task_callback=self.create_max_duration_callback(),
+        )
+        self.speech_playback.add_observer(self.call_monitor)
         self.greeting = GreetingController(self.speech_playback, lambda: self.context)
 
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
@@ -261,8 +270,8 @@ class PipecatEngine:
         # Recording audio fetcher (set via set_fetch_recording_audio from _run_pipeline)
         self._fetch_recording_audio = None
 
-        # True when the workflow has active recordings; enables recording
-        # response mode instructions on all nodes for in-context learning.
+        # Organization-level availability; each formatted node prompt decides
+        # whether to enable recording response instructions and routing.
         self._has_recordings: bool = has_recordings
 
         # Background context summarization on node transitions
@@ -817,9 +826,13 @@ class PipecatEngine:
             node=node, custom_tool_manager=manager
         )
         agent.tools = ToolsSchema(standard_tools=functions)
-        agent.system_prompt = prompt
+        agent.system_prompt = prompt.text
+        if agent.recording_router is not None:
+            agent.recording_router.set_enabled(prompt.recording_enabled)
         if apply_settings:
-            await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
+            await agent.llm._update_settings(
+                LLMSettings(system_instruction=prompt.text)
+            )
 
     async def _setup_llm_context(self, node: Node) -> None:
         agent = self.active_agent
@@ -918,19 +931,10 @@ class PipecatEngine:
     def set_answer_supervisor(self, supervisor, user_aggregator, idle_timeout: float):
         self.answer_supervisor = supervisor
         self._answer_user_aggregator = user_aggregator
-        self._answer_idle_timeout = idle_timeout
+        self.call_monitor.bind_user(user_aggregator, idle_timeout=idle_timeout)
 
     async def handle_answer_supervision(self):
-        async def update_idle_timeout(timeout):
-            await self._answer_user_aggregator.queue_frame(
-                UserIdleTimeoutUpdateFrame(
-                    timeout=self._answer_idle_timeout if timeout is None else timeout,
-                )
-            )
-
-        await handle_answer(
-            self, self.answer_supervisor, update_idle_timeout=update_idle_timeout
-        )
+        await handle_answer(self, self.answer_supervisor)
 
     def get_node_greeting(self, node_id: str) -> Optional[tuple[str, Optional[str]]]:
         """Return the greeting info for a node, or None if not configured.
@@ -1104,6 +1108,7 @@ class PipecatEngine:
                 else None
             )
             try:
+                self.expect_response()
                 await agent.run_llm(opening_context or self.context)
             except BaseException:
                 if speech:
@@ -1561,12 +1566,10 @@ class PipecatEngine:
         await self._answer_user_aggregator.broadcast_interruption()
         return await self.drain_call_pipeline()
 
-    def create_user_idle_handler(self):
-        """
-        Returns a UserIdleHandler that manages user-idle timeouts with state.
-        The handler tracks retry count and handles escalating prompts.
-        """
-        return engine_callbacks.create_user_idle_handler(self)
+    async def _on_user_idle(self, attempt: int) -> None:
+        await engine_callbacks.handle_user_idle(
+            self, self.call_monitor.user_aggregator, attempt
+        )
 
     def create_max_duration_callback(self):
         """
@@ -1786,6 +1789,7 @@ class PipecatEngine:
         once the worker has started, which is why this confirms rather than
         assuming the message was enough.
         """
+        self._bind_call_monitor(runtime)
         if not runtime.is_child or self._call_worker is None:
             return True
 
@@ -1809,6 +1813,7 @@ class PipecatEngine:
         while recognition, recording and the call timer carry on. Reversible --
         a rolled-back handoff activates the same worker again.
         """
+        self.call_monitor.cancel()
         if not runtime.is_child or self._call_worker is None:
             return
         self._agent_on_hold = True
@@ -1907,6 +1912,53 @@ class PipecatEngine:
         """
         self._transport_output = transport_output
         self.speech_playback.bind_output(transport_output)
+        self._bind_call_monitor(self.active_agent)
+
+    def _conversation_enabled(self) -> bool:
+        return self.agent_can_act(self.active_agent) and not self.transfer_in_progress
+
+    def _response_watch_enabled(self, runtime: AgentRuntime) -> bool:
+        from api.services.workflow.agent_transfer import TransferPhase
+
+        coordinator = self._transfer_coordinator
+        return self.agent_can_act(runtime) and (
+            not self.transfer_in_progress or coordinator.phase is TransferPhase.OPENING
+        )
+
+    def _bind_call_monitor(self, runtime: AgentRuntime) -> None:
+        self.speech_playback.observe_responses(runtime.llm)
+        self.call_monitor.bind_source(
+            runtime.llm, enabled=lambda: self._response_watch_enabled(runtime)
+        )
+
+    def expect_response(self) -> None:
+        """Declare an explicit response request before dispatch to the agent."""
+        self.call_monitor.expect_response(self.active_agent.llm)
+
+    def _on_response_timeout(self, source) -> None:
+        """Own failure recovery outside the stalled generation worker."""
+
+        async def end_unresponsive_call():
+            # An interruption or handoff can win the race with this task.
+            if (
+                source is not self.active_agent.llm
+                or not self._response_watch_enabled(self.active_agent)
+                or not self.call_monitor.response_timed_out(source)
+            ):
+                return
+            logger.error(
+                f"Response watchdog expired for visit {self.active_agent.visit_id}; "
+                "ending the call after response audio stopped making progress"
+            )
+            # Provider retries already had the response budget. Replaying an
+            # arbitrary workflow turn could duplicate a tool's side effects.
+            await self.end_call_with_reason(
+                EndTaskReason.PIPELINE_ERROR.value, abort_immediately=True
+            )
+
+        self._response_timeout_task = asyncio.create_task(
+            end_unresponsive_call(), name="call-response-timeout"
+        )
 
     def set_fetch_recording_audio(self, fetch_fn) -> None:
         """Set the recording audio fetcher callback."""
@@ -2029,11 +2081,8 @@ class PipecatEngine:
         """
         self.speech_playback.cancel_all()
         # Cancel any pending timeout tasks
-        if (
-            self._user_response_timeout_task
-            and not self._user_response_timeout_task.done()
-        ):
-            self._user_response_timeout_task.cancel()
+        if self._response_timeout_task and not self._response_timeout_task.done():
+            self._response_timeout_task.cancel()
 
         # Cancel any in-flight background summarization.
         if self._context_summarization_manager:

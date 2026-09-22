@@ -37,6 +37,14 @@ class PlaybackOutcome(Enum):
 class SpeechPlaybackObserver(Protocol):
     """Delivery facts for call-owned consumers; observers supply their own policy."""
 
+    def on_playback_expected(self, speech_id: str) -> None:
+        """An explicit speech request was created, including direct recordings."""
+        ...
+
+    def on_speech_finished(self, speech_id: str, outcome: PlaybackOutcome) -> None:
+        """An explicit speech request resolved, including failure/cancellation."""
+        ...
+
     def on_response_expected(self, source: FrameProcessor) -> None:
         """A caller registered an expectation for the source's next response."""
         ...
@@ -98,6 +106,8 @@ class SpeechPlayback:
         if outcome is PlaybackOutcome.TIMED_OUT:
             logger.warning(f"Speech {self.id} timed out; releasing its wait and mute")
         self._result.set_result(outcome)
+        for observer in self._owner._observers:
+            observer.on_speech_finished(self.id, outcome)
         if self is self._owner.greeting and self._owner.on_greeting_finished:
             self._owner.on_greeting_finished(self)
 
@@ -146,6 +156,8 @@ class SpeechPlaybackTracker:
         self.pending[speech.id] = speech
         if greeting:
             self.greeting = speech
+        for observer in self._observers:
+            observer.on_playback_expected(speech.id)
         return speech
 
     def expect_response(self, *, source=None, **kwargs) -> SpeechPlayback:

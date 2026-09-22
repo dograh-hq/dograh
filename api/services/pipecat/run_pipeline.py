@@ -35,7 +35,6 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentRuntimeFactory,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
-from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -1027,7 +1026,8 @@ async def _run_pipeline_impl(
         should_interrupt=engine.should_interrupt_user_turn,
         user_mute_strategies=user_mute_strategies,
         user_turn_stop_timeout=user_turn_stop_timeout,
-        user_idle_timeout=max_user_idle_timeout,
+        # The call monitor owns idle reminders and response deadlines together.
+        user_idle_timeout=0,
         vad_analyzer=user_vad_analyzer,
     )
     if is_realtime:
@@ -1062,14 +1062,11 @@ async def _run_pipeline_impl(
     worker_runner = create_worker_runner()
     call_worker_name = f"call-{workflow_run_id}"
 
-    # One call-scoped monitor covers duration and response progress in both shapes.
-    call_monitor_processor = CallMonitorProcessor(
-        response_watchdog=engine.response_watchdog,
-        response_source=lambda: (
-            None if engine.transfer_in_progress else engine.active_agent.llm
-        ),
-        max_call_duration_seconds=max_call_duration_seconds,
-        max_duration_end_task_callback=engine.create_max_duration_callback(),
+    # One call monitor owns user-idle, response and duration limits in both shapes.
+    call_monitor_processor = engine.call_monitor
+    call_monitor_processor.max_call_duration_seconds = max_call_duration_seconds
+    call_monitor_processor.bind_user(
+        user_context_aggregator, idle_timeout=max_user_idle_timeout
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
@@ -1084,17 +1081,6 @@ async def _run_pipeline_impl(
         engine.set_answer_supervisor(
             answer_supervisor, user_context_aggregator, max_user_idle_timeout
         )
-
-    # Register user idle event handlers
-    user_idle_handler = engine.create_user_idle_handler()
-
-    @user_context_aggregator.event_handler("on_user_turn_idle")
-    async def on_user_turn_idle(aggregator):
-        await user_idle_handler.handle_idle(aggregator)
-
-    @user_context_aggregator.event_handler("on_user_turn_started")
-    async def on_user_turn_started(aggregator, strategy):
-        user_idle_handler.reset()
 
     recording_router = None
 

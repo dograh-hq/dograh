@@ -14,7 +14,7 @@ The invariants worth protecting are the ones a unit test cannot see:
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from pipecat.frames.frames import (
@@ -46,7 +46,6 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentGenerationCallbacks,
     AgentRuntimeFactory,
 )
-from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import build_pipeline
 from api.services.pipecat.pipeline_metrics_aggregator import (
@@ -285,21 +284,14 @@ class TransferHarness:
                 name=f"{call_worker_name}::AgentBridge",
             ),
         ]
+        self.engine.call_monitor.bind_user(user, idle_timeout=10)
         pipeline = build_pipeline(
             self.transport,
             None,
             audio_buffer,
             user,
             assistant,
-            CallMonitorProcessor(
-                response_watchdog=self.engine.response_watchdog,
-                response_source=lambda: (
-                    None
-                    if self.engine.transfer_in_progress
-                    else self.engine.active_agent.llm
-                ),
-                max_duration_end_task_callback=self.engine.create_max_duration_callback(),
-            ),
+            self.engine.call_monitor,
             generation_segment,
             metrics_aggregator,
             TerminationFunnelProcessor(),
@@ -398,6 +390,7 @@ class TransferHarness:
         )
         await self._await_pipeline_started()
         assert await self.engine.start_initial_agent()
+        self.engine.call_monitor.activate()
         self.speech.watch(self.engine.active_agent.worker, "source")
 
     async def _await_pipeline_started(self, timeout: float = 5.0) -> None:
@@ -632,6 +625,53 @@ async def test_a_destination_that_cannot_be_built_resumes_the_source_agent():
         await harness.stop()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_idle_monitor_resumes_after_transfer_opening_or_recovery(failed):
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=MockLLMService(
+            mock_steps=[
+                MockLLMService.create_function_call_chunks(
+                    "transfer_to_billing", {}, tool_call_id="call_transfer_idle"
+                ),
+                MockLLMService.create_text_chunks("Let me help you here."),
+            ],
+            chunk_delay=0.001,
+        ),
+        destination_llm=MockLLMService(mock_steps=[], chunk_delay=0.001),
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(name="Billing", greeting="Billing."),
+        destination_build_error=(
+            AgentBuildError("destination_not_published", "unavailable")
+            if failed
+            else None
+        ),
+    )
+    await harness.start()
+    monitor = harness.engine.call_monitor
+    monitor.user_idle_timeout = 0.08
+    idle = asyncio.Event()
+
+    async def on_idle(attempt):
+        assert not harness.engine.transfer_in_progress
+        assert not harness.engine.speech_playback.pending
+        assert attempt == 1
+        idle.set()
+        monitor.cancel()
+
+    monitor._on_user_idle = on_idle
+    try:
+        await run_transfer(harness, tool=TransferAgentTool())
+        assert not monitor._suspended
+        await asyncio.wait_for(idle.wait(), 3)
+        assert not harness.engine.is_call_disposed()
+    finally:
+        await harness.stop()
+
+
 @pytest.mark.parametrize(
     "destination, expected_error",
     [
@@ -831,7 +871,7 @@ async def test_a_second_transfer_is_refused_while_one_is_running():
         TransferRequest,
     )
 
-    engine = SimpleNamespace(is_call_disposed=lambda: False)
+    engine = SimpleNamespace(is_call_disposed=lambda: False, call_monitor=Mock())
     coordinator = AgentTransferCoordinator(engine)
 
     first = TransferRequest(

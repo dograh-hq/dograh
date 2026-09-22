@@ -74,9 +74,12 @@ async def cached_synthesis(
         return
 
     audio = bytearray()
-    capture = True
+    token = None
+    capture = False
     limit = cache.policy.audio_limit(request.sample_rate, request.channels)
     try:
+        token = await cache.claim_candidate(request)
+        capture = token is not None
         async with aclosing(source()) as frames:
             async for frame in frames:
                 if isinstance(frame, TTSAudioRawFrame) and capture:
@@ -100,16 +103,23 @@ async def cached_synthesis(
                     # replay contract before an adapter can use this helper.
                     capture = False
                     cache.record(request.provider, "unsupported_frame")
-                if not capture and audio:
-                    cache.release(len(audio))
-                    audio.clear()
+                if not capture:
+                    if audio:
+                        cache.release(len(audio))
+                        audio.clear()
+                    if token is not None:
+                        await cache.release_candidate(request, token)
+                        token = None
                 yield frame
-        if capture and audio and completed():
+        if capture and audio and token is not None and completed():
             await cache.put(
                 request,
                 CachedSpeech(bytes(audio), request.sample_rate, request.channels),
+                token=token,
             )
-        else:
+        elif token is not None:
             cache.record(request.provider, "incomplete")
     finally:
         cache.release(len(audio))
+        if token is not None:
+            await cache.release_candidate(request, token)

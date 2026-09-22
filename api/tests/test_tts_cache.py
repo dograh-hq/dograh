@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import itertools
 import os
 import uuid
 from dataclasses import replace
@@ -68,37 +69,46 @@ def request_for(**overrides):
 
 
 class MemoryBackend:
-    """Test double with the production LRU admission behavior.
-
-    ``entries`` is ordered by last access so the first key is the LRU victim,
-    mirroring the index sorted set the Redis backend keeps.
-    """
+    """Small selection double; capacity, expiry and races use real Redis below."""
 
     def __init__(self):
         self.entries = {}
+        self.candidates = {}
+        self.reservations = {}
         self.reads = 0
-        self.evicted = []
 
     async def get(self, request, max_bytes, ttl_seconds):
         self.reads += 1
         key = (request.organization_id, request.digest)
         value = self.entries.get(key)
-        if value is not None:
-            self.entries[key] = self.entries.pop(key)  # refresh recency
         return value
 
-    async def put(self, request, value, policy):
+    async def claim_candidate(self, request, token, policy):
         key = (request.organization_id, request.digest)
-        if key in self.entries:
-            self.entries[key] = self.entries.pop(key)
+        pending = self.reservations.setdefault(key, set())
+        if key in self.entries or len(self.candidates.get(key, [])) + len(pending) >= 3:
             return False, 0
-        evicted = 0
-        while len(self.entries) >= policy.max_entries_per_org:
-            self.evicted.append(next(iter(self.entries)))
-            del self.entries[self.evicted[-1]]
-            evicted += 1
-        self.entries[key] = value
-        return True, evicted
+        pending.add(token)
+        return True, 0
+
+    async def release_candidate(self, request, token):
+        key = (request.organization_id, request.digest)
+        self.reservations.get(key, set()).discard(token)
+
+    async def put(self, request, value, policy, *, token):
+        key = (request.organization_id, request.digest)
+        pending = self.reservations.get(key, set())
+        if key in self.entries or token not in pending:
+            return 0, 0
+        pending.remove(token)
+        pool = self.candidates.setdefault(key, [])
+        speech = CachedSpeech.decode(value, request, policy)
+        pool.append((len(speech.audio), value))
+        count = len(pool)
+        if count == 3:
+            self.entries[key] = sorted(pool, key=lambda item: item[0])[1][1]
+            del self.candidates[key]
+        return count, 0
 
     async def close(self):
         pass
@@ -116,6 +126,32 @@ def cache():
     return SpeechCache(MemoryBackend(), CachePolicy())
 
 
+async def collect_candidate(cache, request, speech):
+    token = await cache.claim_candidate(request)
+    if token is not None:
+        try:
+            await cache.put(request, speech, token=token)
+        finally:
+            await cache.release_candidate(request, token)
+
+
+async def submit_to_backend(backend, request, value, policy):
+    token = uuid.uuid4().hex
+    claimed, evicted = await backend.claim_candidate(request, token, policy)
+    if not claimed:
+        return 0, evicted
+    try:
+        count, _ = await backend.put(request, value, policy, token=token)
+        return count, evicted
+    finally:
+        await backend.release_candidate(request, token)
+
+
+async def warm_cache(cache, request, speech):
+    for _ in range(3):
+        await collect_candidate(cache, request, speech)
+
+
 @pytest.mark.parametrize(
     "changed",
     [
@@ -129,7 +165,7 @@ def cache():
     ],
 )
 async def test_account_and_adapter_identity_isolates_cache(cache, changed):
-    await cache.put(request_for(), CachedSpeech(PCM, 16000))
+    await warm_cache(cache, request_for(), CachedSpeech(PCM, 16000))
     assert await cache.get(request_for(**changed)) is None
 
 
@@ -155,7 +191,7 @@ async def test_every_effective_payload_field_affects_identity(cache, field, valu
         "voice_setting": {"voice_id": "voice", "speed": 1.0},
         "audio_setting": {"format": "pcm", "sample_rate": 16000, "channel": 1},
     }
-    await cache.put(request_for(payload=payload), CachedSpeech(PCM, 16000))
+    await warm_cache(cache, request_for(payload=payload), CachedSpeech(PCM, 16000))
     changed = copy.deepcopy(payload)
     changed[field] = value
     assert await cache.get(request_for(payload=changed)) is None
@@ -163,7 +199,7 @@ async def test_every_effective_payload_field_affects_identity(cache, field, valu
 
 async def test_corruption_and_format_mismatch_are_misses(cache):
     req = request_for()
-    await cache.put(req, CachedSpeech(PCM, 16000))
+    await warm_cache(cache, req, CachedSpeech(PCM, 16000))
     key = (req.organization_id, req.digest)
     value = cache.backend.entries[key]
     for broken in (b"", b"xxxx", value[:-1], value[:-1] + b"x"):
@@ -214,9 +250,10 @@ async def test_replay_is_new_frames_with_current_context_and_no_provider_call(ca
         calls.append(True)
         yield TTSAudioRawFrame(PCM, 16000, 1, context_id="old")
 
-    cold = [f async for f in synthesize(cache, source)]
+    for _ in range(3):
+        cold = [f async for f in synthesize(cache, source)]
     warm = [f async for f in synthesize(cache, source, context_id="new")]
-    assert len(calls) == 1
+    assert len(calls) == 3
     assert b"".join(f.audio for f in warm) == PCM
     assert all(f.context_id == "new" and f.id != cold[0].id for f in warm)
     assert cache.capture_bytes == 0
@@ -278,6 +315,7 @@ async def test_partial_results_are_not_published_and_capture_is_released(cache, 
     else:
         _ = [f async for f in stream]
     assert not cache.backend.entries
+    assert not cache.backend.candidates
     assert cache.capture_bytes == 0
     assert closed == [True]
 
@@ -297,7 +335,7 @@ async def test_worker_capture_budget_does_not_stop_live_audio(cache):
 
 
 async def test_interrupted_replay_keeps_complete_entry(cache):
-    await cache.put(request_for(), CachedSpeech(PCM, 16000))
+    await warm_cache(cache, request_for(), CachedSpeech(PCM, 16000))
 
     async def source():
         pytest.fail("A cache hit must not invoke the provider")
@@ -311,7 +349,7 @@ async def test_interrupted_replay_keeps_complete_entry(cache):
 
 
 async def test_storage_failure_does_not_disrupt_live_audio(cache):
-    async def failed_write(*args):
+    async def failed_write(*args, **kwargs):
         raise ConnectionError("Redis unavailable")
 
     async def source():
@@ -355,24 +393,186 @@ async def redis_backend():
         await backend.close()
 
 
+@pytest.mark.parametrize("order", list(itertools.permutations(range(3))))
+async def test_fourth_request_replays_median_full_duration_across_workers(
+    redis_backend, order
+):
+    # The padded take has the shortest active audio but the longest full audio.
+    # Removing its silence would select a different winner.
+    takes = [PCM * 2, b"\0" * len(PCM) * 2 + PCM + b"\0" * len(PCM) * 2, PCM * 4]
+    calls = []
+    policy = CachePolicy(operation_timeout_seconds=1)
+
+    async def source():
+        take = takes[order[len(calls)]]
+        calls.append(True)
+        yield TTSAudioRawFrame(take, 16000, 1)
+
+    for number in range(4):
+        # Each request has independent worker state and shares only Redis.
+        cache = SpeechCache(redis_backend, policy)
+        frames = [f async for f in synthesize(cache, source, context_id=str(number))]
+        expected = takes[order[number]] if number < 3 else takes[2]
+        assert b"".join(f.audio for f in frames) == expected
+        if number == 3:
+            assert all(f.context_id == "3" for f in frames)
+        assert cache.capture_bytes == 0
+        if number < 2:
+            assert await redis_backend.list_entries(1, 10) == []
+            assert await cache.get(request_for()) is None
+
+    assert len(calls) == 3
+    (entry,) = await redis_backend.list_entries(1, 10)
+    assert entry["duration_seconds"] == pytest.approx(len(takes[2]) / 32000)
+    assert entry["candidate_duration_seconds"] == pytest.approx(
+        [len(takes[i]) / 32000 for i in order]
+    )
+    assert entry["selected_candidate"] == order.index(2) + 1
+    assert entry["selection_policy"] == "reserved_median_duration_v1"
+    assert entry["hit_count"] == 1
+    assert not await redis_backend.client.exists(
+        f"{redis_backend._key(request_for())}:candidates"
+    )
+
+
+async def test_concurrent_candidates_promote_once_and_late_writers_do_not_replace(
+    redis_backend,
+):
+    req = request_for()
+    policy = CachePolicy()
+    values = [CachedSpeech(PCM * n, 16000).encode() for n in (8, 2, 5, 1, 9, 3)]
+    results = await asyncio.gather(
+        *(submit_to_backend(redis_backend, req, value, policy) for value in values)
+    )
+    accepted = {count: value for value, (count, _) in zip(values, results) if count}
+    assert sorted(count for count, _ in results) == [0, 0, 0, 1, 2, 3]
+    expected = sorted(accepted.values(), key=len)[1]
+    key = redis_backend._key(req)
+    assert await redis_backend.client.get(key) == expected
+    assert await redis_backend.client.zcard(redis_backend._index(1)) == 1
+    assert not await redis_backend.client.exists(f"{key}:candidates")
+    expiry = await redis_backend.client.pexpiretime(key)
+    before = await redis_backend.client.hgetall(f"{key}:meta")
+    assert await submit_to_backend(redis_backend, req, values[-1], policy) == (0, 0)
+    assert await redis_backend.client.pexpiretime(key) == expiry
+    assert await redis_backend.client.hgetall(f"{key}:meta") == before
+
+
+@pytest.mark.parametrize("identical", [False, True])
+async def test_equal_durations_and_identical_independent_generations_count(
+    redis_backend, identical
+):
+    req = request_for()
+    values = [
+        CachedSpeech(
+            (b"\x01\x00" if identical else bytes([n, 0])) * 256, 16000
+        ).encode()
+        for n in (1, 2, 3)
+    ]
+    for count, value in enumerate(values, 1):
+        assert await submit_to_backend(redis_backend, req, value, CachePolicy()) == (
+            count,
+            0,
+        )
+    # Arrival order breaks ties deterministically; no PCM-based deduplication.
+    assert await redis_backend.client.get(redis_backend._key(req)) == values[1]
+
+
+@pytest.mark.parametrize("mode", ["error", "incomplete", "cancel", "exception"])
+async def test_failed_synthesis_does_not_advance_existing_pool(redis_backend, mode):
+    cache = SpeechCache(redis_backend, CachePolicy(operation_timeout_seconds=1))
+    req = request_for()
+    await collect_candidate(cache, req, CachedSpeech(PCM, 16000))
+    pool = f"{redis_backend._key(req)}:candidates"
+    before = await redis_backend.client.lrange(pool, 0, -1)
+
+    async def source():
+        yield TTSAudioRawFrame(PCM, 16000, 1)
+        if mode == "error":
+            yield ErrorFrame("late failure")
+        elif mode == "exception":
+            raise RuntimeError("provider failure")
+
+    stream = synthesize(cache, source, completed=lambda: mode != "incomplete")
+    if mode == "cancel":
+        await anext(stream)
+        await stream.aclose()
+    elif mode == "exception":
+        with pytest.raises(RuntimeError):
+            _ = [f async for f in stream]
+    else:
+        _ = [f async for f in stream]
+    assert await redis_backend.client.lrange(pool, 0, -1) == before
+    assert await cache.get(req) is None
+    assert cache.capture_bytes == 0
+
+
+async def test_warming_pool_expires_without_reads_or_previews_renewing_it(
+    redis_backend,
+):
+    req = request_for()
+    cache = SpeechCache(redis_backend, CachePolicy(operation_timeout_seconds=1))
+    await collect_candidate(cache, req, CachedSpeech(PCM, 16000))
+    pool = f"{redis_backend._key(req)}:candidates"
+    expiry = await redis_backend.client.pexpiretime(pool)
+    assert await cache.get(req) is None
+    assert await redis_backend.list_entries(1, 10) == []
+    assert await redis_backend.preview(1, req.digest, 1049604) is None
+    assert await redis_backend.client.pexpiretime(pool) == expiry
+    assert await redis_backend.client.zcard(redis_backend._index(1)) == 1
+    # Simulate Redis expiry; the next generation starts a fresh pool.
+    await redis_backend.client.pexpire(pool, 0)
+    await collect_candidate(cache, req, CachedSpeech(PCM * 2, 16000))
+    assert await redis_backend.client.llen(pool) == 3
+    assert await cache.get(req) is None
+
+
+async def test_warming_pool_delete_clear_and_capacity_include_candidates(redis_backend):
+    policy = CachePolicy(max_entries_per_org=1, operation_timeout_seconds=1)
+    cache = SpeechCache(redis_backend, policy)
+    a, b = request_for(), replace(request_for(), digest="b" * 64)
+    other = replace(a, organization_id=2)
+    for req in (a, other, b):
+        await collect_candidate(cache, req, CachedSpeech(PCM, 16000))
+    assert not await redis_backend.client.exists(f"{redis_backend._key(a)}:candidates")
+    assert await redis_backend.client.zcard(redis_backend._index(1)) == 1
+    # Finishing the pool at full capacity must not evict its earlier candidates.
+    for _ in range(2):
+        await collect_candidate(cache, b, CachedSpeech(PCM, 16000))
+    assert await cache.get(b) is not None
+    assert await redis_backend.delete_entry(2, a.digest)
+    assert not await redis_backend.client.exists(
+        f"{redis_backend._key(other)}:candidates"
+    )
+    await collect_candidate(cache, other, CachedSpeech(PCM, 16000))
+    assert await cache.invalidate_organization(1) == 1
+    assert await redis_backend.client.exists(f"{redis_backend._key(other)}:candidates")
+    assert await cache.invalidate_organization(2) == 1
+    assert not await redis_backend.client.exists(
+        f"{redis_backend._key(other)}:candidates"
+    )
+
+
 async def test_redis_cap_holds_under_concurrent_admission(redis_backend):
-    """Every writer is admitted now, so the cap is the invariant that must hold."""
+    """Warming pools share the organization capacity with selected entries."""
     policy = CachePolicy(
         ttl_seconds=60, max_entries_per_org=2, operation_timeout_seconds=1
     )
     requests = [replace(request_for(), digest=f"{i:064x}") for i in range(10)]
     results = await asyncio.gather(
         *(
-            redis_backend.put(r, CachedSpeech(PCM, 16000).encode(), policy)
+            submit_to_backend(
+                redis_backend, r, CachedSpeech(PCM, 16000).encode(), policy
+            )
             for r in requests
         )
     )
-    assert sum(stored for stored, _ in results) == 10
+    assert sum(evicted for _, evicted in results) == 8
     index = redis_backend._index(1)
     assert await redis_backend.client.zcard(index) == 2
     live = 0
     for r in requests:
-        live += await redis_backend.client.exists(redis_backend._key(r))
+        live += await redis_backend.client.exists(f"{redis_backend._key(r)}:candidates")
     assert live == 2
 
 
@@ -385,12 +585,12 @@ async def test_redis_evicts_least_recently_used_and_a_read_protects_an_entry(
     cache = SpeechCache(redis_backend, policy)
     a, b, c, d = (replace(request_for(), digest=f"{i:064x}") for i in range(4))
     for r in (a, b, c):
-        await cache.put(r, CachedSpeech(PCM, 16000))
+        await warm_cache(cache, r, CachedSpeech(PCM, 16000))
         await asyncio.sleep(0.01)  # distinct access scores
     # Reading `a` makes `b` the least recently used entry.
     assert await cache.get(a) is not None
     await asyncio.sleep(0.01)
-    await cache.put(d, CachedSpeech(PCM, 16000))
+    await warm_cache(cache, d, CachedSpeech(PCM, 16000))
     assert await cache.get(b) is None
     for survivor in (a, c, d):
         assert await cache.get(survivor) is not None
@@ -402,7 +602,7 @@ async def test_redis_read_extends_entry_lifetime(redis_backend):
     )
     cache = SpeechCache(redis_backend, policy)
     req = request_for()
-    await cache.put(req, CachedSpeech(PCM, 16000))
+    await warm_cache(cache, req, CachedSpeech(PCM, 16000))
     for _ in range(3):
         await asyncio.sleep(1.0)
         assert await cache.get(req) is not None  # each read pushes expiry out
@@ -418,11 +618,11 @@ async def test_redis_prunes_expired_members_without_counting_them_as_evictions(
     )
     cache = SpeechCache(redis_backend, policy)
     a, b, c = (replace(request_for(), digest=f"{i:064x}") for i in range(3))
-    await cache.put(a, CachedSpeech(PCM, 16000))
-    await cache.put(b, CachedSpeech(PCM, 16000))
+    await collect_candidate(cache, a, CachedSpeech(PCM, 16000))
+    await collect_candidate(cache, b, CachedSpeech(PCM, 16000))
     await asyncio.sleep(1.2)
-    stored, evicted = await redis_backend.put(
-        c, CachedSpeech(PCM, 16000).encode(), policy
+    stored, evicted = await submit_to_backend(
+        redis_backend, c, CachedSpeech(PCM, 16000).encode(), policy
     )
     assert stored and evicted == 0
     assert await redis_backend.client.zcard(redis_backend._index(1)) == 1
@@ -434,10 +634,13 @@ async def test_redis_org_invalidation_and_no_overwrite(redis_backend):
     )
     cache = SpeechCache(redis_backend, policy)
     first = request_for()
-    await cache.put(first, CachedSpeech(PCM, 16000))
-    assert await redis_backend.put(first, b"replacement", policy) == (False, 0)
+    await warm_cache(cache, first, CachedSpeech(PCM, 16000))
+    assert await submit_to_backend(redis_backend, first, b"replacement", policy) == (
+        0,
+        0,
+    )
     assert await cache.get(first) == CachedSpeech(PCM, 16000)
-    await cache.put(replace(first, organization_id=2), CachedSpeech(PCM, 16000))
+    await warm_cache(cache, replace(first, organization_id=2), CachedSpeech(PCM, 16000))
     assert await cache.invalidate_organization(1) == 1
     assert await cache.get(first) is None
     assert await cache.get(replace(first, organization_id=2)) is not None
@@ -459,7 +662,7 @@ async def test_redis_corrupt_entry_is_replaced_after_successful_synthesis(
     req = request_for()
     policy = CachePolicy(operation_timeout_seconds=1)
     cache = SpeechCache(redis_backend, policy)
-    await cache.put(req, CachedSpeech(PCM, 16000))
+    await warm_cache(cache, req, CachedSpeech(PCM, 16000))
     key = redis_backend._key(req)
     await redis_backend.client.set(key, broken, ex=60)
     assert await cache.get(req) is None
@@ -469,7 +672,8 @@ async def test_redis_corrupt_entry_is_replaced_after_successful_synthesis(
     async def source():
         yield TTSAudioRawFrame(PCM, 16000, 1)
 
-    assert [frame async for frame in synthesize(cache, source)]
+    for _ in range(3):
+        assert [frame async for frame in synthesize(cache, source)]
     assert await cache.get(req) == CachedSpeech(PCM, 16000)
 
 
@@ -490,8 +694,9 @@ async def test_redis_metadata_follows_eviction_and_invalidation(redis_backend):
     policy = CachePolicy(max_entries_per_org=1)
     first = request_for()
     second = replace(first, digest="a" * 64)
-    await redis_backend.put(first, CachedSpeech(PCM, 16000).encode(), policy)
-    await redis_backend.put(second, CachedSpeech(PCM, 16000).encode(), policy)
+    cache = SpeechCache(redis_backend, policy)
+    await warm_cache(cache, first, CachedSpeech(PCM, 16000))
+    await warm_cache(cache, second, CachedSpeech(PCM, 16000))
     assert not await redis_backend.client.exists(f"{redis_backend._key(first)}:meta")
     assert await redis_backend.invalidate_organization(1) == 1
     assert not await redis_backend.client.exists(f"{redis_backend._key(second)}:meta")
@@ -581,11 +786,11 @@ async def test_minimax_pipeline_mixed_hits_misses_transcripts_and_usage(
     cache, minimax_server
 ):
     url, calls = minimax_server
-    await play(cache, url, ["Hello."])
-    assert len(calls) == 1
+    await play(cache, url, ["Hello."] * 3)
+    assert len(calls) == 3
     # A fresh service instance shares audio across calls, with hit/miss/hit ordering.
     frames, up = await play(cache, url, ["Hello.", "Goodbye.", "Hello."])
-    assert len(calls) == 2
+    assert len(calls) == 4
     assert not [f for f in frames + up if isinstance(f, ErrorFrame)]
     assert (
         b"".join(f.audio for f in frames if isinstance(f, TTSAudioRawFrame)) == PCM * 3
@@ -650,6 +855,8 @@ async def test_two_sentences_in_one_llm_turn_replay_in_order(cache, minimax_serv
         LLMFullResponseEndFrame(),
     ]
     first, _ = await play(cache, url, turn())
+    for _ in range(2):
+        await play(cache, url, turn())
     count = len(calls)
     second, _ = await play(cache, url, turn())
     assert len(calls) == count
@@ -696,14 +903,18 @@ async def test_pipeline_interruption_discards_partial_capture(cache, minimax_ser
     assert cancelled == [True]
     assert not any(isinstance(f, ErrorFrame) for f in down + up)
     assert len(calls) == 1
-    assert len(cache.backend.entries) == 1
+    assert not cache.backend.entries
+    assert len(cache.backend.candidates) == 1
     assert cache.capture_bytes == 0
-    await play(cache, url, ["Hello."])
-    assert len(calls) == 1
+    await play(cache, url, ["Hello."] * 3)
+    assert len(calls) == 3
+    assert len(cache.backend.entries) == 1
 
 
 async def test_runtime_settings_change_cache_identity(cache, minimax_server):
     url, calls = minimax_server
+    await play(cache, url, ["Hello."] * 3)
+    calls.clear()
     down, up = await play(
         cache,
         url,
@@ -716,5 +927,5 @@ async def test_runtime_settings_change_cache_identity(cache, minimax_server):
         ],
     )
     assert not any(isinstance(f, ErrorFrame) for f in down + up)
-    assert [call["voice_setting"]["speed"] for call in calls] == [1.0, 1.25]
+    assert [call["voice_setting"]["speed"] for call in calls] == [1.25]
     assert b"".join(f.audio for f in down if isinstance(f, TTSAudioRawFrame)) == PCM * 3

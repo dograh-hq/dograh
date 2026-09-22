@@ -417,7 +417,19 @@ class CallMonitorProcessor(FrameProcessor):
                 watch.tools.remove(frame.tool_call_id)
                 if not watch.tools:
                     watch.tool_deadline = None
+                    run_llm = frame.run_llm
+                    if (
+                        isinstance(frame, FunctionCallResultFrame)
+                        and frame.properties
+                        and frame.properties.run_llm is not None
+                    ):
+                        run_llm = frame.properties.run_llm
+                    # Normal results still owe a spoken follow-up, even if a
+                    # preamble has drained. Explicitly suppressed follow-ups
+                    # have no future generation-start event to clear this flag.
+                    watch.awaiting_tool_response = run_llm is not False
                     self._renew_deadline(watch)
+                    self._complete_response(watch)
 
     def on_response_expected(self, source: FrameProcessor) -> None:
         self.expect_response(source)

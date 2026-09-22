@@ -573,6 +573,123 @@ async def test_tool_wait_and_followup_remain_bounded(response, continuation, pre
 
 
 @pytest.mark.parametrize("response", [True, False], indirect=True)
+@pytest.mark.parametrize("settlement", ["result", "cancel"])
+@pytest.mark.parametrize("after_playback", [False, True])
+async def test_tool_without_followup_completes_spoken_response(
+    response, settlement, after_playback
+):
+    response.monitor.tool_timeout = 2
+    tool_started = asyncio.Event()
+    finish_tool = asyncio.Event()
+
+    async def lookup(params):
+        tool_started.set()
+        await finish_tool.wait()
+        await params.result_callback(
+            {"ok": True}, properties=FunctionCallResultProperties(run_llm=False)
+        )
+
+    response.llm.register_function("lookup", lookup)
+    response.llm.set_mock_steps(
+        [MockLLMService.create_mixed_chunks("All set.", "lookup", {}, "lookup-1")]
+    )
+    await response.request()
+    await asyncio.wait_for(tool_started.wait(), 1)
+    await asyncio.wait_for(response.output.writing.wait(), 1)
+    if after_playback:
+        await asyncio.wait_for(response.output.stopped.wait(), 1)
+        async with asyncio.timeout(1):
+            while (
+                response.monitor._response_watch.latest_scope
+                not in response.monitor._response_watch.finished_scopes
+            ):
+                await asyncio.sleep(0)
+    if settlement == "cancel":
+        await response.llm._cancel_function_calls_by_tool_call_id("lookup-1")
+    else:
+        finish_tool.set()
+
+    await asyncio.wait_for(response.idle.wait(), 2)
+    await asyncio.sleep(response.monitor.response_timeout + 0.05)
+    assert not response.engine.is_call_disposed()
+    assert not response.monitor.pending_response
+    assert response.llm._current_step == 1
+
+
+@pytest.mark.parametrize("response", [True, False], indirect=True)
+@pytest.mark.parametrize("settlement", ["result", "timeout"])
+async def test_tool_followup_stuck_before_generation_keeps_response_watch(
+    response, settlement
+):
+    response.monitor.tool_timeout = 2
+    tool_started = asyncio.Event()
+    finish_tool = asyncio.Event()
+
+    async def lookup(params):
+        tool_started.set()
+        await finish_tool.wait()
+        await params.result_callback({"ok": True})
+
+    response.llm.register_function("lookup", lookup)
+    response.llm.set_mock_steps(
+        [MockLLMService.create_mixed_chunks("Let me check.", "lookup", {}, "lookup-1")]
+    )
+    await response.request()
+    await asyncio.wait_for(tool_started.wait(), 1)
+    await asyncio.wait_for(response.output.stopped.wait(), 1)
+    response.llm.mode = "before_start"
+    if settlement == "timeout":
+        await response.llm._cancel_function_call_tasks(
+            lambda item: item.tool_call_id == "lookup-1",
+            reason="timeout",
+            run_llm=True,
+        )
+    else:
+        finish_tool.set()
+    await response.assert_aborted()
+    assert not response.idle.is_set()
+
+
+async def test_parallel_tools_without_followups_wait_for_every_result(response):
+    response.monitor.tool_timeout = 2
+    finish_tools = {tool_id: asyncio.Event() for tool_id in ("first", "second")}
+
+    async def lookup(params):
+        await finish_tools[params.tool_call_id].wait()
+        await params.result_callback(
+            {"ok": True}, properties=FunctionCallResultProperties(run_llm=False)
+        )
+
+    response.llm.register_function("lookup", lookup)
+    response.llm.set_mock_steps(
+        [
+            MockLLMService.create_text_chunks("All set.")[:-1]
+            + MockLLMService.create_multiple_function_call_chunks(
+                [
+                    {
+                        "name": "lookup",
+                        "arguments": {},
+                        "tool_call_id": tool_id,
+                    }
+                    for tool_id in finish_tools
+                ]
+            )
+        ]
+    )
+    await response.request()
+    await asyncio.wait_for(response.output.stopped.wait(), 1)
+    finish_tools["first"].set()
+    async with asyncio.timeout(1):
+        while len(response.monitor._response_watch.tools) != 1:
+            await asyncio.sleep(0)
+    await asyncio.sleep(response.monitor.user_idle_timeout + 0.02)
+    assert not response.idle.is_set()
+    finish_tools["second"].set()
+    await asyncio.wait_for(response.idle.wait(), 1)
+    assert not response.engine.is_call_disposed()
+
+
+@pytest.mark.parametrize("response", [True, False], indirect=True)
 @pytest.mark.parametrize("recover", [False, True])
 async def test_pause_inside_response_never_prompts_the_user(response, recover):
     response.monitor.response_timeout = 0.7

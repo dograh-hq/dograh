@@ -61,6 +61,14 @@ local function pool_size()
     end
     return length / 3
 end
+local function refresh_pool_expiry(now, ttl)
+    -- Preserve completed takes until every active contributor has had time to
+    -- finish, even when reservations outlive the normal cache idle TTL.
+    local expires_at = now + ttl
+    local latest = redis.call('ZREVRANGE', KEYS[5], 0, 0, 'WITHSCORES')
+    if latest[2] then expires_at = math.max(expires_at, tonumber(latest[2])) end
+    redis.call('PEXPIREAT', KEYS[4], math.ceil(expires_at * 1000))
+end
 """
 
 _CLAIM = (
@@ -101,7 +109,7 @@ if redis.call('ZCARD', KEYS[1]) > target then return {0, evicted} end
 if count + redis.call('ZCARD', KEYS[5]) >= 3 then return {0, evicted} end
 redis.call('ZADD', KEYS[5], now + lease_seconds, ARGV[1])
 redis.call('EXPIRE', KEYS[5], math.ceil(lease_seconds))
-redis.call('EXPIRE', KEYS[4], ttl)
+refresh_pool_expiry(now, ttl)
 redis.call('ZADD', KEYS[1], now, KEYS[2])
 redis.call('EXPIRE', KEYS[1], math.max(ttl + 1, math.ceil(lease_seconds) + 1,
     redis.call('TTL', KEYS[1])))
@@ -151,8 +159,8 @@ if count == 3 then
     redis.call('DEL', KEYS[4], KEYS[5])
 else
     redis.call('RPUSH', KEYS[4], ARGV[5], ARGV[1], ARGV[3])
-    redis.call('EXPIRE', KEYS[4], ttl)
     redis.call('ZREM', KEYS[5], ARGV[4])
+    refresh_pool_expiry(now, ttl)
 end
 redis.call('ZADD', KEYS[1], now, KEYS[2])
 redis.call('EXPIRE', KEYS[1], math.max(ttl + 1, redis.call('TTL', KEYS[5]) + 1,

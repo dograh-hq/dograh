@@ -237,6 +237,49 @@ async def test_short_cache_ttl_does_not_orphan_longer_lived_reservations(redis_b
     assert await redis_backend.put(req, value, policy, token="slow") == (0, 0)
 
 
+@pytest.mark.parametrize("reserve_all_first", [True, False])
+async def test_completed_candidates_survive_until_other_reservations_finish(
+    redis_backend, reserve_all_first
+):
+    req = request_for()
+    policy = CachePolicy(ttl_seconds=1, reservation_ttl_seconds=10)
+    values = [CachedSpeech(PCM * n, 16000).encode() for n in (2, 1, 3)]
+    key = redis_backend._key(req)
+    pool, leases = f"{key}:candidates", f"{key}:reservations"
+
+    async with asyncio.timeout(8):
+        assert (await redis_backend.claim_candidate(req, "first", policy))[0]
+        if reserve_all_first:
+            for token in ("second", "third"):
+                assert (await redis_backend.claim_candidate(req, token, policy))[0]
+        assert await redis_backend.put(req, values[0], policy, token="first") == (1, 0)
+        if not reserve_all_first:
+            # Later claims must extend an already completed candidate's lifetime.
+            for token in ("second", "third"):
+                assert (await redis_backend.claim_candidate(req, token, policy))[0]
+
+        deadline = await redis_backend.client.zscore(leases, "third")
+        await asyncio.sleep(1.1)
+        assert await redis_backend.client.lindex(pool, 1) == values[0]
+        assert await redis_backend.put(req, values[1], policy, token="second") == (2, 0)
+        # Refreshing the pool on another submission must preserve both recordings.
+        await asyncio.sleep(1.1)
+        assert await redis_backend.client.llen(pool) == 6
+        assert await redis_backend.client.zscore(leases, "third") == deadline
+        assert await redis_backend.put(req, values[2], policy, token="third") == (3, 0)
+
+    # The first completed recording is the median and must still be available.
+    assert await redis_backend.client.get(key) == values[0]
+    (entry,) = await redis_backend.list_entries(1, 10)
+    assert entry["candidate_duration_seconds"] == pytest.approx(
+        [len(PCM) * n / 32000 for n in (2, 1, 3)]
+    )
+    assert entry["selected_candidate"] == 1
+    assert not await redis_backend.client.exists(pool, leases)
+    assert 0 < await redis_backend.client.pttl(key) <= 1000
+    assert 0 < await redis_backend.client.pttl(f"{key}:meta") <= 1000
+
+
 async def test_claim_failure_falls_back_to_live_audio(redis_backend, monkeypatch):
     cache = SpeechCache(redis_backend, CachePolicy(operation_timeout_seconds=0.02))
 

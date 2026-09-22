@@ -17,6 +17,7 @@ class CachePolicy:
     operation_timeout_seconds: float = 0.02
     max_capture_bytes: int = 64 * 1024 * 1024
     failure_cooldown_seconds: float = 1
+    reservation_ttl_seconds: float = 120
 
     def __post_init__(self):
         for value in vars(self).values():

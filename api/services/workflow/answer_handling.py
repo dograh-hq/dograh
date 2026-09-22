@@ -1,7 +1,6 @@
 """Engine actions for the answer supervisor; no pipeline policy in Pipecat."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
@@ -119,14 +118,11 @@ async def _play_opening(
     return result.playback if result is not None else None
 
 
-async def _handle_answer(
-    engine: "PipecatEngine", supervisor, update_idle_timeout
-) -> AnswerAction | None:
+async def _handle_answer(engine: "PipecatEngine", supervisor) -> AnswerAction | None:
     rearms = 0
     opening = None
     speech = None
     screening = False
-    await update_idle_timeout(0)
     try:
         while not engine.is_call_disposed():
             verdict = await supervisor.wait_for_verdict()
@@ -171,10 +167,11 @@ async def _handle_answer(
                     )
                     return
                 supervisor.release()
-                await update_idle_timeout(None)
+                engine.call_monitor.activate(waiting_for_user=True)
                 # A pickup after screening is a new human turn. If an opening
                 # already ran, answer that turn instead of waiting for another.
                 if interrupted or (screening and opening is not None):
+                    engine.expect_response()
                     await engine.active_agent.run_llm(engine.context)
                 return
 
@@ -216,13 +213,9 @@ async def _handle_answer(
 async def handle_answer(
     engine: "PipecatEngine",
     supervisor,
-    *,
-    update_idle_timeout: Callable[[float | None], Awaitable[None]],
 ):
     """Cancel pending inference/playback as soon as the pipeline ends."""
-    actions = asyncio.create_task(
-        _handle_answer(engine, supervisor, update_idle_timeout)
-    )
+    actions = asyncio.create_task(_handle_answer(engine, supervisor))
     disconnected = asyncio.create_task(supervisor.wait_closed())
     cancelled = False
     try:

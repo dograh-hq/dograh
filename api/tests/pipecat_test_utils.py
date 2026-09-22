@@ -55,6 +55,8 @@ async def run_engine_test_pipeline(
             and not ready_state["callback_started"]
         ):
             ready_state["callback_started"] = True
+            if engine.answer_supervisor is None:
+                engine.call_monitor.activate()
             await trigger_test()
 
     @transport.event_handler("on_client_connected")

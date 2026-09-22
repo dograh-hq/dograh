@@ -54,7 +54,10 @@ def request(digit="a", organization_id=1, text="Hello"):
 
 async def seed(api, req, duration=1):
     speech = CachedSpeech(b"\x01\x02" * (16000 * duration), 16000)
-    await api.backend.put(req, speech.encode(), CachePolicy())
+    for _ in range(3):
+        token = uuid.uuid4().hex
+        assert (await api.backend.claim_candidate(req, token, CachePolicy()))[0]
+        await api.backend.put(req, speech.encode(), CachePolicy(), token=token)
     return speech
 
 

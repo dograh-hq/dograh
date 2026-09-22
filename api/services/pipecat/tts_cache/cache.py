@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import uuid
 from typing import Protocol
 
 from loguru import logger
@@ -21,10 +22,23 @@ class CacheBackend(Protocol):
     ) -> bytes | None: ...
 
     async def put(
-        self, request: SynthesisRequest, value: bytes, policy: CachePolicy
-    ) -> tuple[bool, int]:
-        """Return whether the entry was admitted and how many were evicted."""
+        self,
+        request: SynthesisRequest,
+        value: bytes,
+        policy: CachePolicy,
+        *,
+        token: str,
+    ) -> tuple[int, int]:
+        """Return accepted pool size (0 if ignored, 3 if promoted) and evictions."""
         ...
+
+    async def claim_candidate(
+        self, request: SynthesisRequest, token: str, policy: CachePolicy
+    ) -> tuple[bool, int]: ...
+
+    async def release_candidate(
+        self, request: SynthesisRequest, token: str
+    ) -> None: ...
 
     async def invalidate_organization(self, organization_id: int) -> int: ...
 
@@ -97,7 +111,38 @@ class SpeechCache:
         )
         return speech
 
-    async def put(self, request: SynthesisRequest, speech: CachedSpeech) -> None:
+    async def claim_candidate(self, request: SynthesisRequest) -> str | None:
+        """Choose contributors before synthesis, independently of completion speed."""
+        if time.monotonic() < self._unavailable_until:
+            return None
+        token = uuid.uuid4().hex
+        try:
+            async with asyncio.timeout(self.policy.operation_timeout_seconds):
+                claimed, evicted = await self.backend.claim_candidate(
+                    request, token, self.policy
+                )
+        except Exception:  # noqa: BLE001 - A failed claim still permits live audio.
+            self._unavailable_until = (
+                time.monotonic() + self.policy.failure_cooldown_seconds
+            )
+            self.record(request.provider, "claim_error")
+            return None
+        self.record(request.provider, "reserved" if claimed else "not_reserved")
+        if evicted and (runtime := get_runtime()):
+            runtime.tts_cache_evictions.add(evicted, {"provider": request.provider})
+        return token if claimed else None
+
+    async def release_candidate(self, request: SynthesisRequest, token: str) -> None:
+        # Try cleanup even during cooldown. Lost/uncertain claims expire in Redis.
+        try:
+            async with asyncio.timeout(self.policy.operation_timeout_seconds):
+                await self.backend.release_candidate(request, token)
+        except Exception:  # noqa: BLE001 - Cleanup must not stop synthesis.
+            self.record(request.provider, "release_error")
+
+    async def put(
+        self, request: SynthesisRequest, speech: CachedSpeech, *, token: str
+    ) -> None:
         if time.monotonic() < self._unavailable_until:
             return
         started = time.monotonic()
@@ -105,7 +150,12 @@ class SpeechCache:
             speech.validate(request, self.policy)
             value = speech.encode()
             async with asyncio.timeout(self.policy.operation_timeout_seconds):
-                stored, evicted = await self.backend.put(request, value, self.policy)
+                count, evicted = await self.backend.put(
+                    request, value, self.policy, token=token
+                )
+            result = {0: "not_admitted", 1: "candidate", 2: "candidate", 3: "stored"}[
+                count
+            ]
         except Exception:  # noqa: BLE001 - Cache availability must not stop a call.
             self._unavailable_until = (
                 time.monotonic() + self.policy.failure_cooldown_seconds
@@ -116,7 +166,7 @@ class SpeechCache:
             return
         self.record(
             request.provider,
-            "stored" if stored else "not_admitted",
+            result,
             seconds=time.monotonic() - started,
         )
         if runtime := get_runtime():
@@ -125,7 +175,7 @@ class SpeechCache:
                 # A sustained eviction rate means the working set no longer fits
                 # and the provider is being called for entries the cache held.
                 runtime.tts_cache_evictions.add(evicted, attrs)
-            if stored:
+            if count:
                 runtime.tts_cache_audio_bytes.record(len(speech.audio), attrs)
 
     def reserve(self, count: int) -> bool:

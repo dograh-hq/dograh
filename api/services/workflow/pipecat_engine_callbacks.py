@@ -28,52 +28,21 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-class UserIdleHandler:
-    """Helper class to manage user idle retry logic with state."""
-
-    def __init__(self, engine: "PipecatEngine"):
-        self._engine = engine
-        self._retry_count = 0
-
-    def reset(self):
-        """Reset the retry count when user becomes active."""
-        self._retry_count = 0
-
-    async def handle_idle(self, aggregator):
-        """Handle user idle event with escalating prompts."""
-        supervisor = getattr(self._engine, "answer_supervisor", None)
-        if supervisor is not None and supervisor.blocks_workflow:
-            return
-        if getattr(self._engine, "transfer_in_progress", False):
-            # The caller is listening to a hold ringer while the next agent is
-            # prepared. Prompting them to speak, and eventually hanging up on
-            # them for not speaking, is exactly wrong here.
-            logger.debug("Suppressing user-idle prompt during an agent handoff")
-            return
-        self._retry_count += 1
-        logger.debug(f"Handling user_idle, attempt: {self._retry_count}")
-
-        if self._retry_count == 1:
-            message = {
-                "role": "user",
-                "content": "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far.",
-            }
-            await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-            return
-
-        message = {
-            "role": "user",
-            "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
-        }
-        await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-        await self._engine.end_call_with_reason(
+async def handle_user_idle(engine: "PipecatEngine", aggregator, attempt: int) -> None:
+    """Execute the monitor's idle decision; timing and retry state live there."""
+    logger.debug(f"Handling user_idle, attempt: {attempt}")
+    content = (
+        "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far."
+        if attempt == 1
+        else "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far."
+    )
+    await aggregator.push_frame(
+        LLMMessagesAppendFrame([{"role": "user", "content": content}], run_llm=True)
+    )
+    if attempt > 1:
+        await engine.end_call_with_reason(
             EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
         )
-
-
-def create_user_idle_handler(engine: "PipecatEngine") -> UserIdleHandler:
-    """Return a UserIdleHandler that manages user-idle timeouts with state."""
-    return UserIdleHandler(engine)
 
 
 # ---------------------------------------------------------------------------

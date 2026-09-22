@@ -136,15 +136,14 @@ async def test_answer_decision_is_saved_in_gathered_context_without_rtf_events(
     )
     engine = SimpleNamespace(
         _gathered_context={},
+        call_monitor=Mock(),
         is_call_disposed=lambda: False,
         set_call_disposition=Mock(),
         end_call_with_reason=AsyncMock(),
     )
     try:
         await supervisor._classify_turn("Please leave a message after the tone.", 0)
-        await asyncio.wait_for(
-            handle_answer(engine, supervisor, update_idle_timeout=AsyncMock()), 1
-        )
+        await asyncio.wait_for(handle_answer(engine, supervisor), 1)
     finally:
         await supervisor.close()
 

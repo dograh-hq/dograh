@@ -77,6 +77,7 @@ class AgentTransferCoordinator:
             return False
         self._request = request
         self._phase = TransferPhase.ANNOUNCING
+        self._engine.call_monitor.suspend()
         return True
 
     def start(self, request, *, context_ready=None):
@@ -179,6 +180,7 @@ class AgentTransferCoordinator:
             engine.commit_agent(destination, snapshot)
             committed = True
             self._phase = TransferPhase.OPENING
+            engine.call_monitor.resume()
             await engine.notify_agent_entered(destination)
             await engine.queue_node_opening(
                 node_id=destination.workflow.start_node_id,
@@ -227,6 +229,7 @@ class AgentTransferCoordinator:
                 )
 
         if not committed and engine.agent_can_act(source):
+            engine.expect_response()
             await source.queue_frame(
                 LLMMessagesAppendFrame(
                     [
@@ -281,6 +284,7 @@ class AgentTransferCoordinator:
     def _finish(self, request, outcome, source, destination):
         self._phase = TransferPhase.IDLE
         self._request = None
+        self._engine.call_monitor.resume()
         self._engine.record_transfer_outcome(
             {
                 "request_id": request.request_id,

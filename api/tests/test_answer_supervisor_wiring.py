@@ -13,7 +13,6 @@ from api.services.pipecat.run_pipeline import _create_user_mute_strategies
 from api.services.pipecat.termination_funnel_processor import TerminationFunnelProcessor
 from api.services.workflow import answer_classification_service
 from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
 
 
 @pytest.mark.parametrize(
@@ -47,20 +46,6 @@ async def test_start_node_sets_up_context_without_sleeping(monkeypatch, enabled)
     engine._setup_llm_context.assert_awaited_once_with(node)
 
 
-@pytest.mark.asyncio
-async def test_already_dispatched_idle_event_cannot_prompt_main_llm_while_supervised():
-    engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
-    engine.answer_supervisor = SimpleNamespace(blocks_workflow=True)
-    aggregator = SimpleNamespace(push_frame=AsyncMock())
-    handler = UserIdleHandler(engine)
-    await handler.handle_idle(aggregator)
-    aggregator.push_frame.assert_not_awaited()
-    engine.answer_supervisor.blocks_workflow = False
-    await handler.handle_idle(aggregator)
-    aggregator.push_frame.assert_awaited_once()
-    assert handler._retry_count == 1
-
-
 class EventSource:
     def __init__(self):
         self.handlers = {}
@@ -85,6 +70,7 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
         set_node=AsyncMock(),
         queue_node_opening=AsyncMock(),
         handle_answer_supervision=AsyncMock(side_effect=permission.wait),
+        call_monitor=Mock(),
         # Readiness now also waits for the agent this call starts on.
         start_initial_agent=AsyncMock(return_value=True),
     )
@@ -137,15 +123,55 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
                 await asyncio.sleep(0)
         engine.set_node.assert_awaited_once_with("start")
         engine.queue_node_opening.assert_not_awaited()
+        engine.call_monitor.activate.assert_not_called()
         permission.set()
         await asyncio.wait_for(connected, 1)
         # Repeated readiness notifications cannot run the supervised action twice.
         await task.handlers["on_pipeline_started"](task, None)
         engine.handle_answer_supervision.assert_awaited_once()
+        engine.call_monitor.activate.assert_not_called()
     finally:
         connected.cancel()
         fetch_task.cancel()
         await asyncio.gather(connected, fetch_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_no_supervisor_activates_monitor_before_the_opening(monkeypatch):
+    task, transport = EventSource(), EventSource()
+    engine = PipecatEngine(workflow=None, call_context_vars={})
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine.start_initial_agent = AsyncMock(return_value=True)
+    engine.set_node = AsyncMock()
+
+    async def opening(**_kwargs):
+        assert engine.call_monitor.active
+        # Activation enables monitoring; it doesn't declare the user idle.
+        assert engine.call_monitor._deadline is None
+
+    engine.queue_node_opening = AsyncMock(side_effect=opening)
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+    register_event_handlers(
+        task=task,
+        transport=transport,
+        workflow_run_id=1,
+        engine=engine,
+        audio_buffer=SimpleNamespace(
+            start_recording=AsyncMock(), stop_recording=AsyncMock()
+        ),
+        in_memory_logs_buffer=SimpleNamespace(),
+        transcript_log_coordinator=SimpleNamespace(),
+        pipeline_metrics_aggregator=SimpleNamespace(),
+        termination_funnel=TerminationFunnelProcessor(),
+        audio_config=SimpleNamespace(pipeline_sample_rate=16000),
+    )
+    await transport.handlers["on_client_connected"](transport, None)
+    assert not engine.call_monitor.active
+    await task.handlers["on_pipeline_started"](task, None)
+    await task.handlers["on_pipeline_started"](task, None)
+    engine.queue_node_opening.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,9 @@
 import asyncio
 import copy
 import itertools
+import json
 import os
+import time
 import uuid
 from dataclasses import replace
 from unittest.mock import patch
@@ -27,10 +29,13 @@ from pipecat.frames.frames import (
     TTSUpdateSettingsFrame,
 )
 from pipecat.metrics.metrics import TTSUsageMetricsData
+from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams
 from pipecat.services.minimax.tts import MiniMaxTTSSettings
 from pipecat.services.tts_service import TextAggregationMode
+from pipecat.tests.mock_transport import MockOutputTransport
 from pipecat.tests.utils import SleepFrame, run_test
+from pipecat.transports.base_transport import TransportParams
 from redis.asyncio import Redis
 
 from api.services.pipecat.minimax_tts import MiniMaxCachingTTSService
@@ -777,6 +782,7 @@ async def play(
             TTSSpeakFrame(text=t) if isinstance(t, str) else t for t in texts
         ],
         pipeline_params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
+        start_timeout=10,
     )
     assert session.closed
     return down, up
@@ -866,6 +872,199 @@ async def test_two_sentences_in_one_llm_turn_replay_in_order(cache, minimax_serv
     assert b"".join(
         f.audio for f in first if isinstance(f, TTSAudioRawFrame)
     ) == b"".join(f.audio for f in second if isinstance(f, TTSAudioRawFrame))
+
+
+@pytest.mark.parametrize(
+    "cached_sentences", [(1, 3), (2,)], ids=["hit-miss-hit", "miss-hit-miss"]
+)
+@pytest.mark.parametrize(
+    ("delay_at", "delay_seconds"),
+    [("headers", 0.25), ("headers", 3.25), ("second_chunk", 3.25)],
+    ids=[
+        "slow-response",
+        "response-past-context-timeout",
+        "stream-past-context-timeout",
+    ],
+)
+async def test_minimax_delayed_http_and_redis_preserve_playback_order(
+    redis_backend, aiohttp_client, cached_sentences, delay_at, delay_seconds
+):
+    """Exercise real Redis, streaming HTTP, and the output transport's audio queue.
+
+    The local HTTP server emits distinct PCM per sentence and delays cache
+    misses. Long delays cross the default three-second audio-context timeout;
+    a delayed first byte on sentence one also reports a recoverable error.
+    """
+    sentences = ["First sentence.", "Second sentence.", "Third sentence."]
+    # 160 ms per sentence, aligned to the transport's 40 ms audio chunks.
+    audio = {number: number.to_bytes(2, "little") * 2560 for number in (1, 2, 3)}
+    events = []
+    requests = []
+    inject_delay = False
+
+    def record(kind, number):
+        events.append((kind, number, time.monotonic()))
+
+    def sentence_number(text):
+        return sentences.index(text.strip()) + 1
+
+    async def handler(request):
+        payload = await request.json()
+        number = sentence_number(payload["text"])
+        requests.append(number)
+        record("http_start", number)
+        if inject_delay and delay_at == "headers":
+            await asyncio.sleep(delay_seconds)
+        response = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
+        await response.prepare(request)
+        midpoint = len(audio[number]) // 2
+        for index, chunk in enumerate(
+            (audio[number][:midpoint], audio[number][midpoint:])
+        ):
+            if inject_delay and delay_at == "second_chunk" and index == 1:
+                await asyncio.sleep(delay_seconds)
+            payload = {"data": {"audio": chunk.hex(), "status": 1}}
+            await response.write(b"data:" + json.dumps(payload).encode() + b"\n\n")
+            record(f"http_chunk_{index + 1}", number)
+        await response.write(b'data:{"data":{"audio":"","status":2}}\n\n')
+        await response.write_eof()
+        record("http_end", number)
+        return response
+
+    app = web.Application()
+    app.router.add_post("/tts", handler)
+    client = await aiohttp_client(app)
+    url = str(client.make_url("/tts"))
+    cache = SpeechCache(redis_backend, CachePolicy(operation_timeout_seconds=1))
+
+    def turn():
+        return [
+            LLMFullResponseStartFrame(),
+            LLMTextFrame(" ".join(sentences)),
+            LLMFullResponseEndFrame(),
+        ]
+
+    # Collect three candidates per sentence via real HTTP using the exact
+    # aggregation/payloads to replay, then remove the entries meant to miss.
+    for _ in range(3):
+        warm, warm_up = await play(cache, url, turn())
+        assert not any(isinstance(frame, ErrorFrame) for frame in warm + warm_up)
+    assert requests == [1, 2, 3] * 3
+    entries = await redis_backend.list_entries(1, 10)
+    assert len(entries) == 3
+    for entry in entries:
+        if sentence_number(entry["text_preview"]) not in cached_sentences:
+            assert await redis_backend.delete_entry(1, entry["id"])
+
+    events.clear()
+    requests.clear()
+    inject_delay = True
+    started = time.monotonic()
+    original_get = redis_backend.get
+
+    async def traced_get(request, max_bytes, ttl_seconds):
+        value = await original_get(request, max_bytes, ttl_seconds)
+        record(
+            "redis_hit" if value is not None else "redis_miss",
+            sentence_number(request.text_preview),
+        )
+        return value
+
+    class RecordingOutputTransport(MockOutputTransport):
+        """Capture PCM where the production MediaSender writes to the device."""
+
+        def __init__(self):
+            super().__init__(
+                TransportParams(
+                    audio_out_enabled=True,
+                    audio_out_sample_rate=16000,
+                    audio_out_end_silence_secs=0,
+                    audio_out_auto_silence=False,
+                )
+            )
+            self.audio = bytearray()
+
+        async def write_audio_frame(self, frame):
+            if frame.audio:
+                self.audio.extend(frame.audio)
+                record("playback", int.from_bytes(frame.audio[:2], "little"))
+            return await super().write_audio_frame(frame)
+
+    output = RecordingOutputTransport()
+    async with aiohttp.ClientSession() as session:
+        service = MiniMaxCachingTTSService(
+            speech_cache=cache,
+            organization_id=1,
+            api_key="key",
+            group_id="group",
+            base_url=url,
+            aiohttp_session=session,
+            sample_rate=16000,
+        )
+        with patch.object(redis_backend, "get", side_effect=traced_get):
+            async with asyncio.timeout(20):
+                down, up = await run_test(
+                    Pipeline([service, output]),
+                    frames_to_send=turn(),
+                    start_timeout=10,
+                )
+
+    errors = [frame for frame in down + up if isinstance(frame, ErrorFrame)]
+    if delay_at == "headers" and delay_seconds > 3 and 1 not in cached_sentences:
+        # The idle context expires before the first audio arrives. Its error is
+        # reported upstream, but late audio recreates the context in this turn.
+        assert len(errors) == 1
+        assert errors[0].error.endswith("completed with no audio")
+        assert not errors[0].fatal
+    else:
+        assert not errors
+    assert bytes(output.audio) == audio[1] + audio[2] + audio[3]
+    assert [
+        frame.text.strip() for frame in down if isinstance(frame, TTSTextFrame)
+    ] == sentences
+    assert requests == [
+        number for number in (1, 2, 3) if number not in cached_sentences
+    ]
+    lookups = [
+        (kind, number) for kind, number, _ in events if kind.startswith("redis_")
+    ]
+    assert lookups == [
+        ("redis_hit" if number in cached_sentences else "redis_miss", number)
+        for number in (1, 2, 3)
+    ]
+
+    def when(kind, number):
+        return next(
+            at for event, sentence, at in events if (event, sentence) == (kind, number)
+        )
+
+    # The next sentence's Redis lookup cannot overtake an unfinished HTTP
+    # synthesis, even though all three sentences arrived in a single LLM frame.
+    for number in requests:
+        if number < 3:
+            next_lookup = (
+                "redis_hit" if number + 1 in cached_sentences else "redis_miss"
+            )
+            assert when(next_lookup, number + 1) >= when("http_end", number)
+        before_delay = "http_start" if delay_at == "headers" else "http_chunk_1"
+        after_delay = "http_chunk_1" if delay_at == "headers" else "http_chunk_2"
+        assert when(after_delay, number) - when(before_delay, number) >= delay_seconds
+
+    # A miss contributes only one candidate, so it is not yet a selected entry.
+    entries = await redis_backend.list_entries(1, 10)
+    assert len(entries) == len(cached_sentences)
+    assert {
+        sentence_number(entry["text_preview"]): entry["hit_count"] for entry in entries
+    } == {number: 1 for number in cached_sentences}
+    assert cache.capture_bytes == 0
+    assert isinstance(down[-1], LLMFullResponseEndFrame)
+    print(f"\nCached={cached_sentences}, delay={delay_seconds}s at {delay_at}")
+    for number in (1, 2, 3):
+        lookup = "redis_hit" if number in cached_sentences else "redis_miss"
+        print(
+            f"  Sentence {number}: {lookup} at {when(lookup, number) - started:.3f}s; "
+            f"first playback at {when('playback', number) - started:.3f}s"
+        )
 
 
 async def test_pipeline_interruption_discards_partial_capture(cache, minimax_server):

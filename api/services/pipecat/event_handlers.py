@@ -191,6 +191,7 @@ def register_event_handlers(
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return
+            engine.call_monitor.activate()
             await engine.queue_node_opening(
                 node_id=engine.active_agent.workflow.start_node_id,
                 previous_node_id=None,

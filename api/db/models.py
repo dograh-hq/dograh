@@ -183,6 +183,19 @@ class OrganizationModel(Base):
     custom_monthly_minutes = Column(Integer, nullable=True)
     custom_max_agents = Column(Integer, nullable=True)
     custom_allow_byok = Column(Boolean, nullable=True)
+    plan_credits_remaining_usd = Column(
+        Float, nullable=False, default=0.0, server_default=text("0.0")
+    )
+    plan_credits_monthly_usd = Column(
+        Float, nullable=False, default=0.0, server_default=text("0.0")
+    )
+    plan_credits_reset_at = Column(DateTime(timezone=True), nullable=True)
+    custom_monthly_price_usd = Column(Float, nullable=True)
+    custom_monthly_credits_usd = Column(Float, nullable=True)
+    custom_included_phone_numbers = Column(Integer, nullable=True)
+    custom_byok_platform_fee_usd = Column(Float, nullable=True)
+    custom_allow_live_transfer = Column(Boolean, nullable=True)
+    custom_allow_sip_trunking = Column(Boolean, nullable=True)
 
     # Relationships
     users = relationship(
@@ -424,6 +437,14 @@ class TelephonyPhoneNumberModel(Base):
     )
     assigned_organization_id = Column(
         Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
+    )
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    next_rental_billing_at = Column(DateTime(timezone=True), nullable=True)
+    rental_status = Column(
+        String(32),
+        nullable=False,
+        default="active",
+        server_default=text("'active'"),
     )
     extra_metadata = Column(
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
@@ -1684,7 +1705,12 @@ class SubscriptionPlanModel(Base):
     max_concurrent_calls = Column(Integer, nullable=False, default=2, server_default=text("2"))
     max_agents = Column(Integer, nullable=False, default=1, server_default=text("1"))
     overage_rate_per_minute_usd = Column(Float, nullable=False, default=0.10, server_default=text("0.10"))
+    monthly_credits_usd = Column(Float, nullable=False, default=0.0, server_default=text("0.0"))
+    byok_platform_fee_per_minute_usd = Column(Float, nullable=False, default=0.04, server_default=text("0.04"))
+    included_phone_numbers = Column(Integer, nullable=False, default=0, server_default=text("0"))
     allow_byok = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    allow_live_transfer = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    allow_sip_trunking = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     is_public = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     features = Column(JSON, nullable=False, default=list, server_default=text("'[]'::json"))

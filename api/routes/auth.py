@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 
 from api.constants import ENABLE_SIGNUP
 from api.db import db_client
@@ -88,15 +89,19 @@ async def signup(request: SignupRequest):
     dependencies=[Depends(require_local_auth)],
 )
 async def login(request: LoginRequest):
+    logger.info(f"[AUTH] Login attempt for email: {request.email}")
     # Look up user by email
     user = await db_client.get_user_by_email(request.email)
     if not user or not user.password_hash:
+        logger.warning(f"[AUTH] Login failed: User '{request.email}' not found or no password hash in database")
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Verify password
     if not verify_password(request.password, user.password_hash):
+        logger.warning(f"[AUTH] Login failed: Incorrect password provided for '{request.email}'")
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    logger.info(f"[AUTH] Login successful for user_id={user.id} ({user.email})")
     # Create JWT token
     token = create_jwt_token(user.id, user.email)
 

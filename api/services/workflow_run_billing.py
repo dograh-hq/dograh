@@ -121,6 +121,40 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
                     except Exception as e:
                         logger.warning("Could not load organization global model config for billing: {}", e)
 
+                is_platform_telephony = True
+                telephony_cfg_id = None
+                init_ctx = getattr(workflow_run, "initial_context", None) or {}
+                extra_ctx = getattr(workflow_run, "extra", None) or {}
+                if isinstance(init_ctx, dict) and "telephony_configuration_id" in init_ctx:
+                    telephony_cfg_id = init_ctx.get("telephony_configuration_id")
+                elif isinstance(extra_ctx, dict) and "telephony_configuration_id" in extra_ctx:
+                    telephony_cfg_id = extra_ctx.get("telephony_configuration_id")
+
+                if telephony_cfg_id:
+                    try:
+                        telephony_cfg = await db_client.get_telephony_configuration(int(telephony_cfg_id))
+                        if telephony_cfg:
+                            is_platform_telephony = bool(getattr(telephony_cfg, "is_platform_inventory", False))
+                    except Exception as e:
+                        logger.debug("Could not determine telephony configuration inventory status: {}", e)
+
+                from api.services.plan_service import plan_service
+                limits = await plan_service.get_effective_limits(organization_id)
+
+                is_byok_run = False
+                try:
+                    from api.services.configuration.ai_model_configuration import (
+                        get_effective_ai_model_configuration_for_workflow,
+                        uses_managed_model_services_v2,
+                    )
+                    user_ai_config = await get_effective_ai_model_configuration_for_workflow(
+                        organization_id=organization_id,
+                        workflow_configurations=workflow_config,
+                    )
+                    is_byok_run = not uses_managed_model_services_v2(user_ai_config)
+                except Exception:
+                    pass
+
                 from api.services.platform_keys import calculate_run_composite_rate
 
                 rates = calculate_run_composite_rate(
@@ -131,11 +165,16 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
                     tts_provider=tts_info.get("provider", ""),
                     tts_model=tts_info.get("model", ""),
                     telephony_rate=0.02,
+                    is_platform_telephony=is_platform_telephony,
+                    is_byok_llm=is_byok_run,
+                    is_byok_stt=is_byok_run,
+                    is_byok_tts=is_byok_run,
+                    byok_platform_fee_per_minute=limits.byok_platform_fee_per_minute_usd,
                 )
                 rate_per_min = rates["rate_per_minute"]
                 cost_usd = round((duration_seconds / 60.0) * rate_per_min, 4)
 
-            # Multi-tier plan accounting (Included plan minutes deduction vs Platform wallet overage)
+            # Multi-tier credit-based plan accounting (Plan credits deduction first, wallet overflow second)
             from api.services.plan_service import plan_service
             billing_result = await plan_service.record_run_billing(
                 organization_id=organization_id,
@@ -152,8 +191,9 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
                     "rate_per_minute": rate_per_min,
                     "rates": rates,
                     "charged_to": billing_result["charged_to"],
-                    "plan_minutes_deducted": billing_result["plan_minutes_deducted"],
-                    "overage_minutes": billing_result["overage_minutes"],
+                    "plan_credits_deducted": billing_result.get("plan_credits_deducted", 0.0),
+                    "plan_credits_remaining": billing_result.get("plan_credits_remaining", 0.0),
+                    "wallet_cost_usd": billing_result["wallet_cost_usd"],
                     "effective_tier": billing_result["effective_tier"],
                     "wallet_balance_after": billing_result["wallet_balance_after"],
                 }

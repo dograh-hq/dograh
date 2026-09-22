@@ -4,6 +4,9 @@ from typing import Any
 import aiohttp
 
 
+from loguru import logger
+
+
 class StackAuthUserSearchError(Exception):
     """Raised when Stack Auth user search fails unexpectedly."""
 
@@ -14,8 +17,51 @@ class StackAuthSessionError(Exception):
 
 class StackAuth:
     def __init__(self):
-        self.project_id = os.environ.get("STACK_AUTH_PROJECT_ID")
-        self.secret_server_key = os.environ.get("STACK_SECRET_SERVER_KEY")
+        pass
+
+    @property
+    def project_id(self) -> str | None:
+        try:
+            from api.constants import STACK_AUTH_PROJECT_ID
+            if STACK_AUTH_PROJECT_ID:
+                return STACK_AUTH_PROJECT_ID
+        except Exception:
+            pass
+        return (
+            os.environ.get("STACK_AUTH_PROJECT_ID")
+            or os.environ.get("NEXT_PUBLIC_HEXCLAVE_PROJECT_ID")
+            or os.environ.get("HEXCLAVE_PROJECT_ID")
+        )
+
+    @property
+    def secret_server_key(self) -> str | None:
+        try:
+            from api.constants import STACK_SECRET_SERVER_KEY
+            if STACK_SECRET_SERVER_KEY:
+                return STACK_SECRET_SERVER_KEY
+        except Exception:
+            pass
+        return (
+            os.environ.get("STACK_SECRET_SERVER_KEY")
+            or os.environ.get("HEXCLAVE_SECRET_SERVER_KEY")
+        )
+
+    @property
+    def api_url(self) -> str:
+        val = None
+        try:
+            from api.constants import STACK_AUTH_API_URL
+            val = STACK_AUTH_API_URL
+        except Exception:
+            pass
+        if not val:
+            val = (
+                os.environ.get("STACK_AUTH_API_URL")
+                or os.environ.get("NEXT_PUBLIC_HEXCLAVE_API_URL")
+                or os.environ.get("HEXCLAVE_API_URL")
+                or "https://api.stack-auth.com"
+            )
+        return (val or "https://api.stack-auth.com").rstrip("/")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -31,28 +77,43 @@ class StackAuth:
 
     async def get_user(self, access_token: str):
         if not access_token:
+            logger.debug("Stack Auth get_user called without access_token")
             return None
 
         access_token = self._strip_bearer(access_token)
+        if not access_token:
+            logger.debug("Stack Auth get_user access_token was empty after strip")
+            return None
 
-        url = os.environ.get("STACK_AUTH_API_URL") + "/api/v1/users/me"
+        url = f"{self.api_url}/api/v1/users/me"
         headers = {
             "x-stack-access-type": "server",
-            "x-stack-project-id": self.project_id,
-            "x-stack-secret-server-key": self.secret_server_key,
+            "x-stack-project-id": self.project_id or "",
+            "x-stack-secret-server-key": self.secret_server_key or "",
             "x-stack-access-token": access_token,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                response = await response.json()
-                if "id" in response:
-                    return response
-                else:
-                    return None
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    res_json = await response.json()
+                    if response.status != 200:
+                        logger.warning(
+                            f"Stack Auth /api/v1/users/me returned {response.status}: {res_json}. "
+                            f"(url={url}, project_id={self.project_id})"
+                        )
+                        return None
+                    if "id" in res_json:
+                        return res_json
+                    else:
+                        logger.warning(f"Stack Auth response missing 'id': {res_json}")
+                        return None
+        except Exception as exc:
+            logger.error(f"Error calling Stack Auth /api/v1/users/me: {exc}")
+            return None
 
     async def impersonate(self, stack_user_id: str):
-        url = os.environ.get("STACK_AUTH_API_URL") + "/api/v1/auth/sessions"
+        url = f"{self.api_url}/api/v1/auth/sessions"
         headers = {
             "x-stack-access-type": "server",
             "x-stack-project-id": self.project_id,
@@ -80,7 +141,7 @@ class StackAuth:
     async def find_users_by_email(self, email: str) -> list[dict[str, Any]]:
         """Return Stack Auth users whose primary email exactly matches."""
         normalized_email = email.strip().lower()
-        url = os.environ.get("STACK_AUTH_API_URL") + "/api/v1/users"
+        url = f"{self.api_url}/api/v1/users"
         headers = {
             "x-stack-access-type": "server",
             "x-stack-project-id": self.project_id,

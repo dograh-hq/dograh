@@ -773,10 +773,15 @@ class PlanUpsertRequest(BaseModel):
     price_inr: float
     billing_interval: Optional[str] = "month"
     included_minutes: int
+    monthly_credits_usd: Optional[float] = 0.0
+    included_phone_numbers: Optional[int] = 0
     max_concurrent_calls: int
     max_agents: int
     overage_rate_per_minute_usd: float
+    byok_platform_fee_per_minute_usd: Optional[float] = 0.04
     allow_byok: bool = True
+    allow_live_transfer: Optional[bool] = False
+    allow_sip_trunking: Optional[bool] = False
     is_active: bool = True
     is_public: bool = True
     features: List[str] = []
@@ -788,6 +793,12 @@ class AssignOrgPlanRequest(BaseModel):
     custom_monthly_minutes: Optional[int] = None
     custom_max_agents: Optional[int] = None
     custom_allow_byok: Optional[bool] = None
+    custom_monthly_price_usd: Optional[float] = None
+    custom_monthly_credits_usd: Optional[float] = None
+    custom_included_phone_numbers: Optional[int] = None
+    custom_byok_platform_fee_usd: Optional[float] = None
+    custom_allow_live_transfer: Optional[bool] = None
+    custom_allow_sip_trunking: Optional[bool] = None
     custom_price_per_second_usd: Optional[float] = None
     reset_minutes_used: Optional[bool] = False
 
@@ -829,13 +840,12 @@ async def get_superadmin_overview_metrics(
 
 
 @router.get("/plans")
-async def list_saas_plans(
-    include_inactive: bool = False,
+async def list_subscription_plans_admin(
     current_user: UserModel = Depends(get_superuser),
 ):
-    """List all SaaS subscription plans."""
+    """List all subscription plans for superadmin management."""
     from api.services.plan_service import plan_service, normalize_plan_features
-    plans = await plan_service.list_plans(include_inactive=include_inactive)
+    plans = await plan_service.list_plans(include_inactive=True)
     return [
         {
             "id": p.id,
@@ -846,25 +856,29 @@ async def list_saas_plans(
             "price_inr": p.price_inr,
             "billing_interval": p.billing_interval,
             "included_minutes": p.included_minutes,
+            "monthly_credits_usd": getattr(p, "monthly_credits_usd", 0.0),
+            "included_phone_numbers": getattr(p, "included_phone_numbers", 0),
             "max_concurrent_calls": p.max_concurrent_calls,
             "max_agents": p.max_agents,
             "overage_rate_per_minute_usd": p.overage_rate_per_minute_usd,
+            "byok_platform_fee_per_minute_usd": getattr(p, "byok_platform_fee_per_minute_usd", 0.04),
             "allow_byok": p.allow_byok,
+            "allow_live_transfer": getattr(p, "allow_live_transfer", False),
+            "allow_sip_trunking": getattr(p, "allow_sip_trunking", False),
             "is_active": p.is_active,
             "is_public": p.is_public,
             "features": normalize_plan_features(p.features),
-            "created_at": p.created_at.isoformat() if p.created_at else None,
         }
         for p in plans
     ]
 
 
 @router.post("/plans")
-async def upsert_saas_plan(
+async def save_subscription_plan_admin(
     request: PlanUpsertRequest,
     current_user: UserModel = Depends(get_superuser),
 ):
-    """Create or update a SaaS subscription plan."""
+    """Create or update a subscription plan."""
     from api.db.models import SubscriptionPlanModel
     from sqlalchemy import select
 
@@ -873,38 +887,28 @@ async def upsert_saas_plan(
         res = await session.execute(stmt)
         plan = res.scalars().first()
 
-        if plan:
-            plan.name = request.name
-            plan.description = request.description
-            plan.price_usd = request.price_usd
-            plan.price_inr = request.price_inr
-            plan.billing_interval = request.billing_interval
-            plan.included_minutes = request.included_minutes
-            plan.max_concurrent_calls = request.max_concurrent_calls
-            plan.max_agents = request.max_agents
-            plan.overage_rate_per_minute_usd = request.overage_rate_per_minute_usd
-            plan.allow_byok = request.allow_byok
-            plan.is_active = request.is_active
-            plan.is_public = request.is_public
-            plan.features = request.features
-        else:
-            plan = SubscriptionPlanModel(
-                slug=request.slug,
-                name=request.name,
-                description=request.description,
-                price_usd=request.price_usd,
-                price_inr=request.price_inr,
-                billing_interval=request.billing_interval,
-                included_minutes=request.included_minutes,
-                max_concurrent_calls=request.max_concurrent_calls,
-                max_agents=request.max_agents,
-                overage_rate_per_minute_usd=request.overage_rate_per_minute_usd,
-                allow_byok=request.allow_byok,
-                is_active=request.is_active,
-                is_public=request.is_public,
-                features=request.features,
-            )
+        if not plan:
+            plan = SubscriptionPlanModel(slug=request.slug)
             session.add(plan)
+
+        plan.name = request.name
+        plan.description = request.description
+        plan.price_usd = request.price_usd
+        plan.price_inr = request.price_inr
+        plan.billing_interval = request.billing_interval
+        plan.included_minutes = request.included_minutes
+        plan.monthly_credits_usd = request.monthly_credits_usd if request.monthly_credits_usd is not None else 0.0
+        plan.included_phone_numbers = request.included_phone_numbers if request.included_phone_numbers is not None else 0
+        plan.max_concurrent_calls = request.max_concurrent_calls
+        plan.max_agents = request.max_agents
+        plan.overage_rate_per_minute_usd = request.overage_rate_per_minute_usd
+        plan.byok_platform_fee_per_minute_usd = request.byok_platform_fee_per_minute_usd if request.byok_platform_fee_per_minute_usd is not None else 0.04
+        plan.allow_byok = request.allow_byok
+        plan.allow_live_transfer = request.allow_live_transfer if request.allow_live_transfer is not None else False
+        plan.allow_sip_trunking = request.allow_sip_trunking if request.allow_sip_trunking is not None else False
+        plan.is_active = request.is_active
+        plan.is_public = request.is_public
+        plan.features = request.features
 
         await session.commit()
 
@@ -942,12 +946,25 @@ async def get_organization_subscription_admin(
             "allow_byok": limits.allow_byok,
             "wallet_balance_usd": limits.wallet_balance_usd,
             "current_agents_count": workflow_count,
+            "plan_credits_monthly_usd": limits.plan_credits_monthly_usd,
+            "plan_credits_remaining_usd": limits.plan_credits_remaining_usd,
+            "included_phone_numbers": limits.included_phone_numbers,
+            "byok_platform_fee_per_minute_usd": limits.byok_platform_fee_per_minute_usd,
+            "allow_live_transfer": limits.allow_live_transfer,
+            "allow_sip_trunking": limits.allow_sip_trunking,
+            "custom_monthly_price_usd": limits.custom_monthly_price_usd,
         },
         "enterprise_overrides": {
             "custom_concurrent_limit": getattr(org, "custom_concurrent_limit", None),
             "custom_monthly_minutes": getattr(org, "custom_monthly_minutes", None),
             "custom_max_agents": getattr(org, "custom_max_agents", None),
             "custom_allow_byok": getattr(org, "custom_allow_byok", None),
+            "custom_monthly_price_usd": getattr(org, "custom_monthly_price_usd", None),
+            "custom_monthly_credits_usd": getattr(org, "custom_monthly_credits_usd", None),
+            "custom_included_phone_numbers": getattr(org, "custom_included_phone_numbers", None),
+            "custom_byok_platform_fee_usd": getattr(org, "custom_byok_platform_fee_usd", None),
+            "custom_allow_live_transfer": getattr(org, "custom_allow_live_transfer", None),
+            "custom_allow_sip_trunking": getattr(org, "custom_allow_sip_trunking", None),
             "price_per_second_usd": getattr(org, "price_per_second_usd", None),
         },
         "billing_cycle": {
@@ -963,7 +980,7 @@ async def set_organization_plan_admin(
     request: AssignOrgPlanRequest,
     current_user: UserModel = Depends(get_superuser),
 ):
-    """Assign plan or apply enterprise custom overrides (concurrency, minutes, agents) for an organization."""
+    """Assign plan or apply enterprise custom overrides (pricing, credits, concurrency, numbers) for an organization."""
     from api.services.plan_service import plan_service
 
     try:
@@ -974,7 +991,13 @@ async def set_organization_plan_admin(
             custom_monthly_minutes=request.custom_monthly_minutes,
             custom_max_agents=request.custom_max_agents,
             custom_allow_byok=request.custom_allow_byok,
-            reset_minutes_used=request.reset_minutes_used or False,
+            custom_monthly_price_usd=request.custom_monthly_price_usd,
+            custom_monthly_credits_usd=request.custom_monthly_credits_usd,
+            custom_included_phone_numbers=request.custom_included_phone_numbers,
+            custom_byok_platform_fee_usd=request.custom_byok_platform_fee_usd,
+            custom_allow_live_transfer=request.custom_allow_live_transfer,
+            custom_allow_sip_trunking=request.custom_allow_sip_trunking,
+            reset_credits=request.reset_minutes_used if request.reset_minutes_used is not None else True,
         )
 
         if request.custom_price_per_second_usd is not None:
@@ -1000,8 +1023,14 @@ async def set_organization_plan_admin(
                 "monthly_minutes_used": updated_limits.monthly_minutes_used,
                 "minutes_remaining": updated_limits.minutes_remaining,
                 "allow_byok": updated_limits.allow_byok,
+                "plan_credits_monthly_usd": updated_limits.plan_credits_monthly_usd,
+                "plan_credits_remaining_usd": updated_limits.plan_credits_remaining_usd,
+                "included_phone_numbers": updated_limits.included_phone_numbers,
+                "byok_platform_fee_per_minute_usd": updated_limits.byok_platform_fee_per_minute_usd,
+                "allow_live_transfer": updated_limits.allow_live_transfer,
+                "allow_sip_trunking": updated_limits.allow_sip_trunking,
+                "custom_monthly_price_usd": updated_limits.custom_monthly_price_usd,
             },
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-

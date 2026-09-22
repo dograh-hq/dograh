@@ -9,6 +9,7 @@ from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
 from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
+from api.routes.dashboard import router as dashboard_router
 from api.routes.folder import router as folder_router
 from api.routes.knowledge_base import router as knowledge_base_router
 from api.routes.node_types import router as node_types_router
@@ -32,6 +33,7 @@ from api.routes.user import router as user_router
 from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
 from api.routes.workflow_embed import router as workflow_embed_router
+from api.routes.leads import router as leads_router
 from api.routes.workflow_recording import router as workflow_recording_router
 from api.routes.workflow_text_chat import router as workflow_text_chat_router
 from api.services.integrations import all_routers
@@ -41,6 +43,8 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+router.include_router(leads_router)
+router.include_router(dashboard_router)
 router.include_router(telephony_router)
 router.include_router(superuser_router)
 router.include_router(workflow_router)
@@ -92,6 +96,8 @@ class HealthResponse(BaseModel):
     # be baked into the browser bundle at build time. Both are public values.
     stack_project_id: str | None = None
     stack_publishable_client_key: str | None = None
+    stack_api_url: str | None = None
+    stack_secret_server_key: str | None = None
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -104,8 +110,10 @@ async def health() -> HealthResponse:
         ENABLE_COTURN,
         ENABLE_SIGNUP,
         FORCE_TURN_RELAY,
+        STACK_AUTH_API_URL,
         STACK_AUTH_PROJECT_ID,
         STACK_PUBLISHABLE_CLIENT_KEY,
+        STACK_SECRET_SERVER_KEY,
     )
     from api.utils.common import get_backend_endpoints, is_local_or_private_url
 
@@ -136,6 +144,8 @@ async def health() -> HealthResponse:
         stack_publishable_client_key=(
             STACK_PUBLISHABLE_CLIENT_KEY if is_stack else None
         ),
+        stack_api_url=STACK_AUTH_API_URL if is_stack else None,
+        stack_secret_server_key=STACK_SECRET_SERVER_KEY if is_stack else None,
     )
 
 

@@ -149,16 +149,41 @@ def calculate_run_composite_rate(
     tts_provider: str = "",
     tts_model: str = "",
     telephony_rate: float = 0.02,
+    is_platform_telephony: bool = True,
+    is_byok_llm: bool = False,
+    is_byok_stt: bool = False,
+    is_byok_tts: bool = False,
+    byok_platform_fee_per_minute: float = 0.04,
 ) -> dict:
-    """Calculate the composite rate per minute from model-specific pricing and telephony."""
-    llm_rate = get_model_rate_per_minute("llm", llm_provider, llm_model) if llm_provider else 0.015
-    stt_rate = get_model_rate_per_minute("stt", stt_provider, stt_model) if stt_provider else 0.005
-    tts_rate = get_model_rate_per_minute("tts", tts_provider, tts_model) if tts_provider else 0.020
-    composite_rate = round(llm_rate + stt_rate + tts_rate + telephony_rate, 4)
+    """Calculate the composite rate per minute from model-specific pricing, BYOK platform fees, and telephony.
+
+    Rules:
+    - If is_platform_telephony is False (BYOT): telephony usage rate is $0.00/min.
+    - If is_byok is True for a model service: that model's platform rate is $0.00/min (user pays provider directly).
+    - If any BYOK service is used: a platform orchestration fee (byok_platform_fee_per_minute) is charged.
+    """
+    raw_llm = get_model_rate_per_minute("llm", llm_provider, llm_model) if llm_provider else 0.015
+    llm_rate = 0.0 if is_byok_llm else raw_llm
+
+    raw_stt = get_model_rate_per_minute("stt", stt_provider, stt_model) if stt_provider else 0.005
+    stt_rate = 0.0 if is_byok_stt else raw_stt
+
+    raw_tts = get_model_rate_per_minute("tts", tts_provider, tts_model) if tts_provider else 0.020
+    tts_rate = 0.0 if is_byok_tts else raw_tts
+
+    has_any_byok = is_byok_llm or is_byok_stt or is_byok_tts
+    byok_fee = byok_platform_fee_per_minute if has_any_byok else 0.0
+
+    effective_telephony_rate = telephony_rate if is_platform_telephony else 0.0
+
+    composite_rate = round(llm_rate + stt_rate + tts_rate + effective_telephony_rate + byok_fee, 4)
     return {
         "rate_per_minute": composite_rate,
         "llm_rate": llm_rate,
         "stt_rate": stt_rate,
         "tts_rate": tts_rate,
-        "telephony_rate": telephony_rate,
+        "telephony_rate": effective_telephony_rate,
+        "byok_fee": byok_fee,
+        "is_platform_telephony": is_platform_telephony,
+        "is_byok": has_any_byok,
     }

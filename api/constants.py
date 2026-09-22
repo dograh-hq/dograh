@@ -11,7 +11,7 @@ APP_ROOT_DIR: Path = Path(__file__).resolve().parent
 
 _env_file = APP_ROOT_DIR / ".env"
 if _env_file.exists():
-    load_dotenv(_env_file, override=(os.getenv("ENVIRONMENT", "local") == "local"))
+    load_dotenv(_env_file, override=True)
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 
@@ -75,12 +75,29 @@ CORS_ALLOWED_ORIGINS = [
 ]
 AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
 ENABLE_SIGNUP = os.getenv("ENABLE_SIGNUP", "true").lower() == "true"
-# Stack Auth public client config. These are safe to expose to the browser (the
-# publishable client key is public by design, and the project id is non-sensitive),
-# and are served to the UI at runtime via /api/v1/health so the frontend no longer
-# needs them baked into the bundle at build time.
-STACK_AUTH_PROJECT_ID = os.getenv("STACK_AUTH_PROJECT_ID")
-STACK_PUBLISHABLE_CLIENT_KEY = os.getenv("STACK_PUBLISHABLE_CLIENT_KEY")
+# Stack Auth / Hexclave configuration. Served to the UI at runtime via /api/v1/health
+# so the frontend does not need them hardcoded in Next.js environment files.
+STACK_AUTH_PROJECT_ID = (
+    os.getenv("STACK_AUTH_PROJECT_ID")
+    or os.getenv("NEXT_PUBLIC_HEXCLAVE_PROJECT_ID")
+    or os.getenv("HEXCLAVE_PROJECT_ID")
+)
+STACK_PUBLISHABLE_CLIENT_KEY = (
+    os.getenv("STACK_PUBLISHABLE_CLIENT_KEY")
+    or os.getenv("NEXT_PUBLIC_HEXCLAVE_PUBLISHABLE_CLIENT_KEY")
+    or os.getenv("HEXCLAVE_PUBLISHABLE_CLIENT_KEY")
+    or ""
+)
+STACK_AUTH_API_URL = (
+    os.getenv("STACK_AUTH_API_URL")
+    or os.getenv("NEXT_PUBLIC_HEXCLAVE_API_URL")
+    or os.getenv("HEXCLAVE_API_URL")
+    or "https://api.stack-auth.com"
+)
+STACK_SECRET_SERVER_KEY = (
+    os.getenv("STACK_SECRET_SERVER_KEY")
+    or os.getenv("HEXCLAVE_SECRET_SERVER_KEY")
+)
 DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None

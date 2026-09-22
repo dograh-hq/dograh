@@ -30,6 +30,13 @@ class EffectiveLimits:
     overage_rate_per_minute_usd: float
     allow_byok: bool
     wallet_balance_usd: float
+    plan_credits_remaining_usd: float = 0.0
+    plan_credits_monthly_usd: float = 0.0
+    included_phone_numbers: int = 0
+    byok_platform_fee_per_minute_usd: float = 0.04
+    allow_live_transfer: bool = False
+    allow_sip_trunking: bool = False
+    custom_monthly_price_usd: Optional[float] = None
 
 
 def normalize_plan_features(raw: Any) -> List[str]:
@@ -59,15 +66,20 @@ DEFAULT_PAY_AS_YOU_GO = {
     "price_inr": 0.0,
     "billing_interval": "month",
     "included_minutes": 0,
+    "monthly_credits_usd": 0.0,
+    "included_phone_numbers": 0,
     "max_concurrent_calls": 2,
     "max_agents": 2,
     "overage_rate_per_minute_usd": 0.10,
+    "byok_platform_fee_per_minute_usd": 0.05,
     "allow_byok": True,
+    "allow_live_transfer": False,
+    "allow_sip_trunking": False,
     "is_active": True,
     "is_public": True,
     "features": [
-        "Pay per second from wallet",
-        "Bring Your Own Key (BYOK) supported",
+        "Pay per second from platform wallet",
+        "BYOK supported ($0.05/min platform fee)",
         "2 Concurrent Call lines",
         "Up to 2 AI Voice Agents",
         "Full Call Recordings & Transcripts",
@@ -77,7 +89,7 @@ DEFAULT_PAY_AS_YOU_GO = {
 
 class PlanService:
     async def ensure_default_plans(self) -> None:
-        """Ensure subscription_plans table exists and seed default plans if empty."""
+        """Ensure subscription_plans table exists, columns are up to date, and seed default plans."""
         from sqlalchemy import text
         try:
             statements = [
@@ -91,10 +103,15 @@ class PlanService:
                     price_inr FLOAT NOT NULL DEFAULT 0.0,
                     billing_interval VARCHAR(32) NOT NULL DEFAULT 'month',
                     included_minutes INT NOT NULL DEFAULT 0,
+                    monthly_credits_usd FLOAT NOT NULL DEFAULT 0.0,
+                    included_phone_numbers INT NOT NULL DEFAULT 0,
                     max_concurrent_calls INT NOT NULL DEFAULT 2,
                     max_agents INT NOT NULL DEFAULT 1,
                     overage_rate_per_minute_usd FLOAT NOT NULL DEFAULT 0.10,
+                    byok_platform_fee_per_minute_usd FLOAT NOT NULL DEFAULT 0.04,
                     allow_byok BOOLEAN NOT NULL DEFAULT true,
+                    allow_live_transfer BOOLEAN NOT NULL DEFAULT false,
+                    allow_sip_trunking BOOLEAN NOT NULL DEFAULT false,
                     is_active BOOLEAN NOT NULL DEFAULT true,
                     is_public BOOLEAN NOT NULL DEFAULT true,
                     features JSON NOT NULL DEFAULT '[]'::json,
@@ -102,6 +119,13 @@ class PlanService:
                     updated_at TIMESTAMPTZ DEFAULT NOW()
                 )
                 """,
+                # subscription_plans columns
+                "ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS monthly_credits_usd FLOAT DEFAULT 0.0",
+                "ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS included_phone_numbers INT DEFAULT 0",
+                "ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS byok_platform_fee_per_minute_usd FLOAT DEFAULT 0.04",
+                "ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS allow_live_transfer BOOLEAN DEFAULT false",
+                "ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS allow_sip_trunking BOOLEAN DEFAULT false",
+                # organizations columns
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(64) DEFAULT 'pay_as_you_go'",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(32) DEFAULT 'active'",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_cycle_start TIMESTAMPTZ",
@@ -111,6 +135,19 @@ class PlanService:
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_monthly_minutes INT",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_max_agents INT",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_allow_byok BOOLEAN",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS plan_credits_remaining_usd FLOAT DEFAULT 0.0",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS plan_credits_monthly_usd FLOAT DEFAULT 0.0",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS plan_credits_reset_at TIMESTAMPTZ",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_monthly_price_usd FLOAT",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_monthly_credits_usd FLOAT",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_included_phone_numbers INT",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_byok_platform_fee_usd FLOAT",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_allow_live_transfer BOOLEAN",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS custom_allow_sip_trunking BOOLEAN",
+                # telephony_phone_numbers columns
+                "ALTER TABLE telephony_phone_numbers ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ",
+                "ALTER TABLE telephony_phone_numbers ADD COLUMN IF NOT EXISTS next_rental_billing_at TIMESTAMPTZ",
+                "ALTER TABLE telephony_phone_numbers ADD COLUMN IF NOT EXISTS rental_status VARCHAR(32) DEFAULT 'active'",
             ]
             async with db_client.async_session() as session:
                 for stmt in statements:
@@ -120,86 +157,103 @@ class PlanService:
                         pass
                 await session.commit()
 
-            plans = await self.list_plans(include_inactive=True)
-            if not plans:
-                default_plans = [
-                    DEFAULT_PAY_AS_YOU_GO,
-                    {
-                        "slug": "starter",
-                        "name": "Starter Plan",
-                        "description": "Perfect for freelancers, doctors, clinics, and local businesses starting automated customer calling.",
-                        "price_usd": 49.0,
-                        "price_inr": 3999.0,
-                        "billing_interval": "month",
-                        "included_minutes": 400,
-                        "max_concurrent_calls": 3,
-                        "max_agents": 3,
-                        "overage_rate_per_minute_usd": 0.09,
-                        "allow_byok": True,
-                        "is_active": True,
-                        "is_public": True,
-                        "features": [
-                            "400 Included Calling Minutes / month",
-                            "3 Simultaneous Concurrent Calls",
-                            "Up to 3 Active AI Voice Agents",
-                            "BYOK Supported",
-                            "Webhook, CRM & Zapier Triggers",
-                            "Overage rate: $0.09/min (₹7.5/min)",
-                            "Priority Email Support",
-                        ],
-                    },
-                    {
-                        "slug": "pro",
-                        "name": "Growth Pro",
-                        "description": "For growing sales teams, agencies, and outbound marketing campaigns requiring higher concurrency.",
-                        "price_usd": 149.0,
-                        "price_inr": 11999.0,
-                        "billing_interval": "month",
-                        "included_minutes": 1600,
-                        "max_concurrent_calls": 10,
-                        "max_agents": 10,
-                        "overage_rate_per_minute_usd": 0.08,
-                        "allow_byok": True,
-                        "is_active": True,
-                        "is_public": True,
-                        "features": [
-                            "1,600 Included Calling Minutes / month",
-                            "10 Simultaneous Concurrent Lines",
-                            "Up to 10 Active AI Voice Agents",
-                            "High-volume Outbound Campaigns",
-                            "BYOK or Platform Master Keys",
-                            "Discounted Overage: $0.08/min (₹6.8/min)",
-                            "Live Call Transfers & Knowledge Base RAG",
-                        ],
-                    },
-                    {
-                        "slug": "enterprise",
-                        "name": "Enterprise Custom",
-                        "description": "Tailored for large organizations, call centers, and B2B aggregators needing dedicated capacity.",
-                        "price_usd": 399.0,
-                        "price_inr": 32999.0,
-                        "billing_interval": "month",
-                        "included_minutes": 5000,
-                        "max_concurrent_calls": 30,
-                        "max_agents": 50,
-                        "overage_rate_per_minute_usd": 0.06,
-                        "allow_byok": True,
-                        "is_active": True,
-                        "is_public": True,
-                        "features": [
-                            "5,000+ Monthly Minutes (or Custom Allocation)",
-                            "30 to 100+ Concurrent Channels",
-                            "Unlimited / Custom AI Voice Agents",
-                            "Dedicated SIP Trunking & Custom LLM Fine-tunes",
-                            "Custom Organization Enterprise Overrides",
-                            "Lowest Overage: $0.06/min (₹5.0/min)",
-                            "Dedicated SLA & 24/7 Priority Support",
-                        ],
-                    },
-                ]
+            default_plans = [
+                DEFAULT_PAY_AS_YOU_GO,
+                {
+                    "slug": "starter",
+                    "name": "Starter Plan",
+                    "description": "Perfect for freelancers, clinics, and local businesses starting automated AI customer calling.",
+                    "price_usd": 49.0,
+                    "price_inr": 3999.0,
+                    "billing_interval": "month",
+                    "included_minutes": 400,
+                    "monthly_credits_usd": 49.0,
+                    "included_phone_numbers": 1,
+                    "max_concurrent_calls": 3,
+                    "max_agents": 3,
+                    "overage_rate_per_minute_usd": 0.09,
+                    "byok_platform_fee_per_minute_usd": 0.04,
+                    "allow_byok": True,
+                    "allow_live_transfer": False,
+                    "allow_sip_trunking": False,
+                    "is_active": True,
+                    "is_public": True,
+                    "features": [
+                        "$49.00 Included Call Credits / month (~408 standard mins)",
+                        "1 Included Dedicated Platform Phone Number",
+                        "3 Simultaneous Concurrent Calls",
+                        "Up to 3 Active AI Voice Agents",
+                        "BYOK Supported ($0.04/min platform fee)",
+                        "Webhook, CRM & Zapier Triggers",
+                        "Priority Email Support",
+                    ],
+                },
+                {
+                    "slug": "pro",
+                    "name": "Growth Pro",
+                    "description": "For growing sales teams, agencies, and outbound campaigns requiring higher concurrency.",
+                    "price_usd": 149.0,
+                    "price_inr": 11999.0,
+                    "billing_interval": "month",
+                    "included_minutes": 1600,
+                    "monthly_credits_usd": 160.0,
+                    "included_phone_numbers": 2,
+                    "max_concurrent_calls": 10,
+                    "max_agents": 10,
+                    "overage_rate_per_minute_usd": 0.08,
+                    "byok_platform_fee_per_minute_usd": 0.03,
+                    "allow_byok": True,
+                    "allow_live_transfer": True,
+                    "allow_sip_trunking": False,
+                    "is_active": True,
+                    "is_public": True,
+                    "features": [
+                        "$160.00 Included Call Credits / month (~1,333 standard mins)",
+                        "2 Included Dedicated Platform Phone Numbers",
+                        "10 Simultaneous Concurrent Lines",
+                        "Up to 10 Active AI Voice Agents",
+                        "Live Call Transfers & Knowledge Base RAG",
+                        "BYOK Supported ($0.03/min platform fee)",
+                        "High-volume Outbound Campaigns",
+                    ],
+                },
+                {
+                    "slug": "enterprise",
+                    "name": "Enterprise Custom",
+                    "description": "Tailored for large organizations, call centers, and B2B aggregators needing custom capacity.",
+                    "price_usd": 0.0,
+                    "price_inr": 0.0,
+                    "billing_interval": "month",
+                    "included_minutes": 5000,
+                    "monthly_credits_usd": 0.0,
+                    "included_phone_numbers": 5,
+                    "max_concurrent_calls": 30,
+                    "max_agents": 50,
+                    "overage_rate_per_minute_usd": 0.06,
+                    "byok_platform_fee_per_minute_usd": 0.02,
+                    "allow_byok": True,
+                    "allow_live_transfer": True,
+                    "allow_sip_trunking": True,
+                    "is_active": True,
+                    "is_public": True,
+                    "features": [
+                        "Custom Credits & Pricing Configured per Organization",
+                        "5+ Dedicated Platform Phone Numbers",
+                        "30+ High-throughput Concurrent Lines",
+                        "50+ Active AI Voice Agents",
+                        "Dedicated SIP Trunking & Custom LLM Fine-tunes",
+                        "Live Call Transfers & Inbound Routing",
+                        "Dedicated SLA & 24/7 Priority Support",
+                    ],
+                },
+            ]
 
-                async with db_client.async_session() as session:
-                    for p in default_plans:
+            async with db_client.async_session() as session:
+                for p in default_plans:
+                    stmt = select(SubscriptionPlanModel).where(SubscriptionPlanModel.slug == p["slug"])
+                    res = await session.execute(stmt)
+                    existing = res.scalars().first()
+                    if not existing:
                         session.add(
                             SubscriptionPlanModel(
                                 slug=p["slug"],
@@ -209,17 +263,36 @@ class PlanService:
                                 price_inr=p["price_inr"],
                                 billing_interval=p["billing_interval"],
                                 included_minutes=p["included_minutes"],
+                                monthly_credits_usd=p["monthly_credits_usd"],
+                                included_phone_numbers=p["included_phone_numbers"],
                                 max_concurrent_calls=p["max_concurrent_calls"],
                                 max_agents=p["max_agents"],
                                 overage_rate_per_minute_usd=p["overage_rate_per_minute_usd"],
+                                byok_platform_fee_per_minute_usd=p["byok_platform_fee_per_minute_usd"],
                                 allow_byok=p["allow_byok"],
+                                allow_live_transfer=p["allow_live_transfer"],
+                                allow_sip_trunking=p["allow_sip_trunking"],
                                 is_active=p["is_active"],
                                 is_public=p["is_public"],
                                 features=p["features"],
                             )
                         )
-                    await session.commit()
-                logger.info("Successfully seeded default SaaS subscription plans.")
+                    else:
+                        # Update fields to reflect new credit definitions
+                        existing.name = p["name"]
+                        existing.description = p["description"]
+                        existing.price_usd = p["price_usd"]
+                        existing.price_inr = p["price_inr"]
+                        existing.monthly_credits_usd = p["monthly_credits_usd"]
+                        existing.included_phone_numbers = p["included_phone_numbers"]
+                        existing.byok_platform_fee_per_minute_usd = p["byok_platform_fee_per_minute_usd"]
+                        existing.allow_live_transfer = p["allow_live_transfer"]
+                        existing.allow_sip_trunking = p["allow_sip_trunking"]
+                        existing.max_concurrent_calls = p["max_concurrent_calls"]
+                        existing.max_agents = p["max_agents"]
+                        existing.features = p["features"]
+                await session.commit()
+            logger.info("Successfully ensured and updated credit-based subscription plans.")
         except Exception as e:
             logger.warning("ensure_default_plans warning: {}", e)
 
@@ -257,6 +330,13 @@ class PlanService:
                 overage_rate_per_minute_usd=0.10,
                 allow_byok=True,
                 wallet_balance_usd=0.0,
+                plan_credits_remaining_usd=0.0,
+                plan_credits_monthly_usd=0.0,
+                included_phone_numbers=0,
+                byok_platform_fee_per_minute_usd=0.05,
+                allow_live_transfer=False,
+                allow_sip_trunking=False,
+                custom_monthly_price_usd=None,
             )
 
         tier_slug = getattr(org, "subscription_tier", "pay_as_you_go") or "pay_as_you_go"
@@ -269,6 +349,11 @@ class PlanService:
         base_minutes = plan.included_minutes if plan else 0
         base_overage = plan.overage_rate_per_minute_usd if plan else 0.10
         base_allow_byok = plan.allow_byok if plan else True
+        base_credits = getattr(plan, "monthly_credits_usd", 0.0) or 0.0
+        base_phone_numbers = getattr(plan, "included_phone_numbers", 0) or 0
+        base_byok_fee = getattr(plan, "byok_platform_fee_per_minute_usd", 0.04) or 0.04
+        base_live_transfer = getattr(plan, "allow_live_transfer", False) or False
+        base_sip_trunking = getattr(plan, "allow_sip_trunking", False) or False
 
         # Enterprise Custom Overrides (take precedence over standard plan!)
         effective_concurrency = (
@@ -286,6 +371,36 @@ class PlanService:
             if getattr(org, "custom_allow_byok", None) is not None
             else base_allow_byok
         )
+        effective_monthly_credits = (
+            float(org.custom_monthly_credits_usd)
+            if getattr(org, "custom_monthly_credits_usd", None) is not None
+            else base_credits
+        )
+        effective_phone_numbers = (
+            int(org.custom_included_phone_numbers)
+            if getattr(org, "custom_included_phone_numbers", None) is not None
+            else base_phone_numbers
+        )
+        effective_byok_fee = (
+            float(org.custom_byok_platform_fee_usd)
+            if getattr(org, "custom_byok_platform_fee_usd", None) is not None
+            else base_byok_fee
+        )
+        effective_live_transfer = (
+            bool(org.custom_allow_live_transfer)
+            if getattr(org, "custom_allow_live_transfer", None) is not None
+            else base_live_transfer
+        )
+        effective_sip_trunking = (
+            bool(org.custom_allow_sip_trunking)
+            if getattr(org, "custom_allow_sip_trunking", None) is not None
+            else base_sip_trunking
+        )
+        custom_price = (
+            float(org.custom_monthly_price_usd)
+            if getattr(org, "custom_monthly_price_usd", None) is not None
+            else None
+        )
 
         is_unlimited = False
         if getattr(org, "custom_monthly_minutes", None) is not None:
@@ -297,7 +412,6 @@ class PlanService:
         else:
             effective_minutes = base_minutes
 
-        # Custom price per second override if configured on organization
         if getattr(org, "price_per_second_usd", None) and org.price_per_second_usd > 0:
             effective_overage = round(float(org.price_per_second_usd) * 60.0, 4)
         else:
@@ -306,6 +420,7 @@ class PlanService:
         used_mins = float(getattr(org, "monthly_minutes_used", 0.0) or 0.0)
         remaining_mins = 999999.0 if is_unlimited else max(0.0, effective_minutes - used_mins)
         wallet_bal = float(getattr(org, "wallet_balance_usd", 0.0) or 0.0)
+        credits_remaining = float(getattr(org, "plan_credits_remaining_usd", 0.0) or 0.0)
 
         return EffectiveLimits(
             organization_id=organization_id,
@@ -321,6 +436,13 @@ class PlanService:
             overage_rate_per_minute_usd=effective_overage,
             allow_byok=effective_allow_byok,
             wallet_balance_usd=wallet_bal,
+            plan_credits_remaining_usd=credits_remaining,
+            plan_credits_monthly_usd=effective_monthly_credits,
+            included_phone_numbers=effective_phone_numbers,
+            byok_platform_fee_per_minute_usd=effective_byok_fee,
+            allow_live_transfer=effective_live_transfer,
+            allow_sip_trunking=effective_sip_trunking,
+            custom_monthly_price_usd=custom_price,
         )
 
     async def validate_can_create_workflow(self, organization_id: int) -> tuple[bool, str]:
@@ -344,9 +466,17 @@ class PlanService:
         custom_monthly_minutes: Optional[int] = None,
         custom_max_agents: Optional[int] = None,
         custom_allow_byok: Optional[bool] = None,
-        reset_minutes_used: bool = False,
+        custom_monthly_price_usd: Optional[float] = None,
+        custom_monthly_credits_usd: Optional[float] = None,
+        custom_included_phone_numbers: Optional[int] = None,
+        custom_byok_platform_fee_usd: Optional[float] = None,
+        custom_allow_live_transfer: Optional[bool] = None,
+        custom_allow_sip_trunking: Optional[bool] = None,
+        reset_credits: bool = True,
     ) -> EffectiveLimits:
         """Assign or update the subscription plan and enterprise overrides for an organization."""
+        plan = await self.get_plan_by_slug(plan_slug)
+
         async with db_client.async_session() as session:
             stmt = select(OrganizationModel).where(OrganizationModel.id == organization_id)
             res = await session.execute(stmt)
@@ -357,12 +487,21 @@ class PlanService:
             org.subscription_tier = plan_slug
             org.subscription_status = "active"
 
-            # Set 30-day billing cycle dates if not present
             now = datetime.now(UTC)
             org.billing_cycle_start = now
             org.billing_cycle_end = now + timedelta(days=30)
 
-            if reset_minutes_used:
+            # Resolve monthly credits
+            monthly_credits = 0.0
+            if custom_monthly_credits_usd is not None:
+                monthly_credits = float(custom_monthly_credits_usd)
+            elif plan and getattr(plan, "monthly_credits_usd", 0.0):
+                monthly_credits = float(plan.monthly_credits_usd)
+
+            org.plan_credits_monthly_usd = monthly_credits
+            if reset_credits:
+                org.plan_credits_remaining_usd = monthly_credits
+                org.plan_credits_reset_at = now + timedelta(days=30)
                 org.monthly_minutes_used = 0.0
 
             if custom_concurrent_limit is not None:
@@ -373,15 +512,27 @@ class PlanService:
                 org.custom_max_agents = custom_max_agents
             if custom_allow_byok is not None:
                 org.custom_allow_byok = custom_allow_byok
+            if custom_monthly_price_usd is not None:
+                org.custom_monthly_price_usd = custom_monthly_price_usd
+            if custom_monthly_credits_usd is not None:
+                org.custom_monthly_credits_usd = custom_monthly_credits_usd
+            if custom_included_phone_numbers is not None:
+                org.custom_included_phone_numbers = custom_included_phone_numbers
+            if custom_byok_platform_fee_usd is not None:
+                org.custom_byok_platform_fee_usd = custom_byok_platform_fee_usd
+            if custom_allow_live_transfer is not None:
+                org.custom_allow_live_transfer = custom_allow_live_transfer
+            if custom_allow_sip_trunking is not None:
+                org.custom_allow_sip_trunking = custom_allow_sip_trunking
 
             await session.commit()
 
         logger.info(
-            "Updated plan for organization {} to tier={} with custom limits (concurrency={}, mins={}, agents={})",
+            "Updated plan for organization {} to tier={} (credits=${}, concurrency={}, agents={})",
             organization_id,
             plan_slug,
+            monthly_credits,
             custom_concurrent_limit,
-            custom_monthly_minutes,
             custom_max_agents,
         )
         return await self.get_effective_limits(organization_id)
@@ -392,46 +543,48 @@ class PlanService:
         duration_seconds: float,
         rate_per_min: float,
     ) -> Dict[str, Any]:
-        """Allocate call cost between monthly subscription included minutes and platform wallet overage."""
+        """Allocate call cost between monthly subscription included credits and platform wallet overage."""
         limits = await self.get_effective_limits(organization_id)
         call_duration_minutes = duration_seconds / 60.0
+        call_cost_usd = round(call_duration_minutes * rate_per_min, 4)
 
         charged_to = "wallet"
-        plan_minutes_deducted = 0.0
-        overage_minutes = 0.0
+        plan_credits_deducted = 0.0
         wallet_cost_usd = 0.0
         new_wallet_balance = limits.wallet_balance_usd
+        new_plan_credits = limits.plan_credits_remaining_usd
 
-        if limits.minutes_remaining > 0:
-            if limits.minutes_remaining >= call_duration_minutes:
-                # Fully covered under monthly subscription minutes!
-                plan_minutes_deducted = call_duration_minutes
-                charged_to = "subscription_minutes"
+        if limits.plan_credits_remaining_usd > 0:
+            if limits.plan_credits_remaining_usd >= call_cost_usd:
+                # Fully covered under monthly plan credits!
+                plan_credits_deducted = call_cost_usd
+                wallet_cost_usd = 0.0
+                new_plan_credits = round(limits.plan_credits_remaining_usd - plan_credits_deducted, 4)
+                charged_to = "plan_credits"
             else:
-                # Partially covered by subscription minutes, remainder charged to wallet!
-                plan_minutes_deducted = limits.minutes_remaining
-                overage_minutes = call_duration_minutes - plan_minutes_deducted
-                wallet_cost_usd = round(overage_minutes * limits.overage_rate_per_minute_usd, 4)
+                # Partially covered by plan credits, remainder charged to wallet!
+                plan_credits_deducted = limits.plan_credits_remaining_usd
+                wallet_cost_usd = round(call_cost_usd - plan_credits_deducted, 4)
+                new_plan_credits = 0.0
                 charged_to = "split"
         else:
             # Fully charged to wallet (Pay-As-You-Go or overage)
-            overage_minutes = call_duration_minutes
-            wallet_cost_usd = round(call_duration_minutes * rate_per_min, 4)
+            plan_credits_deducted = 0.0
+            wallet_cost_usd = call_cost_usd
             charged_to = "wallet"
 
-        # 1. Update monthly minutes used if applicable
-        if plan_minutes_deducted > 0:
-            async with db_client.async_session() as session:
-                stmt = (
-                    update(OrganizationModel)
-                    .where(OrganizationModel.id == organization_id)
-                    .values(
-                        monthly_minutes_used=OrganizationModel.monthly_minutes_used
-                        + plan_minutes_deducted
-                    )
+        # 1. Update plan_credits_remaining_usd & monthly_minutes_used
+        async with db_client.async_session() as session:
+            stmt = (
+                update(OrganizationModel)
+                .where(OrganizationModel.id == organization_id)
+                .values(
+                    plan_credits_remaining_usd=new_plan_credits,
+                    monthly_minutes_used=OrganizationModel.monthly_minutes_used + call_duration_minutes,
                 )
-                await session.execute(stmt)
-                await session.commit()
+            )
+            await session.execute(stmt)
+            await session.commit()
 
         # 2. Update wallet balance if overage or pay-as-you-go cost incurred
         if wallet_cost_usd > 0:
@@ -443,11 +596,13 @@ class PlanService:
             "charged_to": charged_to,
             "call_duration_seconds": duration_seconds,
             "call_duration_minutes": round(call_duration_minutes, 2),
-            "plan_minutes_deducted": round(plan_minutes_deducted, 2),
-            "overage_minutes": round(overage_minutes, 2),
+            "call_cost_usd": call_cost_usd,
+            "plan_credits_deducted": plan_credits_deducted,
+            "plan_credits_remaining": new_plan_credits,
             "wallet_cost_usd": wallet_cost_usd,
             "wallet_balance_after": new_wallet_balance,
             "effective_tier": limits.tier,
+            "rate_per_minute": rate_per_min,
             "overage_rate_per_minute": limits.overage_rate_per_minute_usd,
         }
 

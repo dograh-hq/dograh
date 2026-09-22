@@ -36,7 +36,8 @@ async def claim_platform_number(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     try:
-        result = await db_client.claim_platform_number(
+        from api.services.telephony_billing_service import telephony_billing_service
+        result = await telephony_billing_service.claim_platform_number_with_plan_check(
             phone_number_id=number_id,
             organization_id=user.selected_organization_id,
             set_as_default=request.set_as_default,
@@ -46,3 +47,25 @@ async def claim_platform_number(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to claim number: {str(e)}")
+
+
+@router.post("/{number_id}/release")
+async def release_platform_number(
+    number_id: int,
+    user: UserModel = Depends(get_user),
+):
+    """Release a claimed platform number back to platform inventory."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    try:
+        from api.services.telephony_billing_service import telephony_billing_service
+        await telephony_billing_service.release_platform_number(
+            phone_number_id=number_id,
+            organization_id=user.selected_organization_id,
+        )
+        return {"success": True, "message": "Phone number released back to platform inventory"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to release number: {str(e)}")

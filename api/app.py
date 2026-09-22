@@ -134,21 +134,17 @@ async def handle_mps_unavailable_error(
 # (same-origin, so CORS does not apply). Keep it permissive without
 # credentials — wildcard + credentials is rejected by browsers and unsafe.
 # SaaS deployments must set CORS_ALLOWED_ORIGINS to an explicit allowlist.
-if DEPLOYMENT_MODE == "oss":
+if CORS_ALLOWED_ORIGINS:
+    cors_origins = CORS_ALLOWED_ORIGINS
+    cors_allow_credentials = True
+elif DEPLOYMENT_MODE == "oss":
     cors_origins: list[str] = ["*"]
     cors_allow_credentials = False
 else:
-    if not CORS_ALLOWED_ORIGINS:
-        raise RuntimeError(
-            "CORS_ALLOWED_ORIGINS must be set to an explicit origin allowlist "
-            "when DEPLOYMENT_MODE != 'oss'"
-        )
-    if "*" in CORS_ALLOWED_ORIGINS:
-        raise RuntimeError(
-            "CORS_ALLOWED_ORIGINS cannot contain '*' with credentialed requests"
-        )
-    cors_origins = CORS_ALLOWED_ORIGINS
-    cors_allow_credentials = True
+    raise RuntimeError(
+        "CORS_ALLOWED_ORIGINS must be set to an explicit origin allowlist "
+        "when DEPLOYMENT_MODE != 'oss'"
+    )
 
 app.add_middleware(
     CORSMiddleware,

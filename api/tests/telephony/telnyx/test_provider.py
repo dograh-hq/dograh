@@ -11,6 +11,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from api.services.telephony import ws_auth
 from api.services.telephony.providers.telnyx import _ensure_connection_id
 from api.services.telephony.providers.telnyx.provider import TelnyxProvider
 from api.services.telephony.providers.telnyx.routes import handle_telnyx_events
@@ -68,6 +69,19 @@ def _signed_headers(body: str, timestamp: str | None = None):
     )
 
 
+def _events_query_string(workflow_run_id: int = 123) -> bytes:
+    """Query string carrying a valid capability token for *workflow_run_id*.
+
+    Every request in this module targets the events route, which gates on the
+    token whenever TELEPHONY_WS_TOKEN_SECRET is set -- as it is in production
+    and in a developer's api/.env. Without this the tests below would only pass
+    in the no-secret configuration and would 404 at the gate everywhere else.
+    Returns b"" when no secret is configured, where the gate is skipped anyway.
+    """
+    token = ws_auth.mint_events_token(workflow_run_id)
+    return f"token={token}".encode() if token else b""
+
+
 def _request(body: str, headers: dict[str, str]) -> Request:
     async def receive():
         return {
@@ -81,6 +95,7 @@ def _request(body: str, headers: dict[str, str]) -> Request:
             "type": "http",
             "method": "POST",
             "path": "/api/v1/telephony/telnyx/events/123",
+            "query_string": _events_query_string(),
             "headers": [
                 (name.lower().encode("ascii"), value.encode("ascii"))
                 for name, value in headers.items()
@@ -308,7 +323,7 @@ async def test_verify_inbound_signature_rejects_wrong_length_signature():
 
 
 @pytest.mark.asyncio
-async def test_telnyx_events_route_rejects_invalid_signature_with_401():
+async def test_telnyx_events_route_rejects_invalid_signature_with_404():
     body = _body()
     public_key, headers = _signed_headers(body)
     provider = _provider(public_key)
@@ -341,8 +356,8 @@ async def test_telnyx_events_route_rejects_invalid_signature_with_401():
         with pytest.raises(HTTPException) as exc_info:
             await handle_telnyx_events(_request(body, headers), workflow_run_id=123)
 
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Invalid webhook signature"
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Workflow run not found"
     process_status.assert_not_awaited()
 
 
@@ -358,6 +373,7 @@ async def test_telnyx_events_route_rejects_invalid_utf8_body_with_400():
             "type": "http",
             "method": "POST",
             "path": "/api/v1/telephony/telnyx/events/123",
+            "query_string": _events_query_string(),
             "headers": [],
         },
         receive,

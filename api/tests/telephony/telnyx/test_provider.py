@@ -376,8 +376,9 @@ async def test_telnyx_events_route_rejects_invalid_utf8_body_with_400():
     [
         "streaming.started",
         "streaming.stopped",
-        "call.recording.started",
         "call.recording.saved",
+        "call.recording.error",
+        "call.recording.transcription.saved",
     ],
 )
 async def test_telnyx_events_route_skips_informational_events_after_verification(
@@ -660,3 +661,26 @@ async def test_ensure_connection_id_profile_lookup_is_bounded_by_a_timeout():
 
     timeout = session.get.call_args.kwargs["timeout"]
     assert timeout.total is not None and timeout.total <= 30
+
+
+def test_informational_event_types_match_telnyx_catalog():
+    """Guards the two mistakes this list invites: inventing an event Telnyx
+    never sends, and forgetting one that it does.
+
+    Source: Telnyx's published webhook catalog at
+    https://developers.telnyx.com/data/webhook-events.json — the call.* events
+    for recording are saved / error / transcription.saved. There is no
+    call.recording.started.
+    """
+    from api.services.telephony.providers.telnyx.routes import (
+        _INFORMATIONAL_EVENT_TYPES,
+    )
+
+    assert "call.recording.started" not in _INFORMATIONAL_EVENT_TYPES
+    assert {
+        "call.recording.saved",
+        "call.recording.error",
+        "call.recording.transcription.saved",
+    } <= _INFORMATIONAL_EVENT_TYPES
+    # Streaming events keep their pre-existing skip.
+    assert {"streaming.started", "streaming.stopped"} <= _INFORMATIONAL_EVENT_TYPES

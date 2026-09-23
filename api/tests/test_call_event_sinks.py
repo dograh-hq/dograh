@@ -7,7 +7,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from api.routes import call_events as routes
+from api.enums import OrganizationConfigurationKey
+from api.routes import organization as routes
 from api.services.integrations.bigquery.sink import (
     BigQueryConfig,
     BigQuerySink,
@@ -173,13 +174,14 @@ def test_buffer_freezes_details_and_preserves_summary():
     assert buffer.events == []
 
 
-async def test_settings_org_isolation_secret_roundtrip_and_validation(monkeypatch):
+@pytest.fixture
+async def preferences_client(monkeypatch):
     rows = {}
     user = SimpleNamespace(selected_organization_id=7)
 
     async def get(org_id, key):
         value = rows.get((org_id, key))
-        return SimpleNamespace(value=value) if value else None
+        return SimpleNamespace(value=value) if value is not None else None
 
     async def put(org_id, key, value):
         rows[(org_id, key)] = value
@@ -197,37 +199,135 @@ async def test_settings_org_isolation_secret_roundtrip_and_validation(monkeypatc
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        url = "/organizations/call-events"
-        assert (await client.get(url)).json()["enabled"] is False
-        body = {
-            "enabled": True,
-            "sink_type": "bigquery",
-            "config": {
-                "table": "milo-506211.dograh.pipeline_diagnostics",
-                "auth_mode": "service_account",
-                "client_email": "test@milo-506211.iam.gserviceaccount.com",
-                "private_key": "private-test-key",
-            },
-        }
-        response = await client.put(url, json=body)
-        assert response.status_code == 200
-        assert "private-test-key" not in response.text
-        assert (await client.get(url)).json()["config"][
-            "private_key"
-        ] == configuration.MASKED_SECRET
-        body["config"]["private_key"] = configuration.MASKED_SECRET
-        assert (await client.put(url, json=body)).status_code == 200
-        assert (
-            rows[(7, configuration.CONFIG_KEY)]["config"]["private_key"]
-            == "private-test-key"
-        )
-        user.selected_organization_id = 8
-        assert (await client.get(url)).json()["enabled"] is False
-        assert (await client.put(url, json=body)).status_code == 422
-        await client.delete(url)
-        assert (7, configuration.CONFIG_KEY) in rows
-        user.selected_organization_id = None
-        assert (await client.get(url)).status_code == 400
+        yield client, rows, user
+
+
+def sink_settings():
+    return {
+        "enabled": True,
+        "sink_type": "bigquery",
+        "config": {
+            "table": "milo-506211.dograh.pipeline_diagnostics",
+            "auth_mode": "service_account",
+            "client_email": "test@milo-506211.iam.gserviceaccount.com",
+            "private_key": "private-test-key",
+        },
+    }
+
+
+async def test_settings_org_isolation_secret_roundtrip_and_validation(
+    preferences_client,
+):
+    client, rows, user = preferences_client
+    url = "/organizations/preferences"
+    assert (await client.get(url)).json()["call_events"]["enabled"] is False
+    body = {"call_events": sink_settings()}
+    response = await client.put(url, json=body)
+    assert response.status_code == 200
+    assert "private-test-key" not in response.text
+    assert (await client.get(url)).json()["call_events"]["config"][
+        "private_key"
+    ] == configuration.MASKED_SECRET
+    body["call_events"]["config"]["private_key"] = configuration.MASKED_SECRET
+    assert (await client.put(url, json=body)).status_code == 200
+    assert (
+        rows[(7, configuration.CONFIG_KEY)]["config"]["private_key"]
+        == "private-test-key"
+    )
+
+    user.selected_organization_id = 8
+    assert (await client.get(url)).json()["call_events"]["enabled"] is False
+    assert (await client.put(url, json=body)).status_code == 422
+    await client.put(url, json={"call_events": None})
+    assert (7, configuration.CONFIG_KEY) in rows
+    user.selected_organization_id = None
+    assert (await client.get(url)).status_code == 400
+    assert (await client.put(url, json=body)).status_code == 400
+
+
+async def test_partial_preferences_updates_preserve_legacy_settings_and_sink(
+    preferences_client,
+):
+    client, rows, _ = preferences_client
+    url = "/organizations/preferences"
+    legacy_key = OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value
+    prefs_key = OrganizationConfigurationKey.ORGANIZATION_PREFERENCES.value
+    original = {
+        "timezone": "Europe/Rome",
+        "test_phone_number": "+390123456789",
+        "external_pbx_integrations_enabled": True,
+        "disposition_mapping_enabled": True,
+        "disposition_mapping": {"user_hangup": "HUNGUP"},
+    }
+    rows[(7, legacy_key)] = original
+    response = await client.put(url, json={"call_events": sink_settings()})
+    assert response.status_code == 200
+    assert all(response.json()[key] == value for key, value in original.items())
+    assert (7, prefs_key) not in rows
+    stored_sink = rows[(7, configuration.CONFIG_KEY)]
+
+    response = await client.put(url, json={"timezone": "UTC"})
+    assert response.status_code == 200
+    assert rows[(7, prefs_key)] == {**original, "timezone": "UTC"}
+    assert rows[(7, configuration.CONFIG_KEY)] is stored_sink
+    response = await client.put(url, json={"test_phone_number": None})
+    assert response.json()["test_phone_number"] is None
+    assert response.json()["timezone"] == "UTC"
+    assert rows[(7, configuration.CONFIG_KEY)] is stored_sink
+
+    await client.put(url, json={"call_events": None})
+    assert (7, configuration.CONFIG_KEY) not in rows
+    response = await client.get(url)
+    assert response.json()["call_events"] == {
+        "enabled": False,
+        "sink_type": None,
+        "config": {},
+    }
+    assert response.json()["disposition_mapping"] == original["disposition_mapping"]
+    assert "call_events" not in rows[(7, prefs_key)]
+
+
+async def test_invalid_sink_does_not_write_preferences_or_echo_credentials(
+    preferences_client,
+):
+    client, rows, _ = preferences_client
+    settings = sink_settings()
+    settings["config"]["table"] = "bad-table"
+    response = await client.put(
+        "/organizations/preferences", json={"timezone": "UTC", "call_events": settings}
+    )
+    assert response.status_code == 422
+    assert "private-test-key" not in response.text
+    assert not rows
+
+
+async def test_connection_action_uses_unsaved_settings_without_writing(
+    preferences_client, monkeypatch
+):
+    client, rows, user = preferences_client
+    sink = SimpleNamespace(validate_connection=AsyncMock(), close=AsyncMock())
+    spec = SimpleNamespace(config_model=BigQueryConfig, create=lambda _: sink)
+    monkeypatch.setattr(configuration, "registration", lambda _: spec)
+    rows[(7, configuration.CONFIG_KEY)] = sink_settings()
+    # Resolve an existing masked secret while testing a different, unsaved table.
+    body = sink_settings()
+    body["config"]["private_key"] = configuration.MASKED_SECRET
+    body["config"]["table"] = "milo-506211.dograh.other_table"
+    spec.sensitive_fields = ("private_key",)
+    response = await client.post("/organizations/call-events/test", json=body)
+    assert response.status_code == 200
+    sink.validate_connection.assert_awaited_once()
+    sink.close.assert_awaited_once()
+    assert rows[(7, configuration.CONFIG_KEY)] == sink_settings()
+    sink.validate_connection.side_effect = ValueError("Invalid table schema")
+    assert (
+        await client.post("/organizations/call-events/test", json=body)
+    ).status_code == 400
+    assert sink.close.await_count == 2
+    user.selected_organization_id = None
+    assert (
+        await client.post("/organizations/call-events/test", json=body)
+    ).status_code == 400
 
 
 async def test_delivery_retries_only_failed_rows_and_honors_revocation(

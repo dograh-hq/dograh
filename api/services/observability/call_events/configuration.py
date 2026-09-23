@@ -1,19 +1,14 @@
 """Org settings and sink discovery. Only configuration goes to the DB."""
 
-from pydantic import BaseModel, Field
+import asyncio
 
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey
-from api.services.integrations.registry import all_packages, get_package
+from api.schemas.call_events import CallEventsSettings
+from api.services.integrations.registry import get_package
 
 MASKED_SECRET = "********"
 CONFIG_KEY = OrganizationConfigurationKey.CALL_EVENTS.value
-
-
-class CallEventsSettings(BaseModel):
-    enabled: bool = False
-    sink_type: str | None = None
-    config: dict = Field(default_factory=dict)
 
 
 def registration(sink_type: str):
@@ -21,10 +16,6 @@ def registration(sink_type: str):
     if package is None or package.call_event_sink is None:
         raise ValueError("Unsupported call-event destination")
     return package.call_event_sink
-
-
-def sink_types() -> list[str]:
-    return [p.name for p in all_packages() if p.call_event_sink is not None]
 
 
 async def load_settings(organization_id: int) -> CallEventsSettings:
@@ -76,3 +67,15 @@ def same_destination(before: CallEventsSettings, after: CallEventsSettings) -> b
     return all(
         before.config.get(k) == after.config.get(k) for k in spec.destination_fields
     )
+
+
+async def check_connection(settings: CallEventsSettings) -> None:
+    if not settings.sink_type:
+        raise ValueError("Select a destination")
+    spec = registration(settings.sink_type)
+    sink = spec.create(spec.config_model.model_validate(settings.config))
+    try:
+        async with asyncio.timeout(20):
+            await sink.validate_connection()
+    finally:
+        await sink.close()

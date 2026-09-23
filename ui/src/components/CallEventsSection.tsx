@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import {
-  deleteCallEventsSettingsApiV1OrganizationsCallEventsDelete,
-  getCallEventsSettingsApiV1OrganizationsCallEventsGet,
-  saveCallEventsSettingsApiV1OrganizationsCallEventsPut,
+  savePreferencesApiV1OrganizationsPreferencesPut,
   testCallEventsConnectionApiV1OrganizationsCallEventsTestPost,
 } from "@/client/sdk.gen";
 import type { CallEventsSettings } from "@/client/types.gen";
@@ -70,42 +68,28 @@ const destinations = {
 };
 
 export function CallEventsSection() {
-  const { user, loading: authLoading } = useAuth();
-  const { orgContext, loading: orgLoading } = useOrgConfig();
-  if (authLoading || orgLoading || !user || !orgContext?.organization_id) {
+  const { user, loading: authLoading, provider } = useAuth();
+  const { orgContext, organizationPreferences, loading: orgLoading, error, refreshConfig } = useOrgConfig();
+  if (authLoading || orgLoading || !user) {
     return <p className="text-sm text-muted-foreground">Loading call event settings…</p>;
   }
-  return <CallEventsForm key={orgContext.organization_id} />;
+  if (error || !orgContext?.organization_id || !organizationPreferences) {
+    return <div className="space-y-2"><p role="alert">{error?.message ?? "Could not load organization settings"}</p><Button variant="outline" onClick={() => void refreshConfig()}>Retry</Button></div>;
+  }
+  return <CallEventsForm key={orgContext.organization_id} initialSettings={organizationPreferences.call_events} deploymentIdentityAvailable={provider === "local"} />;
 }
 
-function CallEventsForm() {
-  const [settings, setSettings] = useState<CallEventsSettings>({ enabled: false, sink_type: "bigquery", config: {} });
-  const [deploymentIdentityAvailable, setDeploymentIdentityAvailable] = useState(false);
-  const [loading, setLoading] = useState(true);
+function formSettings(settings: CallEventsSettings): CallEventsSettings {
+  return { enabled: settings.enabled, sink_type: settings.sink_type ?? "bigquery", config: settings.config ?? {} };
+}
+
+function CallEventsForm({ initialSettings, deploymentIdentityAvailable }: {
+  initialSettings: CallEventsSettings;
+  deploymentIdentityAvailable: boolean;
+}) {
+  const { refreshConfig } = useOrgConfig();
+  const [settings, setSettings] = useState<CallEventsSettings>(() => formSettings(initialSettings));
   const [busy, setBusy] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const { data, error } = await getCallEventsSettingsApiV1OrganizationsCallEventsGet({ signal });
-      if (signal?.aborted) return;
-      if (error || !data) throw new Error(detailFromError(error, "Could not load call event settings"));
-      setSettings({ enabled: data.enabled, sink_type: data.sink_type ?? "bigquery", config: data.config ?? {} });
-      setDeploymentIdentityAvailable(data.deployment_identity_available);
-    } catch (error) {
-      if (!signal?.aborted) setLoadError(error instanceof Error ? error.message : "Could not load call event settings");
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
 
   async function run(action: "save" | "test" | "remove") {
     setBusy(true);
@@ -115,11 +99,12 @@ function CallEventsForm() {
         if (error || !data) throw new Error(detailFromError(error, "Connection check failed"));
         toast.success(data.message);
       } else {
-        const { data, error } = action === "save"
-          ? await saveCallEventsSettingsApiV1OrganizationsCallEventsPut({ body: settings })
-          : await deleteCallEventsSettingsApiV1OrganizationsCallEventsDelete();
+        const { data, error } = await savePreferencesApiV1OrganizationsPreferencesPut({
+          body: { call_events: action === "save" ? settings : null },
+        });
         if (error || !data) throw new Error(detailFromError(error, "Could not update call event settings"));
-        setSettings({ enabled: data.enabled, sink_type: data.sink_type ?? "bigquery", config: data.config ?? {} });
+        setSettings(formSettings(data.call_events));
+        await refreshConfig();
         toast.success(action === "save" ? "Call event settings saved" : "Call event destination removed");
       }
     } catch (error) {
@@ -128,9 +113,6 @@ function CallEventsForm() {
       setBusy(false);
     }
   }
-
-  if (loading) return <p className="text-sm text-muted-foreground">Loading call event settings…</p>;
-  if (loadError) return <div className="space-y-2"><p role="alert">{loadError}</p><Button variant="outline" onClick={() => void load()}>Retry</Button></div>;
 
   const destination = destinations[settings.sink_type as keyof typeof destinations];
   return (

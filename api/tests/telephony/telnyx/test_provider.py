@@ -1,10 +1,9 @@
+import asyncio
 import base64
 import json
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import asyncio
 
 import aiohttp
 import nacl.signing
@@ -413,10 +412,13 @@ async def test_telnyx_events_route_skips_informational_events_after_verification
 
     assert result == {"status": "success"}
     process_status.assert_not_awaited()
+
+
 def _fake_aiohttp_session(
     *,
     list_payload: dict | None = None,
     list_error: Exception | None = None,
+    list_json_error: Exception | None = None,
     create_payload: dict | None = None,
 ) -> MagicMock:
     """Build an ``aiohttp.ClientSession`` mock for ``_ensure_connection_id``.
@@ -438,7 +440,10 @@ def _fake_aiohttp_session(
         list_response.text = AsyncMock(
             return_value=json.dumps(list_payload, default=str)
         )
-        list_response.json = AsyncMock(return_value=list_payload)
+        if list_json_error is not None:
+            list_response.json = AsyncMock(side_effect=list_json_error)
+        else:
+            list_response.json = AsyncMock(return_value=list_payload)
         session.get.return_value.__aenter__.return_value = list_response
 
     create_response = MagicMock()
@@ -481,9 +486,7 @@ async def test_ensure_connection_id_attaches_outbound_voice_profile_id_when_one_
     assert result["connection_id"] == "111111"
     assert session.get.call_args.args[0].endswith("/outbound_voice_profiles")
     create_body = session.post.call_args.kwargs["json"]
-    assert (
-        create_body["outbound"]["outbound_voice_profile_id"] == "1234567890"
-    )
+    assert create_body["outbound"]["outbound_voice_profile_id"] == "1234567890"
     assert create_body["application_name"]
     assert "webhook_event_url" in create_body
 
@@ -583,3 +586,77 @@ async def test_ensure_connection_id_tolerates_unexpected_profile_payload_shapes(
         assert result["connection_id"] == "111111", f"payload {bad_payload!r}"
         create_body = session.post.call_args.kwargs["json"]
         assert "outbound" not in create_body, f"payload {bad_payload!r}"
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_omits_outbound_when_profile_list_body_is_malformed():
+    """A 200 with a JSON content type but an unparseable body raises
+    json.JSONDecodeError — a ValueError, not an aiohttp.ClientError. It must
+    not escape and 500 the config save (contract: the save always succeeds)."""
+    session = _fake_aiohttp_session(
+        list_json_error=json.JSONDecodeError("Expecting value", "", 0),
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    assert result["connection_id"] == "111111"
+    create_body = session.post.call_args.kwargs["json"]
+    assert "outbound" not in create_body
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_skips_disabled_outbound_voice_profiles():
+    """A disabled profile still fails the dial, so it is no better than none:
+    the first *enabled* profile is bound instead."""
+    session = _fake_aiohttp_session(
+        list_payload={
+            "data": [
+                {"id": "disabled-1", "name": "Retired", "enabled": False},
+                {"id": "enabled-2", "name": "Live", "enabled": True},
+            ]
+        },
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    create_body = session.post.call_args.kwargs["json"]
+    assert create_body["outbound"]["outbound_voice_profile_id"] == "enabled-2"
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_omits_outbound_when_every_profile_is_disabled():
+    session = _fake_aiohttp_session(
+        list_payload={"data": [{"id": "disabled-1", "enabled": False}]},
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        result = await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    assert result["connection_id"] == "111111"
+    create_body = session.post.call_args.kwargs["json"]
+    assert "outbound" not in create_body
+
+
+@pytest.mark.asyncio
+async def test_ensure_connection_id_profile_lookup_is_bounded_by_a_timeout():
+    """aiohttp's default total timeout is 5 minutes; the best-effort profile
+    lookup must not be able to stall a config save for that long."""
+    session = _fake_aiohttp_session(
+        list_payload={"data": [{"id": "1234567890"}]},
+        create_payload={"data": {"id": 111111, "application_name": "dograh-abc"}},
+    )
+
+    backend_patch, session_patch = _patch_ensure_connection_id(session)
+    with backend_patch, session_patch:
+        await _ensure_connection_id({"api_key": "placeholder-api-key"})
+
+    timeout = session.get.call_args.kwargs["timeout"]
+    assert timeout.total is not None and timeout.total <= 30

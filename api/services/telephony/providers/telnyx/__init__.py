@@ -22,6 +22,10 @@ from .transport import create_transport
 
 TELNYX_API_BASE_URL = "https://api.telnyx.com/v2"
 
+# Bound the best-effort profile lookup so a hung Telnyx API cannot stall the
+# config save for aiohttp's 5-minute default.
+_PROFILE_LIST_TIMEOUT = aiohttp.ClientTimeout(total=10)
+
 
 def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -33,23 +37,35 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _fetch_first_outbound_voice_profile_id(
+async def _select_outbound_voice_profile(
     session: aiohttp.ClientSession,
     headers: Dict[str, str],
-) -> str | None:
-    """Return the account's first Outbound Voice Profile id, or None.
+) -> Dict[str, Any] | None:
+    """Return an enabled Outbound Voice Profile to bind, or None.
 
     Telnyx refuses outbound dialing from a Call Control Application with no
     Outbound Voice Profile attached (error D38), so the auto-created
     application is enriched with an existing profile when one is available.
     Profiles are never created here — they are a billing-affecting resource.
 
+    Disabled profiles are skipped: binding one still yields a D38-equivalent
+    rejection at dial time, so it is no better than no profile at all. Beyond
+    that the first candidate wins — the account's own ordering is the only
+    signal available here — and the caller logs which profile it bound, so the
+    choice stays auditable when a dial is later rejected for a destination the
+    profile does not whitelist.
+
     Failures to list profiles are logged and swallowed: the config save must
     still succeed so inbound calls work either way.
     """
     endpoint = f"{TELNYX_API_BASE_URL}/outbound_voice_profiles"
     try:
-        async with session.get(endpoint, headers=headers) as response:
+        async with session.get(
+            endpoint,
+            headers=headers,
+            params={"page[size]": "100"},
+            timeout=_PROFILE_LIST_TIMEOUT,
+        ) as response:
             if response.status != 200:
                 response_text = await response.text()
                 logger.error(
@@ -60,6 +76,13 @@ async def _fetch_first_outbound_voice_profile_id(
             payload = await response.json()
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
         logger.error(f"[Telnyx] outboundVoiceProfileList transport error: {e}")
+        return None
+    except ValueError as e:
+        # A 200 carrying a JSON content type but a truncated or empty body
+        # raises json.JSONDecodeError, a ValueError rather than an aiohttp
+        # error. Uncaught it would escape _ensure_connection_id's
+        # aiohttp.ClientError handler and 500 the config save.
+        logger.error(f"[Telnyx] outboundVoiceProfileList malformed JSON body: {e}")
         return None
 
     # Defensively tolerate any payload shape the API might return: a listing
@@ -78,11 +101,28 @@ async def _fetch_first_outbound_voice_profile_id(
             "treating as no profiles available"
         )
         return None
-    first = profiles[0] if profiles else None
-    if not isinstance(first, dict):
-        return None
-    profile_id = first.get("id")
-    return str(profile_id) if profile_id is not None else None
+
+    for entry in profiles:
+        if not isinstance(entry, dict):
+            continue
+        # Telnyx omits ``enabled`` on some payload versions; absent means usable.
+        if entry.get("enabled") is False:
+            continue
+        profile_id = entry.get("id")
+        if profile_id is None:
+            continue
+        return {
+            "id": str(profile_id),
+            "name": entry.get("name"),
+            "whitelisted_destinations": entry.get("whitelisted_destinations"),
+        }
+
+    if profiles:
+        logger.warning(
+            f"[Telnyx] outboundVoiceProfileList returned {len(profiles)} profile(s) "
+            f"but none were usable (all disabled or missing an id)."
+        )
+    return None
 
 
 async def _ensure_connection_id(
@@ -127,13 +167,21 @@ async def _ensure_connection_id(
 
     try:
         async with aiohttp.ClientSession() as session:
-            outbound_profile_id = await _fetch_first_outbound_voice_profile_id(
-                session, headers
-            )
-            if outbound_profile_id:
-                body["outbound"] = {
-                    "outbound_voice_profile_id": outbound_profile_id
-                }
+            outbound_profile = await _select_outbound_voice_profile(session, headers)
+            if outbound_profile:
+                body["outbound"] = {"outbound_voice_profile_id": outbound_profile["id"]}
+                # Which profile got bound is a billing- and routing-relevant
+                # choice made on the user's behalf, so name it in the logs: a
+                # later D38-adjacent rejection (destination not whitelisted,
+                # spend limit hit) is only diagnosable if this is recorded.
+                logger.info(
+                    f"[Telnyx] Binding Outbound Voice Profile "
+                    f"{outbound_profile['id']} "
+                    f"(name={outbound_profile.get('name')!r}, "
+                    f"whitelisted_destinations="
+                    f"{outbound_profile.get('whitelisted_destinations')}) "
+                    f"to auto-created Call Control Application."
+                )
             else:
                 logger.warning(
                     "[Telnyx] Auto-created Call Control Application will "

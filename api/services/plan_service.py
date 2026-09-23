@@ -246,6 +246,121 @@ class PlanService:
                         "Dedicated SLA & 24/7 Priority Support",
                     ],
                 },
+                # --- Simple Minute-Based Business Plans (Non-technical / Manager's App) ---
+                {
+                    "slug": "simple_trial",
+                    "name": "Free Trial",
+                    "description": "15 free calling minutes to test AI voice agents in browser or quick demo calls.",
+                    "price_usd": 0.0,
+                    "price_inr": 0.0,
+                    "billing_interval": "month",
+                    "included_minutes": 15,
+                    "monthly_credits_usd": 0.0,
+                    "included_phone_numbers": 0,
+                    "max_concurrent_calls": 1,
+                    "max_agents": 1,
+                    "overage_rate_per_minute_usd": 0.10,
+                    "byok_platform_fee_per_minute_usd": 0.04,
+                    "allow_byok": False,
+                    "allow_live_transfer": False,
+                    "allow_sip_trunking": False,
+                    "is_active": True,
+                    "is_public": True,
+                    "features": [
+                        "15 Free Calling Minutes Included",
+                        "1 Active AI Voice Agent",
+                        "1 Simultaneous Call Line",
+                        "WebRTC In-Browser Voice Testing",
+                        "Instant Setup, No Credit Card Required",
+                    ],
+                },
+                {
+                    "slug": "simple_starter",
+                    "name": "Starter Minute Pack",
+                    "description": "Essential automated calling for clinics, local businesses, and solo professionals.",
+                    "price_usd": 25.0,
+                    "price_inr": 1999.0,
+                    "billing_interval": "month",
+                    "included_minutes": 250,
+                    "monthly_credits_usd": 0.0,
+                    "included_phone_numbers": 1,
+                    "max_concurrent_calls": 2,
+                    "max_agents": 2,
+                    "overage_rate_per_minute_usd": 0.09,
+                    "byok_platform_fee_per_minute_usd": 0.04,
+                    "allow_byok": False,
+                    "allow_live_transfer": False,
+                    "allow_sip_trunking": False,
+                    "is_active": True,
+                    "is_public": True,
+                    "features": [
+                        "250 Calling Minutes per month",
+                        "2 Active AI Voice Agents",
+                        "2 Concurrent Call Lines",
+                        "1 Dedicated Platform Phone Number",
+                        "CSV Campaign Runner & Scheduler",
+                        "Full Call Recordings & Transcripts",
+                        "Standard Email Support",
+                    ],
+                },
+                {
+                    "slug": "simple_growth",
+                    "name": "Growth Minute Pack",
+                    "description": "High-speed calling for active sales teams, lead qualification, and customer followups.",
+                    "price_usd": 59.0,
+                    "price_inr": 4999.0,
+                    "billing_interval": "month",
+                    "included_minutes": 750,
+                    "monthly_credits_usd": 0.0,
+                    "included_phone_numbers": 2,
+                    "max_concurrent_calls": 5,
+                    "max_agents": 5,
+                    "overage_rate_per_minute_usd": 0.08,
+                    "byok_platform_fee_per_minute_usd": 0.03,
+                    "allow_byok": False,
+                    "allow_live_transfer": True,
+                    "allow_sip_trunking": False,
+                    "is_active": True,
+                    "is_public": True,
+                    "features": [
+                        "750 Calling Minutes per month",
+                        "5 Active AI Voice Agents",
+                        "5 High-Speed Concurrent Lines",
+                        "2 Dedicated Platform Phone Numbers",
+                        "Fast Speed-to-lead Campaign Triggers",
+                        "Live Call Transfers & Call Analytics",
+                        "Priority WhatsApp & Email Support",
+                    ],
+                },
+                {
+                    "slug": "simple_agency",
+                    "name": "Agency Scale Pack",
+                    "description": "Heavy outbound call volume, multi-agent operations, and maximum concurrency.",
+                    "price_usd": 119.0,
+                    "price_inr": 9999.0,
+                    "billing_interval": "month",
+                    "included_minutes": 2000,
+                    "monthly_credits_usd": 0.0,
+                    "included_phone_numbers": 4,
+                    "max_concurrent_calls": 10,
+                    "max_agents": 15,
+                    "overage_rate_per_minute_usd": 0.07,
+                    "byok_platform_fee_per_minute_usd": 0.02,
+                    "allow_byok": False,
+                    "allow_live_transfer": True,
+                    "allow_sip_trunking": False,
+                    "is_active": True,
+                    "is_public": True,
+                    "features": [
+                        "2,000 Calling Minutes per month",
+                        "Up to 15 Active AI Voice Agents",
+                        "10 High-Throughput Concurrent Lines",
+                        "4 Dedicated Platform Phone Numbers",
+                        "Custom Business Flow Automation",
+                        "Raw Audio & Data Export",
+                        "Dedicated VIP Support Manager",
+                    ],
+                },
             ]
 
             async with db_client.async_session() as session:
@@ -278,11 +393,12 @@ class PlanService:
                             )
                         )
                     else:
-                        # Update fields to reflect new credit definitions
+                        # Update fields to reflect definitions
                         existing.name = p["name"]
                         existing.description = p["description"]
                         existing.price_usd = p["price_usd"]
                         existing.price_inr = p["price_inr"]
+                        existing.included_minutes = p["included_minutes"]
                         existing.monthly_credits_usd = p["monthly_credits_usd"]
                         existing.included_phone_numbers = p["included_phone_numbers"]
                         existing.byok_platform_fee_per_minute_usd = p["byok_platform_fee_per_minute_usd"]
@@ -291,8 +407,10 @@ class PlanService:
                         existing.max_concurrent_calls = p["max_concurrent_calls"]
                         existing.max_agents = p["max_agents"]
                         existing.features = p["features"]
+                        existing.is_active = p["is_active"]
+                        existing.is_public = p["is_public"]
                 await session.commit()
-            logger.info("Successfully ensured and updated credit-based subscription plans.")
+            logger.info("Successfully ensured and updated subscription plans (Developer & Simple Minute-based).")
         except Exception as e:
             logger.warning("ensure_default_plans warning: {}", e)
 
@@ -303,14 +421,24 @@ class PlanService:
             res = await session.execute(stmt)
             return res.scalars().first()
 
-    async def list_plans(self, include_inactive: bool = False) -> List[SubscriptionPlanModel]:
-        """List all subscription plans."""
+    async def list_plans(
+        self,
+        include_inactive: bool = False,
+        category: Optional[str] = None,
+    ) -> List[SubscriptionPlanModel]:
+        """List subscription plans, optionally filtered by category ('simple' or 'developer')."""
         async with db_client.async_session() as session:
             stmt = select(SubscriptionPlanModel).order_by(SubscriptionPlanModel.price_usd.asc())
             if not include_inactive:
                 stmt = stmt.where(SubscriptionPlanModel.is_active.is_(True))
             res = await session.execute(stmt)
-            return list(res.scalars().all())
+            all_plans = list(res.scalars().all())
+
+            if category == "simple":
+                return [p for p in all_plans if p.slug.startswith("simple_")]
+            elif category == "developer":
+                return [p for p in all_plans if not p.slug.startswith("simple_")]
+            return all_plans
 
     async def get_effective_limits(self, organization_id: int) -> EffectiveLimits:
         """Resolve effective limits for an organization, incorporating custom enterprise overrides."""
@@ -408,7 +536,8 @@ class PlanService:
                 is_unlimited = True
                 effective_minutes = 999999
             else:
-                effective_minutes = org.custom_monthly_minutes
+                # Custom minutes include top-up packs on top of plan base minutes
+                effective_minutes = base_minutes + int(org.custom_monthly_minutes)
         else:
             effective_minutes = base_minutes
 
@@ -418,9 +547,20 @@ class PlanService:
             effective_overage = base_overage
 
         used_mins = float(getattr(org, "monthly_minutes_used", 0.0) or 0.0)
-        remaining_mins = 999999.0 if is_unlimited else max(0.0, effective_minutes - used_mins)
         wallet_bal = float(getattr(org, "wallet_balance_usd", 0.0) or 0.0)
         credits_remaining = float(getattr(org, "plan_credits_remaining_usd", 0.0) or 0.0)
+
+        # In addition to plan allowance, wallet balance can directly fund calling minutes at overage rate
+        wallet_minutes = (
+            round(wallet_bal / effective_overage, 1)
+            if (effective_overage > 0 and wallet_bal > 0)
+            else 0.0
+        )
+
+        plan_remaining_mins = 999999.0 if is_unlimited else max(0.0, effective_minutes - used_mins)
+        # Total remaining minutes is plan remaining + wallet backed calling minutes
+        remaining_mins = 999999.0 if is_unlimited else round(plan_remaining_mins + wallet_minutes, 1)
+        total_allowance_minutes = 999999 if is_unlimited else int(effective_minutes + wallet_minutes)
 
         return EffectiveLimits(
             organization_id=organization_id,
@@ -429,7 +569,7 @@ class PlanService:
             subscription_status=getattr(org, "subscription_status", "active") or "active",
             max_concurrent_calls=max(1, effective_concurrency),
             max_agents=max(1, effective_agents),
-            included_minutes=effective_minutes,
+            included_minutes=total_allowance_minutes,
             monthly_minutes_used=used_mins,
             minutes_remaining=remaining_mins,
             is_unlimited_minutes=is_unlimited,

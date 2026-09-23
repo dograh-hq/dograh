@@ -480,7 +480,7 @@ async def create_campaign(
 
     warnings: List[str] = []
 
-    # Shared trial numbers are for testing only, not for bulk campaigns
+    # Shared trial numbers are for testing (up to 10 contacts per test campaign)
     config_numbers = await db_client.list_phone_numbers_for_config(telephony_configuration_id)
     cfg = await db_client.get_telephony_configuration_for_org(
         telephony_configuration_id, user.selected_organization_id, active_only=False
@@ -490,10 +490,11 @@ async def create_campaign(
         or (getattr(cfg, "is_platform_inventory", False))
         or (bool(config_numbers) and any(getattr(n, "pool_type", None) == "shared_trial" for n in config_numbers))
     )
-    if is_trial_config:
+    total_contacts = len(validation_result.rows) if validation_result.rows else 0
+    if is_trial_config and total_contacts > 10:
         raise HTTPException(
             status_code=400,
-            detail="Shared trial numbers are for agent testing only and cannot be used for bulk campaigns. Please connect your own telephony provider or purchase a dedicated number.",
+            detail="Shared trial numbers are limited to 10 contacts for test campaigns. For larger bulk calling, please claim a dedicated number or connect your telephony provider.",
         )
 
     if request.max_concurrency is not None:

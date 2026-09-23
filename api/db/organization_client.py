@@ -105,6 +105,12 @@ class OrganizationClient(BaseDBClient):
                     session.add(api_key)
                     await session.commit()
 
+                    try:
+                        from api.services.plan_service import plan_service
+                        await plan_service.assign_organization_plan(organization.id, "simple_trial")
+                    except Exception as e:
+                        logger.warning("Could not auto-assign simple_trial plan: {}", e)
+
                 await session.refresh(organization)
                 return organization, was_created
             return organization, False

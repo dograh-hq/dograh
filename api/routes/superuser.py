@@ -841,11 +841,14 @@ async def get_superadmin_overview_metrics(
 
 @router.get("/plans")
 async def list_subscription_plans_admin(
+    category: Optional[str] = Query(None, description="Optional plan category: 'simple' or 'developer'"),
     current_user: UserModel = Depends(get_superuser),
 ):
     """List all subscription plans for superadmin management."""
     from api.services.plan_service import plan_service, normalize_plan_features
-    plans = await plan_service.list_plans(include_inactive=True)
+    # Ensure all default plans exist in database
+    await plan_service.ensure_default_plans()
+    plans = await plan_service.list_plans(include_inactive=True, category=category)
     return [
         {
             "id": p.id,
@@ -913,6 +916,46 @@ async def save_subscription_plan_admin(
         await session.commit()
 
     return {"message": f"Plan '{request.name}' saved successfully", "slug": request.slug}
+
+
+@router.delete("/plans/{slug}")
+async def delete_subscription_plan_admin(
+    slug: str,
+    current_user: UserModel = Depends(get_superuser),
+):
+    """Delete a subscription plan, or soft-delete (deactivate) if currently in use by an organization."""
+    from api.db.models import SubscriptionPlanModel, OrganizationModel
+    from sqlalchemy import select
+
+    async with db_client.get_async_session() as session:
+        stmt = select(SubscriptionPlanModel).where(SubscriptionPlanModel.slug == slug)
+        res = await session.execute(stmt)
+        plan = res.scalars().first()
+        if not plan:
+            raise HTTPException(status_code=404, detail=f"Plan '{slug}' not found")
+
+        # Check if plan is currently active on any organization
+        org_stmt = select(OrganizationModel).where(OrganizationModel.subscription_tier == slug)
+        org_res = await session.execute(org_stmt)
+        assigned_org = org_res.scalars().first()
+
+        if assigned_org:
+            # Soft delete to preserve organization references
+            plan.is_active = False
+            plan.is_public = False
+            await session.commit()
+            return {
+                "message": f"Plan '{plan.name}' is currently used by organizations. Deactivated and unpublished.",
+                "deleted": False,
+                "deactivated": True,
+            }
+
+        await session.delete(plan)
+        await session.commit()
+        return {
+            "message": f"Plan '{plan.name}' ({slug}) deleted successfully.",
+            "deleted": True,
+        }
 
 
 @router.get("/organizations/{organization_id}/subscription")

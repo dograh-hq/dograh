@@ -185,6 +185,19 @@ class PaymentClient(BaseDBClient):
             current_bal = float(org.wallet_balance_usd or 0.0)
             new_bal = round(current_bal + tx.amount_usd, 4)
             org.wallet_balance_usd = new_bal
+
+            # If this recharge specified top_up_minutes, also increment custom_monthly_minutes
+            if isinstance(tx.notes, dict) and tx.notes.get("top_up_minutes"):
+                try:
+                    top_up_mins = int(tx.notes.get("top_up_minutes"))
+                    if top_up_mins > 0:
+                        org.custom_monthly_minutes = int(getattr(org, "custom_monthly_minutes", 0) or 0) + top_up_mins
+                        logger.info(
+                            f"[Razorpay] Credited {top_up_mins} extra calling minutes to Org #{tx.organization_id} (Total custom: {org.custom_monthly_minutes})"
+                        )
+                except (ValueError, TypeError) as err:
+                    logger.warning(f"[Razorpay] Could not parse top_up_minutes from notes: {err}")
+
             session.add(org)
 
             await session.commit()

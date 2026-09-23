@@ -165,7 +165,6 @@ class OrganizationUsageClient(BaseDBClient):
                 .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
                 .where(
                     WorkflowModel.organization_id == organization_id,
-                    WorkflowRunModel.usage_info.isnot(None),
                 )
             )
 
@@ -201,7 +200,10 @@ class OrganizationUsageClient(BaseDBClient):
             # skipped across pages.
             order_clause = get_workflow_run_order_clause(sort_by, sort_order)
             results = await session.execute(
-                query.options(joinedload(WorkflowRunModel.workflow))
+                query.options(
+                    joinedload(WorkflowRunModel.workflow),
+                    joinedload(WorkflowRunModel.campaign),
+                )
                 .order_by(order_clause, WorkflowRunModel.id.desc())
                 .limit(limit)
                 .offset(offset)
@@ -214,35 +216,48 @@ class OrganizationUsageClient(BaseDBClient):
             total_duration_seconds = 0
             for run in runs:
                 dograh_tokens = 0
-                call_duration = (run.usage_info or {}).get("call_duration_seconds", 0)
+                call_duration = (run.usage_info or {}).get("call_duration_seconds")
+                if call_duration is None:
+                    call_duration = (run.cost_info or {}).get("duration_seconds", 0)
                 total_tokens += dograh_tokens
                 total_duration_seconds += int(round(call_duration))
 
                 ic = run.initial_context or {}
+                gc = run.gathered_context or {}
                 caller_number = ic.get("caller_number")
                 called_number = ic.get("called_number") or ic.get("phone_number")
-                # DEPRECATED: phone_number — use caller_number/called_number.
-                # Inbound runs only have caller_number/called_number; the
-                # caller_number is the customer. Outbound runs use the
-                # phone_number key written by the dispatchers.
                 if run.call_type == "inbound":
-                    phone_number = caller_number
+                    phone_number = caller_number or called_number
                 else:
-                    phone_number = ic.get("phone_number")
+                    phone_number = ic.get("phone_number") or called_number or caller_number
+
+                extracted_vars = gc.get("extracted_variables") if isinstance(gc.get("extracted_variables"), dict) else {}
+                contact_name = (
+                    ic.get("name")
+                    or ic.get("contact_name")
+                    or ic.get("customer_name")
+                    or ic.get("lead_name")
+                    or extracted_vars.get("customer_name")
+                    or extracted_vars.get("name")
+                )
 
                 # Extract disposition from gathered_context
                 disposition = None
                 if run.gathered_context:
-                    disposition = run.gathered_context.get("mapped_call_disposition")
+                    disposition = run.gathered_context.get("mapped_call_disposition") or extracted_vars.get("lead_status")
 
                 run_data = {
                     "id": run.id,
                     "workflow_id": run.workflow_id,
                     "workflow_name": run.workflow.name if run.workflow else None,
+                    "campaign_id": run.campaign_id,
+                    "campaign_name": run.campaign.name if run.campaign else None,
+                    "contact_name": contact_name,
                     "name": run.name,
-                    "created_at": run.created_at.isoformat(),
+                    "created_at": run.created_at.isoformat() if run.created_at else None,
                     "dograh_token_usage": dograh_tokens,
                     "call_duration_seconds": int(round(call_duration)),
+                    "duration_seconds": int(round(call_duration)),
                     "recording_url": run.recording_url,
                     "transcript_url": run.transcript_url,
                     "user_recording_url": get_recording_storage_key(run.extra, "user"),
@@ -254,6 +269,8 @@ class OrganizationUsageClient(BaseDBClient):
                     "called_number": called_number,
                     "call_type": run.call_type,
                     "mode": run.mode,
+                    "state": run.state,
+                    "is_completed": run.is_completed,
                     "disposition": disposition,
                     "initial_context": run.initial_context,
                     "gathered_context": run.gathered_context,

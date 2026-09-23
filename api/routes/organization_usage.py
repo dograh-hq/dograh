@@ -166,6 +166,13 @@ class WorkflowRunUsageResponse(BaseModel):
     disposition: Optional[str] = None
     initial_context: Optional[Dict[str, Any]] = None
     gathered_context: Optional[Dict[str, Any]] = None
+    # Campaign & Contact fields
+    campaign_id: Optional[int] = None
+    campaign_name: Optional[str] = None
+    contact_name: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    state: Optional[str] = None
+    is_completed: Optional[bool] = None
     # New USD field
     charge_usd: Optional[float] = None
 
@@ -479,17 +486,19 @@ async def get_usage_history(
         for run in runs:
             public_access_token = run.get("public_access_token")
             run["transcript_public_url"] = artifact_url(
-                public_access_token, "transcript"
+                public_access_token, "transcript", fallback=run.get("transcript_url")
             )
-            run["recording_public_url"] = artifact_url(public_access_token, "recording")
+            run["recording_public_url"] = artifact_url(
+                public_access_token, "recording", fallback=run.get("recording_url")
+            )
             run["user_recording_public_url"] = (
-                artifact_url(public_access_token, "user_recording")
-                if has_recording_track(run.get("extra"), "user")
+                artifact_url(public_access_token, "user_recording", fallback=run.get("user_recording_url"))
+                if has_recording_track(run.get("extra"), "user") or run.get("user_recording_url")
                 else None
             )
             run["bot_recording_public_url"] = (
-                artifact_url(public_access_token, "bot_recording")
-                if has_recording_track(run.get("extra"), "bot")
+                artifact_url(public_access_token, "bot_recording", fallback=run.get("bot_recording_url"))
+                if has_recording_track(run.get("extra"), "bot") or run.get("bot_recording_url")
                 else None
             )
             run.pop("extra", None)

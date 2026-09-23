@@ -2,12 +2,14 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from api.db import db_client
+from api.db.models import UserModel
+from api.services.auth.depends import get_user
 
 router = APIRouter(
     prefix="/leads",
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS leads (
     status VARCHAR(50) DEFAULT 'new',
     notes TEXT DEFAULT '',
     raw_payload JSONB DEFAULT '{}'::jsonb,
+    organization_id INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 """
@@ -42,6 +45,7 @@ ALTER_TABLE_STATEMENTS = [
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''",
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS raw_payload JSONB DEFAULT '{}'::jsonb",
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS organization_id INTEGER",
 ]
 
 
@@ -59,18 +63,32 @@ async def ensure_table():
         logger.warning(f"Could not auto-create or alter leads table: {e}")
 
 
-async def save_lead(kind: str, data: Dict[str, Any]) -> int:
+async def get_optional_auth_user(
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> Optional[UserModel]:
+    if not authorization and not x_api_key:
+        return None
+    try:
+        return await get_user(authorization, x_api_key)
+    except Exception:
+        return None
+
+
+async def save_lead(
+    kind: str, data: Dict[str, Any], organization_id: Optional[int] = None
+) -> int:
     await ensure_table()
     async with db_client.async_session() as session:
         query = text("""
             INSERT INTO leads (
                 kind, name, company, email, phone, job_title, volume,
                 deployment, agent_goal, source, origin, country, timezone,
-                status, notes, raw_payload
+                status, notes, raw_payload, organization_id
             ) VALUES (
                 :kind, :name, :company, :email, :phone, :job_title, :volume,
                 :deployment, :agent_goal, :source, :origin, :country, :timezone,
-                'new', '', :raw_payload
+                'new', '', :raw_payload, :organization_id
             ) RETURNING id;
         """)
         result = await session.execute(
@@ -90,6 +108,7 @@ async def save_lead(kind: str, data: Dict[str, Any]) -> int:
                 "country": data.get("country") or "",
                 "timezone": data.get("timezone") or "",
                 "raw_payload": json.dumps(data),
+                "organization_id": organization_id,
             },
         )
         await session.commit()
@@ -151,9 +170,54 @@ async def hire_expert_lead(request: Request):
     }
 
 
+class CreateLeadRequest(BaseModel):
+    name: str
+    phone: str
+    email: Optional[str] = ""
+    company: Optional[str] = ""
+    job_title: Optional[str] = ""
+    tags: Optional[List[str]] = []
+    status: Optional[str] = "new"
+    notes: Optional[str] = ""
+    kind: Optional[str] = "contact"
+    agent_goal: Optional[str] = ""
+
+
 class UpdateLeadRequest(BaseModel):
     status: Optional[str] = None
     notes: Optional[str] = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+@router.post("")
+async def create_lead(
+    request: CreateLeadRequest,
+    user: Optional[UserModel] = Depends(get_optional_auth_user),
+):
+    """Create a new contact / lead in PostgreSQL scoped to workspace."""
+    payload = {
+        "name": request.name,
+        "phone": request.phone,
+        "email": request.email or "",
+        "company": request.company or "",
+        "jobTitle": request.job_title or "",
+        "status": request.status or "new",
+        "notes": request.notes or "",
+        "tags": request.tags or [],
+        "agentGoal": request.agent_goal or "",
+    }
+    org_id = user.selected_organization_id if user else None
+    lead_id = await save_lead(request.kind or "contact", payload, organization_id=org_id)
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "organization_id": org_id,
+        "message": "Contact created successfully",
+    }
 
 
 @router.get("")
@@ -162,13 +226,21 @@ async def list_leads(
     kind: Optional[str] = Query(None, description="Filter by kind: hire_expert or enterprise"),
     status: Optional[str] = Query(None, description="Filter by status: new, contacted, in_discussion, qualified, closed"),
     search: Optional[str] = Query(None, description="Search by name, email, company, or phone"),
+    organization_id: Optional[int] = Query(None, description="Filter explicitly by workspace/organization ID"),
+    user: Optional[UserModel] = Depends(get_optional_auth_user),
 ):
-    """List enquiries / leads saved in PostgreSQL with superadmin stats."""
+    """List enquiries / leads saved in PostgreSQL scoped to current workspace."""
     await ensure_table()
     async with db_client.async_session() as session:
         # Build query dynamically
         where_clauses = ["1=1"]
         params: Dict[str, Any] = {"limit": limit}
+
+        # Workspace isolation: filter strictly by current organization
+        target_org_id = organization_id or (user.selected_organization_id if user else None)
+        if target_org_id is not None:
+            where_clauses.append("organization_id = :org_id")
+            params["org_id"] = target_org_id
 
         if kind:
             where_clauses.append("kind = :kind")
@@ -189,7 +261,7 @@ async def list_leads(
             SELECT id, kind, name, company, email, phone, job_title, volume,
                    deployment, agent_goal, source, origin, country, timezone,
                    COALESCE(status, 'new') as status, COALESCE(notes, '') as notes,
-                   raw_payload, created_at
+                   raw_payload, created_at, organization_id
             FROM leads
             WHERE {where_sql}
             ORDER BY created_at DESC
@@ -226,10 +298,11 @@ async def list_leads(
                 "notes": r[15] or "",
                 "raw_payload": raw_payload_data,
                 "created_at": r[17].isoformat() if r[17] else None,
+                "organization_id": r[18],
             })
 
-        # Overall summary counts for superadmin badges and KPI cards
-        counts_res = await session.execute(text("""
+        # Overall summary counts for superadmin badges and KPI cards scoped to workspace
+        counts_sql = f"""
             SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE kind = 'hire_expert') as hire_expert_count,
@@ -237,8 +310,10 @@ async def list_leads(
                 COUNT(*) FILTER (WHERE COALESCE(status, 'new') = 'new') as new_count,
                 COUNT(*) FILTER (WHERE status = 'contacted') as contacted_count,
                 COUNT(*) FILTER (WHERE status = 'qualified') as qualified_count
-            FROM leads;
-        """))
+            FROM leads
+            WHERE {where_sql};
+        """
+        counts_res = await session.execute(text(counts_sql), {k: v for k, v in params.items() if k != "limit"})
         c_row = counts_res.fetchone()
 
         stats = {
@@ -254,14 +329,27 @@ async def list_leads(
             "stats": stats,
             "total": len(leads),
             "leads": leads,
+            "organization_id": target_org_id,
         }
 
 
 @router.patch("/{lead_id}")
-async def update_lead(lead_id: int, request: UpdateLeadRequest):
-    """Update lead status or internal notes."""
+async def update_lead(
+    lead_id: int,
+    request: UpdateLeadRequest,
+    user: Optional[UserModel] = Depends(get_optional_auth_user),
+):
+    """Update lead status or internal notes scoped to current workspace."""
     await ensure_table()
     async with db_client.async_session() as session:
+        if user and user.selected_organization_id:
+            check = await session.execute(
+                text("SELECT organization_id FROM leads WHERE id = :id"), {"id": lead_id}
+            )
+            c_row = check.fetchone()
+            if c_row and c_row[0] is not None and c_row[0] != user.selected_organization_id:
+                raise HTTPException(status_code=403, detail="Cannot edit contact from another workspace")
+
         updates = []
         params: Dict[str, Any] = {"id": lead_id}
 
@@ -272,6 +360,22 @@ async def update_lead(lead_id: int, request: UpdateLeadRequest):
         if request.notes is not None:
             updates.append("notes = :notes")
             params["notes"] = request.notes
+
+        if request.name is not None:
+            updates.append("name = :name")
+            params["name"] = request.name
+
+        if request.phone is not None:
+            updates.append("phone = :phone")
+            params["phone"] = request.phone
+
+        if request.email is not None:
+            updates.append("email = :email")
+            params["email"] = request.email
+
+        if request.company is not None:
+            updates.append("company = :company")
+            params["company"] = request.company
 
         if not updates:
             raise HTTPException(status_code=400, detail="No fields provided to update")
@@ -287,10 +391,21 @@ async def update_lead(lead_id: int, request: UpdateLeadRequest):
 
 
 @router.delete("/{lead_id}")
-async def delete_lead(lead_id: int):
-    """Delete a lead enquiry."""
+async def delete_lead(
+    lead_id: int,
+    user: Optional[UserModel] = Depends(get_optional_auth_user),
+):
+    """Delete a lead enquiry scoped to current workspace."""
     await ensure_table()
     async with db_client.async_session() as session:
+        if user and user.selected_organization_id:
+            check = await session.execute(
+                text("SELECT organization_id FROM leads WHERE id = :id"), {"id": lead_id}
+            )
+            c_row = check.fetchone()
+            if c_row and c_row[0] is not None and c_row[0] != user.selected_organization_id:
+                raise HTTPException(status_code=403, detail="Cannot delete contact from another workspace")
+
         res = await session.execute(text("DELETE FROM leads WHERE id = :id RETURNING id;"), {"id": lead_id})
         await session.commit()
         row = res.fetchone()
@@ -298,3 +413,4 @@ async def delete_lead(lead_id: int):
             raise HTTPException(status_code=404, detail="Lead not found")
 
         return {"ok": True, "lead_id": lead_id, "message": "Lead deleted successfully"}
+

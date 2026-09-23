@@ -210,6 +210,11 @@ async def create_razorpay_order(
     response_model=VerifyPaymentResponse,
     summary="Verify Razorpay Payment and Credit Wallet",
 )
+@router.post(
+    "/razorpay/verify-payment",
+    response_model=VerifyPaymentResponse,
+    summary="Verify Razorpay Payment and Credit Wallet (Alias)",
+)
 async def verify_razorpay_payment(
     request: VerifyPaymentRequest,
     user: UserModel = Depends(get_user_with_selected_organization),

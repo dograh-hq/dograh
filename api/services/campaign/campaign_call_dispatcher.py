@@ -63,9 +63,11 @@ class CampaignCallDispatcher:
             or getattr(cfg, "is_platform_inventory", False)
             or (bool(config_numbers) and any(getattr(n, "pool_type", None) == "shared_trial" for n in config_numbers))
         ):
-            raise ValueError(
-                f"Campaign {campaign.id} cannot use shared trial telephony configuration {resolved_id}."
-            )
+            total_rows = campaign.total_rows or 0
+            if total_rows > 10:
+                raise ValueError(
+                    f"Campaign {campaign.id} exceeds test limit (maximum 10 contacts allowed for shared trial number)."
+                )
         if requested_id is None:
             logger.warning(
                 f"Campaign {campaign.id} has no telephony_configuration_id; "

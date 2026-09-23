@@ -1901,6 +1901,7 @@ class CustomerVerifyPlanUpgradeRequest(BaseModel):
 
 @router.get("/subscription")
 async def get_my_organization_subscription(
+    category: Optional[str] = Query(None, description="Optional plan category: 'simple' or 'developer'"),
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
     """Get the current organization's subscription status, limits, and public plans for upgrade."""
@@ -1910,7 +1911,7 @@ async def get_my_organization_subscription(
     limits = await plan_service.get_effective_limits(org_id)
     org = await db_client.get_organization_by_id(org_id)
     workflow_count = await db_client.get_workflow_count(org_id)
-    public_plans = await plan_service.list_plans(include_inactive=False)
+    public_plans = await plan_service.list_plans(include_inactive=False, category=category)
 
     return {
         "current_subscription": {

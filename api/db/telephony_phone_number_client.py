@@ -8,7 +8,7 @@ selection and inbound call routing.
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from loguru import logger
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
@@ -464,7 +464,11 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     == TelephonyConfigurationModel.id,
                 )
                 .where(
-                    TelephonyPhoneNumberModel.is_platform_inventory == True,
+                    or_(
+                        TelephonyPhoneNumberModel.is_platform_inventory == True,
+                        TelephonyPhoneNumberModel.organization_id == organization_id,
+                        TelephonyPhoneNumberModel.assigned_organization_id == organization_id,
+                    ),
                     TelephonyPhoneNumberModel.is_active == True,
                 )
                 .order_by(
@@ -478,8 +482,8 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             output = []
             for num, config in rows:
                 is_shared = num.pool_type == "shared_trial"
-                is_assigned = num.assigned_organization_id is not None
-                is_assigned_to_current = num.assigned_organization_id == organization_id
+                is_assigned = (num.assigned_organization_id is not None) or (num.organization_id == organization_id)
+                is_assigned_to_current = (num.assigned_organization_id == organization_id) or (num.organization_id == organization_id)
 
                 # If dedicated and assigned to someone else, hide it
                 if not is_shared and is_assigned and not is_assigned_to_current:
@@ -495,6 +499,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                         "in_use": not is_shared and is_assigned,
                         "is_claimed_by_you": is_assigned_to_current,
                         "country_code": num.country_code,
+                        "telephony_configuration_id": num.telephony_configuration_id,
                     }
                 )
             return output

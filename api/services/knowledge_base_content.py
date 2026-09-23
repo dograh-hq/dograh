@@ -144,13 +144,19 @@ async def update_document_content(
     if claimed is None:
         raise DocumentContentConflictError(_STALE_MESSAGE)
 
-    if not await storage_fs.acreate_file_from_bytes(s3_key, data):
+    # Backends return False for errors they recognise but let others (network,
+    # credentials) raise. Either way no job will run, so release the claim;
+    # otherwise the document stays "pending" and every later save is rejected.
+    try:
+        if not await storage_fs.acreate_file_from_bytes(s3_key, data):
+            raise RuntimeError(f"Failed to write {s3_key}")
+    except Exception:
         await db_client.restore_document_after_failed_content_update(
             document_id=claimed.id,
             organization_id=claimed.organization_id,
             **previous_state,
         )
-        raise RuntimeError(f"Failed to write {s3_key}")
+        raise
 
     try:
         await enqueue_document_processing(

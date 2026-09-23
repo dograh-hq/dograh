@@ -225,24 +225,36 @@ async def test_unchanged_content_on_failed_document_retries(
     enqueue.assert_awaited_once()
 
 
+@pytest.mark.parametrize("raises", [False, True], ids=["returns_false", "raises"])
 async def test_failed_storage_write_restores_previous_state(
-    test_client_factory, db_session, storage, enqueue
+    test_client_factory, db_session, storage, enqueue, raises
 ):
-    user = await _make_user(db_session, "kb_write_fail")
+    """Whether the backend reports the failure or raises, the claim must be
+    released, or the document stays pending and every later save is refused."""
+    user = await _make_user(db_session, f"kb_write_fail_{raises}")
     document = await _make_document(db_session, user)
-    storage.acreate_file_from_bytes.return_value = False
+    if raises:
+        storage.acreate_file_from_bytes.side_effect = ConnectionError("unreachable")
+    else:
+        storage.acreate_file_from_bytes.return_value = False
+    url = f"/api/v1/knowledge-base/documents/{document.document_uuid}/content"
+    save = {"content": EDITED_TEXT, "expected_file_hash": ORIGINAL_HASH}
 
     async with test_client_factory(user) as client:
-        response = await client.put(
-            f"/api/v1/knowledge-base/documents/{document.document_uuid}/content",
-            json={"content": EDITED_TEXT, "expected_file_hash": ORIGINAL_HASH},
-        )
+        failed = await client.put(url, json=save)
+        enqueue.assert_not_awaited()
+        # Copy the values out: the retry's claim refreshes the same ORM object.
+        restored = await db_session.get_document_by_id(document.id)
+        restored_state = (restored.processing_status, restored.file_hash)
 
-    assert response.status_code == 500
-    enqueue.assert_not_awaited()
-    restored = await db_session.get_document_by_id(document.id)
-    assert restored.processing_status == "completed"
-    assert restored.file_hash == ORIGINAL_HASH
+        storage.acreate_file_from_bytes.side_effect = None
+        storage.acreate_file_from_bytes.return_value = True
+        retried = await client.put(url, json=save)
+
+    assert failed.status_code == 500
+    assert restored_state == ("completed", ORIGINAL_HASH)
+    assert retried.status_code == 200, retried.text
+    enqueue.assert_awaited_once()
 
 
 async def test_non_text_documents_are_not_editable(
@@ -311,6 +323,9 @@ async def test_list_reports_live_content_during_reindex(
         full_text=None,
         file_hash="other",
     )
+    emptied = await _make_document(
+        db_session, user, filename="empty.txt", full_text="", file_hash="empty"
+    )
 
     async with test_client_factory(user) as client:
         response = await client.get("/api/v1/knowledge-base/documents")
@@ -318,4 +333,8 @@ async def test_list_reports_live_content_during_reindex(
     live = {
         d["document_uuid"]: d["has_live_content"] for d in response.json()["documents"]
     }
-    assert live == {reindexing.document_uuid: True, first_upload.document_uuid: False}
+    assert live == {
+        reindexing.document_uuid: True,
+        first_upload.document_uuid: False,
+        emptied.document_uuid: False,
+    }

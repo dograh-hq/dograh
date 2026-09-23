@@ -40,7 +40,8 @@ def _has_live_content(document: KnowledgeBaseDocumentModel) -> bool:
     # Processing only replaces full_text / chunks on success, so these reflect
     # the version agents retrieve even while a re-index is running or failed.
     if document.retrieval_mode == "full_document":
-        return document.full_text is not None
+        # Retrieval skips empty text, so an empty document serves nothing.
+        return bool(document.full_text)
     return document.total_chunks > 0
 
 

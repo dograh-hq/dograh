@@ -1,4 +1,4 @@
-"""BigQuery compatibility adapter for Glik's pipeline_diagnostics contract."""
+"""BigQuery compatibility adapter for the pipeline_diagnostics event contract."""
 
 import asyncio
 import json

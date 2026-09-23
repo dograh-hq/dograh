@@ -24,8 +24,7 @@ replace it to rotate the key.
 **BigQuery schema**
 
 Use these columns with nullable fields. The adapter does not create or migrate
-tables. Existing Glik `pipeline_diagnostics` event names and detail keys are
-preserved.
+tables. Existing `pipeline_diagnostics` event names and detail keys are preserved.
 
 | Column | Type |
 | --- | --- |
@@ -44,9 +43,8 @@ and empty/finalized flags; it does not contain transcript text or audio.
 
 **Delivery behavior**
 
-Events are sent after a call finishes, with their original timestamps. This
-differs from the earlier Glik image, which flushed events while calls were
-running. Capture and export are separate from the real-time feedback logs.
+Events are sent after a call finishes, with their original timestamps.
+Capture and export are separate from the real-time feedback logs.
 Dograh stores the destination settings in its organization configuration;
 event payloads are not persisted in Postgres or Redis.
 

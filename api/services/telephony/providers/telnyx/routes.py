@@ -36,6 +36,20 @@ router = APIRouter()
 # that later ended normally). Mapped to user-facing reasons published in the
 # TransferEvent. Source for cause values: Telnyx call.hangup payload spec —
 # https://developers.telnyx.com/api-reference/callbacks/call-hangup
+# Verified-but-ignored Telnyx events: they carry no call status the processor
+# models, so letting them reach _process_status_update only logs
+# "Unexpected status update" and appends a junk entry to the run's callback log.
+_INFORMATIONAL_EVENT_TYPES = frozenset(
+    {
+        "streaming.started",
+        "streaming.stopped",
+        "call.recording.saved",
+        "call.recording.error",
+        "call.recording.transcription.saved",
+    }
+)
+
+
 _HANGUP_CAUSE_TO_REASON = {
     "busy": "busy",
     "no_answer": "no_answer",
@@ -155,12 +169,17 @@ async def handle_telnyx_events(
     # Skip informational events. Streaming and recording lifecycle events
     # carry no status the processor needs, but they are still verified above
     # so unsigned callers learn nothing from them.
-    if event_type in (
-        "streaming.started",
-        "streaming.stopped",
-        "call.recording.started",
-        "call.recording.saved",
-    ):
+    #
+    # Dropping them before _process_status_update also keeps the run's
+    # telephony_status_callbacks list meaningful: recording callbacks are
+    # delivered after the recording is written, i.e. after call.hangup, so
+    # letting them through would make them the *last* entry and break
+    # CampaignRunnerService._count_failed_campaign_calls, which reads
+    # callbacks[-1]["status"] to decide whether a call failed.
+    #
+    # Event names are Telnyx's documented Call Control callbacks; there is no
+    # call.recording.started in that catalog.
+    if event_type in _INFORMATIONAL_EVENT_TYPES:
         logger.debug(
             f"[run {workflow_run_id}] Telnyx informational event: {event_type}"
         )

@@ -899,6 +899,64 @@ export type CallDispositionOption = {
 };
 
 /**
+ * CallEventsConnectionResult
+ */
+export type CallEventsConnectionResult = {
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * CallEventsSettings
+ */
+export type CallEventsSettings = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Sink Type
+     */
+    sink_type?: string | null;
+    /**
+     * Config
+     */
+    config?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * CallEventsSettingsResponse
+ */
+export type CallEventsSettingsResponse = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Sink Type
+     */
+    sink_type?: string | null;
+    /**
+     * Config
+     */
+    config?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Available Sinks
+     */
+    available_sinks: Array<string>;
+    /**
+     * Deployment Identity Available
+     */
+    deployment_identity_available: boolean;
+};
+
+/**
  * CallType
  */
 export type CallType = 'inbound' | 'outbound';
@@ -13329,6 +13387,162 @@ export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses = 
 };
 
 export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponse = GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses[keyof GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses];
+
+export type DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/call-events';
+};
+
+export type DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteError = DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteErrors[keyof DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteErrors];
+
+export type DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallEventsSettings;
+};
+
+export type DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteResponse = DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteResponses[keyof DeleteCallEventsSettingsApiV1OrganizationsCallEventsDeleteResponses];
+
+export type GetCallEventsSettingsApiV1OrganizationsCallEventsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/call-events';
+};
+
+export type GetCallEventsSettingsApiV1OrganizationsCallEventsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCallEventsSettingsApiV1OrganizationsCallEventsGetError = GetCallEventsSettingsApiV1OrganizationsCallEventsGetErrors[keyof GetCallEventsSettingsApiV1OrganizationsCallEventsGetErrors];
+
+export type GetCallEventsSettingsApiV1OrganizationsCallEventsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallEventsSettingsResponse;
+};
+
+export type GetCallEventsSettingsApiV1OrganizationsCallEventsGetResponse = GetCallEventsSettingsApiV1OrganizationsCallEventsGetResponses[keyof GetCallEventsSettingsApiV1OrganizationsCallEventsGetResponses];
+
+export type SaveCallEventsSettingsApiV1OrganizationsCallEventsPutData = {
+    body: CallEventsSettings;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/call-events';
+};
+
+export type SaveCallEventsSettingsApiV1OrganizationsCallEventsPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveCallEventsSettingsApiV1OrganizationsCallEventsPutError = SaveCallEventsSettingsApiV1OrganizationsCallEventsPutErrors[keyof SaveCallEventsSettingsApiV1OrganizationsCallEventsPutErrors];
+
+export type SaveCallEventsSettingsApiV1OrganizationsCallEventsPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallEventsSettings;
+};
+
+export type SaveCallEventsSettingsApiV1OrganizationsCallEventsPutResponse = SaveCallEventsSettingsApiV1OrganizationsCallEventsPutResponses[keyof SaveCallEventsSettingsApiV1OrganizationsCallEventsPutResponses];
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostData = {
+    body: CallEventsSettings;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/call-events/test';
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostError = TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors[keyof TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors];
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallEventsConnectionResult;
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponse = TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses[keyof TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses];
 
 export type GetSignedUrlApiV1S3SignedUrlGetData = {
     body?: never;

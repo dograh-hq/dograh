@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable, Protocol
 
 from fastapi import APIRouter
 
+from api.services.observability.call_events.base import CallEventSinkRegistration
 from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs._base import NodeSpec
 
@@ -67,3 +68,4 @@ class IntegrationPackageSpec:
     routers: tuple[APIRouter, ...] = ()
     create_runtime_sessions: RuntimeFactory | None = None
     run_completion: CompletionHandler | None = None
+    call_event_sink: CallEventSinkRegistration | None = None

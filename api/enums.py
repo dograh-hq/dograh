@@ -160,6 +160,7 @@ class WorkflowRunStatus(Enum):
 
 
 class OrganizationConfigurationKey(Enum):
+    CALL_EVENTS = "CALL_EVENTS"
     CONCURRENT_CALL_LIMIT = "CONCURRENT_CALL_LIMIT"
     TELEPHONY_CONFIGURATION = (
         "TELEPHONY_CONFIGURATION"  # Stores all providers + active one

@@ -83,6 +83,7 @@ def register_event_handlers(
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
+    call_events_session=None,
     include_transcript_end_timestamps: bool = False,
     answer_supervisor=None,
 ):
@@ -367,6 +368,9 @@ def register_event_handlers(
                     f"Error finalizing integration runtime session '{runtime_session.name}': {e}",
                     exc_info=True,
                 )
+
+        if call_events_session is not None:
+            await call_events_session.finish(gathered_context)
 
         await engine.cleanup()
 

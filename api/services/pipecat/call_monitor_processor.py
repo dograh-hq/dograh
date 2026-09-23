@@ -85,6 +85,8 @@ class CallMonitorProcessor(FrameProcessor):
         self._revision = 0
         self._idle_task: asyncio.Task | None = None
         self._retry_count = 0
+        self._total_idle_events = 0
+        self.on_idle_diagnostic: Callable[..., None] | None = None
         self._waiting_for_user = False
         self._user_turn_active = False
         self._response_during_user_turn = False
@@ -235,6 +237,14 @@ class CallMonitorProcessor(FrameProcessor):
             return
         self._waiting_for_user = False
         self._retry_count += 1
+        self._total_idle_events += 1
+        if self.on_idle_diagnostic is not None:
+            try:
+                self.on_idle_diagnostic(
+                    retry=self._retry_count, total=self._total_idle_events
+                )
+            except Exception:
+                logger.warning("Call idle diagnostics failed")
         # Arm before queuing the reminder, including if the agent queue is stuck.
         self.expect_response()
         revision = self._revision

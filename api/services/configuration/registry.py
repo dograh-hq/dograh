@@ -1442,6 +1442,7 @@ class RimeTTSConfiguration(BaseTTSConfiguration):
 
 
 SPEACHES_TTS_MODELS = ["hexgrad/Kokoro-82M"]
+SPEACHES_TTS_SAMPLE_RATES = [8000, 16000, 22050, 24000, 44100, 48000]
 
 
 @register_tts
@@ -1468,10 +1469,29 @@ class SpeachesTTSConfiguration(BaseTTSConfiguration):
     speed: float = Field(
         default=1.0, ge=0.25, le=4.0, description="Speech speed (0.25 to 4.0)."
     )
+    sample_rate: int | None = Field(
+        default=None,
+        description=(
+            "Sample rate of the pcm returned by the server; default 24000. "
+            f"Supported: {', '.join(str(r) for r in SPEACHES_TTS_SAMPLE_RATES)}."
+        ),
+    )
     api_key: str | list[str] | None = Field(
         default=None,
         description="Usually not required for self-hosted TTS. Leave blank unless enforced.",
     )
+
+    @field_validator("sample_rate", mode="before")
+    @classmethod
+    def validate_sample_rate(cls, v):
+        # The dashboard form submits "" for a blank optional field.
+        if v is None or v == "":
+            return None
+        if int(v) not in SPEACHES_TTS_SAMPLE_RATES:
+            raise ValueError(
+                f"sample_rate must be one of {SPEACHES_TTS_SAMPLE_RATES}, got {v}"
+            )
+        return int(v)
 
 
 MINIMAX_TTS_MODELS = ["speech-2.8-hd", "speech-2.8-turbo"]

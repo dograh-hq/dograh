@@ -370,7 +370,16 @@ def register_event_handlers(
                 )
 
         if call_events_session is not None:
-            await call_events_session.finish(gathered_context)
+            try:
+                await call_events_session.finish(gathered_context)
+            except (Exception, asyncio.CancelledError) as exc:
+                # Optional diagnostics must not prevent cleanup, completion
+                # persistence or campaign notification, even if cancelled.
+                logger.warning(
+                    "Error finalizing call events for workflow run {} ({})",
+                    workflow_run_id,
+                    type(exc).__name__,
+                )
 
         await engine.cleanup()
 

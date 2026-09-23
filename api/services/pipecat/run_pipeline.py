@@ -1323,7 +1323,15 @@ async def _run_pipeline_impl(
         if call_events_session is not None:
             # Fallback for cancellation or failures in unrelated completion
             # work. Normal completion already sealed this session.
-            await call_events_session.finish()
+            try:
+                await call_events_session.finish()
+            except (Exception, asyncio.CancelledError) as exc:
+                # Diagnostic failures must not skip MCP or observer cleanup.
+                logger.warning(
+                    "Error finalizing call events during cleanup for workflow run {} ({})",
+                    workflow_run_id,
+                    type(exc).__name__,
+                )
         await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

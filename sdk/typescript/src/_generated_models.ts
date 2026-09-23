@@ -559,12 +559,6 @@ export interface components {
             created_by: number;
             /** Is Active */
             is_active: boolean;
-            /**
-             * Has Live Content
-             * @description Whether agents can currently retrieve this document's content. Stays true while an edited document is re-indexed or after its re-index fails, because the previous version keeps serving until a new one succeeds.
-             * @default false
-             */
-            has_live_content: boolean;
         };
         /**
          * EndCallConfig

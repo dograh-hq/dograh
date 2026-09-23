@@ -2163,58 +2163,6 @@ export type DispositionCodesResponse = {
 };
 
 /**
- * DocumentContentResponseSchema
- *
- * Raw text of an editable (text or Markdown) document.
- */
-export type DocumentContentResponseSchema = {
-    /**
-     * Document Uuid
-     */
-    document_uuid: string;
-    /**
-     * Filename
-     */
-    filename: string;
-    /**
-     * Retrieval Mode
-     */
-    retrieval_mode: string;
-    /**
-     * Content
-     *
-     * The stored file's text, as uploaded
-     */
-    content: string;
-    /**
-     * File Hash
-     *
-     * Version token; send it back as expected_file_hash when saving
-     */
-    file_hash: string;
-};
-
-/**
- * DocumentContentUpdateRequestSchema
- *
- * Request schema for replacing an editable document's text.
- */
-export type DocumentContentUpdateRequestSchema = {
-    /**
-     * Content
-     *
-     * New full text of the document
-     */
-    content: string;
-    /**
-     * Expected File Hash
-     *
-     * file_hash returned when the content was loaded. The save is rejected if the document has changed since.
-     */
-    expected_file_hash: string;
-};
-
-/**
  * DocumentListResponseSchema
  *
  * Response schema for list of documents.
@@ -2320,12 +2268,6 @@ export type DocumentResponseSchema = {
      * Is Active
      */
     is_active: boolean;
-    /**
-     * Has Live Content
-     *
-     * Whether agents can currently retrieve this document's content. Stays true while an edited document is re-indexed or after its re-index fails, because the previous version keeps serving until a new one succeeds.
-     */
-    has_live_content?: boolean;
 };
 
 /**
@@ -15237,94 +15179,6 @@ export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses = {
 };
 
 export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponse = GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses[keyof GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses];
-
-export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Document Uuid
-         */
-        document_uuid: string;
-    };
-    query?: never;
-    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
-};
-
-export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetError = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors];
-
-export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: DocumentContentResponseSchema;
-};
-
-export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponse = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses];
-
-export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutData = {
-    body: DocumentContentUpdateRequestSchema;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Document Uuid
-         */
-        document_uuid: string;
-    };
-    query?: never;
-    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
-};
-
-export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutError = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors];
-
-export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses = {
-    /**
-     * Successful Response
-     */
-    200: DocumentResponseSchema;
-};
-
-export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponse = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses];
 
 export type SearchChunksApiV1KnowledgeBaseSearchPostData = {
     body: ChunkSearchRequestSchema;

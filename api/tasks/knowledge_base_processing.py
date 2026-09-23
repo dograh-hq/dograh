@@ -105,8 +105,9 @@ async def process_knowledge_base_document(
         existing_doc = await db_client.get_document_by_hash(file_hash, organization_id)
         if existing_doc and existing_doc.id != document_id:
             error_message = (
-                f"This content is identical to '{existing_doc.filename}'. "
-                f"Keep only one copy of it in the knowledge base."
+                f"This file is a duplicate of '{existing_doc.filename}'. "
+                f"Please delete the duplicate files and consolidate them into a "
+                f"single unique file before uploading."
             )
             logger.warning(
                 f"Duplicate document detected: {document_id} is duplicate of "

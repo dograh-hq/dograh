@@ -68,6 +68,7 @@ import {
     BuiltinToolConfig,
     EndCallToolConfig,
     HttpApiToolConfig,
+    type HttpBodyFormat,
     HttpToolTestDialog,
     TransferAgentToolConfig,
     type TransferAgentWorkflowOption,
@@ -123,6 +124,7 @@ export default function ToolDetailPage() {
     const [bodyTemplateEnabled, setBodyTemplateEnabled] = useState(false);
     const [bodyTemplate, setBodyTemplate] = useState<Record<string, unknown> | null>(null);
     const [isBodyTemplateValid, setIsBodyTemplateValid] = useState(true);
+    const [bodyFormat, setBodyFormat] = useState<HttpBodyFormat>("json");
     const bodyTemplateSupported = ["POST", "PUT", "PATCH"].includes(httpMethod);
 
     // End Call form state
@@ -143,6 +145,7 @@ export default function ToolDetailPage() {
     const [transferAgentMessage, setTransferAgentMessage] = useState(
         DEFAULT_TRANSFER_AGENT_MESSAGE,
     );
+    const [transferAgentPlayGreeting, setTransferAgentPlayGreeting] = useState(true);
     const [agentOptions, setAgentOptions] = useState<TransferAgentWorkflowOption[]>([]);
     const [agentOptionsLoading, setAgentOptionsLoading] = useState(false);
 
@@ -302,6 +305,7 @@ export default function ToolDetailPage() {
                 config?.workflow_id ? String(config.workflow_id) : "",
             );
             setTransferAgentMessage(config?.message ?? DEFAULT_TRANSFER_AGENT_MESSAGE);
+            setTransferAgentPlayGreeting(config?.play_greeting ?? true);
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
             const config = tool.definition?.config as
@@ -332,6 +336,7 @@ export default function ToolDetailPage() {
                 const loadedCustomMessageType = config.customMessageType || "text";
                 const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
                 const loadedBodyTemplate = config.body_template ?? null;
+                const loadedBodyFormat = config.body_format ?? "json";
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
@@ -342,6 +347,7 @@ export default function ToolDetailPage() {
                 setBodyTemplateEnabled(loadedBodyTemplate !== null);
                 setBodyTemplate(loadedBodyTemplate);
                 setIsBodyTemplateValid(true);
+                setBodyFormat(loadedBodyFormat);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -391,6 +397,7 @@ export default function ToolDetailPage() {
                         presetParameters: loadedPresetParameters,
                         bodyTemplateEnabled: loadedBodyTemplate !== null,
                         bodyTemplate: loadedBodyTemplate,
+                        bodyFormat: loadedBodyFormat,
                         timeoutMs: loadedTimeoutMs,
                         customMessage: loadedCustomMessage,
                         customMessageType: loadedCustomMessageType,
@@ -700,6 +707,7 @@ export default function ToolDetailPage() {
                     definition: createTransferAgentDefinition({
                         workflow_id: Number(transferAgentWorkflowId),
                         message: transferAgentMessage.trim(),
+                        play_greeting: transferAgentPlayGreeting,
                     }),
                 };
             } else {
@@ -742,6 +750,7 @@ export default function ToolDetailPage() {
                             body_template: bodyTemplateSupported && bodyTemplateEnabled
                                 ? bodyTemplate || undefined
                                 : undefined,
+                            body_format: bodyFormat,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -781,6 +790,7 @@ export default function ToolDetailPage() {
                             presetParameters,
                             bodyTemplateEnabled,
                             bodyTemplate,
+                            bodyFormat,
                             timeoutMs,
                             customMessage,
                             customMessageType,
@@ -800,8 +810,9 @@ export default function ToolDetailPage() {
     const getCodeSnippet = () => {
         if (!tool) return "";
 
+        const isFormBody = bodyFormat === "form";
         const headersObj: Record<string, string> = {
-            "Content-Type": "application/json",
+            "Content-Type": isFormBody ? "application/x-www-form-urlencoded" : "application/json",
         };
         headers.filter((h) => h.key && h.value).forEach((h) => {
             headersObj[h.key] = h.value;
@@ -841,7 +852,7 @@ export default function ToolDetailPage() {
 const response = await fetch("${url}", {
     method: "${httpMethod}",
     headers: ${JSON.stringify(headersObj, null, 4)},${hasBody ? `
-    body: JSON.stringify(${JSON.stringify(requestBody, null, 4)}),` : ""}
+    body: ${isFormBody ? "new URLSearchParams" : "JSON.stringify"}(${JSON.stringify(requestBody, null, 4)}),` : ""}
 });
 
 const data = await response.json();`;
@@ -907,6 +918,7 @@ const data = await response.json();`;
                 presetParameters,
                 bodyTemplateEnabled,
                 bodyTemplate,
+                bodyFormat,
                 timeoutMs,
                 customMessage,
                 customMessageType,
@@ -1049,6 +1061,8 @@ const data = await response.json();`;
                             workflowsLoading={agentOptionsLoading}
                             message={transferAgentMessage}
                             onMessageChange={setTransferAgentMessage}
+                            playGreeting={transferAgentPlayGreeting}
+                            onPlayGreetingChange={setTransferAgentPlayGreeting}
                         />
                     ) : isMcpTool ? (
                         <Card>
@@ -1146,6 +1160,8 @@ const data = await response.json();`;
                             bodyTemplate={bodyTemplate}
                             onBodyTemplateChange={setBodyTemplate}
                             onBodyTemplateValidityChange={setIsBodyTemplateValid}
+                            bodyFormat={bodyFormat}
+                            onBodyFormatChange={setBodyFormat}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

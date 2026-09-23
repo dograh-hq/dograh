@@ -9,8 +9,6 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 # when constructing file-system paths elsewhere in the codebase.
 APP_ROOT_DIR: Path = Path(__file__).resolve().parent
 
-FILLER_SOUND_PROBABILITY = 0.0
-
 VOICEMAIL_RECORDING_DURATION = 5.0
 
 # Langfuse Configuration

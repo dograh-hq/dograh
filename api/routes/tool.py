@@ -243,8 +243,6 @@ async def test_tool(
 
     status = result.get("status", "error")
     status_code = result.get("status_code")
-    if status_code is not None and status_code >= 400:
-        status = "error"
 
     hint = _hint_for_status_code(status_code, configured_method)
 
@@ -320,8 +318,8 @@ def _hint_for_status_code(
         )
     if status_code == 415:
         return (
-            "HTTP 415 Unsupported Media Type — check the Content-Type header "
-            "matches the format this endpoint expects for the body."
+            "HTTP 415 Unsupported Media Type — check the Body Format setting "
+            "(JSON or form-encoded) matches what this endpoint expects."
         )
     if status_code == 422:
         return (

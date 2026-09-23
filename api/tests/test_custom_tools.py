@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 import pytest
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -1028,6 +1029,129 @@ class TestExecuteHttpTool:
 
                 # Verify credential lookup was NOT called
                 mock_db.get_credential_by_uuid.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_http_error_response_is_reported_as_an_error(self):
+        """A 4xx reaches the agent as status error, with the code and body."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-error",
+            name="Book Slot",
+            description="Book a slot",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {"method": "POST", "url": "https://api.example.com/book"},
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 400
+            mock_response.text = '{"detail": "slot taken"}'
+            mock_response.json.return_value = {"detail": "slot taken"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, {"slot": "10:00"})
+
+        assert result["status"] == "error"
+        assert result["status_code"] == 400
+        assert result["data"] == {"detail": "slot taken"}
+
+    @pytest.mark.asyncio
+    async def test_form_body_format_sends_form_encoded_fields(self):
+        """Form mode sends data= instead of json=, flattening what cannot nest."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form",
+            name="Send SMS",
+            description="Send an SMS",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/messages",
+                    "body_format": "form",
+                },
+            },
+        )
+        arguments = {
+            "To": "+15550100",
+            "MediaUrl": ["https://a.example/1.png", "https://a.example/2.png"],
+            "Meta": {"campaign": "spring"},
+            "Urgent": True,
+        }
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {"sid": "SM1"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, arguments)
+
+        call_kwargs = mock_client.request.call_args.kwargs
+        assert call_kwargs["json"] is None
+        assert call_kwargs["data"] == {
+            "To": "+15550100",
+            "MediaUrl": ["https://a.example/1.png", "https://a.example/2.png"],
+            "Meta": '{"campaign": "spring"}',
+            "Urgent": True,
+        }
+        assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_form_body_is_encoded_on_the_wire(self):
+        """The request httpx builds carries a form content type and body."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form-wire",
+            name="Send SMS",
+            description="Send an SMS",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/messages",
+                    "body_format": "form",
+                    "headers": {"Content-Type": "application/json"},
+                },
+            },
+        )
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["content_type"] = request.headers["content-type"]
+            captured["body"] = request.content.decode()
+            return httpx.Response(201, json={"sid": "SM1"})
+
+        real_client = httpx.AsyncClient
+
+        def client_factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient",
+            side_effect=client_factory,
+        ):
+            result = await execute_http_tool(
+                tool, {"To": "+15550100", "Body": "Hi there"}
+            )
+
+        assert result["status"] == "success"
+        # The configured JSON Content-Type is dropped, not sent with a form body.
+        assert captured["content_type"] == "application/x-www-form-urlencoded"
+        assert captured["body"] == "To=%2B15550100&Body=Hi+there"
 
 
 class TestCoerceParameterValue:
@@ -2655,6 +2779,7 @@ class TestUrlPathParameters:
                 url="https://api.com/users/123",
                 headers={},
                 json=None,
+                data=None,
                 params={"userId": "123"},
             )
 
@@ -2687,6 +2812,7 @@ class TestUrlPathParameters:
                 url="https://api.apaleo.com/booking/v1/reservations/AWAEYPKI-1/actions/cancel",
                 headers={},
                 json={"reservationId": "AWAEYPKI-1"},
+                data=None,
                 params=None,
             )
 
@@ -2785,5 +2911,6 @@ class TestUrlPathParameters:
                 url="https://api.com/users/123",
                 headers={},
                 json=None,
+                data=None,
                 params={"userId": "123"},
             )

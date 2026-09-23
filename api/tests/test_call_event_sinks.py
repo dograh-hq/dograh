@@ -123,13 +123,30 @@ async def test_bigquery_http_failures(bigquery_config, status, retry):
         await sink.close()
 
 
-async def test_connection_check_is_read_only_and_validates_schema(bigquery_config):
-    from api.services.integrations.bigquery.sink import REQUIRED_COLUMNS
-
-    fields = [
-        {"name": name, "type": sorted(types)[0]}
-        for name, types in REQUIRED_COLUMNS.items()
+@pytest.fixture
+def pipeline_diagnostics_schema():
+    # Existing table metadata, independent of the adapter's accepted types.
+    return [
+        {"mode": "REQUIRED", "name": "ts", "type": "TIMESTAMP"},
+        {"name": "run_id", "type": "INTEGER"},
+        {"name": "org_id", "type": "INTEGER"},
+        {"name": "workflow_id", "type": "INTEGER"},
+        {"name": "turn", "type": "INTEGER"},
+        {"mode": "REQUIRED", "name": "event", "type": "STRING"},
+        {"name": "severity", "type": "STRING"},
+        {"name": "value_ms", "type": "FLOAT"},
+        {"name": "node_id", "type": "STRING"},
+        {"name": "node_name", "type": "STRING"},
+        {"name": "detail", "type": "JSON"},
     ]
+
+
+@pytest.mark.parametrize("detail_type", ["JSON", "STRING"])
+async def test_connection_check_is_read_only_and_validates_schema(
+    bigquery_config, pipeline_diagnostics_schema, detail_type
+):
+    fields = pipeline_diagnostics_schema
+    fields[-1]["type"] = detail_type
     requests = []
 
     def handle(request):
@@ -146,6 +163,43 @@ async def test_connection_check_is_read_only_and_validates_schema(bigquery_confi
         with pytest.raises(ValueError, match="schema"):
             await sink.validate_connection()
         assert all(r.method == "GET" for r in requests)
+    finally:
+        await sink.close()
+
+
+@pytest.mark.parametrize(
+    "schema_change,error",
+    [
+        ("missing", "Missing column 'detail'"),
+        ("type", "Column 'detail' has type RECORD; expected JSON or STRING"),
+        ("repeated", "Column 'detail' must not be REPEATED"),
+        ("extra_required", "additional required columns"),
+    ],
+)
+async def test_connection_check_rejects_incompatible_schema(
+    bigquery_config, pipeline_diagnostics_schema, schema_change, error
+):
+    fields = pipeline_diagnostics_schema
+    if schema_change == "missing":
+        fields.pop()
+    elif schema_change == "type":
+        fields[-1]["type"] = "RECORD"
+    elif schema_change == "repeated":
+        fields[-1]["mode"] = "REPEATED"
+    else:
+        fields.append({"name": "extra", "type": "STRING", "mode": "REQUIRED"})
+
+    sink = BigQuerySink(bigquery_config)
+    await sink._client.aclose()
+    sink._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"schema": {"fields": fields}})
+        )
+    )
+    sink._headers = AsyncMock(return_value={})
+    try:
+        with pytest.raises(ValueError, match=error):
+            await sink.validate_connection()
     finally:
         await sink.close()
 

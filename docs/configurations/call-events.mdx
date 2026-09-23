@@ -23,8 +23,9 @@ replace it to rotate the key.
 
 **BigQuery schema**
 
-Use these columns with nullable fields. The adapter does not create or migrate
-tables. Existing `pipeline_diagnostics` event names and detail keys are preserved.
+Use these scalar columns with nullable fields; `ts` and `event` can also be
+required. The adapter does not create or migrate tables. Existing
+`pipeline_diagnostics` event names and detail keys are preserved.
 
 | Column | Type |
 | --- | --- |
@@ -33,10 +34,12 @@ tables. Existing `pipeline_diagnostics` event names and detail keys are preserve
 | `run_id`, `org_id`, `workflow_id`, `turn` | INTEGER |
 | `severity` | STRING |
 | `value_ms` | FLOAT |
-| `node_id`, `node_name`, `detail` | STRING |
+| `node_id`, `node_name` | STRING |
+| `detail` | JSON (STRING also supported) |
 
 You receive one row per diagnostic event. `ts` is when the event happened, and
-`detail` contains serialized JSON. Events cover speech, accepted user turns,
+`detail` contains JSON, stored as a native JSON value or serialized text according
+to the column type. Events cover speech, accepted user turns,
 mute state, tool execution, silence warnings, stage latencies, pipeline errors
 and the final call summary. The transcription event records character counts
 and empty/finalized flags; it does not contain transcript text or audio.

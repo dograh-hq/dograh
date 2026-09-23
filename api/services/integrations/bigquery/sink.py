@@ -32,7 +32,7 @@ REQUIRED_COLUMNS = {
     "value_ms": {"FLOAT", "FLOAT64"},
     "node_id": {"STRING"},
     "node_name": {"STRING"},
-    "detail": {"STRING"},
+    "detail": {"JSON", "STRING"},
 }
 
 
@@ -141,15 +141,21 @@ class BigQuerySink:
         fields = {
             f["name"]: f for f in response.json().get("schema", {}).get("fields", [])
         }
-        if any(
-            name not in fields
-            or fields[name].get("type") not in types
-            or fields[name].get("mode") == "REPEATED"
-            for name, types in REQUIRED_COLUMNS.items()
-        ):
-            raise ValueError(
-                "The table schema does not match the pipeline diagnostics event schema"
-            )
+        schema_error = (
+            "The table schema does not match the pipeline diagnostics event schema: "
+        )
+        for name, types in REQUIRED_COLUMNS.items():
+            if name not in fields:
+                raise ValueError(f"{schema_error}Missing column '{name}'")
+            field = fields[name]
+            if field.get("type") not in types:
+                expected = " or ".join(sorted(types))
+                raise ValueError(
+                    f"{schema_error}Column '{name}' has type {field.get('type')}; "
+                    f"expected {expected}"
+                )
+            if field.get("mode") == "REPEATED":
+                raise ValueError(f"{schema_error}Column '{name}' must not be REPEATED")
         if any(
             f.get("mode") == "REQUIRED" and name not in REQUIRED_COLUMNS
             for name, f in fields.items()

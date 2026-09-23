@@ -1131,7 +1131,7 @@ def create_llm_service_from_provider(
                 api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
-                    extra={"reasoning_effort": "minimal", "verbosity": "low"},
+                    extra={"verbosity": "low"},
                 ),
                 **kwargs,
             )

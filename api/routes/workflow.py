@@ -1429,6 +1429,7 @@ async def create_workflow_run(
         call_type=call_type,
         organization_id=user.selected_organization_id,
         definition_id=run_inputs.definition_id,
+        use_draft=run_inputs.use_draft,
         initial_context=initial_context,
     )
     return {

@@ -21,7 +21,7 @@ node changes.
 """
 
 import json
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 from loguru import logger
 
@@ -31,6 +31,7 @@ from api.errors.failure import (
     failure_metadata_for_processor,
     log_failure,
 )
+from api.services.pipecat.agent_bridge import AgentWorker
 from api.services.pipecat.realtime_feedback_events import (
     build_bot_text_event,
     build_function_call_end_event,
@@ -41,6 +42,7 @@ from api.services.pipecat.realtime_feedback_events import (
 )
 
 if TYPE_CHECKING:
+    from api.services.observability.call_events.recorder import CallEventRecorder
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
     from api.services.pipecat.transcript_log_coordinator import (
         TranscriptLogCoordinator,
@@ -92,24 +94,33 @@ class RealtimeFeedbackObserver(BaseObserver):
         self,
         ws_sender: Callable[[dict], Awaitable[None]],
         logs_buffer: Optional["InMemoryLogsBuffer"] = None,
+        selected_visit: Callable[[], str | None] | None = None,
+        call_event_recorder: "CallEventRecorder | None" = None,
     ):
         """
         Args:
             ws_sender: Async function to send messages over WebSocket.
                        Expected signature: async def send(message: dict) -> None
             logs_buffer: Optional InMemoryLogsBuffer to persist events for post-call analysis.
+            selected_visit: Agent visit currently allowed to speak on the call.
         """
         super().__init__()
         self._ws_sender = ws_sender
         self._logs_buffer = logs_buffer
-        self._frames_seen: Set[str] = set()
+        self._selected_visit = selected_visit
+        self._call_event_recorder = call_event_recorder
+        self._frames_seen: set[int] = set()
 
-    async def cleanup(self):
-        """Clean up resources. Must be called when the observer is no longer needed."""
-        pass
+    async def log_speech(self, text: str):
+        """Persist speech that is intentionally excluded from assistant context."""
+        await self._append_to_buffer(build_bot_text_event(text=text))
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""
+        # Diagnostics has its own schema, filtering and buffer. Capture raw
+        # facts before RTF filtering/deduplication or WebSocket delivery.
+        if self._call_event_recorder is not None:
+            await self._call_event_recorder.on_push_frame(data)
         frame = data.frame
         frame_direction = data.direction
         source = data.source
@@ -123,6 +134,17 @@ class RealtimeFeedbackObserver(BaseObserver):
         # avoid duplicate live UI messages.
         if frame.id in self._frames_seen:
             return
+        # Match the bridge's conversation routing while retaining diagnostics
+        # from every agent. The same observer instance is shared by all workers.
+        if self._selected_visit is not None and not isinstance(
+            frame, (ErrorFrame, MetricsFrame)
+        ):
+            worker = source.pipeline_worker
+            if (
+                isinstance(worker, AgentWorker)
+                and worker.name != self._selected_visit()
+            ):
+                return
         if frame_direction != FrameDirection.DOWNSTREAM:
             is_upstream_transcription = (
                 isinstance(frame, (InterimTranscriptionFrame, TranscriptionFrame))
@@ -190,7 +212,7 @@ class RealtimeFeedbackObserver(BaseObserver):
         # to avoid word-level log entries from word-timestamp providers.
         elif isinstance(frame, TTSSpeakFrame):
             if getattr(frame, "persist_to_logs", False):
-                await self._append_to_buffer(build_bot_text_event(text=frame.text))
+                await self.log_speech(frame.text)
         # Handle bot TTS text after output transport timing, WebSocket only
         # Complete turn text is persisted via register_turn_handlers,
         # except for frames explicitly flagged persist_to_logs (e.g. recording
@@ -243,6 +265,11 @@ class RealtimeFeedbackObserver(BaseObserver):
         # Handle pipeline errors
         elif isinstance(frame, ErrorFrame):
             processor_name = str(frame.processor) if frame.processor else None
+            is_permanent = bool(
+                frame.processor is not None
+                and not getattr(frame.processor, "is_usable", True)
+            )
+            fatal = frame.fatal or is_permanent
             extra_payload: dict[str, object] = {}
             # Surface structured fields when the underlying exception carries
             # them (e.g. google.genai APIError: code=1008, status=None,
@@ -265,7 +292,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                 )
             log_failure(
                 failure,
-                fatal=frame.fatal,
+                fatal=fatal,
             )
 
             if exc is not None:
@@ -286,7 +313,7 @@ class RealtimeFeedbackObserver(BaseObserver):
             await self._send_message(
                 build_pipeline_error_event(
                     error=frame.error,
-                    fatal=frame.fatal,
+                    fatal=fatal,
                     processor=processor_name,
                     extra_payload=extra_payload or None,
                 )
@@ -347,12 +374,13 @@ def register_turn_log_handlers(
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message):
-        if message.content:
-            try:
-                await transcript_coordinator.record_assistant_transcript(
-                    text=message.content,
-                    timestamp=message.timestamp,
-                    end_timestamp=getattr(message, "end_timestamp", None),
-                )
-            except Exception as e:
-                logger.error(f"Failed to coordinate assistant turn transcript: {e}")
+        # An interrupted opening can have no delivered text. Close that empty
+        # transcript slot too, so the next message cannot claim its playback turn.
+        try:
+            await transcript_coordinator.record_assistant_transcript(
+                text=message.content or "",
+                timestamp=message.timestamp,
+                end_timestamp=getattr(message, "end_timestamp", None),
+            )
+        except Exception as e:
+            logger.error(f"Failed to coordinate assistant turn transcript: {e}")

@@ -18,49 +18,52 @@ the Dograh engine contract by:
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal, cast
 
 from loguru import logger
 from pydantic import Field
 from websockets.exceptions import ConnectionClosed
 
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from pipecat.frames.frames import (
     Frame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext, is_given
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
-from pipecat.services.settings import _NotGiven, assert_given
 from pipecat.services.ultravox.llm import (
     OneShotInputParams,
     UltravoxRealtimeLLMService,
     websocket_client,
 )
 from pipecat.utils.time import time_now_iso8601
+from pipecat.utils.types import NotGiven, assert_given
 
 
 class DograhUltravoxOneShotInputParams(OneShotInputParams):
     """Dograh-friendly OneShot params with string voice support."""
 
-    voice: str | None = Field(default=None)
+    # Ultravox accepts built-in voice names as well as UUIDs. Dograh stores the
+    # former (for example, "Mark"), while upstream narrows this field to UUID.
+    voice: str | None = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default=None
+    )
 
 
 _ULTRAVOX_MAX_TOOL_TIMEOUT_SECS = 40.0
 
 
-class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
+class DograhUltravoxRealtimeLLMService(
+    RealtimeConversationMixin, UltravoxRealtimeLLMService
+):
     """Ultravox realtime with Dograh engine integration quirks."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._context: LLMContext | None = None
         self._selected_tools = None
-        self._user_is_muted: bool = False
         self._call_started: bool = False
         self._stage_update_required: bool = False
         # Ultravox applies a stage update on the matching client tool result,
@@ -81,26 +84,6 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         await LLMService.start(self, frame)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TTSSpeakFrame):
-            if not self._socket:
-                await self._connect_call(
-                    greeting_text=frame.text,
-                    agent_speaks_first=True,
-                )
-            else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame received after the Ultravox call was "
-                    "already created; ignoring because Ultravox owns speech output"
-                )
-            return
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
@@ -134,12 +117,30 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         self._deferred_node_transition_tool_invocations = []
         self._disconnecting = False
 
-    async def _send_user_audio(self, frame):
-        if self._user_is_muted:
-            return
-        await super()._send_user_audio(frame)
+    async def _prepare_user_audio(self, frame):
+        return await self._prepare_audio_frame(
+            frame,
+            sample_rate=self._sample_rate if self._socket else None,
+            resampler=self._resampler,
+        )
+
+    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+        self._handled_initial_context = True
+        self._context = context
+        await self._connect_call(greeting_text=greeting_text, agent_speaks_first=True)
+
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Join the call with the caller as first speaker.
+
+        The recording has already greeted them, so the agent must wait rather
+        than open with a turn of its own. ``transcript`` is not seeded: a
+        one-shot call carries only a system prompt, with no history channel to
+        put an already-spoken turn on.
+        """
+        await self._connect_call(greeting_text=None, agent_speaks_first=False)
 
     async def _handle_context(self, context: LLMContext):
+        self._handled_initial_context = True
         self._context = context
 
         if not self._socket:
@@ -285,6 +286,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         greeting_text: str | None,
         agent_speaks_first: bool,
     ):
+        self._handled_initial_context = True
         params = self._build_one_shot_params(
             greeting_text=greeting_text,
             agent_speaks_first=agent_speaks_first,
@@ -318,7 +320,11 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
                 f"{self}: Ultravox call creation/join failed "
                 f"for tools={tool_names}: {e}"
             )
-            await self.push_error(f"Failed to connect to Ultravox: {e}", e, fatal=True)
+            await self.push_error(
+                f"Failed to connect to Ultravox: {e}",
+                e,
+                force_treat_as_permanent=True,
+            )
 
     async def _receive_messages(self):
         """Receive messages from the Ultravox Realtime WebSocket.
@@ -390,7 +396,9 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
                     if self._disconnecting or not self._socket:
                         return
                     await self.push_error(
-                        "Ultravox websocket receive error", e, fatal=True
+                        "Ultravox websocket receive error",
+                        e,
+                        force_treat_as_permanent=True,
                     )
         except ConnectionClosed as e:
             if (
@@ -400,7 +408,11 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             ):
                 logger.debug(f"{self}: Ultravox websocket closed: {e}")
                 return
-            await self.push_error("Ultravox websocket receive error", e, fatal=True)
+            await self.push_error(
+                "Ultravox websocket receive error",
+                e,
+                force_treat_as_permanent=True,
+            )
 
     async def _flush_pending_user_text_messages(self):
         if (
@@ -435,7 +447,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
         else:
             extra["firstSpeakerSettings"] = {"user": {}}
         output_medium = self._settings.output_medium
-        if isinstance(output_medium, _NotGiven):
+        if isinstance(output_medium, NotGiven):
             output_medium = current_params.output_medium
 
         return DograhUltravoxOneShotInputParams(
@@ -445,7 +457,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
             model=assert_given(self._settings.model),
             voice=current_params.voice,
             metadata=current_params.metadata,
-            output_medium=output_medium,
+            output_medium=cast(Literal["text", "voice"] | None, output_medium),
             max_duration=current_params.max_duration,
             extra=extra,
         )
@@ -481,7 +493,7 @@ class DograhUltravoxRealtimeLLMService(UltravoxRealtimeLLMService):
 
     def _current_system_instruction(self) -> str | None:
         system_instruction = self._settings.system_instruction
-        if isinstance(system_instruction, _NotGiven):
+        if isinstance(system_instruction, NotGiven):
             return None
         return system_instruction
 

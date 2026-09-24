@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
+from loguru import logger
 from pipecat.bus.serializers.json import JSONMessageSerializer
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
@@ -17,7 +19,11 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    SpeechBoundaryFrame,
+    TextFrame,
+    TTSAudioRawFrame,
     TTSSpeakFrame,
+    TTSStartedFrame,
     TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -51,7 +57,11 @@ from api.services.pipecat.worker_runner import (
 )
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.initial_context import merge_external_initial_context
-from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.pipecat_engine import (
+    ENGINE_OWNED_CONTEXT_KEYS,
+    FINAL_EXTRACTION_TIMEOUT_SECONDS,
+    PipecatEngine,
+)
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 TEXT_CHAT_CHECKPOINT_VERSION = 1
@@ -137,6 +147,26 @@ def normalize_text_chat_checkpoint(
     return normalized
 
 
+def pending_text_chat_user_message(
+    session_data: dict[str, Any] | None,
+) -> str | None:
+    """The user text of a turn still pending when the session ended.
+
+    ``append_text_chat_user_message`` persists the user's message into
+    ``session_data`` and only folds it into ``checkpoint["messages"]`` once the
+    turn executes. A session completed while a turn is in flight -- the worker
+    died mid-turn, or an ``/end`` arrived carrying no ``expected_revision`` --
+    therefore holds that message in its transcript but not in its checkpoint.
+    Extraction reads it from here so it does not miss the last thing the user
+    said, which is usually the one that matters most.
+    """
+    turns = list((session_data or {}).get("turns") or [])
+    if not turns or turns[-1].get("status") != "pending":
+        return None
+    user_message = turns[-1].get("user_message") or {}
+    return ((user_message.get("text") or "").strip()) or None
+
+
 @dataclass
 class TextChatTurnExecutionResult:
     assistant_text: str | None
@@ -214,6 +244,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
         self,
         response_window: _ResponseWindowState,
         context: LLMContext,
+        engine: PipecatEngine,
     ) -> None:
         super().__init__()
         self.last_activity_at = time.monotonic()
@@ -221,6 +252,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
         self.events: list[dict[str, Any]] = []
         self._response_window = response_window
         self._context = context
+        self._engine = engine
 
     def _touch(self) -> None:
         self.last_activity_at = time.monotonic()
@@ -238,6 +270,16 @@ class _TextChatCaptureProcessor(FrameProcessor):
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         self._touch()
+        playback = self._engine.speech_playback
+        await playback.before_output(self, frame)
+        if isinstance(
+            frame, (SpeechBoundaryFrame, LLMFullResponseStartFrame, EndFrame)
+        ):
+            playback.after_output(self, frame)
+        if isinstance(frame, (TextFrame, TTSSpeakFrame)) and frame.text.strip():
+            playback.note_output()
+        if isinstance(frame, TTSAudioRawFrame):
+            playback.after_output(self, frame)
 
         if isinstance(frame, TTSSpeakFrame):
             append_to_context = (
@@ -245,17 +287,23 @@ class _TextChatCaptureProcessor(FrameProcessor):
             )
             text = frame.text.strip()
             if text:
+                await self._engine.should_mute_user(BotStartedSpeakingFrame())
                 self._response_window.outputs.append(text)
                 if append_to_context:
                     self._context.add_message({"role": "assistant", "content": text})
+                await self._engine.should_mute_user(BotStoppedSpeakingFrame())
             return
 
         if isinstance(frame, LLMContextFrame) and direction == FrameDirection.UPSTREAM:
             self._response_window.note_upstream_context_request()
 
+        if isinstance(frame, TTSStartedFrame):
+            await self._engine.should_mute_user(BotStartedSpeakingFrame())
+
         if isinstance(frame, TTSStoppedFrame):
             await self.push_frame(frame, direction)
             await self.push_frame(LLMAssistantPushAggregationFrame(), direction)
+            await self._engine.should_mute_user(BotStoppedSpeakingFrame())
             return
 
         if (
@@ -263,6 +311,9 @@ class _TextChatCaptureProcessor(FrameProcessor):
             and direction == FrameDirection.DOWNSTREAM
         ):
             self._response_window.note_llm_start()
+            # Text delivery is this pipeline's playback boundary. Feed the
+            # shared engine tracker even though there is no audio transport.
+            await self._engine.should_mute_user(BotStartedSpeakingFrame())
 
         if (
             isinstance(frame, LLMFullResponseEndFrame)
@@ -274,6 +325,8 @@ class _TextChatCaptureProcessor(FrameProcessor):
             # would otherwise leave function calls waiting forever on a
             # BotStoppedSpeakingFrame that never arrives.
             await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+            await self._engine.should_mute_user(BotStoppedSpeakingFrame())
+            playback.after_output(self, frame)
             return
 
         if isinstance(frame, FunctionCallInProgressFrame):
@@ -510,6 +563,7 @@ async def execute_text_chat_pending_turn(
     }
     initial_context = {
         **base_initial_context,
+        "workflow_run_id": workflow_run_id,
         "runtime_configuration": runtime_configuration,
     }
     if mps_correlation_id:
@@ -554,9 +608,6 @@ async def execute_text_chat_pending_turn(
         _deserialize_text_chat_checkpoint_messages(base_checkpoint["messages"])
     )
     response_window = _ResponseWindowState()
-    capture_processor = _TextChatCaptureProcessor(response_window, context)
-
-    node_transition_events = capture_processor.events
 
     async def send_node_transition(
         node_id: str,
@@ -627,6 +678,8 @@ async def execute_text_chat_pending_turn(
         run_transition_variable_extraction_in_background=False,
     )
     engine._gathered_context = dict(base_checkpoint["gathered_context"])
+    capture_processor = _TextChatCaptureProcessor(response_window, context, engine)
+    node_transition_events = capture_processor.events
 
     assistant_params = LLMAssistantAggregatorParams()
     context_aggregator = LLMContextAggregatorPair(
@@ -675,7 +728,7 @@ async def execute_text_chat_pending_turn(
     )
     runner_task = asyncio.create_task(run_pipeline_worker(task))
 
-    engine.set_task(task)
+    engine.call_worker = task
     engine.set_audio_config(audio_config)
     engine.set_transport_output(_TaskQueueProxy(task.queue_frame))
     engine.set_fetch_recording_audio(
@@ -696,6 +749,7 @@ async def execute_text_chat_pending_turn(
             target_node_id,
             emit_transition_event=current_node_id is None,
         )
+        engine.call_monitor.activate()
 
         opening_marker = capture_processor.activity_count
         opening_expects_llm = pending_user_message is None and (
@@ -704,16 +758,16 @@ async def execute_text_chat_pending_turn(
         )
         if opening_expects_llm:
             response_window.note_direct_context_request()
-        opening_action = await engine.queue_node_opening(
+        opening = await engine.queue_node_opening(
             node_id=target_node_id,
             previous_node_id=current_node_id,
             generate_if_no_greeting=pending_user_message is None,
         )
-        if opening_action != "llm" and opening_expects_llm:
+        if opening.action != "llm" and opening_expects_llm:
             response_window.pending_context_requests = max(
                 0, response_window.pending_context_requests - 1
             )
-        if opening_action != "none":
+        if opening.action != "none":
             await _wait_for_quiescence(
                 capture_processor=capture_processor,
                 response_window=response_window,
@@ -725,6 +779,7 @@ async def execute_text_chat_pending_turn(
             context.add_message({"role": "user", "content": pending_user_message})
             generation_marker = capture_processor.activity_count
             response_window.note_direct_context_request()
+            engine.expect_response()
             await llm.queue_frame(LLMContextFrame(context))
             await _wait_for_quiescence(
                 capture_processor=capture_processor,
@@ -749,7 +804,7 @@ async def execute_text_chat_pending_turn(
     )
     assistant_created_at = datetime.now(UTC).isoformat()
     usage = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
-    current_node = getattr(engine, "_current_node", None)
+    current_node = engine.active_agent.current_node
     context_messages = context.get_messages()
     encoded_messages = _serialize_text_chat_checkpoint_messages(context_messages)
     encoded_gathered_context = jsonable_encoder(gathered_context)
@@ -787,3 +842,160 @@ async def execute_text_chat_pending_turn(
         ),
         is_completed=engine.is_call_disposed(),
     )
+
+
+async def extract_text_chat_final_variables(
+    *,
+    workflow_run_id: int,
+    workflow_id: int,
+    organization_id: int,
+    checkpoint: dict[str, Any] | None,
+    session_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Extract the current node's variables for a chat ending without a transition.
+
+    Voice calls get this from ``PipecatEngine._end_call``. Text chats have no
+    engine at session end -- each turn tears its pipeline down -- so until this
+    ran, the only extraction trigger was a node transition. A user who simply
+    closes the widget never causes one, which left every abandoned chat with no
+    extracted variables at all and any webhook rendered from
+    ``gathered_context`` shipping blanks.
+
+    Returns the extracted values, or an empty dict when there is nothing to
+    extract. Never raises: the caller persists completion *after* this, so an
+    escaping exception would leave the chat incomplete -- no transcript, no
+    completion job and no webhook at all, which is worse than the blank fields
+    this exists to prevent. Parsing the stored checkpoint is therefore inside
+    the handler too: a legacy or corrupt shape raises from
+    `normalize_text_chat_checkpoint` and `_deserialize_text_chat_checkpoint_messages`
+    (which rejects unexpected shapes by design), not just from the work below.
+    """
+    try:
+        base_checkpoint = normalize_text_chat_checkpoint(checkpoint)
+        current_node_id = base_checkpoint.get("current_node_id")
+        if not current_node_id:
+            # No turn ever completed, so no node was entered and nothing was said.
+            return {}
+
+        messages = _deserialize_text_chat_checkpoint_messages(
+            base_checkpoint["messages"]
+        )
+        # The checkpoint lags a turn that never finished executing; its user
+        # message lives in session_data. The transcript already includes it, so
+        # extraction must too or the two disagree about what was said.
+        pending_user_message = pending_text_chat_user_message(session_data)
+        if pending_user_message:
+            messages = [*messages, {"role": "user", "content": pending_user_message}]
+
+        if not any(
+            isinstance(message, dict) and message.get("role") == "user"
+            for message in messages
+        ):
+            # Only the greeting happened. Nothing a node could extract from.
+            return {}
+
+        # `get_workflow_run_with_context` is the unscoped system-caller read, so
+        # the run is fetched by id and its ownership validated here instead --
+        # the workflow_id check alone proves nothing, being derived from this
+        # same row. See api/AGENTS.md, "Organization Scoping (Security)".
+        (
+            workflow_run,
+            run_organization_id,
+        ) = await db_client.get_workflow_run_with_context(workflow_run_id)
+        if (
+            not workflow_run
+            or workflow_run.workflow_id != workflow_id
+            or workflow_run.definition is None
+            or workflow_run.workflow is None
+        ):
+            return {}
+        if run_organization_id != organization_id:
+            # A caller reached a run outside the organization it authorized
+            # against. Nothing is extracted, and it is logged rather than
+            # silently skipped because it means a bug upstream, not an
+            # ordinary "nothing to extract".
+            logger.warning(
+                f"Refusing final text-chat extraction for run {workflow_run_id}: "
+                f"run belongs to organization {run_organization_id}, "
+                f"caller authorized against {organization_id}"
+            )
+            return {}
+
+        workflow_graph = WorkflowGraph(
+            ReactFlowDTO.model_validate(workflow_run.definition.workflow_json),
+            skip_instance_constraints_for={"trigger"},
+        )
+        node = workflow_graph.nodes.get(current_node_id)
+        if not (node and node.extraction_enabled and node.extraction_variables):
+            return {}
+
+        from api.services.configuration.ai_model_configuration import (
+            get_effective_ai_model_configuration_for_workflow,
+        )
+
+        # Route this extraction's spans to the org's Langfuse project, the way
+        # the turn path does for every other text-chat span.
+        set_current_org_id(organization_id)
+
+        run_configs = workflow_run.definition.workflow_configurations or {}
+        user_config = await get_effective_ai_model_configuration_for_workflow(
+            organization_id=organization_id,
+            workflow_configurations=run_configs,
+        )
+        if user_config.llm is None:
+            return {}
+
+        from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
+
+        initial_context = dict(workflow_run.initial_context or {})
+        # Reuse the id the conversation already billed against rather than
+        # minting a new one for a run that is over.
+        correlation_id = initial_context.get(MPS_CORRELATION_ID_CONTEXT_KEY)
+        llm = create_llm_service(
+            user_config,
+            correlation_id=correlation_id,
+            usage_context="variable_extraction",
+        )
+
+        context = LLMContext()
+        context.set_messages(messages)
+        engine = PipecatEngine(
+            llm=llm,
+            variable_extraction_llm=llm,
+            context=context,
+            workflow=workflow_graph,
+            call_context_vars=initial_context,
+            workflow_run_id=workflow_run_id,
+        )
+        engine._gathered_context = dict(base_checkpoint["gathered_context"])
+
+        async with asyncio.timeout(FINAL_EXTRACTION_TIMEOUT_SECONDS):
+            extracted = await engine.extract_variables_standalone(node)
+        if not extracted:
+            return {}
+
+        result = {
+            key: value
+            for key, value in extracted.items()
+            if key not in ENGINE_OWNED_CONTEXT_KEYS
+        }
+        # The engine merged this turn's values into the `extracted_variables`
+        # it was seeded with. The completion write merges only at the top
+        # level, so hand back the whole sub-dict or earlier transitions' values
+        # would be dropped.
+        result["extracted_variables"] = dict(
+            (await engine.get_gathered_context()).get("extracted_variables") or {}
+        )
+        return jsonable_encoder(result)
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"Final text-chat variable extraction timed out after "
+            f"{FINAL_EXTRACTION_TIMEOUT_SECONDS}s for run {workflow_run_id}"
+        )
+        return {}
+    except Exception as e:
+        # Extraction is best-effort: never block a chat from completing.
+        logger.error(
+            f"Final text-chat variable extraction failed for run {workflow_run_id}: {e}"
+        )
+        return {}

@@ -97,6 +97,12 @@ export type AriConfigurationRequest = {
      */
     ws_client_name?: string;
     /**
+     * Dial String Template
+     *
+     * How a plain number becomes an Asterisk dial string. ``{number}`` is substituted; anything already carrying a channel technology (``PJSIP/...``, ``Local/...``) is dialled as written.
+     */
+    dial_string_template?: string;
+    /**
      * Optional external PBX connected through this Asterisk instance
      */
     external_pbx?: VicidialExternalPbxConfiguration | null;
@@ -140,6 +146,84 @@ export type AwsBedrockLlmConfiguration = {
      * AWS region where the Bedrock model is available.
      */
     aws_region?: string;
+};
+
+/**
+ * AWS Nova 2 Sonic
+ *
+ * Amazon Bedrock's realtime speech-to-speech model. Uses AWS IAM credentials rather than a Bedrock API key.
+ */
+export type AwsNovaSonicRealtimeLlmConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'aws_nova_sonic';
+    /**
+     * Api Key
+     *
+     * Not used for Nova 2 Sonic — authentication is via the AWS credentials above. Leave blank.
+     */
+    api_key?: string | Array<string> | null;
+    /**
+     * Model
+     *
+     * Amazon Nova 2 Sonic model ID.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Voice the model speaks in. Tiffany and Matthew are polyglot voices.
+     */
+    voice?: string;
+    /**
+     * Aws Access Key
+     *
+     * AWS access key ID with permission to invoke Nova 2 Sonic in Bedrock.
+     */
+    aws_access_key?: string;
+    /**
+     * Aws Secret Key
+     *
+     * AWS secret access key paired with the access key ID.
+     */
+    aws_secret_key?: string;
+    /**
+     * Aws Session Token
+     *
+     * Optional AWS session token for temporary IAM credentials.
+     */
+    aws_session_token?: string | null;
+    /**
+     * Aws Region
+     *
+     * AWS region where Nova 2 Sonic is enabled for the account.
+     */
+    aws_region?: string;
+    /**
+     * Endpointing Sensitivity
+     *
+     * How quickly Nova decides the user has stopped speaking. Leave blank to use the model default.
+     */
+    endpointing_sensitivity?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+    /**
+     * Temperature
+     *
+     * Sampling temperature for Nova 2 Sonic (greater than 0, up to 1).
+     */
+    temperature?: number;
+    /**
+     * Max Tokens
+     *
+     * Maximum response tokens.
+     */
+    max_tokens?: number;
+    /**
+     * Top P
+     *
+     * Nucleus-sampling threshold.
+     */
+    top_p?: number;
 };
 
 /**
@@ -579,7 +663,9 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'xai';
     } & XaittsConfiguration) | ({
         provider: 'lmnt';
-    } & LmntTtsConfiguration);
+    } & LmntTtsConfiguration) | ({
+        provider: 'speechify';
+    } & SpeechifyTtsConfiguration);
     /**
      * Stt
      */
@@ -645,7 +731,9 @@ export type ByokRealtimeAiModelConfiguration = {
         provider: 'google_vertex_realtime';
     } & GoogleVertexRealtimeLlmConfiguration) | ({
         provider: 'azure_realtime';
-    } & AzureRealtimeLlmConfiguration);
+    } & AzureRealtimeLlmConfiguration) | ({
+        provider: 'aws_nova_sonic';
+    } & AwsNovaSonicRealtimeLlmConfiguration);
     /**
      * Llm
      */
@@ -808,6 +896,36 @@ export type CallDispositionOption = {
      * Business criteria for selecting this disposition.
      */
     description: string;
+};
+
+/**
+ * CallEventsConnectionResult
+ */
+export type CallEventsConnectionResult = {
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * CallEventsSettings
+ */
+export type CallEventsSettings = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Sink Type
+     */
+    sink_type?: string | null;
+    /**
+     * Config
+     */
+    config?: {
+        [key: string]: unknown;
+    };
 };
 
 /**
@@ -1005,6 +1123,10 @@ export type CampaignResponse = {
      * Max Concurrency
      */
     max_concurrency?: number | null;
+    /**
+     * Rate Limit Per Second
+     */
+    rate_limit_per_second?: number;
     schedule_config?: ScheduleConfigResponse | null;
     circuit_breaker?: CircuitBreakerConfigResponse | null;
     /**
@@ -1035,6 +1157,10 @@ export type CampaignResponse = {
      * Logs
      */
     logs?: Array<CampaignLogEntryResponse>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
 };
 
 /**
@@ -1472,6 +1598,10 @@ export type CreateCampaignRequest = {
      * Max Concurrency
      */
     max_concurrency?: number | null;
+    /**
+     * Rate Limit Per Second
+     */
+    rate_limit_per_second?: number;
     schedule_config?: ScheduleConfigRequest | null;
     circuit_breaker?: CircuitBreakerConfigRequest | null;
 };
@@ -1594,7 +1724,7 @@ export type CreateToolRequest = {
      *
      * Tool category. Must match definition.type.
      */
-    category?: 'http_api' | 'end_call' | 'transfer_call' | 'calculator' | 'native' | 'integration' | 'mcp';
+    category?: 'http_api' | 'end_call' | 'transfer_call' | 'transfer_agent' | 'calculator' | 'native' | 'integration' | 'mcp';
     /**
      * Icon
      *
@@ -1619,6 +1749,8 @@ export type CreateToolRequest = {
     } & EndCallToolDefinition) | ({
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
+        type: 'transfer_agent';
+    } & TransferAgentToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
         type: 'mcp';
@@ -1903,6 +2035,12 @@ export type DeepgramSttConfiguration = {
      * Language code. 'multi' enables Nova-3 auto-detect and omits language hints for Flux multilingual auto-detect.
      */
     language?: string;
+    /**
+     * Base Url
+     *
+     * Deepgram API endpoint. This is what decides where call audio is processed: use https://api.eu.deepgram.com to keep processing inside the EU, or https://api.au.deepgram.com for Australia. The same API key works on every regional endpoint.
+     */
+    base_url?: string;
 };
 
 /**
@@ -1923,6 +2061,12 @@ export type DeepgramTtsConfiguration = {
      * Deepgram voice ID (model is inferred from the 'aura-N' prefix).
      */
     voice?: string;
+    /**
+     * Base Url
+     *
+     * Deepgram API endpoint. This is what decides where your text is processed: use https://api.eu.deepgram.com to keep processing inside the EU, or https://api.au.deepgram.com for Australia. The same API key works on every regional endpoint.
+     */
+    base_url?: string;
 };
 
 /**
@@ -1982,6 +2126,12 @@ export type DefaultConfigurationsResponse = {
      * Built-in suggestions for call-disposition extraction. They do not enable extraction until saved in workflow_configurations.call_dispositions.
      */
     default_call_dispositions: Array<CallDispositionOption>;
+    /**
+     * Default Answer Classifier Prompt
+     *
+     * Built-in instructions for the voicemail/screening classifier. The editor starts from these when a workflow has saved none of its own; a workflow that has saved instructions keeps showing those.
+     */
+    default_answer_classifier_prompt: string;
     text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints;
     widget_text_defaults: WidgetTexts;
 };
@@ -2040,6 +2190,58 @@ export type DispositionCodesResponse = {
      * Only the platform's built-in dispositions, without the custom codes this organization's runs have produced. This is the set a disposition mapping translates *from*, so the mapping editor seeds its rows here: `codes` also contains mapped codes, which are the targets of a mapping rather than its sources.
      */
     system_codes: Array<string>;
+};
+
+/**
+ * DocumentContentResponseSchema
+ *
+ * Raw text of an editable (text or Markdown) document.
+ */
+export type DocumentContentResponseSchema = {
+    /**
+     * Document Uuid
+     */
+    document_uuid: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Retrieval Mode
+     */
+    retrieval_mode: string;
+    /**
+     * Content
+     *
+     * The stored file's text, as uploaded
+     */
+    content: string;
+    /**
+     * File Hash
+     *
+     * Version token; send it back as expected_file_hash when saving
+     */
+    file_hash: string;
+};
+
+/**
+ * DocumentContentUpdateRequestSchema
+ *
+ * Request schema for replacing an editable document's text.
+ */
+export type DocumentContentUpdateRequestSchema = {
+    /**
+     * Content
+     *
+     * New full text of the document
+     */
+    content: string;
+    /**
+     * Expected File Hash
+     *
+     * file_hash returned when the content was loaded. The save is rejected if the document has changed since.
+     */
+    expected_file_hash: string;
 };
 
 /**
@@ -2148,6 +2350,12 @@ export type DocumentResponseSchema = {
      * Is Active
      */
     is_active: boolean;
+    /**
+     * Has Live Content
+     *
+     * Whether agents can currently retrieve this document's content. Stays true while an edited document is re-indexed or after its re-index fails, because the previous version keeps serving until a new one succeeds.
+     */
+    has_live_content?: boolean;
 };
 
 /**
@@ -2604,6 +2812,44 @@ export type EndTextChatSessionRequest = {
 };
 
 /**
+ * ExotelConfigurationRequest
+ */
+export type ExotelConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'exotel';
+    /**
+     * Account Sid
+     *
+     * Exotel Account SID
+     */
+    account_sid: string;
+    /**
+     * Api Key
+     *
+     * Exotel API Key
+     */
+    api_key: string;
+    /**
+     * Api Token
+     *
+     * Exotel API Token
+     */
+    api_token: string;
+    /**
+     * Api Base Url
+     *
+     * Exotel API base URL. Use https://api.in.exotel.com for India or https://api.exotel.com for other regions.
+     */
+    api_base_url?: string;
+    /**
+     * From Numbers
+     */
+    from_numbers?: Array<string>;
+};
+
+/**
  * ExternalPBXFieldMapping
  *
  * Map one gathered-context value to a provider-native field.
@@ -2755,12 +3001,6 @@ export type GoogleRealtimeLlmConfiguration = {
      * ISO 639-1 language code.
      */
     language?: string;
-    /**
-     * Temperature
-     *
-     * Sampling temperature for Gemini Live (0.0 to 2.0).
-     */
-    temperature?: number | null;
 };
 
 /**
@@ -2884,7 +3124,7 @@ export type GoogleVertexLlmConfiguration = {
     /**
      * Location
      *
-     * GCP region for the Vertex AI endpoint (e.g. 'global').
+     * Vertex AI location, which decides where requests are processed. 'eu' and 'us' are multi-regions that keep processing inside that geography; a single region such as 'europe-west4' pins it further; 'global' routes anywhere in the world and carries no data residency guarantee. Model availability varies by location.
      */
     location?: string;
     /**
@@ -2928,12 +3168,6 @@ export type GoogleVertexRealtimeLlmConfiguration = {
      */
     language?: string;
     /**
-     * Temperature
-     *
-     * Sampling temperature for Gemini Live (0.0 to 2.0).
-     */
-    temperature?: number | null;
-    /**
      * Project Id
      *
      * Google Cloud project ID for Vertex AI.
@@ -2942,7 +3176,7 @@ export type GoogleVertexRealtimeLlmConfiguration = {
     /**
      * Location
      *
-     * GCP region for the Vertex AI endpoint (e.g. 'global').
+     * Vertex AI location, which decides where requests are processed. 'eu' and 'us' are multi-regions that keep processing inside that geography; a single region such as 'europe-west4' pins it further; 'global' routes anywhere in the world and carries no data residency guarantee. Model availability varies by location.
      */
     location?: string;
     /**
@@ -3167,6 +3401,12 @@ export type HttpApiConfig = {
     body_template?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Body Format
+     *
+     * Encoding of the POST, PUT, and PATCH request body: 'json' sends application/json, 'form' sends application/x-www-form-urlencoded.
+     */
+    body_format?: 'json' | 'form';
 };
 
 /**
@@ -3505,6 +3745,10 @@ export type LangfuseCredentialsRequest = {
      * Project Id
      */
     project_id: string;
+    /**
+     * Traces Public
+     */
+    traces_public?: boolean;
 };
 
 /**
@@ -3528,6 +3772,10 @@ export type LangfuseCredentialsResponse = {
      */
     project_id?: string;
     /**
+     * Traces Public
+     */
+    traces_public?: boolean;
+    /**
      * Configured
      */
     configured?: boolean;
@@ -3542,12 +3790,18 @@ export type LastCampaignSettingsResponse = {
      * Max Concurrency
      */
     max_concurrency?: number | null;
+    /**
+     * Rate Limit Per Second
+     */
+    rate_limit_per_second?: number;
     schedule_config?: ScheduleConfigResponse | null;
     circuit_breaker?: CircuitBreakerConfigResponse | null;
 };
 
 /**
  * LMNT
+ *
+ * Stored LMNT configurations remain readable after the provider's retirement.
  */
 export type LmntTtsConfiguration = {
     /**
@@ -4182,7 +4436,7 @@ export type OpenAillmService = {
 };
 
 /**
- * OpenAI Realtime
+ * OpenAI
  */
 export type OpenAiRealtimeLlmConfiguration = {
     /**
@@ -4196,7 +4450,7 @@ export type OpenAiRealtimeLlmConfiguration = {
     /**
      * Model
      *
-     * OpenAI realtime (speech-to-speech) model.
+     * Choose GPT-Live for full-duplex speech or a GPT-Realtime model.
      */
     model?: string;
     /**
@@ -4211,6 +4465,12 @@ export type OpenAiRealtimeLlmConfiguration = {
      * ISO 639-1 language code for input audio transcription (e.g. 'pt', 'es'). Improves transcription accuracy and latency. Leave unset to auto-detect.
      */
     language?: string | null;
+    /**
+     * Backend Model
+     *
+     * OpenAI Responses model that follows your workflow and calls tools. Uses the same API key; backend usage is billed separately from voice.
+     */
+    backend_model?: string;
 };
 
 /**
@@ -4362,6 +4622,22 @@ export type OrganizationAiModelConfigurationV2 = {
 };
 
 /**
+ * OrganizationConcurrentCallsResponse
+ */
+export type OrganizationConcurrentCallsResponse = {
+    /**
+     * Organization Id
+     */
+    organization_id: number;
+    /**
+     * Active Calls
+     *
+     * Occupied concurrent call slots across all workers, including dialing/ringing reservations. Excludes expired slots.
+     */
+    active_calls: number;
+};
+
+/**
  * OrganizationContextResponse
  */
 export type OrganizationContextResponse = {
@@ -4402,6 +4678,41 @@ export type OrganizationModelServicesContext = {
  * OrganizationPreferences
  */
 export type OrganizationPreferences = {
+    /**
+     * Omit to keep the destination unchanged; null removes it.
+     */
+    call_events?: CallEventsSettings | null;
+    /**
+     * Test Phone Number
+     */
+    test_phone_number?: string | null;
+    /**
+     * Timezone
+     */
+    timezone?: string | null;
+    /**
+     * External Pbx Integrations Enabled
+     */
+    external_pbx_integrations_enabled?: boolean;
+    /**
+     * Disposition Mapping Enabled
+     */
+    disposition_mapping_enabled?: boolean;
+    /**
+     * Disposition Mapping
+     *
+     * Dograh disposition -> the code this organization uses for it. Applied when writing `gathered_context.mapped_call_disposition`, so webhooks, run filters, reports and external-PBX write-backs all read the organization's own vocabulary. Dispositions absent from the mapping pass through unchanged.
+     */
+    disposition_mapping?: {
+        [key: string]: string;
+    };
+};
+
+/**
+ * OrganizationPreferencesResponse
+ */
+export type OrganizationPreferencesResponse = {
+    call_events: CallEventsSettings;
     /**
      * Test Phone Number
      */
@@ -5769,6 +6080,38 @@ export type SpeachesTtsConfiguration = {
 };
 
 /**
+ * Speechify
+ */
+export type SpeechifyTtsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'speechify';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Speechify TTS model. 'simba-3.2' is the streaming-native English model with the lowest latency; 'simba-3.0' adds German, Spanish, French, Italian, and Portuguese.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Speechify voice ID. Options are filtered to voices available for the selected model; a custom or cloned voice ID must support the selected model (see GET /v1/voices), or synthesis fails.
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', 'pt-BR'). Options are filtered to the selected model's documented languages; simba-3.2 is documented as English-only.
+     */
+    language?: string;
+};
+
+/**
  * Speechmatics
  */
 export type SpeechmaticsSttConfiguration = {
@@ -5783,7 +6126,7 @@ export type SpeechmaticsSttConfiguration = {
     /**
      * Model
      *
-     * Speechmatics operating point: 'standard' or 'enhanced'.
+     * Speechmatics Agent STT model.
      */
     model?: string;
     /**
@@ -5899,6 +6242,74 @@ export type SuperuserWorkflowRunsListResponse = {
 };
 
 /**
+ * TTSCacheEntry
+ */
+export type TtsCacheEntry = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Text Preview
+     */
+    text_preview: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Model
+     */
+    model: string;
+    /**
+     * Voice Id
+     */
+    voice_id: string;
+    /**
+     * Duration Seconds
+     */
+    duration_seconds: number;
+    /**
+     * Hit Count
+     *
+     * Synthesis requests served from this entry; excludes previews
+     */
+    hit_count: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Used At
+     */
+    last_used_at: string;
+};
+
+/**
+ * TTSCacheInvalidation
+ */
+export type TtsCacheInvalidation = {
+    /**
+     * Removed
+     */
+    removed: number;
+};
+
+/**
+ * TTSCacheList
+ */
+export type TtsCacheList = {
+    /**
+     * Entries
+     */
+    entries: Array<TtsCacheEntry>;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
  * TelephonyConfigWarningsResponse
  *
  * Aggregated telephony-configuration warning counts for the user's org.
@@ -5945,6 +6356,8 @@ export type TelephonyConfigurationCreateRequest = {
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'exotel';
+    } & ExotelConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
@@ -6109,6 +6522,8 @@ export type TelephonyConfigurationUpdateRequest = {
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'exotel';
+    } & ExotelConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
@@ -6490,6 +6905,68 @@ export type ToolTestResponse = {
 };
 
 /**
+ * TransferAgentConfig
+ *
+ * Configuration for Transfer Agent tools.
+ *
+ * One tool, one destination. An agent that can hand the caller to several
+ * places gets several of these tools, and the model chooses between them the
+ * way it chooses between any other tools -- by their names and descriptions.
+ * That keeps the routing decision in the one place the model already reasons
+ * about, and leaves nothing to configure here but where the call goes.
+ *
+ * Most of how a handoff sounds is fixed: the caller hears a ringer while the
+ * next agent is prepared. The handover line is configurable because it is
+ * caller-facing and Dograh runs in more than one language, and so is whether
+ * the next agent opens with its greeting, because an agent that greets
+ * callers on its own number should not re-introduce itself mid-conversation.
+ */
+export type TransferAgentConfig = {
+    /**
+     * Workflow Id
+     *
+     * Id of the Dograh agent to transfer to. Must be in the same organization, and must not be a speech-to-speech agent.
+     */
+    workflow_id: number;
+    /**
+     * Message
+     *
+     * Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
+     */
+    message?: string;
+    /**
+     * Play Greeting
+     *
+     * Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
+     */
+    play_greeting?: boolean;
+};
+
+/**
+ * TransferAgentToolDefinition
+ *
+ * Tool definition for Transfer Agent tools.
+ */
+export type TransferAgentToolDefinition = {
+    /**
+     * Schema Version
+     *
+     * Schema version.
+     */
+    schema_version?: number;
+    /**
+     * Type
+     *
+     * Tool type.
+     */
+    type: 'transfer_agent';
+    /**
+     * Transfer Agent configuration.
+     */
+    config: TransferAgentConfig;
+};
+
+/**
  * TransferCallConfig
  *
  * Configuration for Transfer Call tools.
@@ -6763,12 +7240,6 @@ export type TwilioConfigurationRequest = {
      * Twilio Auth Token
      */
     auth_token: string;
-    /**
-     * Amd Enabled
-     *
-     * Detect whether outbound calls are answered by a person or machine. Twilio may bill AMD as an additional per-call feature.
-     */
-    amd_enabled?: boolean;
 };
 
 /**
@@ -6810,6 +7281,10 @@ export type UpdateCampaignRequest = {
      * Max Concurrency
      */
     max_concurrency?: number | null;
+    /**
+     * Rate Limit Per Second
+     */
+    rate_limit_per_second?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
     circuit_breaker?: CircuitBreakerConfigRequest | null;
 };
@@ -6879,6 +7354,8 @@ export type UpdateToolRequest = {
     } & EndCallToolDefinition) | ({
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
+        type: 'transfer_agent';
+    } & TransferAgentToolDefinition) | ({
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
         type: 'mcp';
@@ -7428,15 +7905,11 @@ export type WorkflowConfigurationDefaults = {
     /**
      * Turn Start Strategy
      */
-    turn_start_strategy?: 'default' | 'min_words' | 'provisional_vad';
+    turn_start_strategy?: 'default' | 'min_words';
     /**
      * Turn Start Min Words
      */
     turn_start_min_words?: number;
-    /**
-     * Provisional Vad Pause Secs
-     */
-    provisional_vad_pause_secs?: number;
     /**
      * Turn Stop Strategy
      */
@@ -7449,6 +7922,12 @@ export type WorkflowConfigurationDefaults = {
      * Context Compaction Enabled
      */
     context_compaction_enabled?: boolean;
+    /**
+     * Tts Cache Enabled
+     *
+     * Reuse generated speech for repeated phrases. Supports MiniMax TTS.
+     */
+    tts_cache_enabled?: boolean;
     /**
      * Call Dispositions
      *
@@ -8128,6 +8607,27 @@ export type InitiateCallApiV1TelephonyInitiateCallPostResponses = {
     200: unknown;
 };
 
+export type HandleInboundRunApiV1TelephonyInboundRunGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/inbound/run';
+};
+
+export type HandleInboundRunApiV1TelephonyInboundRunGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleInboundRunApiV1TelephonyInboundRunGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type HandleInboundRunApiV1TelephonyInboundRunPostData = {
     body?: never;
     path?: never;
@@ -8313,6 +8813,38 @@ export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostErrors = {
 };
 
 export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        /**
+         * Workflow Run Id
+         */
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/exotel/status-callback/{workflow_run_id}';
+};
+
+export type HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostError = HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostErrors[keyof HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostErrors];
+
+export type HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
@@ -11982,7 +12514,7 @@ export type GetPreferencesApiV1OrganizationsPreferencesGetResponses = {
     /**
      * Successful Response
      */
-    200: OrganizationPreferences;
+    200: OrganizationPreferencesResponse;
 };
 
 export type GetPreferencesApiV1OrganizationsPreferencesGetResponse = GetPreferencesApiV1OrganizationsPreferencesGetResponses[keyof GetPreferencesApiV1OrganizationsPreferencesGetResponses];
@@ -12021,10 +12553,49 @@ export type SavePreferencesApiV1OrganizationsPreferencesPutResponses = {
     /**
      * Successful Response
      */
-    200: OrganizationPreferences;
+    200: OrganizationPreferencesResponse;
 };
 
 export type SavePreferencesApiV1OrganizationsPreferencesPutResponse = SavePreferencesApiV1OrganizationsPreferencesPutResponses[keyof SavePreferencesApiV1OrganizationsPreferencesPutResponses];
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostData = {
+    body: CallEventsSettings;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/call-events/test';
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostError = TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors[keyof TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors];
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallEventsConnectionResult;
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponse = TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses[keyof TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses];
 
 export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetData = {
     body?: never;
@@ -13247,6 +13818,53 @@ export type ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutRes
      */
     200: unknown;
 };
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/concurrent-calls';
+};
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetErrors = {
+    /**
+     * Missing or invalid credentials
+     */
+    401: unknown;
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * The current call count is unavailable
+     */
+    503: unknown;
+};
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetError = GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetErrors[keyof GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetErrors];
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrganizationConcurrentCallsResponse;
+};
+
+export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponse = GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponses[keyof GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetResponses];
 
 export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetData = {
     body?: never;
@@ -14737,6 +15355,94 @@ export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses = {
 
 export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponse = GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses[keyof GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses];
 
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Document Uuid
+         */
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetError = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors];
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentContentResponseSchema;
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponse = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses];
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutData = {
+    body: DocumentContentUpdateRequestSchema;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Document Uuid
+         */
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutError = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors];
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentResponseSchema;
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponse = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses];
+
 export type SearchChunksApiV1KnowledgeBaseSearchPostData = {
     body: ChunkSearchRequestSchema;
     headers?: {
@@ -15040,6 +15746,201 @@ export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses = {
      */
     200: unknown;
 };
+
+export type ClearTtsCacheApiV1TtsCacheDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/tts-cache';
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteError = ClearTtsCacheApiV1TtsCacheDeleteErrors[keyof ClearTtsCacheApiV1TtsCacheDeleteErrors];
+
+export type ClearTtsCacheApiV1TtsCacheDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheInvalidation;
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteResponse = ClearTtsCacheApiV1TtsCacheDeleteResponses[keyof ClearTtsCacheApiV1TtsCacheDeleteResponses];
+
+export type ListTtsCacheApiV1TtsCacheGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Search
+         */
+        search?: string;
+        /**
+         * Sort
+         */
+        sort?: 'last_used' | 'duration' | 'usage';
+        /**
+         * Order
+         */
+        order?: 'asc' | 'desc';
+        /**
+         * Min Duration
+         */
+        min_duration?: number | null;
+        /**
+         * Max Duration
+         */
+        max_duration?: number | null;
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/tts-cache';
+};
+
+export type ListTtsCacheApiV1TtsCacheGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListTtsCacheApiV1TtsCacheGetError = ListTtsCacheApiV1TtsCacheGetErrors[keyof ListTtsCacheApiV1TtsCacheGetErrors];
+
+export type ListTtsCacheApiV1TtsCacheGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheList;
+};
+
+export type ListTtsCacheApiV1TtsCacheGetResponse = ListTtsCacheApiV1TtsCacheGetResponses[keyof ListTtsCacheApiV1TtsCacheGetResponses];
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Entry Id
+         */
+        entry_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tts-cache/{entry_id}/audio';
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetError = PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors[keyof PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors];
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: Blob | File;
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponse = PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses[keyof PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses];
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Entry Id
+         */
+        entry_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tts-cache/{entry_id}';
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteError = InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors[keyof InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors];
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheInvalidation;
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponse = InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses[keyof InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses];
 
 export type ListFoldersApiV1FolderGetData = {
     body?: never;

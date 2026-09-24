@@ -13,10 +13,12 @@ import pytest
 from pipecat.frames.frames import (
     Frame,
     LLMContextFrame,
+    SpeechBoundaryFrame,
     TTSAudioRawFrame,
     TTSSpeakFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
+    TTSTextFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -29,6 +31,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.services.pipecat.recording_audio_cache import RecordingAudio
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
@@ -41,7 +44,7 @@ from api.services.workflow.dto import (
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.workflow_graph import WorkflowGraph
-from api.tests.pipecat_test_utils import run_engine_test_pipeline
+from api.tests.pipecat_test_utils import run_engine_test_pipeline, stub_agent_runtime
 from pipecat.tests import MockLLMService, MockTTSService
 
 # ─── Constants ──────────────────────────────────────────────────
@@ -221,7 +224,7 @@ async def run_pipeline_and_capture_frames(
         ]
     )
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(task)
+    engine.call_worker = task
 
     # Spy on task.queue_frame and transport_output.queue_frame to capture
     # all frames queued by the engine (audio transitions go via transport output)
@@ -430,9 +433,120 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         engine._fetch_recording_audio.assert_awaited_once_with(
             recording_id="callback-welcome"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("is_realtime", [False, True])
+    async def test_recorded_greeting_is_committed_as_its_own_turn(
+        self, is_realtime, text_workflow: WorkflowGraph
+    ):
+        """Cascade greetings commit on playback; realtime uses the aggregator."""
+        llm = Mock(spec=["handle_prerecorded_greeting"]) if is_realtime else None
+        if is_realtime:
+            llm.handle_prerecorded_greeting = AsyncMock()
+        context = LLMContext()
+        engine = PipecatEngine(
+            llm=llm,
+            context=context,
+            workflow=text_workflow,
+            call_context_vars={
+                "greeting_override": {
+                    "type": "audio",
+                    "recording_id": "callback-welcome",
+                }
+            },
+            workflow_run_id=1,
+            is_realtime=is_realtime,
+        )
+        engine.set_transport_output(Mock(queue_frame=AsyncMock()))
+        engine.set_fetch_recording_audio(
+            AsyncMock(return_value=RecordingAudio(FAKE_PCM_AUDIO, "Welcome back"))
+        )
+
+        result = await engine.queue_node_opening(
+            node_id=text_workflow.start_node_id,
+            previous_node_id=None,
+            generate_if_no_greeting=True,
+        )
+
+        assert result.action == "greeting"
+        queued = [
+            call.args[0]
+            for call in engine._transport_output.queue_frame.await_args_list
+        ]
+        expected_frames = [
+            "TTSStartedFrame",
+            "TTSTextFrame",
+            "TTSAudioRawFrame",
+            "TTSStoppedFrame",
+        ]
+        if is_realtime:
+            expected_frames.append("LLMAssistantPushAggregationFrame")
+        assert [
+            type(frame).__name__
+            for frame in queued
+            if not isinstance(frame, SpeechBoundaryFrame)
+        ] == expected_frames
+        text_frame = next(f for f in queued if isinstance(f, TTSTextFrame))
+        assert text_frame.append_to_context is is_realtime
+        assert text_frame.persist_to_logs is not is_realtime
+        assert context.get_messages() == []
+        if not is_realtime:
+            # Only the final output boundary commits a completed greeting.
+            assert engine.speech_playback.greeting_pending
+            for frame in queued[:-1]:
+                engine.speech_playback.after_output(None, frame)
+            assert context.get_messages() == []
+            engine.speech_playback.after_output(None, queued[-1])
+            assert not engine.speech_playback.greeting_pending
+            assert context.get_messages() == [
+                {"role": "assistant", "content": "Welcome back"}
+            ]
+
+    @pytest.mark.asyncio
+    async def test_realtime_recorded_greeting_opens_the_llm_session(
+        self, text_workflow: WorkflowGraph
+    ):
+        """A realtime service never sees the recording, so the engine hands it over.
+
+        Without this its session is never seeded and Gemini Live drops every
+        caller frame: the bot greets, then never answers.
+        """
+        llm = Mock(spec=["handle_prerecorded_greeting"])
+        llm.handle_prerecorded_greeting = AsyncMock()
+        context = LLMContext()
+        engine = PipecatEngine(
+            llm=llm,
+            context=context,
+            workflow=text_workflow,
+            call_context_vars={
+                "greeting_override": {
+                    "type": "audio",
+                    "recording_id": "callback-welcome",
+                }
+            },
+            workflow_run_id=1,
+            is_realtime=True,
+        )
+        engine.set_transport_output(Mock(queue_frame=AsyncMock()))
+        engine.set_fetch_recording_audio(
+            AsyncMock(return_value=RecordingAudio(FAKE_PCM_AUDIO, "Welcome back"))
+        )
+
+        await engine.queue_node_opening(
+            node_id=text_workflow.start_node_id,
+            previous_node_id=None,
+            generate_if_no_greeting=True,
+        )
+
+        # The transcript travels with the handoff: the aggregator has not
+        # committed it yet, and waiting for that would keep the caller unheard
+        # for the length of the greeting.
+        llm.handle_prerecorded_greeting.assert_awaited_once_with(
+            context, "Welcome back"
         )
 
     @pytest.mark.asyncio
@@ -452,7 +566,7 @@ class TestStartGreeting:
             call_context_vars={},
             workflow_run_id=1,
         )
-        engine.set_task(task)
+        engine.call_worker = task
 
         result = await engine.queue_node_opening(
             node_id=text_workflow.start_node_id,
@@ -460,12 +574,20 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "greeting"
+        assert result.action == "greeting"
         llm.queue_frame.assert_not_awaited()
-        queued_frame = task.queue_frame.await_args.args[0]
+        queued_frame = next(
+            c.args[0]
+            for c in task.queue_frame.await_args_list
+            if isinstance(c.args[0], TTSSpeakFrame)
+        )
         assert isinstance(queued_frame, TTSSpeakFrame)
         assert queued_frame.text == TEXT_GREETING
-        assert queued_frame.append_to_context is True
+        assert queued_frame.append_to_context is False
+        assert queued_frame.persist_to_logs is True
+        assert engine.speech_playback.greeting_pending
+        assert engine.speech_playback.greeting.text == TEXT_GREETING
+        assert engine.context.get_messages() == []
 
     @pytest.mark.asyncio
     async def test_queue_node_opening_falls_back_to_llm_without_greeting(self):
@@ -520,7 +642,7 @@ class TestStartGreeting:
             call_context_vars={},
             workflow_run_id=1,
         )
-        engine.set_task(task)
+        engine.call_worker = task
 
         result = await engine.queue_node_opening(
             node_id=workflow.start_node_id,
@@ -528,7 +650,7 @@ class TestStartGreeting:
             generate_if_no_greeting=True,
         )
 
-        assert result == "llm"
+        assert result.action == "llm"
         task.queue_frame.assert_not_awaited()
         queued_frame = llm.queue_frame.await_args.args[0]
         assert isinstance(queued_frame, LLMContextFrame)
@@ -640,13 +762,13 @@ class TestPlayConfigMessage:
     @pytest.fixture
     def mock_engine(self):
         """Create a mock engine with frame capture on task.queue_frame."""
-        engine = Mock()
+        engine = PipecatEngine(workflow=None, call_context_vars={})
         engine._workflow_run_id = 1
         engine._call_context_vars = {}
         engine._fetch_recording_audio = None
         engine._audio_config = None
-        engine.task = Mock()
-        engine.llm = Mock()
+        engine.call_worker = Mock()
+        engine.active_agent.llm = Mock()
 
         # Capture frames queued via task.queue_frame
         engine._queued_frames = []
@@ -654,12 +776,15 @@ class TestPlayConfigMessage:
         async def mock_queue_frame(frame):
             engine._queued_frames.append(frame)
 
-        engine.task.queue_frame = mock_queue_frame
+        engine.call_worker.queue_frame = mock_queue_frame
 
         # Also capture frames queued via transport_output.queue_frame (audio playback)
         engine._transport_output = Mock()
         engine._transport_output.queue_frame = mock_queue_frame
-        return engine
+        # Configured speech is spoken by the running agent, in its own voice.
+        engine._active_agent = stub_agent_runtime(queue_frame=mock_queue_frame)
+        yield engine
+        engine.speech_playback.cancel_all()
 
     @pytest.mark.asyncio
     async def test_custom_text_queues_tts_speak_frame(self, mock_engine):
@@ -669,8 +794,12 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is True
-        frames = mock_engine._queued_frames
+        assert not result.done
+        frames = [
+            f
+            for f in mock_engine._queued_frames
+            if not isinstance(f, SpeechBoundaryFrame)
+        ]
         assert len(frames) == 1
         assert isinstance(frames[0], TTSSpeakFrame)
         assert frames[0].text == "Ending your call now."
@@ -686,10 +815,14 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is True
+        assert not result.done
         mock_fetch.assert_called_once_with(recording_pk=201)
 
-        frames = mock_engine._queued_frames
+        frames = [
+            f
+            for f in mock_engine._queued_frames
+            if not isinstance(f, SpeechBoundaryFrame)
+        ]
         assert len(frames) == 3
         assert isinstance(frames[0], TTSStartedFrame)
         assert isinstance(frames[1], TTSAudioRawFrame)
@@ -712,7 +845,7 @@ class TestPlayConfigMessage:
         manager = CustomToolManager(mock_engine)
         result = await manager._play_config_message({"messageType": "none"})
 
-        assert result is False
+        assert result is None
         assert len(mock_engine._queued_frames) == 0
 
     @pytest.mark.asyncio
@@ -725,7 +858,7 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is False
+        assert result.outcome is PlaybackOutcome.FAILED
         assert len(mock_engine._queued_frames) == 0
 
     @pytest.mark.asyncio
@@ -739,7 +872,7 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is False
+        assert result.outcome is PlaybackOutcome.FAILED
         mock_fetch.assert_called_once_with(recording_pk=301)
         assert len(mock_engine._queued_frames) == 0
 
@@ -751,5 +884,5 @@ class TestPlayConfigMessage:
 
         result = await manager._play_config_message(config)
 
-        assert result is False
+        assert result is None
         assert len(mock_engine._queued_frames) == 0

@@ -57,7 +57,7 @@ services:
       - app-network
 
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
@@ -215,6 +215,10 @@ services:
       ENABLE_ARI_MANAGER: "${ENABLE_ARI_MANAGER:-true}"
       ENABLE_CAMPAIGN_ORCHESTRATOR: "${ENABLE_CAMPAIGN_ORCHESTRATOR:-true}"
 
+      # Scrape /api/v1/metrics on each worker's own port. See deploy/observability.
+      ENABLE_PROMETHEUS_METRICS: "${ENABLE_PROMETHEUS_METRICS:-false}"
+      DOGRAH_DEVOPS_SECRET: "${DOGRAH_DEVOPS_SECRET:-}"
+
       # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
       # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches
       # uvicorn from a Docker-network IP (not loopback), but uvicorn trusts only
@@ -233,8 +237,10 @@ services:
       # LANGFUSE_PUBLIC_KEY: ""
       # LANGFUSE_HOST: ""
       # LANGFUSE_PROJECT_ID: ""
-      # Traces are private by default. Set to "true" to make them readable by
-      # anyone holding the trace URL, with no Langfuse login.
+      # Traces are private by default. Set to "true" to make traces in the
+      # project above readable by anyone holding the trace URL, with no
+      # Langfuse login. Organizations that connected their own Langfuse project
+      # in the UI carry their own visibility setting instead.
       LANGFUSE_TRACES_PUBLIC: "${LANGFUSE_TRACES_PUBLIC:-false}"
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)

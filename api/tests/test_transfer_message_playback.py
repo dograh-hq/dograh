@@ -16,6 +16,7 @@ import pytest
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
+    SpeechBoundaryFrame,
     TTSSpeakFrame,
 )
 from pipecat.utils.enums import EndTaskReason
@@ -24,6 +25,7 @@ from api.enums import ToolCategory, WorkflowRunMode
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.tools.transfer_resolver import ResolvedTransferConfig
+from api.tests.pipecat_test_utils import stub_agent_runtime
 
 
 def make_engine() -> PipecatEngine:
@@ -32,67 +34,49 @@ def make_engine() -> PipecatEngine:
 
 
 class TestSpeechPlaybackTracking:
-    """Tests for arm_speech_playback / wait_for_speech_playback."""
+    """An operation completes only at its own output boundary."""
 
     @pytest.mark.asyncio
-    async def test_wait_returns_after_speech_starts_and_stops(self):
+    async def test_wait_returns_after_speech_output_boundary(self):
         engine = make_engine()
-        engine.arm_speech_playback()
-
-        waiter = asyncio.create_task(engine.wait_for_speech_playback())
+        tracker = engine.speech_playback
+        speech = tracker.create()
+        tracker.after_output(None, SpeechBoundaryFrame(speech.id, True))
+        tracker.note_output()
+        waiter = asyncio.create_task(speech.wait())
         await asyncio.sleep(0)
         assert not waiter.done()
-
-        await engine.should_mute_user(BotStartedSpeakingFrame())
-        await asyncio.sleep(0)
-        assert not waiter.done(), "wait must not return while the bot is speaking"
-
-        await engine.should_mute_user(BotStoppedSpeakingFrame())
-        assert await waiter is True
+        tracker.after_output(None, SpeechBoundaryFrame(speech.id, False))
+        assert await asyncio.wait_for(waiter, 1)
 
     @pytest.mark.asyncio
     async def test_stale_stop_from_earlier_speech_does_not_complete_wait(self):
-        """A message queued behind in-flight speech must wait for its own turn."""
         engine = make_engine()
-        # Speech from a previous utterance is already playing.
         await engine.should_mute_user(BotStartedSpeakingFrame())
-
-        engine.arm_speech_playback()
-        waiter = asyncio.create_task(engine.wait_for_speech_playback())
-
-        # The previous utterance finishes - not the one we armed for.
+        speech = engine.speech_playback.create(mute_user=True)
         await engine.should_mute_user(BotStoppedSpeakingFrame())
-        await asyncio.sleep(0)
-        assert not waiter.done()
-
-        await engine.should_mute_user(BotStartedSpeakingFrame())
-        await engine.should_mute_user(BotStoppedSpeakingFrame())
-        assert await waiter is True
+        assert not speech.done
+        assert engine.speech_playback.mutes_user
+        engine.speech_playback.after_output(None, SpeechBoundaryFrame(speech.id, True))
+        engine.speech_playback.note_output()
+        engine.speech_playback.after_output(None, SpeechBoundaryFrame(speech.id, False))
+        assert await asyncio.wait_for(speech.wait(), 1)
 
     @pytest.mark.asyncio
-    async def test_wait_gives_up_when_speech_never_starts(self):
-        """A broken TTS must not block the transfer indefinitely."""
+    @pytest.mark.parametrize("has_output", [False, True])
+    async def test_wait_gives_up_when_speech_stalls(self, has_output):
         engine = make_engine()
-        engine.arm_speech_playback()
-
-        assert await engine.wait_for_speech_playback(start_timeout=0.01) is False
-
-    @pytest.mark.asyncio
-    async def test_wait_gives_up_when_speech_never_finishes(self):
-        engine = make_engine()
-        engine.arm_speech_playback()
-        await engine.should_mute_user(BotStartedSpeakingFrame())
-
-        assert (
-            await engine.wait_for_speech_playback(
-                start_timeout=1.0, playback_timeout=0.01
-            )
-            is False
-        )
+        speech = engine.speech_playback.create(mute_user=True, timeout=0.01)
+        speech.has_output = has_output
+        assert not await asyncio.wait_for(speech.wait(), 1)
+        assert not engine.speech_playback.mutes_user
 
 
 class RecordingEngine:
     """Engine stub that records the order of playback and transfer steps."""
+
+    active_agent = PipecatEngine.active_agent
+    _is_realtime = False
 
     def __init__(self):
         self.events: List[Any] = []
@@ -102,7 +86,9 @@ class RecordingEngine:
         self._audio_config = None
         self._fetch_recording_audio = None
         self._transport_output = SimpleNamespace(queue_frame=AsyncMock())
-        self.task = SimpleNamespace(queue_frame=self._queue_frame)
+        self.call_worker = SimpleNamespace(queue_frame=self._queue_frame)
+        # Configured speech is spoken by the running agent, in its own voice.
+        self._active_agent = stub_agent_runtime(queue_frame=self._queue_frame)
 
     async def _queue_frame(self, frame):
         if isinstance(frame, TTSSpeakFrame):
@@ -110,11 +96,17 @@ class RecordingEngine:
         else:
             self.events.append(("frame", type(frame).__name__))
 
-    def arm_speech_playback(self):
-        self.events.append("arm")
+    async def queue_speech(self, text=None, **kwargs):
+        self.events.append(("speak", text))
 
-    async def wait_for_speech_playback(self, **_kwargs):
-        self.events.append("wait_for_playback")
+        async def wait():
+            self.events.append("wait_for_playback")
+            return True
+
+        return SimpleNamespace(wait=wait)
+
+    async def queue_text_message(self, text, **kwargs):
+        await self.queue_speech(text, **kwargs)
         return True
 
     async def _get_organization_id(self):
@@ -222,8 +214,7 @@ async def test_external_pbx_transfer_waits_for_message_playback():
     ):
         await handler(params)
 
-    assert engine.events[:4] == [
-        "arm",
+    assert engine.events[:3] == [
         ("speak", "Transferring you now."),
         "wait_for_playback",
         "pbx_transfer",
@@ -309,7 +300,7 @@ class TestTransferDispositionRace:
     async def test_recorded_disposition_survives_a_later_hangup(self):
         """A disconnect after the stamp must not relabel the call."""
         engine = make_engine()
-        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
 
         engine.set_call_disposition(EndTaskReason.CALL_TRANSFERRED.value)
 
@@ -337,7 +328,7 @@ class TestTransferDispositionRace:
     async def test_an_untransferred_disconnect_is_still_a_user_hangup(self):
         """The fallback must stay intact for calls the caller really drops."""
         engine = make_engine()
-        engine.task = SimpleNamespace(queue_frame=AsyncMock())
+        engine.call_worker = SimpleNamespace(queue_frame=AsyncMock())
 
         with (
             patch.object(

@@ -60,11 +60,13 @@ if ($Dev) {
 
 # Install pipecat in editable mode with all extras
 Write-Host "Installing pipecat dependencies..."
-uv pip install -e './pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]'
+$PipecatInstallArgs = @('-e', './pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest,aws-nova-sonic]')
 
 if ($Dev) {
-    Write-Host "Installing pipecat dev dependencies..."
-    uv pip install --group pipecat/pyproject.toml:dev
+    # Resolve dev tools with runtime dependencies so grpcio-tools cannot
+    # override pipecat's protobuf version constraint.
+    $PipecatInstallArgs += @('--group', 'pipecat/pyproject.toml:dev')
 }
+uv pip install @PipecatInstallArgs
 
 Write-Host "Setup complete! Requirements are installed."

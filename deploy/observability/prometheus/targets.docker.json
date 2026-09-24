@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["api:8000"],
+    "labels": {"environment": "docker-local"}
+  }
+]

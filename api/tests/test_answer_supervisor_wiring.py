@@ -1,0 +1,308 @@
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from pipecat.turns.user_mute import (
+    FunctionCallUserMuteStrategy,
+    MuteUntilFirstBotCompleteUserMuteStrategy,
+)
+
+from api.services.pipecat.event_handlers import register_event_handlers
+from api.services.pipecat.run_pipeline import _create_user_mute_strategies
+from api.services.pipecat.termination_funnel_processor import TerminationFunnelProcessor
+from api.services.workflow import answer_classification_service
+from api.services.workflow.pipecat_engine import PipecatEngine
+
+
+@pytest.mark.parametrize(
+    "realtime, enabled, expected",
+    [
+        (False, False, FunctionCallUserMuteStrategy),
+        (False, True, FunctionCallUserMuteStrategy),
+        (True, False, MuteUntilFirstBotCompleteUserMuteStrategy),
+        (True, True, FunctionCallUserMuteStrategy),
+    ],
+)
+def test_initial_user_mute_depends_on_realtime_and_answer_handling(
+    realtime, enabled, expected
+):
+    engine = SimpleNamespace(should_mute_user=AsyncMock(), _is_realtime=realtime)
+    supervisor = SimpleNamespace() if enabled else None
+    assert isinstance(_create_user_mute_strategies(engine, supervisor)[0], expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_start_node_sets_up_context_without_sleeping(monkeypatch, enabled):
+    engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
+    engine.answer_supervisor = SimpleNamespace() if enabled else None
+    engine._setup_llm_context = AsyncMock()
+    sleep = AsyncMock()
+    monkeypatch.setattr("api.services.workflow.pipecat_engine.asyncio.sleep", sleep)
+    node = SimpleNamespace(delayed_start=True, delayed_start_duration=2.5)
+    await engine._handle_start_node(node)
+    sleep.assert_not_awaited()
+    engine._setup_llm_context.assert_awaited_once_with(node)
+
+
+class EventSource:
+    def __init__(self):
+        self.handlers = {}
+
+    def event_handler(self, name):
+        def register(fn):
+            self.handlers[name] = fn
+            return fn
+
+        return register
+
+
+@pytest.mark.asyncio
+async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monkeypatch):
+    task, transport = EventSource(), EventSource()
+    transport.output = Mock(return_value=SimpleNamespace(queue_frame=AsyncMock()))
+    fetched, permission = asyncio.Event(), asyncio.Event()
+    supervisor = SimpleNamespace(arm=Mock())
+    engine = SimpleNamespace(
+        active_agent=SimpleNamespace(workflow=SimpleNamespace(start_node_id="start")),
+        _call_context_vars={},
+        set_node=AsyncMock(),
+        queue_node_opening=AsyncMock(),
+        handle_answer_supervision=AsyncMock(side_effect=permission.wait),
+        call_monitor=Mock(),
+        # Readiness now also waits for the agent this call starts on.
+        start_initial_agent=AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+
+    async def fetch():
+        await fetched.wait()
+        return {}
+
+    async def ring(*, stop_event, **kwargs):
+        await stop_event.wait()
+
+    monkeypatch.setattr("api.services.pipecat.event_handlers.play_audio_loop", ring)
+    fetch_task = asyncio.create_task(fetch())
+    register_event_handlers(
+        task=task,
+        transport=transport,
+        workflow_run_id=1,
+        engine=engine,
+        audio_buffer=SimpleNamespace(
+            start_recording=AsyncMock(), stop_recording=AsyncMock()
+        ),
+        in_memory_logs_buffer=SimpleNamespace(),
+        transcript_log_coordinator=SimpleNamespace(),
+        pipeline_metrics_aggregator=SimpleNamespace(),
+        termination_funnel=TerminationFunnelProcessor(),
+        audio_config=SimpleNamespace(pipeline_sample_rate=16000),
+        pre_call_fetch_task=fetch_task,
+        answer_supervisor=supervisor,
+    )
+    await task.handlers["on_pipeline_started"](task, None)
+    supervisor.arm.assert_not_called()
+    connected = asyncio.create_task(
+        transport.handlers["on_client_connected"](transport, None)
+    )
+    try:
+        async with asyncio.timeout(1):
+            while not supervisor.arm.called:
+                if connected.done():
+                    await connected
+                await asyncio.sleep(0)
+        engine.set_node.assert_not_awaited()
+        fetched.set()
+        async with asyncio.timeout(1):
+            while not engine.handle_answer_supervision.called:
+                if connected.done():
+                    await connected
+                await asyncio.sleep(0)
+        engine.set_node.assert_awaited_once_with("start")
+        engine.queue_node_opening.assert_not_awaited()
+        engine.call_monitor.activate.assert_not_called()
+        permission.set()
+        await asyncio.wait_for(connected, 1)
+        # Repeated readiness notifications cannot run the supervised action twice.
+        await task.handlers["on_pipeline_started"](task, None)
+        engine.handle_answer_supervision.assert_awaited_once()
+        engine.call_monitor.activate.assert_not_called()
+    finally:
+        connected.cancel()
+        fetch_task.cancel()
+        await asyncio.gather(connected, fetch_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_no_supervisor_activates_monitor_before_the_opening(monkeypatch):
+    task, transport = EventSource(), EventSource()
+    engine = PipecatEngine(workflow=None, call_context_vars={})
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine.start_initial_agent = AsyncMock(return_value=True)
+    engine.set_node = AsyncMock()
+
+    async def opening(**_kwargs):
+        assert engine.call_monitor.active
+        # Activation enables monitoring; it doesn't declare the user idle.
+        assert engine.call_monitor._deadline is None
+
+    engine.queue_node_opening = AsyncMock(side_effect=opening)
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+    register_event_handlers(
+        task=task,
+        transport=transport,
+        workflow_run_id=1,
+        engine=engine,
+        audio_buffer=SimpleNamespace(
+            start_recording=AsyncMock(), stop_recording=AsyncMock()
+        ),
+        in_memory_logs_buffer=SimpleNamespace(),
+        transcript_log_coordinator=SimpleNamespace(),
+        pipeline_metrics_aggregator=SimpleNamespace(),
+        termination_funnel=TerminationFunnelProcessor(),
+        audio_config=SimpleNamespace(pipeline_sample_rate=16000),
+    )
+    await transport.handlers["on_client_connected"](transport, None)
+    assert not engine.call_monitor.active
+    await task.handlers["on_pipeline_started"](task, None)
+    await task.handlers["on_pipeline_started"](task, None)
+    engine.queue_node_opening.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_workflow_llm", [False, True])
+async def test_saved_detector_settings_build_a_private_classifier_with_saved_instructions(
+    monkeypatch, use_workflow_llm
+):
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    from api.services.pipecat.run_pipeline import _create_answer_supervisor
+
+    llm = SimpleNamespace(run_inference=AsyncMock(return_value="SCREENER"))
+    workflow_factory = Mock(return_value=llm)
+    provider_factory = Mock(return_value=llm)
+    monkeypatch.setattr(
+        "api.services.pipecat.run_pipeline.create_llm_service", workflow_factory
+    )
+    monkeypatch.setattr(
+        "api.services.pipecat.run_pipeline.create_llm_service_from_provider",
+        provider_factory,
+    )
+    context = LLMContext([{"role": "system", "content": "Workflow instructions"}])
+    user_config = object()
+    supervisor = _create_answer_supervisor(
+        {
+            "enabled": True,
+            "use_workflow_llm": use_workflow_llm,
+            "provider": "openai",
+            "model": "gpt-4.1",
+            "api_key": "test-key",
+            "system_prompt": "Rispondi con una sola etichetta: SCREENER o CONVERSATION.",
+            "long_speech_timeout": 8,
+        },
+        is_realtime=False,
+        start_node=None,
+        context=context,
+        user_config=user_config,
+        correlation_id="test-run",
+    )
+    try:
+        assert supervisor.llm_gate().closed
+        if use_workflow_llm:
+            workflow_factory.assert_called_once_with(
+                user_config,
+                correlation_id="test-run",
+                usage_context="voicemail_detection",
+            )
+            provider_factory.assert_not_called()
+        else:
+            provider_factory.assert_called_once_with(
+                provider="openai",
+                model="gpt-4.1",
+                api_key="test-key",
+                usage_context="voicemail_detection",
+            )
+            workflow_factory.assert_not_called()
+        # A completed ambiguous machine turn reaches the private inference path.
+        await supervisor._classify_turn("An ambiguous machine answer", 0)
+        verdict = await asyncio.wait_for(supervisor.wait_for_verdict(), 1)
+        assert verdict.action == "screen_then_rearm"
+        assert verdict.diagnostics["transcript"] == "An ambiguous machine answer"
+        assert verdict.diagnostics["pattern_subtype"] == "UNKNOWN"
+        assert verdict.subtype.value == "SCREENER"
+        assert verdict.diagnostics["classifier_status"] == "completed"
+        inference = llm.run_inference.call_args
+        assert inference.args[0] is not context
+        # A workflow's own instructions replace the built-in ones, which is how a
+        # non-English deployment describes the greetings its callers actually hear.
+        assert (
+            inference.kwargs["system_instruction"]
+            == "Rispondi con una sola etichetta: SCREENER o CONVERSATION."
+        )
+        assert context.messages == [
+            {"role": "system", "content": "Workflow instructions"}
+        ]
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_without_saved_instructions_uses_the_built_in_prompt(
+    monkeypatch,
+):
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    from api.services.pipecat.run_pipeline import _create_answer_supervisor
+
+    llm = SimpleNamespace(run_inference=AsyncMock(return_value="SCREENER"))
+    monkeypatch.setattr(
+        "api.services.pipecat.run_pipeline.create_llm_service", Mock(return_value=llm)
+    )
+    supervisor = _create_answer_supervisor(
+        {"enabled": True, "use_workflow_llm": True},
+        is_realtime=False,
+        start_node=None,
+        context=LLMContext(),
+        user_config=object(),
+        correlation_id="test-run",
+    )
+    try:
+        await supervisor._classify_turn("An ambiguous machine answer", 0)
+        assert (
+            llm.run_inference.call_args.kwargs["system_instruction"]
+            == answer_classification_service.ANSWER_CLASSIFIER_SYSTEM_PROMPT
+        )
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.parametrize("realtime, enabled", [(True, True), (False, False)])
+def test_unsupported_or_disabled_calls_do_not_create_a_classifier(
+    monkeypatch, realtime, enabled
+):
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    from api.services.pipecat.run_pipeline import _create_answer_supervisor
+
+    factory = Mock()
+    monkeypatch.setattr("api.services.pipecat.run_pipeline.create_llm_service", factory)
+    monkeypatch.setattr(
+        "api.services.pipecat.run_pipeline.create_llm_service_from_provider", factory
+    )
+    assert (
+        _create_answer_supervisor(
+            {"enabled": enabled},
+            is_realtime=realtime,
+            start_node=None,
+            context=LLMContext(),
+            user_config=None,
+            correlation_id=None,
+        )
+        is None
+    )
+    factory.assert_not_called()

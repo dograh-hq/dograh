@@ -7,6 +7,10 @@ The Call Transfer tool lets your AI agent transfer an active telephony call to a
 
 Use this tool when the caller should speak to a human operator, department, escalation queue, support queue, or another phone system.
 
+<Note>
+To hand the caller to **another Dograh agent** rather than to a phone number, use [Transfer to Agent](/voice-agent/tools/transfer-agent) instead. It carries a handover note across the handoff and works on web calls as well as telephony.
+</Note>
+
 ## Supported providers
 
 Call transfer is available for telephony calls using Twilio, Telnyx, or Asterisk ARI providers.
@@ -28,7 +32,7 @@ For a successful transfer:
 5. The caller hears hold music while the destination leg is connecting.
 6. When the destination answers, Dograh connects the caller and ends the AI agent's involvement.
 
-The transfer is a blind transfer. Dograh does not currently pass conversation context to the receiving human as part of the transfer.
+The transfer is a blind transfer. Dograh does not currently pass conversation context to the receiving human as part of the transfer. If you need context to travel with the caller, the destination has to be another Dograh agent — see [Transfer to Agent](/voice-agent/tools/transfer-agent).
 
 ## Destination source
 

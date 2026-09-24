@@ -99,9 +99,9 @@ async def run_pipeline_and_capture_context(
     if set_node_delay > 0:
         original_set_node = engine.set_node
 
-        async def delayed_set_node(node_id: str):
+        async def delayed_set_node(node_id: str, **kwargs):
             await asyncio.sleep(set_node_delay)
-            await original_set_node(node_id)
+            await original_set_node(node_id, **kwargs)
 
         engine.set_node = delayed_set_node
 
@@ -119,7 +119,7 @@ async def run_pipeline_and_capture_context(
     # Create pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     # Patch DB calls
     with patch(

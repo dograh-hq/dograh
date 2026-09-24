@@ -212,6 +212,7 @@ async def initiate_call(
                 initial_context=run_inputs.initial_context,
                 organization_id=user.selected_organization_id,
                 definition_id=run_inputs.definition_id,
+                use_draft=run_inputs.use_draft,
             )
             workflow_run_id = workflow_run.id
         else:
@@ -520,6 +521,7 @@ async def _create_inbound_workflow_run(
         },
         organization_id=organization_id,
         definition_id=run_inputs.definition_id,
+        use_draft=run_inputs.use_draft,
     )
 
     logger.info(
@@ -794,6 +796,8 @@ async def _handle_telephony_websocket(
             pass
 
 
+# Exotel's inbound webhook is a GET, everyone else POSTs.
+@router.get("/inbound/run")
 @router.post("/inbound/run")
 async def handle_inbound_run(request: Request):
     """Workflow-agnostic inbound dispatcher.
@@ -846,13 +850,23 @@ async def handle_inbound_run(request: Request):
         spec = telephony_registry.get_optional(provider_class.PROVIDER_NAME)
         account_field = spec.account_id_credential_field if spec else ""
 
-        match = await db_client.find_inbound_route_by_account(
-            provider=provider_class.PROVIDER_NAME,
-            account_id_field=account_field,
-            account_id=normalized_data.account_id or "",
-            to_number=normalized_data.to_number,
-            country_hint=normalized_data.to_country,
-        )
+        if normalized_data.account_id:
+            match = await db_client.find_inbound_route_by_account(
+                provider=provider_class.PROVIDER_NAME,
+                account_id_field=account_field,
+                account_id=normalized_data.account_id,
+                to_number=normalized_data.to_number,
+                country_hint=normalized_data.to_country,
+            )
+        else:
+            # Exotel Voicebot Applet dynamic-URL webhooks omit AccountSid;
+            # resolve org/config from the called number when it is uniquely
+            # registered for this provider (fail closed on ambiguity).
+            match = await db_client.find_inbound_route_by_called_number(
+                provider=provider_class.PROVIDER_NAME,
+                to_number=normalized_data.to_number,
+                country_hint=normalized_data.to_country,
+            )
 
         if not match:
             logger.warning(

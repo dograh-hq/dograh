@@ -1,3 +1,4 @@
+import asyncio
 import re
 from types import SimpleNamespace
 
@@ -5,6 +6,7 @@ import pytest
 from pipecat.frames.frames import (
     ErrorFrame,
     TranscriptionFrame,
+    TTSSpeakFrame,
     TTSTextFrame,
 )
 from pipecat.observers.base_observer import FramePushed
@@ -92,6 +94,37 @@ async def test_observer_ignores_upstream_broadcast_transcription_sibling():
 
 
 @pytest.mark.asyncio
+async def test_agent_speech_is_logged_once_without_persisting_each_tts_word():
+    messages = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    feedback = RealtimeFeedbackObserver(ws_sender=ws_sender, logs_buffer=logs)
+    speak = TTSSpeakFrame(
+        "Alex calling.", append_to_context=False, persist_to_logs=True
+    )
+    request = _frame_pushed(speak, FrameDirection.DOWNSTREAM)
+    # A request may be visible both in the call and at several agent processors.
+    await asyncio.gather(*(feedback.on_push_frame(request) for _ in range(3)))
+
+    output = BaseOutputTransport(TransportParams())
+    for word in ("Alex", " calling."):
+        frame = TTSTextFrame(word, aggregated_by="word")
+        frame.append_to_context = False
+        await feedback.on_push_frame(_frame_pushed(frame, FrameDirection.DOWNSTREAM))
+        await feedback.on_push_frame(
+            _frame_pushed(frame, FrameDirection.DOWNSTREAM, source=output)
+        )
+
+    assert [event["payload"]["text"] for event in logs.get_events()] == [
+        "Alex calling."
+    ]
+    assert [event["payload"]["text"] for event in messages] == ["Alex", " calling."]
+
+
+@pytest.mark.asyncio
 async def test_observer_waits_for_tts_text_from_output_transport():
     messages = []
 
@@ -173,6 +206,29 @@ async def test_observer_classifies_each_distinct_error_frame(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_observer_treats_unusable_processor_error_as_terminal(monkeypatch):
+    messages = []
+    failures = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    monkeypatch.setattr(
+        "api.services.pipecat.realtime_feedback_observer.log_failure",
+        lambda failure, **context: failures.append((failure, context)),
+    )
+    processor = BaseOutputTransport(TransportParams())
+    await processor.set_usable(False)
+    observer = RealtimeFeedbackObserver(ws_sender=ws_sender)
+
+    frame = ErrorFrame("Transport can no longer write", processor=processor)
+    await observer.on_push_frame(_frame_pushed(frame, FrameDirection.UPSTREAM))
+
+    assert failures[0][1] == {"fatal": True}
+    assert messages[0]["payload"]["fatal"] is True
+
+
+@pytest.mark.asyncio
 async def test_turn_log_handlers_persist_user_message_added_events():
     logs_buffer = InMemoryLogsBuffer(workflow_run_id=123)
     coordinator = TranscriptLogCoordinator(logs_buffer)
@@ -206,6 +262,48 @@ async def test_turn_log_handlers_persist_user_message_added_events():
     assert events[0]["turn"] == 1
     assert events[0]["node_id"] == "node-a"
     assert events[0]["node_name"] == "Node A"
+
+
+@pytest.mark.asyncio
+async def test_empty_interrupted_assistant_turn_does_not_claim_next_message():
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    coordinator = TranscriptLogCoordinator(logs)
+    user, assistant = _FakeAggregator(), _FakeAggregator()
+    register_turn_log_handlers(coordinator, user, assistant)
+    await coordinator.record_turn_started(1)
+    await coordinator.record_bot_started_speaking(1, "first-start")
+    await coordinator.record_turn_ended(1, interrupted=True)
+    await coordinator.record_bot_stopped_speaking(1, "first-stop")
+    await assistant.handlers["on_assistant_turn_stopped"](
+        assistant, SimpleNamespace(content="", timestamp="first-transcript")
+    )
+    assert logs.get_events() == []
+
+    await coordinator.record_turn_started(2)
+    await coordinator.record_bot_started_speaking(2, "second-start")
+    await assistant.handlers["on_assistant_turn_stopped"](
+        assistant,
+        SimpleNamespace(content="Call us back.", timestamp="second-transcript"),
+    )
+    await coordinator.record_bot_stopped_speaking(2, "second-stop")
+    await coordinator.record_turn_ended(2, interrupted=False)
+    [event] = logs.get_events()
+    assert event["turn"] == 2
+    assert event["payload"]["text"] == "Call us back."
+    assert event["payload"]["timestamp"] == "second-start"
+    assert event["payload"]["end_timestamp"] == "second-stop"
+
+
+@pytest.mark.asyncio
+async def test_empty_assistant_segments_do_not_add_blank_lines():
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    coordinator = TranscriptLogCoordinator(logs)
+    await coordinator.record_turn_started(1)
+    for text in ("", "Hello.", "", "How can I help?", ""):
+        await coordinator.record_assistant_transcript(text=text, timestamp=None)
+    await coordinator.record_turn_ended(1, interrupted=False)
+    [event] = logs.get_events()
+    assert event["payload"]["text"] == "Hello.\nHow can I help?"
 
 
 @pytest.mark.asyncio

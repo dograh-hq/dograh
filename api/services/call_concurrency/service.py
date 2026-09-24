@@ -80,6 +80,16 @@ class CallConcurrencyService:
         fleet — see get_fleet_concurrent_count)."""
         return await rate_limiter.get_fleet_concurrent_count()
 
+    async def get_org_active_calls(self, organization_id: int) -> int:
+        """Occupied org slots across workers, with storage failures propagated.
+
+        Includes reservations made before a voice pipeline starts. Uses the
+        same stale-slot expiry as concurrency enforcement.
+        """
+        return await rate_limiter.get_concurrent_count(
+            organization_id, raise_on_error=True
+        )
+
     async def acquire_org_slot(
         self,
         organization_id: int,
@@ -259,6 +269,7 @@ class CallConcurrencyService:
         return bool(released)
 
     async def release_workflow_run_slot(self, workflow_run_id: int) -> bool:
+        """Release the org/campaign slot held by a workflow run."""
         mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run_id)
         if not mapping:
             return False

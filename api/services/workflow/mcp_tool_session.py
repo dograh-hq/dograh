@@ -77,6 +77,48 @@ class McpToolSession:
         # namespaced LLM name -> original MCP tool name
         self._name_map: Dict[str, str] = {}
         self.available: bool = False
+        self._owner_task: asyncio.Task | None = None
+        self._ready: asyncio.Future | None = None
+        self._stop = asyncio.Event()
+
+    async def start_managed(self) -> None:
+        """Keep MCP's task-affine scopes inside one connection owner task."""
+        if self._owner_task is None:
+            self._ready = asyncio.get_running_loop().create_future()
+            self._owner_task = asyncio.create_task(
+                self._own_connection(), name=f"mcp:{self._tool_uuid}"
+            )
+        try:
+            await asyncio.shield(self._ready)
+        except BaseException:
+            await self.close_managed()
+            raise
+
+    async def _own_connection(self) -> None:
+        try:
+            await self.start()
+            self._ready.set_result(None)
+            await self._stop.wait()
+        except BaseException as error:
+            if not self._ready.done():
+                self._ready.set_exception(error)
+            raise
+        finally:
+            await self.close()
+
+    async def close_managed(self) -> None:
+        task = self._owner_task
+        if task is None:
+            return
+        self._stop.set()
+        if not self._ready.done():
+            task.cancel()
+        # The owner closes in the task that opened the connection, even when
+        # the preparation task waiting for it was cancelled.
+        await asyncio.gather(task, return_exceptions=True)
+        if self._ready.done() and not self._ready.cancelled():
+            self._ready.exception()  # Consume a cancelled/failed startup result.
+        self._owner_task = None
 
     async def start(self) -> None:
         """Connect, initialize, and cache the tool list.

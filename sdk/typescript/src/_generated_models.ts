@@ -408,7 +408,7 @@ export interface components {
              * @default http_api
              * @enum {string}
              */
-            category: "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";
+            category: "http_api" | "end_call" | "transfer_call" | "transfer_agent" | "calculator" | "native" | "integration" | "mcp";
             /**
              * Icon
              * @description Lucide icon identifier.
@@ -425,7 +425,7 @@ export interface components {
              * Definition
              * @description Typed tool definition.
              */
-            definition: components["schemas"]["HttpApiToolDefinition"] | components["schemas"]["EndCallToolDefinition"] | components["schemas"]["TransferCallToolDefinition"] | components["schemas"]["CalculatorToolDefinition"] | components["schemas"]["McpToolDefinition"];
+            definition: components["schemas"]["HttpApiToolDefinition"] | components["schemas"]["EndCallToolDefinition"] | components["schemas"]["TransferCallToolDefinition"] | components["schemas"]["TransferAgentToolDefinition"] | components["schemas"]["CalculatorToolDefinition"] | components["schemas"]["McpToolDefinition"];
         };
         /** CreateWorkflowRequest */
         CreateWorkflowRequest: {
@@ -559,6 +559,12 @@ export interface components {
             created_by: number;
             /** Is Active */
             is_active: boolean;
+            /**
+             * Has Live Content
+             * @description Whether agents can currently retrieve this document's content. Stays true while an edited document is re-indexed or after its re-index fails, because the previous version keeps serving until a new one succeeds.
+             * @default false
+             */
+            has_live_content: boolean;
         };
         /**
          * EndCallConfig
@@ -712,6 +718,13 @@ export interface components {
             body_template?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Body Format
+             * @description Encoding of the POST, PUT, and PATCH request body: 'json' sends application/json, 'form' sends application/x-www-form-urlencoded.
+             * @default json
+             * @enum {string}
+             */
+            body_format: "json" | "form";
         };
         /**
          * HttpApiToolDefinition
@@ -1178,6 +1191,60 @@ export interface components {
             created_by?: components["schemas"]["CreatedByResponse"] | null;
         };
         /**
+         * TransferAgentConfig
+         * @description Configuration for Transfer Agent tools.
+         *
+         *     One tool, one destination. An agent that can hand the caller to several
+         *     places gets several of these tools, and the model chooses between them the
+         *     way it chooses between any other tools -- by their names and descriptions.
+         *     That keeps the routing decision in the one place the model already reasons
+         *     about, and leaves nothing to configure here but where the call goes.
+         *
+         *     Most of how a handoff sounds is fixed: the caller hears a ringer while the
+         *     next agent is prepared. The handover line is configurable because it is
+         *     caller-facing and Dograh runs in more than one language, and so is whether
+         *     the next agent opens with its greeting, because an agent that greets
+         *     callers on its own number should not re-introduce itself mid-conversation.
+         */
+        TransferAgentConfig: {
+            /**
+             * Workflow Id
+             * @description Id of the Dograh agent to transfer to. Must be in the same organization, and must not be a speech-to-speech agent.
+             */
+            workflow_id: number;
+            /**
+             * Message
+             * @description Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
+             * @default Let me connect you with the right person. One moment please.
+             */
+            message: string;
+            /**
+             * Play Greeting
+             * @description Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
+             * @default true
+             */
+            play_greeting: boolean;
+        };
+        /**
+         * TransferAgentToolDefinition
+         * @description Tool definition for Transfer Agent tools.
+         */
+        TransferAgentToolDefinition: {
+            /**
+             * Schema Version
+             * @description Schema version.
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * @description Tool type. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "transfer_agent";
+            /** @description Transfer Agent configuration. */
+            config: components["schemas"]["TransferAgentConfig"];
+        };
+        /**
          * TransferCallConfig
          * @description Configuration for Transfer Call tools.
          */
@@ -1302,17 +1369,12 @@ export interface components {
              * @default default
              * @enum {string}
              */
-            turn_start_strategy: "default" | "min_words" | "provisional_vad";
+            turn_start_strategy: "default" | "min_words";
             /**
              * Turn Start Min Words
              * @default 3
              */
             turn_start_min_words: number;
-            /**
-             * Provisional Vad Pause Secs
-             * @default 1.5
-             */
-            provisional_vad_pause_secs: number;
             /**
              * Turn Stop Strategy
              * @default transcription
@@ -1329,6 +1391,12 @@ export interface components {
              * @default false
              */
             context_compaction_enabled: boolean;
+            /**
+             * Tts Cache Enabled
+             * @description Reuse generated speech for repeated phrases. Supports MiniMax TTS.
+             * @default false
+             */
+            tts_cache_enabled: boolean;
             /**
              * Call Dispositions
              * @description Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
@@ -1453,6 +1521,8 @@ export type RecordingListResponseSchema = components['schemas']['RecordingListRe
 export type RecordingResponseSchema = components['schemas']['RecordingResponseSchema'];
 export type ToolParameter = components['schemas']['ToolParameter'];
 export type ToolResponse = components['schemas']['ToolResponse'];
+export type TransferAgentConfig = components['schemas']['TransferAgentConfig'];
+export type TransferAgentToolDefinition = components['schemas']['TransferAgentToolDefinition'];
 export type TransferCallConfig = components['schemas']['TransferCallConfig'];
 export type TransferCallToolDefinition = components['schemas']['TransferCallToolDefinition'];
 export type UpdateWorkflowRequest = components['schemas']['UpdateWorkflowRequest'];

@@ -9,6 +9,7 @@ from api.constants import (
 from api.schemas.workflow_configurations import (
     DEFAULT_CALL_DISPOSITION_OPTIONS,
     DEFAULT_MAX_CALL_DURATION_SECONDS,
+    DEFAULT_TURN_START_STRATEGY,
     MAX_CALL_DISPOSITION_CODE_LENGTH,
     MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH,
     MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH,
@@ -104,6 +105,34 @@ def test_null_values_treated_as_unset():
     assert config.max_call_duration == DEFAULT_MAX_CALL_DURATION_SECONDS
     # Nulls count as unset, so a sparse round-trip drops them entirely.
     assert config.model_dump(exclude_unset=True) == {}
+
+
+def test_retired_turn_start_strategy_loads_as_default():
+    """A workflow saved before provisional_vad was retired must still load.
+
+    workflow_definitions rows are immutable versions, so one can outlive the
+    data migration (a fresh restore, a replica lagging a deploy). It has to
+    read back and re-save through the API rather than fail validation.
+    """
+    config = WorkflowConfigurationDefaults.model_validate(
+        {
+            "turn_start_strategy": "provisional_vad",
+            "provisional_vad_pause_secs": 0.4,
+        }
+    )
+
+    assert config.turn_start_strategy == DEFAULT_TURN_START_STRATEGY
+    # The retired companion key is not a field any more; extra="allow" keeps it
+    # rather than rejecting the row, and nothing reads it.
+    assert not hasattr(type(config), "provisional_vad_pause_secs")
+
+
+def test_unknown_turn_start_strategy_is_still_rejected():
+    """Coercion is scoped to the retired value, not a blanket fallback."""
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults.model_validate(
+            {"turn_start_strategy": "not_a_strategy"}
+        )
 
 
 def test_call_dispositions_are_trimmed():
@@ -208,6 +237,22 @@ def test_call_disposition_codes_use_machine_safe_format(code):
         WorkflowConfigurationDefaults(
             call_dispositions=[{"code": code, "description": "Description."}]
         )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_speech_cache_workflow_setting_round_trips(enabled):
+    config = WorkflowConfigurationDefaults.model_validate(
+        {"tts_cache_enabled": enabled}
+    )
+    assert config.model_dump(exclude_unset=True) == {"tts_cache_enabled": enabled}
+
+
+@pytest.mark.parametrize("settings", [{}, {"tts_cache_enabled": None}])
+def test_speech_cache_defaults_off_for_existing_workflows(settings):
+    assert (
+        WorkflowConfigurationDefaults.model_validate(settings).tts_cache_enabled
+        is False
+    )
 
 
 def test_exclude_unset_round_trip_stays_sparse():

@@ -1,0 +1,126 @@
+---
+title: "Transfer to Agent"
+description: "Hand a live call from one Dograh agent to another, carrying a handover note so the caller never repeats themselves."
+---
+
+The Transfer to Agent tool hands the caller from the agent they are talking to over to another Dograh agent, without dropping the call. The caller stays on the same call throughout: they hear a short handover line, then a ringer, then the next agent picks up.
+
+Use this tool to split one phone number across several focused agents — a router that picks a language or a department, a specialist that handles billing, a closer that takes payment — instead of building one large agent that tries to do everything.
+
+## Transfer to Agent vs. Call Transfer
+
+Both tools move the caller somewhere else, but they are not interchangeable.
+
+| | Transfer to Agent | [Call Transfer](/voice-agent/tools/call-transfer) |
+|---|---|---|
+| Destination | Another Dograh agent, by `workflow_id` | A phone number or SIP endpoint |
+| Who answers | A Dograh agent | A human, queue, or external phone system |
+| Context | **Warm** — a handover note plus recent turns travel with the caller | **Blind** — no conversation context is passed |
+| Availability | Any cascade call, including web calls | Telephony only (Twilio, Telnyx, Asterisk ARI) |
+
+If the caller should end up talking to a person, use Call Transfer. If they should end up talking to another one of your agents, use this tool.
+
+## How it works
+
+1. The agent calls the Transfer to Agent tool.
+2. The current agent speaks the configured handover message in its own voice.
+3. The caller hears a ringer while Dograh prepares the destination agent.
+4. In parallel, Dograh compacts the conversation so far into a handover note.
+5. The destination agent takes over at its **Start Call** node. By default it plays that node's greeting. With **Play greeting** turned off, it skips the greeting and opens with a reply based on the handover note.
+
+The agent that called the tool does not speak again after the tool fires. Dograh suppresses its next generation deliberately, because the caller is already hearing the handover message and the ringer, and the agent is being handed off regardless of what it would have said.
+
+## What the destination agent receives
+
+The destination does not start cold, and it does not receive the raw transcript either. It starts from:
+
+- A **handover note** summarizing what the caller wants, every fact they gave (names, numbers, dates, addresses, reference identifiers, reproduced exactly), what has been promised, and what is still outstanding
+- The **most recent turns kept verbatim**, so it can answer an "as I was saying" without re-reading the call
+- Anything the caller said while the handoff was still running
+
+The source agent's tool calls and tool results are filtered out — they belong to the previous agent's execution context, not the conversation.
+
+<Note>
+Because context travels with the caller, the destination agent should not re-ask for information the caller already gave. Say so in its prompt.
+</Note>
+
+## Configuration
+
+A Transfer to Agent tool has three settings. Everything else about how a handoff sounds is fixed.
+
+- **Agent** (`workflow_id`, required) — the id of the Dograh agent to transfer to. It must belong to the same organization.
+- **Handover message** (`message`) — spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. Defaults to "Let me connect you with the right person. One moment please." Leave it empty to hand over without saying anything.
+- **Play greeting** (`play_greeting`, default `true`) — whether the destination agent opens with its Start Call greeting. Turn it off when the destination should continue the conversation rather than introduce itself, for example an agent that greets callers on its own phone number but is also a transfer target. It then opens with a reply generated from the handover note.
+
+Set the handover message in the language the destination agent speaks. The default is English, which will sound wrong in front of a Portuguese or Spanish agent.
+
+### One tool per destination
+
+Each Transfer to Agent tool points at exactly one agent. An agent that can hand the caller to three places gets three tools, and the model chooses between them the way it chooses between any other tools — by their names and descriptions.
+
+Name each tool after its destination and describe precisely when it should fire:
+
+```
+Name:        Transfer to Billing
+Description: Hand the call to the billing agent. Call this only once the
+             caller has said their question is about an invoice, a charge,
+             or a refund. Do not call it for delivery or account questions.
+```
+
+If the model picks the wrong destination, fix the tool descriptions before you touch the prompt — the description is what it routes on.
+
+## Availability
+
+Agent transfer works on every cascade call, including web calls, which is where it differs most from Call Transfer.
+
+It is **not** available on speech-to-speech (realtime) agents. The tool still registers there, but it refuses and tells the agent to keep helping the caller itself, so the call degrades into a normal conversation rather than failing silently.
+
+## Creating one
+
+```json
+{
+  "name": "Transfer to Billing",
+  "category": "transfer_agent",
+  "description": "Hand the call to the billing agent once the caller says their question is about an invoice, a charge, or a refund.",
+  "definition": {
+    "type": "transfer_agent",
+    "config": {
+      "workflow_id": 117,
+      "message": "Let me put you through to our billing team. One moment."
+    }
+  }
+}
+```
+
+The destination agent must exist before you create the tool, because the tool stores its id. When you are building a set of agents programmatically, create the destination agents first, then the tools, then the agent that routes between them.
+
+## Prompting the routing agent
+
+- Tell the agent that a turn is either spoken words or a tool call, never both.
+- Do not tell it to announce the transfer; the tool's handover message already does that.
+- Give each destination an explicit, mutually exclusive firing condition.
+- End the prompt with success criteria naming which tool fires for which outcome, and stating that exactly one of them should ever fire.
+
+See [tool call guidance](/voice-agent/tools/introduction#best-practices) for the general rules.
+
+## Troubleshooting
+
+### `destination_not_found` when creating the tool
+
+The `workflow_id` does not exist in your organization. A transfer can only hand the call to your own agents. Check the id on the destination agent's settings page.
+
+### The agent says transferring is unavailable
+
+The call is running on a speech-to-speech agent, where agent transfer is not supported. Switch the agent to a cascade model configuration, or use [Call Transfer](/voice-agent/tools/call-transfer) to reach a human instead.
+
+### The transfer is refused as already under way
+
+Two transfer tools fired for the same call. Tighten the firing conditions in the tool descriptions so only one can match, and state in the prompt that exactly one transfer may happen.
+
+### The transfer is refused as misconfigured
+
+The tool's `workflow_id` is missing or is not an integer. Re-create the tool with a valid agent id.
+
+### The destination agent re-asks something the caller already answered
+
+The handover note reached it, but its prompt does not tell it to use what it already has. Add an instruction that the caller has already spoken to a colleague and should not be asked to repeat themselves.

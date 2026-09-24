@@ -5,6 +5,9 @@ from loguru import logger
 from api.constants import ENABLE_CALL_RECORDING_UPLOAD
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
+from api.services.campaign.campaign_event_publisher import (
+    notify_campaign_call_completed,
+)
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
@@ -16,6 +19,7 @@ from api.services.pipecat.in_memory_buffers import (
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
+    is_terminal_error,
 )
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
@@ -79,7 +83,9 @@ def register_event_handlers(
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
+    call_events_session=None,
     include_transcript_end_timestamps: bool = False,
+    answer_supervisor=None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -119,6 +125,9 @@ def register_event_handlers(
             and not ready_state["initial_response_triggered"]
         ):
             ready_state["initial_response_triggered"] = True
+
+            if answer_supervisor is not None:
+                answer_supervisor.arm()
 
             asyncio.create_task(
                 _capture_call_event(
@@ -165,11 +174,27 @@ def register_event_handlers(
                         f"{list(fetch_result.keys())}"
                     )
 
+            # Attach and activate the agent this call starts on. On a split
+            # pipeline nothing can generate until this lands: an agent worker
+            # is inactive until told otherwise, and an inactive worker is
+            # handed no frames from the bus.
+            if not await engine.start_initial_agent():
+                logger.error(
+                    f"Initial agent never became ready for run {workflow_run_id}; "
+                    "ending the call"
+                )
+                await engine.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
+                return
+
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
-            await engine.set_node(engine.workflow.start_node_id)
+            await engine.set_node(engine.active_agent.workflow.start_node_id)
+            if answer_supervisor is not None:
+                await engine.handle_answer_supervision()
+                return
+            engine.call_monitor.activate()
             await engine.queue_node_opening(
-                node_id=engine.workflow.start_node_id,
+                node_id=engine.active_agent.workflow.start_node_id,
                 previous_node_id=None,
                 generate_if_no_greeting=True,
             )
@@ -215,6 +240,12 @@ def register_event_handlers(
 
     async def _record_pipeline_error() -> None:
         try:
+            gathered_context = await engine.get_gathered_context()
+            if (
+                gathered_context.get("call_status")
+                != EndTaskReason.PIPELINE_ERROR.value
+            ):
+                return
             workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
             if workflow_run and workflow_run.campaign_id:
                 await circuit_breaker.record_and_evaluate(
@@ -244,7 +275,6 @@ def register_event_handlers(
         """
         if error is not None:
             logger.error(f"Pipeline error for workflow run {workflow_run_id}: {error}")
-            await _record_pipeline_error()
         await engine.end_call_with_reason(reason, abort_immediately=True)
 
     termination_funnel.set_termination_handler(dispose_call)
@@ -252,11 +282,12 @@ def register_event_handlers(
     @task.event_handler("on_pipeline_error")
     async def on_pipeline_error(_task: PipelineWorker, frame: Frame):
         # Pipecat emits recoverable ErrorFrames for reconnect/retry paths. The
-        # observer classifies them, but only fatal frames should dispose the call.
-        if isinstance(frame, ErrorFrame) and not frame.fatal:
+        # observer classifies them; only an error the call cannot survive
+        # disposes of it.
+        if isinstance(frame, ErrorFrame) and not is_terminal_error(frame):
             return
         # Only errors raised by the input transport get this far: the funnel
-        # intercepts every other fatal ErrorFrame on its way up the pipeline
+        # intercepts every other terminal ErrorFrame on its way up the pipeline
         # and disposes of the call through the same path. Reaching here means
         # the worker is about to cancel the pipeline on its own, so this is a
         # race the funnel cannot close -- see TerminationFunnelProcessor.
@@ -271,6 +302,11 @@ def register_event_handlers(
         _frame: Frame,
     ):
         logger.debug("In on_pipeline_finished callback handler")
+
+        # Count the final call outcome once, including agent-worker failures
+        # that bypassed the funnel. Observer or persistence errors below must
+        # not suppress this independently protected accounting path.
+        await _record_pipeline_error()
 
         # Turn and feedback observers run on independent queues. Drain them
         # before finalizing immutable transcripts and taking the DB snapshot.
@@ -298,9 +334,9 @@ def register_event_handlers(
 
         engine.record_call_tags(["user_speech"] if has_user_speech else [])
 
-        # One read, after every writer has had its say. Keys other processes put
-        # on this run -- AMD results, ARI transfer state, campaign retry tags --
-        # are deliberately not merged in here: `update_workflow_run` reconciles
+        # Take the persistence snapshot after every writer has had its say. Keys
+        # other processes put on this run -- AMD results, ARI transfer state,
+        # campaign retry tags -- are not merged in here: `update_workflow_run` reconciles
         # them under a row lock at write time, so re-merging a staler unlocked
         # copy would only be a second, worse answer.
         gathered_context = await engine.get_gathered_context()
@@ -331,6 +367,18 @@ def register_event_handlers(
                 logger.error(
                     f"Error finalizing integration runtime session '{runtime_session.name}': {e}",
                     exc_info=True,
+                )
+
+        if call_events_session is not None:
+            try:
+                await call_events_session.finish(gathered_context)
+            except (Exception, asyncio.CancelledError) as exc:
+                # Optional diagnostics must not prevent cleanup, completion
+                # persistence or campaign notification, even if cancelled.
+                logger.warning(
+                    "Error finalizing call events for workflow run {} ({})",
+                    workflow_run_id,
+                    type(exc).__name__,
                 )
 
         await engine.cleanup()
@@ -365,7 +413,9 @@ def register_event_handlers(
         usage_info = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
 
         logger.debug(
-            f"Usage metrics: {usage_info}, Gathered context: {gathered_context}"
+            "Usage metrics: {}, gathered context keys: {}",
+            usage_info,
+            list(gathered_context),
         )
 
         await db_client.update_workflow_run(
@@ -374,6 +424,9 @@ def register_event_handlers(
             gathered_context=gathered_context,
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
+        )
+        await notify_campaign_call_completed(
+            workflow_run.campaign_id if workflow_run else None, workflow_run_id
         )
 
         asyncio.create_task(

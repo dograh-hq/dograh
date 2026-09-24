@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
     getToolApiV1ToolsToolUuidGet,
+    getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listRecordingsApiV1WorkflowRecordingsGet,
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
@@ -14,6 +15,7 @@ import type {
     HttpApiToolDefinition,
     RecordingResponseSchema,
     ToolResponse,
+    TransferAgentConfig,
     TransferCallConfig,
     UpdateToolRequest,
 } from "@/client/types.gen";
@@ -49,7 +51,9 @@ import {
     contextMappingToRuleRows,
     createContextDestinationRuleRow,
     createMcpDefinition,
+    createTransferAgentDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
+    DEFAULT_TRANSFER_AGENT_MESSAGE,
     type EndCallMessageType,
     getCategoryConfig,
     getToolTypeLabel,
@@ -64,7 +68,10 @@ import {
     BuiltinToolConfig,
     EndCallToolConfig,
     HttpApiToolConfig,
+    type HttpBodyFormat,
     HttpToolTestDialog,
+    TransferAgentToolConfig,
+    type TransferAgentWorkflowOption,
     TransferCallToolConfig,
 } from "./components";
 
@@ -117,6 +124,7 @@ export default function ToolDetailPage() {
     const [bodyTemplateEnabled, setBodyTemplateEnabled] = useState(false);
     const [bodyTemplate, setBodyTemplate] = useState<Record<string, unknown> | null>(null);
     const [isBodyTemplateValid, setIsBodyTemplateValid] = useState(true);
+    const [bodyFormat, setBodyFormat] = useState<HttpBodyFormat>("json");
     const bodyTemplateSupported = ["POST", "PUT", "PATCH"].includes(httpMethod);
 
     // End Call form state
@@ -131,6 +139,15 @@ export default function ToolDetailPage() {
             setEndCallReasonDescription(DEFAULT_END_CALL_REASON_DESCRIPTION);
         }
     };
+
+    // Transfer To Agent form state
+    const [transferAgentWorkflowId, setTransferAgentWorkflowId] = useState("");
+    const [transferAgentMessage, setTransferAgentMessage] = useState(
+        DEFAULT_TRANSFER_AGENT_MESSAGE,
+    );
+    const [transferAgentPlayGreeting, setTransferAgentPlayGreeting] = useState(true);
+    const [agentOptions, setAgentOptions] = useState<TransferAgentWorkflowOption[]>([]);
+    const [agentOptionsLoading, setAgentOptionsLoading] = useState(false);
 
     // Transfer Call form state
     const [transferDestinationSource, setTransferDestinationSource] =
@@ -282,6 +299,13 @@ export default function ToolDetailPage() {
                 setTransferContextDestinationRules([]);
                 setTransferFallbackDestination("");
             }
+        } else if (tool.category === "transfer_agent") {
+            const config = tool.definition?.config as TransferAgentConfig | undefined;
+            setTransferAgentWorkflowId(
+                config?.workflow_id ? String(config.workflow_id) : "",
+            );
+            setTransferAgentMessage(config?.message ?? DEFAULT_TRANSFER_AGENT_MESSAGE);
+            setTransferAgentPlayGreeting(config?.play_greeting ?? true);
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
             const config = tool.definition?.config as
@@ -312,6 +336,7 @@ export default function ToolDetailPage() {
                 const loadedCustomMessageType = config.customMessageType || "text";
                 const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
                 const loadedBodyTemplate = config.body_template ?? null;
+                const loadedBodyFormat = config.body_format ?? "json";
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
@@ -322,6 +347,7 @@ export default function ToolDetailPage() {
                 setBodyTemplateEnabled(loadedBodyTemplate !== null);
                 setBodyTemplate(loadedBodyTemplate);
                 setIsBodyTemplateValid(true);
+                setBodyFormat(loadedBodyFormat);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -371,6 +397,7 @@ export default function ToolDetailPage() {
                         presetParameters: loadedPresetParameters,
                         bodyTemplateEnabled: loadedBodyTemplate !== null,
                         bodyTemplate: loadedBodyTemplate,
+                        bodyFormat: loadedBodyFormat,
                         timeoutMs: loadedTimeoutMs,
                         customMessage: loadedCustomMessage,
                         customMessageType: loadedCustomMessageType,
@@ -395,10 +422,42 @@ export default function ToolDetailPage() {
         }
     }, [loading, user]);
 
+    const fetchAgentOptions = useCallback(async () => {
+        if (loading || !user) return;
+        setAgentOptionsLoading(true);
+        try {
+            const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({});
+            // The generated client resolves rather than throws on a 4xx/5xx,
+            // so the catch below only covers network failures.
+            if (response.error || !response.data) {
+                setAgentOptions([]);
+                return;
+            }
+            setAgentOptions(
+                response.data.map((workflow) => ({
+                    id: workflow.id,
+                    name: workflow.name,
+                })),
+            );
+        } catch {
+            // Left non-fatal: the picker shows no agents and saving is blocked
+            // for want of a destination, which is the right outcome anyway.
+            setAgentOptions([]);
+        } finally {
+            setAgentOptionsLoading(false);
+        }
+    }, [loading, user]);
+
     useEffect(() => {
         fetchTool();
         fetchRecordings();
     }, [fetchTool, fetchRecordings]);
+
+    useEffect(() => {
+        if (tool?.category === "transfer_agent") {
+            fetchAgentOptions();
+        }
+    }, [tool?.category, fetchAgentOptions]);
 
     const handleSave = async () => {
         if (!tool) return;
@@ -408,6 +467,11 @@ export default function ToolDetailPage() {
         // Validation based on tool type
         if (tool.category === "calculator") {
             // No validation needed for built-in tools
+        } else if (tool.category === "transfer_agent") {
+            if (!transferAgentWorkflowId) {
+                setError("Choose the agent to transfer to");
+                return;
+            }
         } else if (tool.category === "transfer_call") {
             if (transferDestinationSource === "static" && !normalizedTransferDestination) {
                 setError("Please enter a transfer destination");
@@ -636,6 +700,16 @@ export default function ToolDetailPage() {
                     description: description || undefined,
                     definition: createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter),
                 };
+            } else if (tool.category === "transfer_agent") {
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: createTransferAgentDefinition({
+                        workflow_id: Number(transferAgentWorkflowId),
+                        message: transferAgentMessage.trim(),
+                        play_greeting: transferAgentPlayGreeting,
+                    }),
+                };
             } else {
                 // Build HTTP API request body
                 const headersObject: Record<string, string> = {};
@@ -676,6 +750,7 @@ export default function ToolDetailPage() {
                             body_template: bodyTemplateSupported && bodyTemplateEnabled
                                 ? bodyTemplate || undefined
                                 : undefined,
+                            body_format: bodyFormat,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -715,6 +790,7 @@ export default function ToolDetailPage() {
                             presetParameters,
                             bodyTemplateEnabled,
                             bodyTemplate,
+                            bodyFormat,
                             timeoutMs,
                             customMessage,
                             customMessageType,
@@ -734,10 +810,13 @@ export default function ToolDetailPage() {
     const getCodeSnippet = () => {
         if (!tool) return "";
 
+        const isFormBody = bodyTemplateSupported && bodyFormat === "form";
         const headersObj: Record<string, string> = {
-            "Content-Type": "application/json",
+            "Content-Type": isFormBody ? "application/x-www-form-urlencoded" : "application/json",
         };
         headers.filter((h) => h.key && h.value).forEach((h) => {
+            // Form mode owns the Content-Type at runtime; mirror that here.
+            if (isFormBody && h.key.toLowerCase() === "content-type") return;
             headersObj[h.key] = h.value;
         });
 
@@ -775,7 +854,7 @@ export default function ToolDetailPage() {
 const response = await fetch("${url}", {
     method: "${httpMethod}",
     headers: ${JSON.stringify(headersObj, null, 4)},${hasBody ? `
-    body: JSON.stringify(${JSON.stringify(requestBody, null, 4)}),` : ""}
+    body: ${isFormBody ? "new URLSearchParams" : "JSON.stringify"}(${JSON.stringify(requestBody, null, 4)}),` : ""}
 });
 
 const data = await response.json();`;
@@ -823,6 +902,7 @@ const data = await response.json();`;
 
     const isEndCallTool = tool.category === "end_call";
     const isTransferCallTool = tool.category === "transfer_call";
+    const isTransferAgentTool = tool.category === "transfer_agent";
     const isBuiltinTool = tool.category === "calculator";
     const isMcpTool = tool.category === "mcp";
     const isHttpApiTool = tool.category === "http_api";
@@ -840,6 +920,7 @@ const data = await response.json();`;
                 presetParameters,
                 bodyTemplateEnabled,
                 bodyTemplate,
+                bodyFormat,
                 timeoutMs,
                 customMessage,
                 customMessageType,
@@ -970,6 +1051,21 @@ const data = await response.json();`;
                             fallbackDestination={transferFallbackDestination}
                             onFallbackDestinationChange={setTransferFallbackDestination}
                         />
+                    ) : isTransferAgentTool ? (
+                        <TransferAgentToolConfig
+                            name={name}
+                            onNameChange={setName}
+                            description={description}
+                            onDescriptionChange={setDescription}
+                            workflowId={transferAgentWorkflowId}
+                            onWorkflowIdChange={setTransferAgentWorkflowId}
+                            workflows={agentOptions}
+                            workflowsLoading={agentOptionsLoading}
+                            message={transferAgentMessage}
+                            onMessageChange={setTransferAgentMessage}
+                            playGreeting={transferAgentPlayGreeting}
+                            onPlayGreetingChange={setTransferAgentPlayGreeting}
+                        />
                     ) : isMcpTool ? (
                         <Card>
                             <CardHeader>
@@ -1066,6 +1162,8 @@ const data = await response.json();`;
                             bodyTemplate={bodyTemplate}
                             onBodyTemplateChange={setBodyTemplate}
                             onBodyTemplateValidityChange={setIsBodyTemplateValid}
+                            bodyFormat={bodyFormat}
+                            onBodyFormatChange={setBodyFormat}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

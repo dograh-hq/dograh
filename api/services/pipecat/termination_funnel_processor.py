@@ -5,8 +5,9 @@ A call can end from inside the pipeline in two ways that do not go through
 
 * the output transport gives up after ``audio_out_max_consecutive_failures``
   failed writes and pushes a ``CancelWorkerFrame`` upstream;
-* a processor pushes a fatal ``ErrorFrame`` upstream, which the pipeline worker
-  turns into a ``CancelFrame`` of its own.
+* a processor reports an error that leaves it unable to do its job, which the
+  pipeline worker turns into a ``CancelFrame`` of its own by applying its
+  ``ProcessorUnusablePolicy``.
 
 Both reach the worker source, which cancels the pipeline and fires
 ``on_pipeline_finished`` -- the handler that snapshots the call's gathered
@@ -65,6 +66,26 @@ _END_TASK_REASONS = frozenset(reason.value for reason in EndTaskReason)
 TerminationHandler = Callable[[str, Optional[ErrorFrame]], Awaitable[None]]
 
 
+def is_terminal_error(frame: Frame) -> bool:
+    """Whether an upstream frame is an error the call cannot survive.
+
+    An error costs its processor its usability when the failure will keep
+    recurring for as long as the pipeline keeps using it: rejected credentials,
+    an exhausted quota, a voice the account may not use. The pipeline worker
+    then applies ``ProcessorUnusablePolicy.CANCEL``, so the call is over
+    whether or not anything disposes of it first. ``fatal`` is the same verdict
+    from a service that still sets the deprecated flag.
+
+    Every other error is a processor reporting something the call survives --
+    a reconnect, a retry, one silent turn -- and is not a call outcome.
+    """
+    if not isinstance(frame, ErrorFrame):
+        return False
+    if frame.fatal:
+        return True
+    return frame.processor is not None and not frame.processor.is_usable
+
+
 class TerminationFunnelProcessor(FrameProcessor):
     """Intercept in-pipeline terminations and hand them to the engine.
 
@@ -110,7 +131,7 @@ class TerminationFunnelProcessor(FrameProcessor):
             return False
         if isinstance(frame, CancelWorkerFrame):
             return True
-        return isinstance(frame, ErrorFrame) and frame.fatal
+        return is_terminal_error(frame)
 
     def _classify(self, frame: Frame) -> tuple[str, Optional[ErrorFrame]]:
         if isinstance(frame, ErrorFrame):

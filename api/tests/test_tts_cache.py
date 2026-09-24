@@ -873,12 +873,65 @@ async def test_minimax_retries_cache_misses_without_premature_context_expiry(
     assert cache.capture_bytes == 0
 
 
+@pytest.mark.parametrize("http_status", [200, 429])
+async def test_minimax_cache_miss_respects_retry_after(
+    cache, aiohttp_client, monkeypatch, http_status
+):
+    from pipecat.services.minimax import tts as minimax
+
+    monkeypatch.setattr(minimax, "_RETRY_BASE_DELAY_S", 0.01)
+    monkeypatch.setattr(minimax, "_RETRY_JITTER_S", 0)
+    calls = []
+    attempts = []
+
+    async def handler(request):
+        calls.append(await request.json())
+        attempts.append(time.monotonic())
+        if len(calls) == 1:
+            return web.json_response(
+                {"base_resp": {"status_code": 1002}},
+                status=http_status,
+                headers={"Retry-After": "1"},
+            )
+        return web.Response(
+            body=(
+                b"data:"
+                + json.dumps({"data": {"audio": PCM.hex(), "status": 1}}).encode()
+                + b'\n\ndata:{"data":{"status":2}}\n\n'
+            )
+        )
+
+    app = web.Application()
+    app.router.add_post("/tts", handler)
+    client = await aiohttp_client(app)
+    async with asyncio.timeout(5):
+        down, up = await play(
+            cache, str(client.make_url("/tts")), ["Hello."], stop_frame_timeout_s=0.1
+        )
+    assert len(calls) == 2 and calls[0] == calls[1]
+    assert attempts[1] - attempts[0] >= 1
+    assert not any(isinstance(frame, ErrorFrame) for frame in down + up)
+    assert b"".join(f.audio for f in down if isinstance(f, TTSAudioRawFrame)) == PCM
+    usage = [
+        metric
+        for frame in down
+        if isinstance(frame, MetricsFrame)
+        for metric in frame.data
+        if isinstance(metric, TTSUsageMetricsData)
+    ]
+    assert sum(metric.value for metric in usage) == len("Hello.")
+    assert sum(len(pool) for pool in cache.backend.candidates.values()) == 1
+    assert not cache.backend.entries
+    assert cache.capture_bytes == 0
+
+
 async def test_interruption_cancels_minimax_backoff_and_next_turn_can_speak(
     cache, aiohttp_client, monkeypatch
 ):
     from pipecat.services.minimax import tts as minimax
 
     monkeypatch.setattr(minimax, "_RETRY_BASE_DELAY_S", 0.5)
+    monkeypatch.setattr(minimax, "_RETRY_JITTER_S", 0)
     calls = []
 
     async def handler(request):

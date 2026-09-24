@@ -323,7 +323,9 @@ async def execute_http_tool(
     method = config.get("method", "POST").upper()
     url = config.get("url", "")
 
-    form_encoded = config.get("body_format", "json") == "form"
+    # GET and DELETE send no body, so the body format must not touch them.
+    sends_body = method in ("POST", "PUT", "PATCH")
+    form_encoded = sends_body and config.get("body_format", "json") == "form"
 
     # Get headers from config
     headers = dict(config.get("headers", {}) or {})
@@ -459,7 +461,7 @@ async def execute_http_tool(
     # Build request: body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
     params = None
-    if method in ("POST", "PUT", "PATCH"):
+    if sends_body:
         body_template = config.get("body_template")
         if body_template is None:
             body = resolved_arguments

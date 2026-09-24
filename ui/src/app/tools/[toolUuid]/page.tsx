@@ -810,7 +810,7 @@ export default function ToolDetailPage() {
     const getCodeSnippet = () => {
         if (!tool) return "";
 
-        const isFormBody = bodyFormat === "form";
+        const isFormBody = bodyTemplateSupported && bodyFormat === "form";
         const headersObj: Record<string, string> = {
             "Content-Type": isFormBody ? "application/x-www-form-urlencoded" : "application/json",
         };

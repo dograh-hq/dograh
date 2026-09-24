@@ -1153,6 +1153,46 @@ class TestExecuteHttpTool:
         assert captured["content_type"] == "application/x-www-form-urlencoded"
         assert captured["body"] == "To=%2B15550100&Body=Hi+there"
 
+    @pytest.mark.parametrize("method", ["GET", "DELETE"])
+    @pytest.mark.asyncio
+    async def test_form_body_format_ignored_without_body(self, method):
+        """A form format left over on a GET/DELETE tool keeps its headers."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form-no-body",
+            name="Lookup",
+            description="Look up a record",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": method,
+                    "url": "https://api.example.com/records",
+                    "body_format": "form",
+                    "headers": {"Content-Type": "application/json"},
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"ok": True}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, {"id": "42"})
+
+        call_kwargs = mock_client.request.call_args.kwargs
+        assert call_kwargs["headers"] == {"Content-Type": "application/json"}
+        assert call_kwargs["json"] is None
+        assert call_kwargs["data"] is None
+        assert call_kwargs["params"] == {"id": "42"}
+        assert result["status"] == "success"
+
 
 class TestCoerceParameterValue:
     """Tests for _coerce_parameter_value function."""

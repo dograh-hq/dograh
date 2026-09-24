@@ -31,6 +31,7 @@ from api.errors.failure import (
     failure_metadata_for_processor,
     log_failure,
 )
+from api.services.observability.call_events.metrics import ttfb_kind
 from api.services.pipecat.agent_bridge import AgentWorker
 from api.services.pipecat.realtime_feedback_events import (
     build_bot_text_event,
@@ -80,7 +81,7 @@ class RealtimeFeedbackObserver(BaseObserver):
     - User transcriptions (interim and final)
     - Bot TTS text after output transport timing
     - Function calls (start/end)
-    - TTFB metrics (LLM generation time only)
+    - TTFB metrics per pipeline stage (STT, LLM, TTS)
 
     Logs buffer persistence (only final data for post-call analysis):
     - Complete user transcripts per turn (via on_user_turn_message_added)
@@ -248,18 +249,20 @@ class RealtimeFeedbackObserver(BaseObserver):
                     result=frame.result,
                 )
             )
-        # Handle TTFB metrics - capture LLM generation time only
+        # Handle TTFB metrics - one event per STT / LLM / TTS measurement, tagged
+        # with its stage. Unrecognised processors are dropped: an unlabelled
+        # measurement is worse than a missing one.
         elif isinstance(frame, MetricsFrame):
-            # Check if this MetricsFrame contains TTFB data from an LLM processor
             for metric_data in frame.data:
                 if isinstance(metric_data, TTFBMetricsData):
-                    # Only send TTFB if it's from an LLM processor
-                    if metric_data.processor and "LLM" in metric_data.processor:
+                    kind = ttfb_kind(metric_data.processor)
+                    if kind:
                         await self._send_message(
                             build_ttfb_metric_event(
                                 ttfb_seconds=metric_data.value,
                                 processor=metric_data.processor,
                                 model=metric_data.model,
+                                kind=kind,
                             )
                         )
         # Handle pipeline errors

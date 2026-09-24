@@ -66,7 +66,10 @@ class OrganizationClient(BaseDBClient):
                 # This is atomic and handles race conditions at the database level
 
                 stmt = insert(OrganizationModel.__table__).values(
-                    provider_id=org_provider_id, created_at=datetime.now(timezone.utc)
+                    provider_id=org_provider_id,
+                    created_at=datetime.now(timezone.utc),
+                    subscription_tier="simple_trial",
+                    wallet_balance_usd=0.0,
                 )
                 # ON CONFLICT DO NOTHING - if another request already inserted, this becomes a no-op
                 stmt = stmt.on_conflict_do_nothing(index_elements=["provider_id"])

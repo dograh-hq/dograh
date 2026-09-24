@@ -127,7 +127,11 @@ class PlanService:
                 "ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS allow_live_transfer BOOLEAN DEFAULT false",
                 "ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS allow_sip_trunking BOOLEAN DEFAULT false",
                 # organizations columns
-                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(64) DEFAULT 'pay_as_you_go'",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(64) DEFAULT 'simple_trial'",
+                "ALTER TABLE organizations ALTER COLUMN subscription_tier SET DEFAULT 'simple_trial'",
+                "ALTER TABLE organizations ALTER COLUMN wallet_balance_usd SET DEFAULT 0.0",
+                "UPDATE organizations SET wallet_balance_usd = 0.0 WHERE subscription_tier = 'simple_trial' AND wallet_balance_usd = 10.0",
+                "UPDATE organizations SET subscription_tier = 'simple_trial', wallet_balance_usd = 0.0 WHERE subscription_tier = 'pay_as_you_go' AND wallet_balance_usd = 10.0 AND (monthly_minutes_used = 0.0 OR monthly_minutes_used IS NULL)",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(32) DEFAULT 'active'",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_cycle_start TIMESTAMPTZ",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_cycle_end TIMESTAMPTZ",
@@ -576,9 +580,10 @@ class PlanService:
         credits_remaining = float(getattr(org, "plan_credits_remaining_usd", 0.0) or 0.0)
 
         # In addition to plan allowance, wallet balance can directly fund calling minutes at overage rate
+        # For free trial (simple_trial), wallet balance does not add free minutes unless it's a paid top-up
         wallet_minutes = (
             round(wallet_bal / effective_overage, 1)
-            if (effective_overage > 0 and wallet_bal > 0)
+            if (effective_overage > 0 and wallet_bal > 0 and tier_slug != "simple_trial")
             else 0.0
         )
 
@@ -659,6 +664,8 @@ class PlanService:
                 org.custom_monthly_minutes = current_custom + topup_mins
             else:
                 org.subscription_tier = plan_slug
+                if plan_slug == "simple_trial" and float(getattr(org, "wallet_balance_usd", 0.0) or 0.0) == 10.0:
+                    org.wallet_balance_usd = 0.0
 
             org.subscription_status = "active"
 

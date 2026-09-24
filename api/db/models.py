@@ -153,8 +153,8 @@ class OrganizationModel(Base):
     wallet_balance_usd = Column(
         Float,
         nullable=False,
-        default=10.0,
-        server_default=text("10.0"),
+        default=0.0,
+        server_default=text("0.0"),
         comment="Organization wallet balance in USD for platform credits",
     )
 
@@ -162,8 +162,8 @@ class OrganizationModel(Base):
     subscription_tier = Column(
         String(64),
         nullable=False,
-        default="pay_as_you_go",
-        server_default=text("'pay_as_you_go'"),
+        default="simple_trial",
+        server_default=text("'simple_trial'"),
     )
     subscription_status = Column(
         String(32),

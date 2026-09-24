@@ -45,7 +45,7 @@ class DashboardOverviewKpi(BaseModel):
     total_spend_usd: float = 0.0
     wallet_balance_usd: float = 0.0
     active_calls: int = 0
-    subscription_tier: str = "pay_as_you_go"
+    subscription_tier: str = "simple_trial"
     subscription_status: str = "active"
     comparison: KpiComparison = Field(default_factory=KpiComparison)
 
@@ -99,7 +99,7 @@ class UsageSummary(BaseModel):
     monthly_minutes_used: float = 0.0
     monthly_minutes_limit: Optional[float] = None
     wallet_balance_usd: float = 0.0
-    subscription_tier: str = "pay_as_you_go"
+    subscription_tier: str = "simple_trial"
     active_concurrent_calls: int = 0
 
 
@@ -223,7 +223,7 @@ async def get_dashboard_overview(
         )
         organization = org_result.scalars().first()
         wallet_balance = _safe_float(organization.wallet_balance_usd if organization else 0.0)
-        subscription_tier = organization.subscription_tier if organization else "pay_as_you_go"
+        subscription_tier = organization.subscription_tier if organization else "simple_trial"
         subscription_status = organization.subscription_status if organization else "active"
         monthly_minutes_used = _safe_float(organization.monthly_minutes_used if organization else 0.0)
         custom_monthly_minutes = organization.custom_monthly_minutes if organization else None

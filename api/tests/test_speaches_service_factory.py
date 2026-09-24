@@ -65,6 +65,11 @@ def test_speaches_tts_configuration_rejects_unsupported_sample_rate():
         _speaches_tts_config(sample_rate=12345)
 
 
+def test_speaches_tts_configuration_rejects_non_numeric_sample_rate():
+    with pytest.raises(ValidationError, match="sample_rate must be one of"):
+        _speaches_tts_config(sample_rate="fast")
+
+
 @pytest.mark.parametrize(
     ("overrides", "expected_sample_rate"),
     [({"sample_rate": 48000}, 48000), ({}, 24000)],

@@ -1472,7 +1472,7 @@ class SpeachesTTSConfiguration(BaseTTSConfiguration):
     sample_rate: int | None = Field(
         default=None,
         description=(
-            "Sample rate of the pcm returned by the server; default 24000. "
+            "Sample rate of the pcm returned by the server. Leave blank for 24000. "
             f"Supported: {', '.join(str(r) for r in SPEACHES_TTS_SAMPLE_RATES)}."
         ),
     )
@@ -1487,11 +1487,15 @@ class SpeachesTTSConfiguration(BaseTTSConfiguration):
         # The dashboard form submits "" for a blank optional field.
         if v is None or v == "":
             return None
-        if int(v) not in SPEACHES_TTS_SAMPLE_RATES:
+        try:
+            rate = int(v)
+        except (TypeError, ValueError):
+            rate = None
+        if rate not in SPEACHES_TTS_SAMPLE_RATES:
             raise ValueError(
                 f"sample_rate must be one of {SPEACHES_TTS_SAMPLE_RATES}, got {v}"
             )
-        return int(v)
+        return rate
 
 
 MINIMAX_TTS_MODELS = ["speech-2.8-hd", "speech-2.8-turbo"]
